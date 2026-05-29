@@ -1,0 +1,32 @@
+uploads = []
+outputs = []
+
+[[generated]]
+id = "Jr2zmEMlsPyOZs6X3DMuH"
+uri = "file://artifacts/mobile/assets/images/icon.png"
+type = "image"
+title = "generated_image"
+
+[[generated]]
+id = "sbJn9vXHpVCBZONWO4N1G"
+uri = "file://artifacts/mobile/assets/images/hero_banner.png"
+type = "image"
+title = "generated_image"
+
+[[generated]]
+id = "Adsmtwv01KSaV9uHIgYWc"
+uri = "file://artifacts/mobile/assets/images/hero_banner2.png"
+type = "image"
+title = "generated_image"
+
+[[generated]]
+id = "ZYanFVUrwh2ZFUqgYWMZg"
+uri = "file://artifacts/mobile/assets/images/category_action.png"
+type = "image"
+title = "generated_image"
+
+[[generated]]
+id = "MVMUBpU8YVH8E8q-cKG-_"
+uri = "file://artifacts/mobile/assets/images/category_anime.png"
+type = "image"
+title = "generated_image"

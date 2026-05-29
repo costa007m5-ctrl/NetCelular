@@ -1,6 +1,6 @@
-# [Project name]
+# NETPLAY
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+App mobile premium de streaming (IPTV/VOD) com identidade visual estilo Netflix/Disney+/Prime Video.
 
 ## Run & Operate
 
@@ -19,18 +19,32 @@ _Replace the heading above with the project's name, and this line with one sente
 - Validation: Zod (`zod/v4`), `drizzle-zod`
 - API codegen: Orval (from OpenAPI spec)
 - Build: esbuild (CJS bundle)
+- Mobile: Expo (React Native) with expo-router, Reanimated, expo-blur, expo-linear-gradient
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/mobile/` — Expo mobile app (NETPLAY)
+- `artifacts/mobile/constants/colors.ts` — design tokens (dark theme: black + crimson red)
+- `artifacts/mobile/constants/content.ts` — mock TMDB-style content data
+- `artifacts/mobile/components/` — HeroBanner, ContentCard, ContentRow, TopTenCard, SyncBar, SkeletonLoader
+- `artifacts/mobile/app/(tabs)/` — Home, Search, Channels, List, Profile screens
+- `artifacts/api-server/` — Express API server
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- Mobile-only for first build (no backend); uses TMDB CDN for images with onError fallbacks
+- Always dark theme — `colors.ts` light key holds NETPLAY dark palette (black + #e50914 red)
+- Floating glassmorphism tab bar via absolute-positioned Tabs with BlurView (iOS) or semi-opaque View (Android/Web)
+- SyncBar is a minimal floating pill (not a full-width bar) with spinning icon + percentage
+- AnimatedCard pattern used to avoid useAnimatedStyle inside .map() (Reanimated rule)
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+- **Home** — hero carousel (auto-advance 5s), category pills, Em Alta row, Top 10 numbered cards, Continue Assistindo with progress bars, Hype banner
+- **Buscar** — search input + genre filter pills + responsive grid of results
+- **Canais** — premium channel cards (Netflix, Disney+, HBO, etc.) + per-channel content rows
+- **Lista** — saved titles with remove button
+- **Perfil** — stats, settings with toggles, account options
 
 ## User preferences
 
@@ -38,7 +52,9 @@ _Populate as you build — explicit user instructions worth remembering across s
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- TMDB image URLs may fail — all ContentCard and TopTenCard components have `onError` → gradient placeholder fallback
+- Web: use 67px top inset + 34px bottom inset (handled per-screen via `Platform.OS === 'web'`)
+- NativeTabs (iOS 26 Liquid Glass) path has all 5 tabs declared; ClassicTabLayout path uses floating pill design
 
 ## Pointers
 
