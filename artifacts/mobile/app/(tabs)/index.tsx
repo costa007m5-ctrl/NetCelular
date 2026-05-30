@@ -19,6 +19,7 @@ import { ContentRow } from "@/components/ContentRow";
 import { TopTenCard } from "@/components/TopTenCard";
 import { SyncBar } from "@/components/SyncBar";
 import { SkeletonRow } from "@/components/SkeletonLoader";
+import { GenreRow } from "@/components/GenreRow";
 import { api, tmdbItemToContent } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
@@ -27,13 +28,36 @@ import { CATEGORIES, HERO_ITEMS, TOP_10_SERIES, TRENDING } from "@/constants/con
 
 const TAB_BAR_CLEARANCE = 110;
 
+const GENRE_SECTIONS = [
+  { id: 28,    type: "movie" as const, label: "Filmes de Ação" },
+  { id: 18,    type: "tv"    as const, label: "Séries Drama" },
+  { id: 16,    type: "movie" as const, label: "Animação" },
+  { id: 35,    type: "movie" as const, label: "Comédia" },
+  { id: 27,    type: "movie" as const, label: "Terror" },
+  { id: 878,   type: "movie" as const, label: "Ficção Científica" },
+  { id: 10766, type: "tv"    as const, label: "Novelas" },
+  { id: 80,    type: "movie" as const, label: "Crime" },
+  { id: 10749, type: "movie" as const, label: "Romance" },
+  { id: 99,    type: "movie" as const, label: "Documentários" },
+  { id: 12,    type: "movie" as const, label: "Aventura" },
+  { id: 14,    type: "movie" as const, label: "Fantasia" },
+  { id: 9648,  type: "tv"    as const, label: "Séries Mistério" },
+  { id: 10751, type: "movie" as const, label: "Família" },
+  { id: 36,    type: "movie" as const, label: "História" },
+  { id: 10759, type: "tv"    as const, label: "Ação & Aventura (Séries)" },
+  { id: 10764, type: "tv"    as const, label: "Reality Shows" },
+  { id: 10752, type: "movie" as const, label: "Guerra" },
+  { id: 37,    type: "movie" as const, label: "Faroeste" },
+  { id: 10402, type: "movie" as const, label: "Musical" },
+];
+
 export default function HomeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user } = useAuth();
   const isWeb = Platform.OS === "web";
-  const topPad = isWeb ? 67 : insets.top;
+  const topPad = isWeb ? 0 : insets.top;
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -153,7 +177,7 @@ export default function HomeScreen() {
           <HeroBanner items={heroItems} onItemPress={goToPlayer} />
         </View>
 
-        <View style={{ paddingTop: 0, marginTop: -52 }}>
+        <View style={{ paddingTop: 0, marginTop: 0 }}>
           <View style={styles.categoriesRow}>
             <ScrollView
               horizontal
@@ -204,7 +228,8 @@ export default function HomeScreen() {
                 items={trendingItems}
                 cardWidth={150}
                 cardHeight={210}
-                onSeeAll={() => {}}
+                seeAllLabel="Ver mais"
+                onSeeAll={() => router.push({ pathname: "/genre-browse", params: { genre_id: "0", type: "movie", title: "Em Alta" } })}
                 onItemPress={goToPlayer}
               />
 
@@ -216,7 +241,7 @@ export default function HomeScreen() {
                   </Text>
                   <TouchableOpacity style={styles.seeAllBtn}>
                     <Text style={[styles.seeAllText, { color: colors.mutedForeground }]}>
-                      Ver todos
+                      Ver mais
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -249,27 +274,14 @@ export default function HomeScreen() {
                 />
               )}
 
-              <ContentRow
-                title="Populares Agora"
-                icon="star"
-                items={trendingItems.slice(3, 8)}
-                cardWidth={130}
-                cardHeight={190}
-                onSeeAll={() => {}}
-                onItemPress={goToPlayer}
-              />
-
-              <View style={[styles.hypeBanner, { backgroundColor: colors.card, borderColor: colors.primary }]}>
-                <View style={styles.hypeContent}>
-                  <View style={[styles.hypeDot, { backgroundColor: colors.primary }]} />
-                  <View>
-                    <Text style={[styles.hypePercent, { color: colors.foreground }]}>98% Hype</Text>
-                    <Text style={[styles.hypeDesc, { color: colors.mutedForeground }]}>
-                      Nível de energia da comunidade
-                    </Text>
-                  </View>
-                </View>
-              </View>
+              {GENRE_SECTIONS.map((genre) => (
+                <GenreRow
+                  key={`${genre.type}-${genre.id}`}
+                  genreId={genre.id}
+                  type={genre.type}
+                  title={genre.label}
+                />
+              ))}
             </>
           )}
         </View>
@@ -326,7 +338,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 20,
-    paddingVertical: 12,
+    paddingVertical: 6,
   },
   logo: {
     fontSize: 22,
@@ -344,7 +356,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderRadius: 20,
   },
-  categoriesRow: { marginBottom: 24 },
+  categoriesRow: { marginTop: 12, marginBottom: 20 },
   categoryPill: {
     paddingHorizontal: 16,
     paddingVertical: 7,
@@ -365,18 +377,6 @@ const styles = StyleSheet.create({
   seeAllBtn: {},
   seeAllText: { fontSize: 12, fontWeight: "500" },
   topTenScroll: { paddingHorizontal: 20, gap: 4 },
-  hypeBanner: {
-    marginHorizontal: 20,
-    marginBottom: 32,
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 18,
-    borderLeftWidth: 3,
-  },
-  hypeContent: { flexDirection: "row", alignItems: "center", gap: 14 },
-  hypeDot: { width: 40, height: 40, borderRadius: 20, opacity: 0.9 },
-  hypePercent: { fontSize: 20, fontWeight: "800", letterSpacing: -0.5 },
-  hypeDesc: { fontSize: 12, fontWeight: "400", marginTop: 2 },
   syncWrapper: {
     position: "absolute",
     left: 0,

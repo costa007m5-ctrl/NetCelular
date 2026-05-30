@@ -91,6 +91,9 @@ export const api = {
 
     genres: (): Promise<{ movies: { id: number; name: string }[]; tv: { id: number; name: string }[] }> =>
       apiFetch("/tmdb/genres"),
+
+    discover: (type: "movie" | "tv", genreId: number, page = 1): Promise<TmdbSearchResult> =>
+      apiFetch(`/tmdb/discover?type=${type}&genre_id=${genreId}&page=${page}`),
   },
 
   redeflix: {

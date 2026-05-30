@@ -18,6 +18,7 @@ interface ContentRowProps {
   cardHeight?: number;
   showProgress?: boolean;
   showTitles?: boolean;
+  seeAllLabel?: string;
   onSeeAll?: () => void;
   onItemPress?: (item: ContentItem) => void;
 }
@@ -30,6 +31,7 @@ export function ContentRow({
   cardHeight = 175,
   showProgress = false,
   showTitles = false,
+  seeAllLabel = "Ver todos",
   onSeeAll,
   onItemPress,
 }: ContentRowProps) {
@@ -47,7 +49,7 @@ export function ContentRow({
         {onSeeAll && (
           <TouchableOpacity onPress={onSeeAll} activeOpacity={0.7}>
             <Text style={[styles.seeAll, { color: colors.mutedForeground }]}>
-              Ver todos
+              {seeAllLabel}
             </Text>
           </TouchableOpacity>
         )}

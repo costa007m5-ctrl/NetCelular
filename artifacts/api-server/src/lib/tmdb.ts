@@ -135,6 +135,19 @@ export const tmdb = {
     tv: () => tmdbFetch<{ genres: { id: number; name: string }[] }>("/genre/tv/list"),
   },
 
+  discover: {
+    movies: (genreId?: number, page = 1) => {
+      const params: Record<string, string> = { page: String(page), include_adult: "false", sort_by: "popularity.desc" };
+      if (genreId) params.with_genres = String(genreId);
+      return tmdbFetch<TmdbPage<TmdbMovie>>("/discover/movie", params);
+    },
+    tv: (genreId?: number, page = 1) => {
+      const params: Record<string, string> = { page: String(page), include_adult: "false", sort_by: "popularity.desc" };
+      if (genreId) params.with_genres = String(genreId);
+      return tmdbFetch<TmdbPage<TmdbTv>>("/discover/tv", params);
+    },
+  },
+
   redeflix: {
     movieUrl: (tmdbId: number) => `https://redeflixapi.store/filme/${tmdbId}`,
     tvUrl: (tmdbId: number, season: number, episode: number) =>
