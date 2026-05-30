@@ -34,7 +34,8 @@ workflows:
       - name: Expo Prebuild (gera pasta android/)
         script: |
           cd artifacts/mobile
-          npx expo prebuild --clean --platform android
+          npx expo prebuild --clean --platform android --no-install
+          npm install
 
       - name: Configurar keystore de assinatura
         script: |
@@ -103,7 +104,8 @@ workflows:
       - name: Expo Prebuild (gera pasta ios/)
         script: |
           cd artifacts/mobile
-          npx expo prebuild --clean --platform ios
+          npx expo prebuild --clean --platform ios --no-install
+          npm install
 
       - name: Instalar pods
         script: |
