@@ -23,9 +23,9 @@ function NativeTabLayout() {
         <Icon sf={{ default: "tv", selected: "tv.fill" }} />
         <Label>Canais</Label>
       </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="list">
-        <Icon sf={{ default: "bookmark", selected: "bookmark.fill" }} />
-        <Label>Lista</Label>
+      <NativeTabs.Trigger name="novidades">
+        <Icon sf={{ default: "star", selected: "star.fill" }} />
+        <Label>Novidades</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="profile">
         <Icon sf={{ default: "person", selected: "person.fill" }} />
@@ -128,17 +128,18 @@ function ClassicTabLayout() {
         }}
       />
       <Tabs.Screen
-        name="list"
+        name="novidades"
         options={{
-          title: "Lista",
+          title: "Novidades",
           tabBarIcon: ({ color }) =>
             isIOS ? (
-              <SymbolView name="bookmark" tintColor={color} size={22} />
+              <SymbolView name="star" tintColor={color} size={22} />
             ) : (
-              <Feather name="bookmark" size={22} color={color} />
+              <Feather name="star" size={22} color={color} />
             ),
         }}
       />
+      <Tabs.Screen name="list" options={{ href: null }} />
       <Tabs.Screen
         name="profile"
         options={{
