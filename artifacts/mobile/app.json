@@ -18,7 +18,14 @@
     },
     "android": {},
     "web": {
-      "favicon": "./assets/images/icon.png"
+      "favicon": "./assets/images/icon.png",
+      "bundler": "metro",
+      "name": "NETPLAY",
+      "shortName": "NETPLAY",
+      "description": "Descubra e assista aos melhores filmes e séries em streaming. Catálogo premium atualizado com os lançamentos mais recentes do cinema e TV.",
+      "themeColor": "#000000",
+      "backgroundColor": "#000000",
+      "lang": "pt-BR"
     },
     "plugins": [
       [

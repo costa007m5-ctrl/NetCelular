@@ -1,47 +1,64 @@
--- NETPLAY Supabase Schema
--- Run this in your Supabase SQL Editor:
--- https://supabase.com/dashboard/project/_/sql/new
+-- NETPLAY — Supabase Schema
+-- Run this in the Supabase SQL Editor:
+-- supabase.com → seu projeto → SQL Editor → New Query → cole e execute
 
--- Watchlist: items the user saved to "Minha Lista"
-create table if not exists watchlist (
-  id uuid default gen_random_uuid() primary key,
-  device_id text not null,
-  tmdb_id integer not null,
-  type text not null check (type in ('movie', 'tv')),
-  title text,
-  poster_path text,
-  backdrop_path text,
-  added_at timestamp with time zone default now(),
-  unique (device_id, tmdb_id, type)
+-- Users table (auth customizado, senha hasheada no client)
+CREATE TABLE IF NOT EXISTS public.users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email TEXT UNIQUE NOT NULL,
+  name TEXT NOT NULL,
+  password_hash TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
+  avatar_letter TEXT NOT NULL DEFAULT 'U',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Watch progress: tracks how far the user is in each title
-create table if not exists watch_progress (
-  id uuid default gen_random_uuid() primary key,
-  device_id text not null,
-  tmdb_id integer not null,
-  type text not null check (type in ('movie', 'tv')),
-  title text,
-  poster_path text,
-  backdrop_path text,
-  progress float not null default 0 check (progress >= 0 and progress <= 1),
-  season integer,
-  episode integer,
-  updated_at timestamp with time zone default now(),
-  unique (device_id, tmdb_id, type)
+-- Watchlist
+CREATE TABLE IF NOT EXISTS public.watchlist (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  tmdb_id INTEGER NOT NULL,
+  type TEXT NOT NULL CHECK (type IN ('movie', 'tv')),
+  title TEXT NOT NULL,
+  poster_path TEXT,
+  backdrop_path TEXT,
+  added_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (user_id, tmdb_id, type)
 );
 
--- Enable Row Level Security (RLS)
--- Since we use device_id (no auth), we open access for now.
--- You can restrict later by adding Supabase Auth and changing policies.
+-- Watch progress
+CREATE TABLE IF NOT EXISTS public.watch_progress (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  tmdb_id INTEGER NOT NULL,
+  type TEXT NOT NULL CHECK (type IN ('movie', 'tv')),
+  title TEXT NOT NULL,
+  poster_path TEXT,
+  backdrop_path TEXT,
+  progress FLOAT NOT NULL DEFAULT 0,
+  season INTEGER,
+  episode INTEGER,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (user_id, tmdb_id, type)
+);
 
-alter table watchlist enable row level security;
-alter table watch_progress enable row level security;
+-- Ratings
+CREATE TABLE IF NOT EXISTS public.ratings (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  tmdb_id INTEGER NOT NULL,
+  type TEXT NOT NULL CHECK (type IN ('movie', 'tv')),
+  liked BOOLEAN NOT NULL,
+  UNIQUE (user_id, tmdb_id, type)
+);
 
--- Open policies (device-id based, no auth required)
-create policy "Allow all on watchlist" on watchlist for all using (true) with check (true);
-create policy "Allow all on watch_progress" on watch_progress for all using (true) with check (true);
+-- Row Level Security (permite anon key acessar tudo — auth feita via user_id no app)
+ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.watchlist ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.watch_progress ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ratings ENABLE ROW LEVEL SECURITY;
 
--- Indexes for fast lookups
-create index if not exists idx_watchlist_device on watchlist (device_id);
-create index if not exists idx_progress_device on watch_progress (device_id);
+CREATE POLICY "anon_all_users" ON public.users FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "anon_all_watchlist" ON public.watchlist FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "anon_all_progress" ON public.watch_progress FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "anon_all_ratings" ON public.ratings FOR ALL TO anon USING (true) WITH CHECK (true);

@@ -1,3 +1,3 @@
-- [Convex auth pattern](convex-auth.md) — auth via Convex mutations (register/login) + AsyncStorage persistence; first user becomes admin automatically.
 - [Detail screen navigation](detail-nav.md) — all screens navigate to /detail (not /player) with params {type, id, title}; player is only opened from detail screen.
 - [Auth guard placement](auth-guard.md) — auth guard is in (tabs)/_layout.tsx (not root layout); uses Redirect from expo-router to /login when user is null.
+- [Supabase migration](supabase-migration.md) — Convex fully replaced by Supabase; custom user auth with hashed passwords in public.users table; anon key with RLS policies.

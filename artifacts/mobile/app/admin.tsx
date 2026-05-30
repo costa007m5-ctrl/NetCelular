@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Platform,
@@ -54,18 +54,28 @@ export default function AdminScreen() {
   const [apis, setApis] = useState<ApiStatus[]>([
     { name: "TMDB API", status: "loading" },
     { name: "RedeFlixApi", status: "loading" },
-    { name: "Convex Database", status: "loading" },
+    { name: "Supabase Database", status: "loading" },
   ]);
 
-  const userCount = useQuery(convexApi.users.countAll, {});
-  const watchlistCount = useQuery(convexApi.watchlist.countAll, {});
-  const ratingsCount = useQuery(convexApi.ratings.countAll, {});
+  const [userCount, setUserCount] = useState<number | null>(null);
+  const [watchlistCount, setWatchlistCount] = useState<number | null>(null);
+  const [ratingsCount, setRatingsCount] = useState<number | null>(null);
+
+  const loadStats = useCallback(async () => {
+    if (!isSupabaseConfigured) return;
+    const [u, w, r] = await Promise.all([db.users.countAll(), db.watchlist.countAll(), db.ratings.countAll()]);
+    setUserCount(u);
+    setWatchlistCount(w);
+    setRatingsCount(r);
+  }, []);
+
+  useEffect(() => { loadStats(); }, [loadStats]);
 
   const checkApis = async () => {
     setApis([
       { name: "TMDB API", status: "loading" },
       { name: "RedeFlixApi", status: "loading" },
-      { name: "Convex Database", status: "loading" },
+      { name: "Supabase Database", status: "loading" },
     ]);
 
     // Check TMDB
@@ -103,27 +113,27 @@ export default function AdminScreen() {
       );
     }
 
-    // Convex — if userCount loaded it's online
-    setApis((prev) =>
-      prev.map((a) =>
-        a.name === "Convex Database"
-          ? { ...a, status: userCount !== undefined ? "ok" : "error" }
-          : a
-      )
-    );
+    // Supabase — try a count query
+    const t2 = Date.now();
+    try {
+      const count = await db.users.countAll();
+      setApis((prev) =>
+        prev.map((a) =>
+          a.name === "Supabase Database"
+            ? { ...a, status: "ok", latency: Date.now() - t2, detail: `${count} usuário(s)` }
+            : a
+        )
+      );
+    } catch {
+      setApis((prev) =>
+        prev.map((a) => (a.name === "Supabase Database" ? { ...a, status: "error" } : a))
+      );
+    }
   };
 
   useEffect(() => {
     checkApis();
   }, []);
-
-  useEffect(() => {
-    if (userCount !== undefined) {
-      setApis((prev) =>
-        prev.map((a) => (a.name === "Convex Database" ? { ...a, status: "ok" } : a))
-      );
-    }
-  }, [userCount]);
 
   if (!user || user.role !== "admin") {
     return (
