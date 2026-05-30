@@ -2,21 +2,15 @@ workflows:
 
   # ─────────────────────────────────────────────────────────────
   # ANDROID — gera APK (debug) e AAB (release para Play Store)
+  # Variáveis necessárias (cadastrar em Codemagic > Environment variables):
+  #   SUPABASE_URL, SUPABASE_ANON_KEY, TMDB_API_KEY
+  #   CM_KEYSTORE (base64), CM_KEYSTORE_PASSWORD, CM_KEY_ALIAS, CM_KEY_PASSWORD
   # ─────────────────────────────────────────────────────────────
   android-release:
     name: NETPLAY — Android Release
     max_build_duration: 60
     environment:
       node: 20.18.0
-      vars:
-        # Cadastre estas variáveis em: Codemagic > seu app > Environment variables
-        SUPABASE_URL: $SUPABASE_URL
-        SUPABASE_ANON_KEY: $SUPABASE_ANON_KEY
-        TMDB_API_KEY: $TMDB_API_KEY
-        CM_KEYSTORE: $CM_KEYSTORE
-        CM_KEYSTORE_PASSWORD: $CM_KEYSTORE_PASSWORD
-        CM_KEY_ALIAS: $CM_KEY_ALIAS
-        CM_KEY_PASSWORD: $CM_KEY_PASSWORD
 
     scripts:
       - name: Instalar pnpm
@@ -34,23 +28,23 @@ workflows:
       - name: Configurar variáveis de ambiente do Expo
         script: |
           cd artifacts/mobile
-          echo "EXPO_PUBLIC_SUPABASE_URL=$SUPABASE_URL" >> .env
-          echo "EXPO_PUBLIC_SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY" >> .env
+          echo "EXPO_PUBLIC_SUPABASE_URL=${SUPABASE_URL}" > .env
+          echo "EXPO_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}" >> .env
 
       - name: Expo Prebuild (gera pasta android/)
         script: |
           cd artifacts/mobile
-          node --stack-size=65536 ./node_modules/.bin/expo prebuild --clean --platform android
+          npx expo prebuild --clean --platform android
 
       - name: Configurar keystore de assinatura
         script: |
           cd artifacts/mobile/android
-          echo $CM_KEYSTORE | base64 --decode > keystore.jks
+          echo "$CM_KEYSTORE" | base64 --decode > keystore.jks
           cat >> gradle.properties << EOF
           KEYSTORE_PATH=../keystore.jks
-          KEYSTORE_PASSWORD=$CM_KEYSTORE_PASSWORD
-          KEY_ALIAS=$CM_KEY_ALIAS
-          KEY_PASSWORD=$CM_KEY_PASSWORD
+          KEYSTORE_PASSWORD=${CM_KEYSTORE_PASSWORD}
+          KEY_ALIAS=${CM_KEY_ALIAS}
+          KEY_PASSWORD=${CM_KEY_PASSWORD}
           EOF
 
       - name: Build AAB (Play Store) + APK (instalação direta)
@@ -72,6 +66,10 @@ workflows:
 
   # ─────────────────────────────────────────────────────────────
   # iOS — gera IPA para App Store / TestFlight
+  # Variáveis necessárias (cadastrar em Codemagic > Environment variables):
+  #   SUPABASE_URL, SUPABASE_ANON_KEY
+  #   APP_STORE_CONNECT_KEY_IDENTIFIER, APP_STORE_CONNECT_ISSUER_ID
+  #   APP_STORE_CONNECT_PRIVATE_KEY, CERTIFICATE_PRIVATE_KEY
   # ─────────────────────────────────────────────────────────────
   ios-release:
     name: NETPLAY — iOS Release
@@ -83,13 +81,6 @@ workflows:
       cocoapods: default
       vars:
         BUNDLE_ID: com.netplay.app
-        # Cadastre estas variáveis em: Codemagic > seu app > Environment variables
-        SUPABASE_URL: $SUPABASE_URL
-        SUPABASE_ANON_KEY: $SUPABASE_ANON_KEY
-        APP_STORE_CONNECT_KEY_IDENTIFIER: $APP_STORE_CONNECT_KEY_IDENTIFIER
-        APP_STORE_CONNECT_ISSUER_ID: $APP_STORE_CONNECT_ISSUER_ID
-        APP_STORE_CONNECT_PRIVATE_KEY: $APP_STORE_CONNECT_PRIVATE_KEY
-        CERTIFICATE_PRIVATE_KEY: $CERTIFICATE_PRIVATE_KEY
 
     scripts:
       - name: Instalar pnpm
@@ -106,13 +97,13 @@ workflows:
       - name: Configurar variáveis de ambiente do Expo
         script: |
           cd artifacts/mobile
-          echo "EXPO_PUBLIC_SUPABASE_URL=$SUPABASE_URL" >> .env
-          echo "EXPO_PUBLIC_SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY" >> .env
+          echo "EXPO_PUBLIC_SUPABASE_URL=${SUPABASE_URL}" > .env
+          echo "EXPO_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}" >> .env
 
       - name: Expo Prebuild (gera pasta ios/)
         script: |
           cd artifacts/mobile
-          node --stack-size=65536 ./node_modules/.bin/expo prebuild --clean --platform ios
+          npx expo prebuild --clean --platform ios
 
       - name: Instalar pods
         script: |
@@ -148,6 +139,8 @@ workflows:
 
   # ─────────────────────────────────────────────────────────────
   # EAS BUILD — alternativa usando Expo Application Services
+  # Variáveis necessárias (cadastrar em Codemagic > Environment variables):
+  #   EXPO_TOKEN, SUPABASE_URL, SUPABASE_ANON_KEY
   # ─────────────────────────────────────────────────────────────
   eas-build:
     name: NETPLAY — EAS Build
@@ -156,10 +149,6 @@ workflows:
       node: 20.18.0
       vars:
         EAS_PROJECT_ID: aa86cc57-e8c0-4ce7-806c-0d1e5e345991
-        # Cadastre estas variáveis em: Codemagic > seu app > Environment variables
-        EXPO_TOKEN: $EXPO_TOKEN
-        SUPABASE_URL: $SUPABASE_URL
-        SUPABASE_ANON_KEY: $SUPABASE_ANON_KEY
 
     scripts:
       - name: Instalar pnpm
