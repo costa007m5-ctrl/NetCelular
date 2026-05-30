@@ -171,6 +171,16 @@ router.get("/redeflix/available", handle(async (req) => {
   }
 }));
 
+router.get("/franchise-logo", handle(async (req) => {
+  const type = String(req.query.type ?? "") as "collection" | "tv" | "movie";
+  const id = Number(req.query.id ?? 0);
+  if (!type || !id) return { logo_path: null };
+  const logos = await tmdb.images.logos(type, id);
+  const enLogos = logos.filter((l) => l.iso_639_1 === "en").sort((a, b) => b.vote_average - a.vote_average);
+  const best = enLogos[0] ?? logos[0] ?? null;
+  return { logo_path: best?.file_path ?? null };
+}));
+
 router.get("/genres", handle(async () => {
   const [movies, tv] = await Promise.all([
     tmdb.genres.movies(),

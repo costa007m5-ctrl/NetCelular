@@ -34,9 +34,11 @@ const CARD_W = 130;
 const CARD_H = 160;
 const ROW_ITEMS_DEFAULT = 8;
 
-// ── Module-level image cache ─────────────────────────────────
+// ── Module-level caches ──────────────────────────────────────
 const _imgCache = new Map<string, string | null>();
 const _imgFetching = new Set<string>();
+const _logoCache = new Map<string, string | null>();
+const _logoFetching = new Set<string>();
 
 async function fetchFranchiseImage(franchise: Franchise): Promise<string | null> {
   if (_imgCache.has(franchise.id)) return _imgCache.get(franchise.id)!;
@@ -67,6 +69,33 @@ async function fetchFranchiseImage(franchise: Franchise): Promise<string | null>
   }
 }
 
+async function fetchFranchiseLogo(franchise: Franchise): Promise<string | null> {
+  if (_logoCache.has(franchise.id)) return _logoCache.get(franchise.id)!;
+  if (_logoFetching.has(franchise.id)) return null;
+  _logoFetching.add(franchise.id);
+  try {
+    let type: "collection" | "tv" | "movie" = "movie";
+    let id = 0;
+    if (franchise.fetchType === "collection" && franchise.tmdbCollectionId) {
+      type = "collection";
+      id = franchise.tmdbCollectionId;
+    } else if (franchise.tmdbTvId) {
+      type = "tv";
+      id = franchise.tmdbTvId;
+    }
+    if (!id) { _logoCache.set(franchise.id, null); return null; }
+    const data = await api.tmdb.franchiseLogo(type, id);
+    const url = data.logo_path ? (TMDB_IMG(data.logo_path, "w500") ?? null) : null;
+    _logoCache.set(franchise.id, url);
+    return url;
+  } catch {
+    _logoCache.set(franchise.id, null);
+    return null;
+  } finally {
+    _logoFetching.delete(franchise.id);
+  }
+}
+
 function useFranchiseImage(franchise: Franchise) {
   const [url, setUrl] = useState<string | null>(
     _imgCache.has(franchise.id) ? _imgCache.get(franchise.id)! : null
@@ -74,6 +103,17 @@ function useFranchiseImage(franchise: Franchise) {
   useEffect(() => {
     if (_imgCache.has(franchise.id)) { setUrl(_imgCache.get(franchise.id)!); return; }
     fetchFranchiseImage(franchise).then(setUrl);
+  }, [franchise.id]);
+  return url;
+}
+
+function useFranchiseLogo(franchise: Franchise) {
+  const [url, setUrl] = useState<string | null>(
+    _logoCache.has(franchise.id) ? _logoCache.get(franchise.id)! : null
+  );
+  useEffect(() => {
+    if (_logoCache.has(franchise.id)) { setUrl(_logoCache.get(franchise.id)!); return; }
+    fetchFranchiseLogo(franchise).then(setUrl);
   }, [franchise.id]);
   return url;
 }
@@ -165,6 +205,7 @@ function FranchiseCard({
   rank?: number;
 }) {
   const imgUrl = useFranchiseImage(franchise);
+  const logoUrl = useFranchiseLogo(franchise);
   const scale = useRef(new Animated.Value(1)).current;
 
   return (
@@ -178,8 +219,8 @@ function FranchiseCard({
           ? <Image source={{ uri: imgUrl }} style={[StyleSheet.absoluteFill, styles.cardImg]} resizeMode="cover" />
           : <LinearGradient colors={franchise.bgGradient} style={StyleSheet.absoluteFill} />}
         <LinearGradient
-          colors={["transparent", "rgba(0,0,0,0.8)"]}
-          locations={[0.25, 1]}
+          colors={["rgba(0,0,0,0.15)", "rgba(0,0,0,0.55)", "rgba(0,0,0,0.88)"]}
+          locations={[0, 0.45, 1]}
           style={StyleSheet.absoluteFill}
         />
         <View style={[styles.cardAccent, { backgroundColor: franchise.color }]} />
@@ -196,8 +237,22 @@ function FranchiseCard({
           </Pressable>
         )}
 
+        {/* Logo area — centered vertically in upper 60% */}
+        <View style={styles.cardLogoArea}>
+          {logoUrl ? (
+            <Image
+              source={{ uri: logoUrl }}
+              style={styles.cardLogoImg}
+              resizeMode="contain"
+            />
+          ) : (
+            <Text style={[styles.cardNameFallback, { color: franchise.accentColor }]} numberOfLines={2}>
+              {franchise.shortName}
+            </Text>
+          )}
+        </View>
+
         <View style={styles.cardInfo}>
-          <Text style={styles.cardName} numberOfLines={2}>{franchise.name}</Text>
           <View style={[styles.cardBadge, { backgroundColor: franchise.color + "33", borderColor: franchise.color + "55" }]}>
             <Text style={[styles.cardBadgeText, { color: franchise.accentColor }]}>
               {franchise.contentCount} títulos
@@ -479,11 +534,16 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.6)", width: 28, height: 28, borderRadius: 14,
     alignItems: "center", justifyContent: "center",
   },
-  cardInfo: { position: "absolute", bottom: 0, left: 0, right: 0, padding: 10, zIndex: 2 },
-  cardName: {
-    color: "#fff", fontSize: 13, fontWeight: "800", marginBottom: 5,
-    textShadowColor: "rgba(0,0,0,0.8)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4,
+  cardLogoArea: {
+    position: "absolute", top: 0, left: 0, right: 0, bottom: 38,
+    zIndex: 2, alignItems: "center", justifyContent: "center", paddingHorizontal: 8,
   },
+  cardLogoImg: { width: "88%", height: 52, maxWidth: 108 },
+  cardNameFallback: {
+    fontSize: 13, fontWeight: "900", textAlign: "center",
+    textShadowColor: "rgba(0,0,0,0.9)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 5,
+  },
+  cardInfo: { position: "absolute", bottom: 0, left: 0, right: 0, padding: 8, zIndex: 2 },
   cardBadge: { alignSelf: "flex-start", paddingHorizontal: 6, paddingVertical: 3, borderRadius: 5, borderWidth: 1 },
   cardBadgeText: { fontSize: 10, fontWeight: "700" },
 

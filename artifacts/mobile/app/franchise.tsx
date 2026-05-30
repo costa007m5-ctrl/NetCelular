@@ -364,17 +364,14 @@ export default function FranchiseScreen() {
           allItems = [...movieItems, ...tvItems];
 
         } else if (franchise.fetchType === "keyword" && franchise.tmdbKeywordId) {
-          // Keyword-based (Marvel, DC, Conjuring…)
-          const [mvData, tvData] = await Promise.all([
-            api.tmdb.keywordDiscover(franchise.tmdbKeywordId, "movie", 1),
-            api.tmdb.keywordDiscover(franchise.tmdbKeywordId, "tv", 1),
+          // Keyword-based (Marvel, DC, Conjuring…) — fetch up to 3 pages
+          const pages = [1, 2, 3];
+          const [mvPages, tvPages] = await Promise.all([
+            Promise.all(pages.map((p) => api.tmdb.keywordDiscover(franchise.tmdbKeywordId!, "movie", p))),
+            Promise.all(pages.map((p) => api.tmdb.keywordDiscover(franchise.tmdbKeywordId!, "tv", p))),
           ]);
-          const mvItems = mvData.results
-            .slice(0, 20)
-            .map((m) => tmdbItemToContent({ ...m, media_type: "movie" }));
-          const tvItems = tvData.results
-            .slice(0, 10)
-            .map((t) => tmdbItemToContent({ ...t, media_type: "tv" }));
+          const mvItems = mvPages.flatMap((d) => d.results).map((m) => tmdbItemToContent({ ...m, media_type: "movie" }));
+          const tvItems = tvPages.flatMap((d) => d.results).map((t) => tmdbItemToContent({ ...t, media_type: "tv" }));
           allItems = [...mvItems, ...tvItems].sort((a, b) => b.rating - a.rating);
 
         } else if (franchise.fetchType === "tv" && franchise.tmdbTvId) {

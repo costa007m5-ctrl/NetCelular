@@ -120,6 +120,9 @@ export const api = {
       backdrop_path: string | null;
       parts: TmdbItem[];
     }> => apiFetch(`/tmdb/collection/${id}`),
+
+    franchiseLogo: (type: "collection" | "tv" | "movie", id: number): Promise<{ logo_path: string | null }> =>
+      apiFetch(`/tmdb/franchise-logo?type=${type}&id=${id}`).catch(() => ({ logo_path: null })),
   },
 
   redeflix: {

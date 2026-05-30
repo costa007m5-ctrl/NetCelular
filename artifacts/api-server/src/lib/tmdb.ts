@@ -175,6 +175,18 @@ export const tmdb = {
       }>(`/collection/${id}`),
   },
 
+  images: {
+    logos: async (type: "collection" | "tv" | "movie", id: number): Promise<{ file_path: string; iso_639_1: string | null; vote_average: number }[]> => {
+      const key = process.env["TMDB_API_KEY"];
+      if (!key) return [];
+      const url = `${TMDB_BASE}/${type}/${id}/images?api_key=${key}&include_image_language=en,pt,null`;
+      const res = await fetch(url);
+      if (!res.ok) return [];
+      const data: any = await res.json();
+      return data.logos ?? [];
+    },
+  },
+
   redeflix: {
     movieUrl: (tmdbId: number) => `https://redeflixapi.store/filme/${tmdbId}`,
     tvUrl: (tmdbId: number, season: number, episode: number) =>
