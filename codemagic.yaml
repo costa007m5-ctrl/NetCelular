@@ -20,9 +20,7 @@ workflows:
 
     scripts:
       - name: Instalar pnpm
-        script: |
-          corepack enable
-          corepack prepare pnpm@latest --activate
+        script: npm install -g pnpm --force
 
       - name: Instalar dependências do workspace
         script: pnpm install --frozen-lockfile
@@ -95,9 +93,7 @@ workflows:
 
     scripts:
       - name: Instalar pnpm
-        script: |
-          corepack enable
-          corepack prepare pnpm@latest --activate
+        script: npm install -g pnpm --force
 
       - name: Instalar dependências do workspace
         script: pnpm install --frozen-lockfile
@@ -143,11 +139,6 @@ workflows:
       - /tmp/xcodebuild_logs/*.log
 
     publishing:
-      app_store_connect:
-        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
-        key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
-        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
-        submit_to_testflight: true
       email:
         recipients:
           - your@email.com
@@ -172,9 +163,7 @@ workflows:
 
     scripts:
       - name: Instalar pnpm
-        script: |
-          corepack enable
-          corepack prepare pnpm@latest --activate
+        script: npm install -g pnpm --force
 
       - name: Instalar dependências
         script: pnpm install --frozen-lockfile
