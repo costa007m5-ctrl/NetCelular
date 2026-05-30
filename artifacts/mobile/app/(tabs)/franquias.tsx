@@ -448,12 +448,12 @@ export default function FranquiasScreen() {
             />
 
             {/* ── Genre rows ───────────────────────────── */}
-            {GENRE_SECTIONS.map(({ genre, label, emoji }) => {
+            {GENRE_SECTIONS.map(({ genre, label }) => {
               const items = FRANCHISES.filter((f) => f.genre === genre);
               return (
                 <FranchiseRow
                   key={genre}
-                  title={`${emoji} ${label}`}
+                  title={label}
                   franchises={items}
                   accentColor={items[0]?.color}
                   onPress={goTo}

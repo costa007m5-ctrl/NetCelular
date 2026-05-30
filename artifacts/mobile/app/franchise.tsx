@@ -438,10 +438,17 @@ export default function FranchiseScreen() {
   const hasCronologia = !!franchise.chronologicalContent;
 
   const TABS: { id: Tab; label: string }[] = [
-    { id: "filmes", label: `Filmes (${movies.length})` },
-    { id: "series", label: `Séries (${series.length})` },
-    ...(hasCronologia ? [{ id: "cronologia" as Tab, label: "⏱ Cronologia" }] : []),
+    ...(loading || movies.length > 0 ? [{ id: "filmes" as Tab, label: `Filmes (${movies.length})` }] : []),
+    ...(loading || series.length > 0 ? [{ id: "series" as Tab, label: `Séries (${series.length})` }] : []),
+    ...(hasCronologia ? [{ id: "cronologia" as Tab, label: "Cronologia" }] : []),
   ];
+
+  // Auto-switch tab if current one has no content after loading
+  useEffect(() => {
+    if (loading) return;
+    if (activeTab === "filmes" && movies.length === 0 && series.length > 0) setActiveTab("series");
+    if (activeTab === "series" && series.length === 0 && movies.length > 0) setActiveTab("filmes");
+  }, [loading, movies.length, series.length]);
 
   const fav = isFavorite(franchise.id);
 
