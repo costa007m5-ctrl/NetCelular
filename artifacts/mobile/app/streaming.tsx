@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
-  Dimensions,
-  FlatList,
+  Animated,
   Image,
   Platform,
   Pressable,
+  RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -17,60 +17,81 @@ import { Feather } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getPlatform } from "@/constants/streamings";
-import { api, tmdbItemToContent, TMDB_IMG } from "@/lib/api";
+import { api, tmdbItemToContent } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
+import { db, isSupabaseConfigured } from "@/lib/supabase";
 import type { ContentItem } from "@/constants/content";
-import { useRouter as useNav } from "expo-router";
+import { HeroBanner } from "@/components/HeroBanner";
+import { ContentRow } from "@/components/ContentRow";
+import { TopTenCard } from "@/components/TopTenCard";
+import { StreamingGenreRow } from "@/components/StreamingGenreRow";
+import { SkeletonRow } from "@/components/SkeletonLoader";
 
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
-const NUM_COLS = 3;
-const H_PAD = 12;
-const CARD_WIDTH = Math.floor((SCREEN_WIDTH - H_PAD * 2) / NUM_COLS) - 4;
-const CARD_HEIGHT = Math.floor(CARD_WIDTH * 1.5);
+const TAB_BAR_CLEARANCE = 40;
 
-type ContentType = "movie" | "tv" | "all";
-
-function GridCard({
-  item,
-  accent,
-  onPress,
-}: {
-  item: ContentItem;
-  accent: string;
-  onPress: () => void;
-}) {
-  const [imgError, setImgError] = useState(false);
-  return (
-    <Pressable onPress={onPress} style={{ width: CARD_WIDTH, marginBottom: 12 }}>
-      <View style={[styles.card, { width: CARD_WIDTH, height: CARD_HEIGHT }]}>
-        {!imgError && item.posterPath ? (
-          <Image
-            source={{ uri: item.posterPath }}
-            style={StyleSheet.absoluteFill}
-            resizeMode="cover"
-            onError={() => setImgError(true)}
-          />
-        ) : (
-          <LinearGradient
-            colors={[accent + "33", "#1a1a1a"]}
-            style={StyleSheet.absoluteFill}
-          >
-            <View style={styles.cardPlaceholder}>
-              <Feather name="film" size={22} color={accent} />
-            </View>
-          </LinearGradient>
-        )}
-        {item.type === "series" && (
-          <View style={[styles.typeBadge, { backgroundColor: accent + "CC" }]}>
-            <Text style={styles.typeBadgeText}>SÉRIE</Text>
-          </View>
-        )}
-      </View>
-      <Text style={[styles.cardLabel, { color: "rgba(255,255,255,0.7)" }]} numberOfLines={1}>
-        {item.title}
-      </Text>
-    </Pressable>
-  );
-}
+const PLATFORM_GENRES: Record<string, { id: number; type: "movie" | "tv"; label: string }[]> = {
+  netflix: [
+    { id: 28,   type: "movie", label: "Ação" },
+    { id: 18,   type: "tv",    label: "Drama" },
+    { id: 35,   type: "movie", label: "Comédia" },
+    { id: 27,   type: "movie", label: "Terror" },
+    { id: 878,  type: "movie", label: "Ficção Científica" },
+    { id: 80,   type: "tv",    label: "Crime" },
+    { id: 99,   type: "movie", label: "Documentários" },
+  ],
+  prime: [
+    { id: 28,   type: "movie", label: "Ação" },
+    { id: 12,   type: "movie", label: "Aventura" },
+    { id: 35,   type: "tv",    label: "Comédia" },
+    { id: 878,  type: "movie", label: "Ficção Científica" },
+    { id: 80,   type: "tv",    label: "Crime" },
+    { id: 10759,type: "tv",    label: "Ação & Aventura" },
+  ],
+  disney: [
+    { id: 16,   type: "movie", label: "Animação" },
+    { id: 28,   type: "movie", label: "Ação" },
+    { id: 12,   type: "movie", label: "Aventura" },
+    { id: 10751,type: "movie", label: "Família" },
+    { id: 14,   type: "movie", label: "Fantasia" },
+    { id: 878,  type: "movie", label: "Ficção Científica" },
+  ],
+  max: [
+    { id: 18,   type: "tv",    label: "Drama" },
+    { id: 80,   type: "tv",    label: "Crime" },
+    { id: 28,   type: "movie", label: "Ação" },
+    { id: 35,   type: "movie", label: "Comédia" },
+    { id: 878,  type: "movie", label: "Ficção Científica" },
+    { id: 27,   type: "movie", label: "Terror" },
+  ],
+  apple: [
+    { id: 18,   type: "tv",    label: "Drama" },
+    { id: 878,  type: "tv",    label: "Ficção Científica" },
+    { id: 35,   type: "tv",    label: "Comédia" },
+    { id: 80,   type: "tv",    label: "Crime" },
+    { id: 99,   type: "tv",    label: "Documentários" },
+  ],
+  globoplay: [
+    { id: 10766,type: "tv",    label: "Novelas" },
+    { id: 18,   type: "tv",    label: "Drama" },
+    { id: 35,   type: "tv",    label: "Comédia" },
+    { id: 80,   type: "tv",    label: "Crime" },
+    { id: 99,   type: "movie", label: "Documentários" },
+  ],
+  paramount: [
+    { id: 28,   type: "movie", label: "Ação" },
+    { id: 18,   type: "tv",    label: "Drama" },
+    { id: 27,   type: "movie", label: "Terror" },
+    { id: 80,   type: "tv",    label: "Crime" },
+    { id: 878,  type: "movie", label: "Ficção Científica" },
+  ],
+  crunchyroll: [
+    { id: 16,   type: "tv",    label: "Anime" },
+    { id: 28,   type: "tv",    label: "Ação" },
+    { id: 12,   type: "tv",    label: "Aventura" },
+    { id: 10765,type: "tv",    label: "Sci-Fi & Fantasy" },
+    { id: 35,   type: "tv",    label: "Comédia" },
+  ],
+};
 
 function PlatformLogo({ platform }: { platform: NonNullable<ReturnType<typeof getPlatform>> }) {
   const [logoError, setLogoError] = useState(false);
@@ -89,7 +110,6 @@ function PlatformLogo({ platform }: { platform: NonNullable<ReturnType<typeof ge
     );
   }
 
-  // Text fallback logo
   const parts = platform.name.split(" ");
   return (
     <View style={styles.textLogo}>
@@ -111,88 +131,97 @@ export default function StreamingScreen() {
   const params = useLocalSearchParams<{ id: string }>();
   const platform = getPlatform(params.id ?? "");
   const isWeb = Platform.OS === "web";
+  const topPad = isWeb ? 0 : insets.top;
+  const { user } = useAuth();
 
-  const [activeType, setActiveType] = useState<ContentType>("all");
-  const [items, setItems] = useState<ContentItem[]>([]);
-  const [page, setPage] = useState(0);
-  const [totalPages, setTotalPages] = useState(999);
-  const [loading, setLoading] = useState(false);
-  const [initialLoading, setInitialLoading] = useState(true);
-  const loadingRef = useRef(false);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [heroItems, setHeroItems] = useState<ContentItem[]>([]);
+  const [trendingItems, setTrendingItems] = useState<ContentItem[]>([]);
+  const [top10Items, setTop10Items] = useState<ContentItem[]>([]);
+  const [continueItems, setContinueItems] = useState<ContentItem[]>([]);
+
+  const scrollY = useRef(new Animated.Value(0)).current;
+  const headerOpacity = scrollY.interpolate({
+    inputRange: [0, 120],
+    outputRange: [0, 1],
+    extrapolate: "clamp",
+  });
 
   const accent = platform?.accentColor ?? "#E50914";
   const bgColor = platform?.bgColor ?? "#141414";
   const gradient = platform?.bgGradient ?? ["#141414", "#0a0a0a", "#000000"];
-  const topPad = isWeb ? 0 : insets.top;
+  const genres = PLATFORM_GENRES[platform?.id ?? ""] ?? PLATFORM_GENRES["netflix"];
 
-  const fetchItems = useCallback(
-    async (type: ContentType, pageNum: number) => {
-      if (loadingRef.current || pageNum > totalPages) return;
-      loadingRef.current = true;
-      setLoading(true);
-      try {
-        const providerId = platform?.tmdbId;
-        let results: ContentItem[] = [];
-        let maxPages = 1;
+  const userId = user?.id ?? "";
+  useEffect(() => {
+    if (!userId || !isSupabaseConfigured) return;
+    db.progress.getAll(userId).then((items) =>
+      setContinueItems(items.map((p) => ({
+        id: String(p.tmdb_id),
+        tmdbId: p.tmdb_id,
+        title: p.title ?? "Sem título",
+        year: 2024,
+        rating: 0,
+        posterPath: p.poster_path ?? "",
+        backdropPath: p.backdrop_path ?? "",
+        description: "",
+        genres: [],
+        type: p.type === "movie" ? ("movie" as const) : ("series" as const),
+        mediaType: p.type,
+        progress: p.progress ?? 0,
+      })))
+    );
+  }, [userId]);
 
-        if (!providerId) {
-          // No TMDB ID — show nothing for now
-          setItems([]);
-          setInitialLoading(false);
-          loadingRef.current = false;
-          setLoading(false);
-          return;
-        }
+  const loadData = useCallback(async () => {
+    if (!platform?.tmdbId) {
+      setLoading(false);
+      return;
+    }
+    try {
+      const [movieData, tvData] = await Promise.all([
+        api.tmdb.streaming(platform.tmdbId, "movie", 1),
+        api.tmdb.streaming(platform.tmdbId, "tv", 1),
+      ]);
 
-        if (type === "all" || type === "movie") {
-          const movieData = await api.tmdb.streaming(providerId, "movie", pageNum);
-          const movieItems = movieData.results.map(tmdbItemToContent);
-          results = [...results, ...movieItems];
-          maxPages = movieData.total_pages;
-        }
-        if (type === "all" || type === "tv") {
-          const tvData = await api.tmdb.streaming(providerId, "tv", pageNum);
-          const tvItems = tvData.results.map(tmdbItemToContent);
-          results = [...results, ...tvItems];
-          if (tvData.total_pages > maxPages) maxPages = tvData.total_pages;
-        }
+      const movies = movieData.results.map(tmdbItemToContent);
+      const tv = tvData.results.map(tmdbItemToContent);
+      const all = [...movies.slice(0, 10), ...tv.slice(0, 10)];
 
-        // Shuffle for "all" mode for variety
-        if (type === "all") {
-          for (let i = results.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [results[i], results[j]] = [results[j], results[i]];
-          }
-        }
-
-        setItems((prev) => (pageNum === 1 ? results : [...prev, ...results]));
-        setPage(pageNum);
-        setTotalPages(maxPages);
-      } catch (e) {
-        console.warn("Streaming fetch error:", e);
-      } finally {
-        loadingRef.current = false;
-        setLoading(false);
-        setInitialLoading(false);
+      for (let i = all.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [all[i], all[j]] = [all[j], all[i]];
       }
-    },
-    [platform, totalPages]
-  );
+
+      setHeroItems(all.slice(0, 3));
+      setTrendingItems(all.slice(0, 10));
+
+      const top10 = [
+        ...movies.slice(0, 5),
+        ...tv.slice(0, 5),
+      ].slice(0, 10);
+      setTop10Items(top10);
+    } catch (e) {
+      console.warn("Streaming load error:", e);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [platform?.tmdbId, platform?.id]);
 
   useEffect(() => {
-    setInitialLoading(true);
-    setItems([]);
-    setPage(0);
-    setTotalPages(999);
-    loadingRef.current = false;
-    fetchItems(activeType, 1);
-  }, [activeType, platform?.id]);
+    setLoading(true);
+    setHeroItems([]);
+    setTrendingItems([]);
+    setTop10Items([]);
+    loadData();
+  }, [loadData]);
 
-  const loadMore = () => {
-    if (!loading && page < totalPages) {
-      fetchItems(activeType, page + 1);
-    }
-  };
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    loadData();
+  }, [loadData]);
 
   const goToDetail = (item: ContentItem) => {
     router.push({
@@ -218,17 +247,10 @@ export default function StreamingScreen() {
     );
   }
 
-  const tabs: { type: ContentType; label: string }[] = [
-    { type: "all", label: "Tudo" },
-    { type: "movie", label: "Filmes" },
-    { type: "tv", label: "Séries" },
-  ];
-
   return (
     <View style={[styles.container, { backgroundColor: bgColor }]}>
       <StatusBar style="light" />
 
-      {/* Background gradient */}
       <LinearGradient
         colors={gradient as any}
         style={StyleSheet.absoluteFill}
@@ -236,114 +258,167 @@ export default function StreamingScreen() {
         end={{ x: 0, y: 1 }}
       />
 
-      {/* Decorative accent glow */}
-      <View
-        style={[
-          styles.accentGlow,
-          { backgroundColor: accent, top: topPad + 20 },
-        ]}
-      />
+      <Animated.ScrollView
+        onScroll={Animated.event(
+          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+          { useNativeDriver: true }
+        )}
+        scrollEventThrottle={16}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: TAB_BAR_CLEARANCE + (isWeb ? 0 : insets.bottom) }}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={accent}
+            colors={[accent]}
+          />
+        }
+      >
+        {/* Hero Banner */}
+        {heroItems.length > 0 ? (
+          <HeroBanner items={heroItems} onItemPress={goToDetail} />
+        ) : loading ? (
+          <View style={styles.heroPlaceholder}>
+            <LinearGradient
+              colors={[gradient[0], gradient[1]] as [string, string]}
+              style={StyleSheet.absoluteFill}
+            />
+          </View>
+        ) : null}
 
-      {/* Header */}
-      <View style={[styles.header, { paddingTop: topPad + 8 }]}>
-        <Pressable onPress={() => router.back()} style={styles.circleBtn}>
-          <Feather name="arrow-left" size={20} color="#fff" />
-        </Pressable>
-        <PlatformLogo platform={platform} />
-        <View style={{ width: 40 }} />
-      </View>
+        <View style={{ paddingTop: 16 }}>
+          {/* Em Alta section */}
+          {loading ? (
+            <>
+              <SkeletonRow />
+              <SkeletonRow />
+            </>
+          ) : (
+            <>
+              {trendingItems.length > 0 && (
+                <ContentRow
+                  title="Em Alta"
+                  icon="fire"
+                  items={trendingItems}
+                  cardWidth={150}
+                  cardHeight={210}
+                  seeAllLabel="Ver mais"
+                  onSeeAll={() => {}}
+                  onItemPress={goToDetail}
+                />
+              )}
 
-      {/* Tagline */}
-      {platform.tagline ? (
-        <Text style={[styles.tagline, { color: "rgba(255,255,255,0.5)" }]}>
-          {platform.tagline}
-        </Text>
-      ) : null}
+              {top10Items.length > 0 && (
+                <View style={styles.topTenSection}>
+                  <View style={styles.sectionHeader}>
+                    <View style={[styles.accentBar, { backgroundColor: accent }]} />
+                    <Text style={styles.sectionTitle}>Top 10</Text>
+                  </View>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.topTenScroll}
+                  >
+                    {top10Items.map((item, i) => (
+                      <TopTenCard
+                        key={item.id}
+                        item={item}
+                        rank={i + 1}
+                        onPress={() => goToDetail(item)}
+                      />
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
 
-      {/* Content type tabs */}
-      <View style={styles.tabsRow}>
-        {tabs.map((t) => (
-          <TouchableOpacity
-            key={t.type}
-            onPress={() => setActiveType(t.type)}
-            style={[
-              styles.tab,
-              activeType === t.type && {
-                backgroundColor: accent,
-                borderColor: accent,
-              },
-              activeType !== t.type && {
-                backgroundColor: "rgba(255,255,255,0.08)",
-                borderColor: "rgba(255,255,255,0.15)",
-              },
-            ]}
-          >
-            <Text
-              style={[
-                styles.tabText,
-                { color: activeType === t.type ? "#fff" : "rgba(255,255,255,0.6)" },
-              ]}
-            >
-              {t.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+              {continueItems.length > 0 && (
+                <ContentRow
+                  title="Continue Assistindo"
+                  icon="play"
+                  items={continueItems}
+                  cardWidth={170}
+                  cardHeight={100}
+                  showProgress
+                  onSeeAll={() => {}}
+                  onItemPress={goToDetail}
+                />
+              )}
 
-      {/* Divider */}
-      <View style={[styles.divider, { backgroundColor: accent + "40" }]} />
-
-      {initialLoading ? (
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color={accent} />
-          <Text style={{ color: "rgba(255,255,255,0.4)", marginTop: 12, fontSize: 13 }}>
-            Carregando catálogo...
-          </Text>
-        </View>
-      ) : items.length === 0 && !platform.tmdbId ? (
-        <View style={styles.centered}>
-          <Feather name="clock" size={40} color={accent} />
-          <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700", marginTop: 16, textAlign: "center" }}>
-            Em breve
-          </Text>
-          <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 13, marginTop: 8, textAlign: "center", paddingHorizontal: 40 }}>
-            O catálogo do {platform.name} será disponibilizado em breve.
-          </Text>
-        </View>
-      ) : (
-        <FlatList
-          data={items}
-          keyExtractor={(item, idx) => `${item.id}-${idx}`}
-          numColumns={NUM_COLS}
-          contentContainerStyle={[styles.grid, { paddingBottom: insets.bottom + 80 }]}
-          columnWrapperStyle={styles.row}
-          renderItem={({ item }) => (
-            <GridCard item={item} accent={accent} onPress={() => goToDetail(item)} />
+              {platform.tmdbId &&
+                genres.map((genre) => (
+                  <StreamingGenreRow
+                    key={`${genre.type}-${genre.id}`}
+                    providerId={platform.tmdbId!}
+                    genreId={genre.id}
+                    type={genre.type}
+                    title={genre.label}
+                    accentColor={accent}
+                  />
+                ))}
+            </>
           )}
-          onEndReached={loadMore}
-          onEndReachedThreshold={0.5}
-          ListFooterComponent={
-            loading ? (
-              <View style={{ padding: 24, alignItems: "center" }}>
-                <ActivityIndicator color={accent} />
-              </View>
-            ) : null
-          }
+        </View>
+      </Animated.ScrollView>
+
+      {/* Sticky header */}
+      <Animated.View
+        style={[styles.header, { paddingTop: topPad, top: 0 }]}
+        pointerEvents="box-none"
+      >
+        <Animated.View
+          style={[
+            StyleSheet.absoluteFill,
+            { backgroundColor: bgColor, opacity: headerOpacity },
+          ]}
         />
-      )}
+        <View style={styles.headerContent}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.circleBtn}>
+            <Feather name="arrow-left" size={20} color="#fff" />
+          </TouchableOpacity>
+          <PlatformLogo platform={platform} />
+          <TouchableOpacity
+            style={styles.circleBtn}
+            onPress={() => router.push("/(tabs)/search")}
+          >
+            <Feather name="search" size={20} color="rgba(255,255,255,0.85)" />
+          </TouchableOpacity>
+        </View>
+      </Animated.View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  centered: { flex: 1, alignItems: "center", justifyContent: "center" },
+  backBtn: {
+    position: "absolute",
+    left: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.15)",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 10,
+  },
+  heroPlaceholder: {
+    height: 480,
+    backgroundColor: "#111",
+  },
   header: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    zIndex: 10,
+  },
+  headerContent: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingBottom: 12,
-    zIndex: 2,
+    paddingVertical: 6,
   },
   circleBtn: {
     width: 40,
@@ -362,74 +437,31 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   textLogoMain: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: "900",
     letterSpacing: 1,
-    lineHeight: 28,
+    lineHeight: 26,
   },
   textLogoSub: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: "700",
     letterSpacing: 2,
   },
-  tagline: {
-    textAlign: "center",
-    fontSize: 12,
-    letterSpacing: 0.3,
-    marginBottom: 16,
-    paddingHorizontal: 20,
-  },
-  tabsRow: {
+  topTenSection: { marginBottom: 32 },
+  sectionHeader: {
     flexDirection: "row",
-    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    marginBottom: 14,
     gap: 8,
-    paddingHorizontal: 20,
-    marginBottom: 12,
   },
-  tab: {
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-    minWidth: 80,
-    alignItems: "center",
+  accentBar: { width: 3, height: 16, borderRadius: 2 },
+  sectionTitle: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#fff",
+    flex: 1,
+    letterSpacing: -0.3,
   },
-  tabText: { fontSize: 13, fontWeight: "700" },
-  divider: { height: 1, marginHorizontal: 12, marginBottom: 12 },
-  grid: { paddingHorizontal: H_PAD, paddingTop: 4 },
-  row: { justifyContent: "space-between" },
-  card: { borderRadius: 10, overflow: "hidden", backgroundColor: "#1a1a1a" },
-  cardPlaceholder: { flex: 1, alignItems: "center", justifyContent: "center" },
-  typeBadge: {
-    position: "absolute",
-    top: 5,
-    left: 5,
-    paddingHorizontal: 4,
-    paddingVertical: 2,
-    borderRadius: 3,
-  },
-  typeBadgeText: { color: "#fff", fontSize: 8, fontWeight: "700", letterSpacing: 0.4 },
-  cardLabel: { fontSize: 11, fontWeight: "500", marginTop: 5, textAlign: "center" },
-  centered: { flex: 1, alignItems: "center", justifyContent: "center" },
-  backBtn: {
-    position: "absolute",
-    left: 16,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "rgba(255,255,255,0.15)",
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 10,
-  },
-  accentGlow: {
-    position: "absolute",
-    top: 0,
-    left: "25%",
-    right: "25%",
-    height: 2,
-    borderRadius: 1,
-    opacity: 0.7,
-    zIndex: 1,
-  },
+  topTenScroll: { paddingHorizontal: 20, gap: 4 },
 });
