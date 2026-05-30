@@ -100,8 +100,8 @@ export const tmdb = {
   },
 
   movie: {
-    popular: () => tmdbFetch<TmdbPage<TmdbMovie>>("/movie/popular"),
-    topRated: () => tmdbFetch<TmdbPage<TmdbMovie>>("/movie/top_rated"),
+    popular: (page = 1) => tmdbFetch<TmdbPage<TmdbMovie>>("/movie/popular", { page: String(page) }),
+    topRated: (page = 1) => tmdbFetch<TmdbPage<TmdbMovie>>("/movie/top_rated", { page: String(page) }),
     details: (id: number) =>
       tmdbFetch<TmdbMovie>(`/movie/${id}`, { append_to_response: "credits,similar,videos" }),
     similar: (id: number) => tmdbFetch<TmdbPage<TmdbMovie>>(`/movie/${id}/similar`),
@@ -128,6 +128,11 @@ export const tmdb = {
       tmdbFetch<TmdbPage<TmdbMovie>>("/search/movie", { query, page: String(page) }),
     tv: (query: string, page = 1) =>
       tmdbFetch<TmdbPage<TmdbTv>>("/search/tv", { query, page: String(page) }),
+    collections: (query: string, page = 1) =>
+      tmdbFetch<TmdbPage<{ id: number; name: string; poster_path: string | null; backdrop_path: string | null; overview: string }>>(
+        "/search/collection",
+        { query, page: String(page) }
+      ),
   },
 
   genres: {

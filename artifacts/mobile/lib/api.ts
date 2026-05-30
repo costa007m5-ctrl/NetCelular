@@ -123,6 +123,18 @@ export const api = {
 
     franchiseLogo: (type: "collection" | "tv" | "movie", id: number): Promise<{ logo_path: string | null }> =>
       apiFetch(`/tmdb/franchise-logo?type=${type}&id=${id}`).catch(() => ({ logo_path: null })),
+
+    popularCollections: (page = 1): Promise<{
+      results: { id: number; name: string; poster_path: string | null; backdrop_path: string | null }[];
+      page: number;
+      total_pages: number;
+    }> => apiFetch(`/tmdb/popular-collections?page=${page}`),
+
+    searchCollections: (q: string, page = 1): Promise<{
+      results: { id: number; name: string; poster_path: string | null; backdrop_path: string | null; overview: string }[];
+      page: number;
+      total_pages: number;
+    }> => apiFetch(`/tmdb/search-collections?q=${encodeURIComponent(q)}&page=${page}`),
   },
 
   redeflix: {

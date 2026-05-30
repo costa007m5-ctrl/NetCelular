@@ -181,6 +181,45 @@ router.get("/franchise-logo", handle(async (req) => {
   return { logo_path: best?.file_path ?? null };
 }));
 
+// Rotating search terms to browse TMDB collections broadly
+const COLLECTION_SEARCH_TERMS = [
+  "saga", "collection", "trilogy", "universe", "chronicles",
+  "the", "man", "super", "dark", "star", "iron", "black",
+  "dead", "time", "fire", "night", "war", "world", "blood",
+  "king", "dragon", "magic", "hero", "evil", "last", "lost",
+  "mission", "fast", "ring", "potter", "avengers", "batman",
+  "spider", "x-men", "thor", "captain", "jurassic", "matrix",
+  "alien", "terminator", "indiana", "james bond", "rocky",
+  "die hard", "mad max", "rambo", "transformers", "conjuring",
+  "halloween", "saw", "paranormal", "resident evil", "purge",
+  "ocean", "bourne", "taken", "expendables", "mummy",
+  "chronicles", "frozen", "shrek", "minions", "despicable",
+  "toy story", "cars", "kung fu", "incredibles", "finding",
+  "naruto", "dragon ball", "bleach", "one piece", "attack",
+  "demon", "hunter", "sword", "evangelion", "fullmetal",
+];
+
+router.get("/popular-collections", handle(async (req) => {
+  const page = Number(req.query.page ?? 1);
+  const termIdx = (page - 1) % COLLECTION_SEARCH_TERMS.length;
+  const termPage = Math.floor((page - 1) / COLLECTION_SEARCH_TERMS.length) + 1;
+  const term = COLLECTION_SEARCH_TERMS[termIdx];
+  const data = await tmdb.search.collections(term, termPage);
+  return {
+    results: data.results.slice(0, 30),
+    page,
+    total_pages: Math.min(data.total_pages * COLLECTION_SEARCH_TERMS.length, 999),
+  };
+}));
+
+router.get("/search-collections", handle(async (req) => {
+  const q = String(req.query.q ?? "");
+  const page = Number(req.query.page ?? 1);
+  if (!q.trim()) return { results: [], total_pages: 0, page: 1 };
+  const data = await tmdb.search.collections(q, page);
+  return data;
+}));
+
 router.get("/genres", handle(async () => {
   const [movies, tv] = await Promise.all([
     tmdb.genres.movies(),
