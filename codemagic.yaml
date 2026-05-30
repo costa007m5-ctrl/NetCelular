@@ -20,7 +20,9 @@ workflows:
 
     scripts:
       - name: Instalar pnpm
-        script: which pnpm || npm install -g pnpm --force
+        script: |
+          corepack enable
+          corepack prepare pnpm@latest --activate
 
       - name: Instalar dependências do workspace
         script: pnpm install --frozen-lockfile
@@ -93,7 +95,9 @@ workflows:
 
     scripts:
       - name: Instalar pnpm
-        script: which pnpm || npm install -g pnpm --force
+        script: |
+          corepack enable
+          corepack prepare pnpm@latest --activate
 
       - name: Instalar dependências do workspace
         script: pnpm install --frozen-lockfile
@@ -168,7 +172,9 @@ workflows:
 
     scripts:
       - name: Instalar pnpm
-        script: which pnpm || npm install -g pnpm --force
+        script: |
+          corepack enable
+          corepack prepare pnpm@latest --activate
 
       - name: Instalar dependências
         script: pnpm install --frozen-lockfile

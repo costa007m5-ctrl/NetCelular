@@ -1,0 +1,11 @@
+npm error code EEXIST
+npm error path /usr/local/bin/pnpm
+npm error EEXIST: file already exists
+npm error File exists: /usr/local/bin/pnpm
+npm error Remove the existing file and try again, or run npm
+npm error with --force to overwrite files recklessly.
+npm error A complete log of this run can be found in: /Users/builder/.npm/_logs/2026-05-30T23_12_25_613Z-debug-0.log
+
+
+Build failed :|
+Step 2 script `Instalar pnpm` exited with status code 1
