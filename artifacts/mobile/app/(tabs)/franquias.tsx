@@ -274,6 +274,7 @@ function FranchiseRow({
   favorites,
   onFavToggle,
   showRanks,
+  onVerMais,
 }: {
   title: string;
   franchises: Franchise[];
@@ -283,9 +284,9 @@ function FranchiseRow({
   favorites?: string[];
   onFavToggle?: (id: string) => void;
   showRanks?: boolean;
+  onVerMais?: () => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const visible = expanded ? franchises : franchises.slice(0, ROW_ITEMS_DEFAULT);
+  const visible = franchises.slice(0, ROW_ITEMS_DEFAULT);
 
   if (franchises.length === 0) return null;
 
@@ -314,10 +315,10 @@ function FranchiseRow({
             rank={showRanks ? i + 1 : undefined}
           />
         ))}
-        {!expanded && franchises.length > ROW_ITEMS_DEFAULT && (
-          <Pressable onPress={() => setExpanded(true)} style={styles.verMaisCard}>
+        {franchises.length > ROW_ITEMS_DEFAULT && (
+          <Pressable onPress={onVerMais} style={styles.verMaisCard}>
             <View style={styles.verMaisInner}>
-              <Feather name="plus-circle" size={24} color="#fff" />
+              <Feather name="grid" size={22} color="#fff" />
               <Text style={styles.verMaisText}>Ver mais</Text>
               <Text style={styles.verMaisCount}>+{franchises.length - ROW_ITEMS_DEFAULT}</Text>
             </View>
@@ -460,18 +461,10 @@ export default function FranquiasScreen() {
                   showHeart
                   favorites={favorites}
                   onFavToggle={toggle}
+                  onVerMais={() => router.push({ pathname: "/franchises-genre", params: { genre, label } })}
                 />
               );
             })}
-
-            {/* ── Ver mais coletâneas ───────────────────── */}
-            <TouchableOpacity style={styles.browseBtn} onPress={() => router.push("/collections-browser")}>
-              <View style={styles.browseBtnInner}>
-                <Feather name="grid" size={18} color="#E8C97E" />
-                <Text style={styles.browseBtnText}>Ver todas as coletâneas TMDB</Text>
-                <Feather name="chevron-right" size={18} color="#E8C97E" />
-              </View>
-            </TouchableOpacity>
           </>
         )}
       </Animated.ScrollView>
@@ -492,15 +485,6 @@ export default function FranquiasScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#000" },
-
-  // Browse button
-  browseBtn: { marginHorizontal: 16, marginTop: 8, marginBottom: 24 },
-  browseBtnInner: {
-    flexDirection: "row", alignItems: "center", gap: 12,
-    backgroundColor: "#0e0e0e", borderRadius: 14, paddingHorizontal: 18, paddingVertical: 16,
-    borderWidth: 1, borderColor: "#2a2a1a",
-  },
-  browseBtnText: { flex: 1, color: "#E8C97E", fontSize: 14, fontWeight: "700" },
 
   // Banner
   bannerAccent: { position: "absolute", top: 0, left: 0, right: 0, height: 3, zIndex: 2 },
