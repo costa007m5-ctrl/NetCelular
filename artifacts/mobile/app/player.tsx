@@ -6,6 +6,7 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
@@ -26,17 +27,20 @@ try {
   WebView = null;
 }
 
+let ScreenOrientation: any = null;
+try {
+  ScreenOrientation = require("expo-screen-orientation");
+} catch {
+  ScreenOrientation = null;
+}
+
 // JavaScript injected into the WebView to block ads
 const AD_BLOCKER_JS = `
 (function() {
-  // Block popup windows
   window.open = function() { return null; };
-  
-  // Block all navigation away from the player
   var _pushState = history.pushState;
   history.pushState = function() { return null; };
   
-  // Remove ad overlays, banners and redirect links
   function removeAds() {
     var adSelectors = [
       'a[target="_blank"]',
@@ -68,8 +72,6 @@ const AD_BLOCKER_JS = `
         });
       } catch(e) {}
     });
-    
-    // Remove elements that look like ad overlays (large z-index, no video inside)
     try {
       document.querySelectorAll('div,section').forEach(function(el) {
         var style = window.getComputedStyle(el);
@@ -84,11 +86,8 @@ const AD_BLOCKER_JS = `
     } catch(e) {}
   }
   
-  // Run immediately and on intervals
   removeAds();
   setInterval(removeAds, 1500);
-  
-  // Also run after DOM changes
   try {
     var obs = new MutationObserver(removeAds);
     obs.observe(document.body, { childList: true, subtree: true });
@@ -124,6 +123,19 @@ export default function PlayerScreen() {
   const [error, setError] = useState(false);
   const [progressSaved, setProgressSaved] = useState(false);
 
+  // Lock to landscape on native, unlock on unmount
+  useEffect(() => {
+    if (Platform.OS === "web" || !ScreenOrientation) return;
+    try {
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
+    } catch {}
+    return () => {
+      try {
+        ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
+      } catch {}
+    };
+  }, []);
+
   const saveProgress = async () => {
     if (!user?.id || !id || !isSupabaseConfigured || progressSaved) return;
     try {
@@ -151,7 +163,7 @@ export default function PlayerScreen() {
   }, [id, type]);
 
   const playerUrl = api.redeflix.url(type, id, season, episode);
-  const topPad = Platform.OS === "web" ? 67 : insets.top;
+  const topPad = Platform.OS === "web" ? 0 : insets.top;
 
   if (!id) {
     return (
@@ -182,12 +194,7 @@ export default function PlayerScreen() {
         <View style={styles.iframeWrap}>
           <iframe
             src={playerUrl}
-            style={{
-              width: "100%",
-              height: "100%",
-              border: "none",
-              backgroundColor: "#000",
-            }}
+            style={{ width: "100%", height: "100%", border: "none", backgroundColor: "#000" }}
             allowFullScreen
             allow="autoplay; fullscreen; encrypted-media"
             title={title}
@@ -266,16 +273,9 @@ export default function PlayerScreen() {
         domStorageEnabled
         startInLoadingState={false}
         injectedJavaScript={AD_BLOCKER_JS}
-        injectedJavaScriptBeforeContentLoaded={`
-          (function(){
-            window.open = function(){ return null; };
-          })(); true;
-        `}
+        injectedJavaScriptBeforeContentLoaded={`(function(){ window.open = function(){ return null; }; })(); true;`}
         onShouldStartLoadWithRequest={(req) => {
-          // Block navigations away from the redeflix domain
-          if (!req.url.includes("redeflix") && req.navigationType === "click") {
-            return false;
-          }
+          if (!req.url.includes("redeflix") && req.navigationType === "click") return false;
           return true;
         }}
       />
@@ -291,25 +291,43 @@ export default function PlayerScreen() {
 
       {error && (
         <View style={styles.loaderOverlay}>
-          <Feather name="wifi-off" size={40} color={colors.mutedForeground} />
-          <Text style={[styles.errorText, { color: colors.mutedForeground }]}>
-            Não foi possível carregar o player
+          <Feather name="clock" size={48} color={colors.primary} />
+          <Text style={[styles.unavailTitle, { color: colors.foreground }]}>
+            Conteúdo Indisponível
           </Text>
-          <Text style={[styles.errorUrl, { color: colors.border }]}>{playerUrl}</Text>
+          <Text style={[styles.unavailDesc, { color: colors.mutedForeground }]}>
+            Este conteúdo ainda não está disponível no catálogo. Estamos trabalhando para trazê-lo em breve!
+          </Text>
+          <TouchableOpacity
+            style={[styles.indicateBtn, { backgroundColor: colors.primary }]}
+            onPress={() => router.back()}
+          >
+            <Feather name="heart" size={16} color="#fff" />
+            <Text style={styles.indicateBtnText}>Indicar este conteúdo</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.backButton, { borderColor: colors.border }]}
+            onPress={() => router.back()}
+          >
+            <Feather name="arrow-left" size={16} color={colors.foreground} />
+            <Text style={[styles.backButtonText, { color: colors.foreground }]}>Voltar</Text>
+          </TouchableOpacity>
         </View>
       )}
 
-      <View style={[styles.playerHeader, { paddingTop: topPad + 4 }]}>
-        <Pressable onPress={() => router.back()} style={styles.iconBtn}>
-          <Feather name="arrow-left" size={22} color="rgba(255,255,255,0.9)" />
-        </Pressable>
-        {title ? (
-          <Text style={styles.playerTitle} numberOfLines={1}>{title}</Text>
-        ) : null}
-        <View style={{ width: 40 }} />
-      </View>
+      {!error && (
+        <View style={[styles.playerHeader, { paddingTop: topPad + 4 }]}>
+          <Pressable onPress={() => router.back()} style={styles.iconBtn}>
+            <Feather name="arrow-left" size={22} color="rgba(255,255,255,0.9)" />
+          </Pressable>
+          {title ? (
+            <Text style={styles.playerTitle} numberOfLines={1}>{title}</Text>
+          ) : null}
+          <View style={{ width: 40 }} />
+        </View>
+      )}
 
-      {type === "tv" && (
+      {type === "tv" && !error && (
         <View style={[styles.episodeBar, { backgroundColor: "rgba(0,0,0,0.85)", bottom: 0, position: "absolute", left: 0, right: 0 }]}>
           <Text style={[styles.episodeText, { color: colors.mutedForeground }]}>
             T{season} · Ep {episode}
@@ -387,11 +405,33 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#000",
-    gap: 14,
+    gap: 16,
+    paddingHorizontal: 32,
   },
   loadingText: { fontSize: 14, fontWeight: "500" },
   errorText: { fontSize: 15, fontWeight: "500", textAlign: "center" },
-  errorUrl: { fontSize: 11, textAlign: "center", paddingHorizontal: 24 },
+  unavailTitle: { fontSize: 22, fontWeight: "800", textAlign: "center" },
+  unavailDesc: { fontSize: 14, lineHeight: 20, textAlign: "center" },
+  indicateBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 28,
+    paddingVertical: 14,
+    borderRadius: 12,
+    marginTop: 8,
+  },
+  indicateBtnText: { color: "#fff", fontSize: 15, fontWeight: "700" },
+  backButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  backButtonText: { fontSize: 14, fontWeight: "600" },
   centered: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12 },
   backBtn: { position: "absolute", left: 12, zIndex: 10 },
   episodeBar: { paddingHorizontal: 16, paddingVertical: 10, gap: 8 },

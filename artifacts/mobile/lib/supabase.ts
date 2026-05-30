@@ -174,6 +174,17 @@ export const db = {
       return (data ?? []) as WatchProgress[];
     },
 
+    getForShow: async (userId: string, tmdbId: number, type: "movie" | "tv"): Promise<WatchProgress | null> => {
+      const { data } = await supabase
+        .from("watch_progress")
+        .select("*")
+        .eq("user_id", userId)
+        .eq("tmdb_id", tmdbId)
+        .eq("type", type)
+        .maybeSingle();
+      return data as WatchProgress | null;
+    },
+
     upsert: async (item: WatchProgress): Promise<boolean> => {
       const { error } = await supabase
         .from("watch_progress")

@@ -102,6 +102,40 @@ router.get("/discover", handle(async (req) => {
   return tmdb.discover.movies(genreId, page);
 }));
 
+router.get("/movie/:id/providers", handle(async (req) => {
+  const id = Number(req.params.id);
+  const data = await tmdb.watchProviders.movie(id);
+  return data?.results?.BR ?? null;
+}));
+
+router.get("/tv/:id/providers", handle(async (req) => {
+  const id = Number(req.params.id);
+  const data = await tmdb.watchProviders.tv(id);
+  return data?.results?.BR ?? null;
+}));
+
+router.get("/redeflix/available", handle(async (req) => {
+  const type = String(req.query.type ?? "movie");
+  const id = Number(req.query.id ?? 0);
+  const season = Number(req.query.season ?? 1);
+  const episode = Number(req.query.episode ?? 1);
+  const url =
+    type === "tv"
+      ? `https://redeflixapi.store/serie/${id}/${season}/${episode}`
+      : `https://redeflixapi.store/filme/${id}`;
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 7000);
+    const res = await fetch(url, { method: "GET", signal: controller.signal });
+    clearTimeout(timer);
+    const text = await res.text();
+    const hasContent = res.ok && text.length > 500;
+    return { available: hasContent };
+  } catch {
+    return { available: false };
+  }
+}));
+
 router.get("/genres", handle(async () => {
   const [movies, tv] = await Promise.all([
     tmdb.genres.movies(),

@@ -135,6 +135,17 @@ export const tmdb = {
     tv: () => tmdbFetch<{ genres: { id: number; name: string }[] }>("/genre/tv/list"),
   },
 
+  watchProviders: {
+    movie: (id: number) =>
+      tmdbFetch<{ results: Record<string, { flatrate?: { logo_path: string; provider_id: number; provider_name: string }[]; rent?: any[]; buy?: any[] }> }>(
+        `/movie/${id}/watch/providers`
+      ),
+    tv: (id: number) =>
+      tmdbFetch<{ results: Record<string, { flatrate?: { logo_path: string; provider_id: number; provider_name: string }[]; rent?: any[]; buy?: any[] }> }>(
+        `/tv/${id}/watch/providers`
+      ),
+  },
+
   discover: {
     movies: (genreId?: number, page = 1) => {
       const params: Record<string, string> = { page: String(page), include_adult: "false", sort_by: "popularity.desc" };

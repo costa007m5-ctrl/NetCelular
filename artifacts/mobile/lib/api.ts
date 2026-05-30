@@ -94,6 +94,12 @@ export const api = {
 
     discover: (type: "movie" | "tv", genreId: number, page = 1): Promise<TmdbSearchResult> =>
       apiFetch(`/tmdb/discover?type=${type}&genre_id=${genreId}&page=${page}`),
+
+    providers: (type: "movie" | "tv", id: number): Promise<{ flatrate?: { logo_path: string; provider_id: number; provider_name: string }[] } | null> =>
+      apiFetch(`/tmdb/${type}/${id}/providers`).catch(() => null),
+
+    checkAvailable: (type: "movie" | "tv", id: number, season = 1, episode = 1): Promise<{ available: boolean }> =>
+      apiFetch(`/tmdb/redeflix/available?type=${type}&id=${id}&season=${season}&episode=${episode}`).catch(() => ({ available: true })),
   },
 
   redeflix: {

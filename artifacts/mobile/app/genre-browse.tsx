@@ -3,7 +3,9 @@ import {
   ActivityIndicator,
   Dimensions,
   FlatList,
+  Image,
   Platform,
+  Pressable,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -12,17 +14,49 @@ import {
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { useColors } from "@/hooks/useColors";
-import { ContentCardWithLabel } from "@/components/ContentCard";
-import { api, tmdbItemToContent } from "@/lib/api";
+import { api, tmdbItemToContent, TMDB_IMG } from "@/lib/api";
 import type { ContentItem } from "@/constants/content";
 
 const NUM_COLS = 3;
-const H_PAD = 16;
-const GAP = 8;
+const H_PAD = 12;
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
-const CARD_WIDTH = Math.floor((SCREEN_WIDTH - H_PAD * 2 - GAP * (NUM_COLS - 1)) / NUM_COLS);
+const CARD_WIDTH = Math.floor((SCREEN_WIDTH - H_PAD * 2) / NUM_COLS) - 4;
 const CARD_HEIGHT = Math.floor(CARD_WIDTH * 1.5);
+
+function GridCard({ item, onPress }: { item: ContentItem; onPress: () => void }) {
+  const colors = useColors();
+  const [imgError, setImgError] = useState(false);
+  return (
+    <Pressable onPress={onPress} style={{ width: CARD_WIDTH, marginBottom: 12 }}>
+      <View style={[styles.card, { width: CARD_WIDTH, height: CARD_HEIGHT }]}>
+        {!imgError && item.posterPath ? (
+          <Image
+            source={{ uri: item.posterPath }}
+            style={StyleSheet.absoluteFill}
+            resizeMode="cover"
+            onError={() => setImgError(true)}
+          />
+        ) : (
+          <LinearGradient colors={["#1e1e1e", "#2a1a1a"]} style={StyleSheet.absoluteFill}>
+            <View style={styles.cardPlaceholder}>
+              <Feather name="film" size={24} color="#444" />
+            </View>
+          </LinearGradient>
+        )}
+        {item.type === "series" && (
+          <View style={styles.typeBadge}>
+            <Text style={styles.typeBadgeText}>SÉRIE</Text>
+          </View>
+        )}
+      </View>
+      <Text style={[styles.cardLabel, { color: colors.mutedForeground }]} numberOfLines={1}>
+        {item.title}
+      </Text>
+    </Pressable>
+  );
+}
 
 export default function GenreBrowseScreen() {
   const { genre_id, type, title } = useLocalSearchParams<{
@@ -78,11 +112,10 @@ export default function GenreBrowseScreen() {
           api.tmdb.discover((type as "movie" | "tv") ?? "movie", Number(genre_id), 1),
           api.tmdb.discover((type as "movie" | "tv") ?? "movie", Number(genre_id), 2),
         ]);
-        const all = [
+        setItems([
           ...d1.results.map(tmdbItemToContent),
           ...d2.results.map(tmdbItemToContent),
-        ];
-        setItems(all);
+        ]);
         setCurrentPage(2);
         setTotalPages(d1.total_pages);
       } catch (err) {
@@ -104,16 +137,24 @@ export default function GenreBrowseScreen() {
 
   const topPad = isWeb ? 0 : insets.top;
 
+  const goToDetail = (item: ContentItem) => {
+    router.push({
+      pathname: "/detail",
+      params: {
+        type: item.mediaType ?? (item.type === "movie" ? "movie" : "tv"),
+        id: String(item.tmdbId ?? item.id),
+        title: item.title,
+      },
+    });
+  };
+
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: topPad + 8 }]}>
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
           <Feather name="arrow-left" size={22} color={colors.foreground} />
         </TouchableOpacity>
-        <Text
-          style={[styles.headerTitle, { color: colors.foreground }]}
-          numberOfLines={1}
-        >
+        <Text style={[styles.headerTitle, { color: colors.foreground }]} numberOfLines={1}>
           {title ?? "Explorar"}
         </Text>
         <View style={{ width: 40 }} />
@@ -128,29 +169,10 @@ export default function GenreBrowseScreen() {
           data={items}
           keyExtractor={(item, idx) => `${item.id}-${idx}`}
           numColumns={NUM_COLS}
-          contentContainerStyle={[
-            styles.grid,
-            { paddingBottom: insets.bottom + 32 },
-          ]}
+          contentContainerStyle={[styles.grid, { paddingBottom: insets.bottom + 32 }]}
           columnWrapperStyle={styles.row}
           renderItem={({ item }) => (
-            <ContentCardWithLabel
-              item={item}
-              width={CARD_WIDTH}
-              height={CARD_HEIGHT}
-              onPress={() =>
-                router.push({
-                  pathname: "/detail",
-                  params: {
-                    type:
-                      item.mediaType ??
-                      (item.type === "movie" ? "movie" : "tv"),
-                    id: String(item.tmdbId ?? item.id),
-                    title: item.title,
-                  },
-                })
-              }
-            />
+            <GridCard item={item} onPress={() => goToDetail(item)} />
           )}
           onEndReached={loadMore}
           onEndReachedThreshold={0.5}
@@ -194,10 +216,41 @@ const styles = StyleSheet.create({
   grid: {
     paddingHorizontal: H_PAD,
     paddingTop: 8,
-    gap: GAP,
   },
   row: {
-    gap: GAP,
+    justifyContent: "space-between",
+    marginBottom: 0,
+  },
+  card: {
+    borderRadius: 10,
+    overflow: "hidden",
+    backgroundColor: "#1a1a1a",
+  },
+  cardPlaceholder: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  typeBadge: {
+    position: "absolute",
+    top: 5,
+    left: 5,
+    backgroundColor: "rgba(0,0,0,0.75)",
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 3,
+  },
+  typeBadgeText: {
+    color: "#fff",
+    fontSize: 8,
+    fontWeight: "700",
+    letterSpacing: 0.4,
+  },
+  cardLabel: {
+    fontSize: 11,
+    fontWeight: "500",
+    marginTop: 5,
+    textAlign: "center",
   },
   footer: { padding: 24, alignItems: "center" },
 });
