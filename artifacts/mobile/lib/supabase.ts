@@ -7,7 +7,10 @@ const key = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? "";
 
 export const isSupabaseConfigured = Boolean(url && key);
 
-export const supabase = createClient(url, key, {
+const _url = url || "https://placeholder.supabase.co";
+const _key = key || "placeholder-key";
+
+export const supabase = createClient(_url, _key, {
   auth: {
     storage: Platform.OS !== "web" ? AsyncStorage : undefined,
     autoRefreshToken: true,
