@@ -6,6 +6,7 @@ import {
   useFonts,
 } from "@expo-google-fonts/inter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ConvexProvider } from "convex/react";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import * as SystemUI from "expo-system-ui";
@@ -15,9 +16,9 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { convexClient } from "@/lib/convex-client";
 
 SystemUI.setBackgroundColorAsync("#000000");
-
 SplashScreen.preventAutoHideAsync();
 
 const queryClient = new QueryClient();
@@ -28,6 +29,23 @@ function RootLayoutNav() {
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="player" options={{ headerShown: false, presentation: "fullScreenModal" }} />
     </Stack>
+  );
+}
+
+function AppProviders({ children }: { children: React.ReactNode }) {
+  if (convexClient) {
+    return (
+      <ConvexProvider client={convexClient}>
+        <QueryClientProvider client={queryClient}>
+          {children}
+        </QueryClientProvider>
+      </ConvexProvider>
+    );
+  }
+  return (
+    <QueryClientProvider client={queryClient}>
+      {children}
+    </QueryClientProvider>
   );
 }
 
@@ -50,13 +68,13 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <ErrorBoundary>
-        <QueryClientProvider client={queryClient}>
+        <AppProviders>
           <GestureHandlerRootView style={{ flex: 1, backgroundColor: "#000" }}>
             <KeyboardProvider>
               <RootLayoutNav />
             </KeyboardProvider>
           </GestureHandlerRootView>
-        </QueryClientProvider>
+        </AppProviders>
       </ErrorBoundary>
     </SafeAreaProvider>
   );

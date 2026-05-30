@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -11,67 +11,58 @@ import {
 import { StatusBar } from "expo-status-bar";
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import { useMutation, useQuery } from "convex/react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { ContentCard } from "@/components/ContentCard";
-import { db } from "@/lib/supabase";
+import { api } from "@/convex/_generated/api";
 import { getDeviceId } from "@/lib/deviceId";
+import { isConvexConfigured } from "@/lib/convex-client";
 import { MY_LIST } from "@/constants/content";
 import type { ContentItem } from "@/constants/content";
 
-export default function ListScreen() {
+function ConvexList() {
   const colors = useColors();
-  const insets = useSafeAreaInsets();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const isWeb = Platform.OS === "web";
   const topPad = isWeb ? 67 : insets.top;
 
-  const [list, setList] = useState<ContentItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [deviceId, setDeviceId] = useState("");
-
-  const loadList = useCallback(async (devId: string) => {
-    try {
-      const items = await db.watchlist.getAll(devId);
-      if (items.length > 0) {
-        const content: ContentItem[] = items.map((w) => ({
-          id: String(w.tmdb_id),
-          tmdbId: w.tmdb_id,
-          title: w.title ?? "Título desconhecido",
-          year: 2024,
-          rating: 0,
-          posterPath: w.poster_path ?? "",
-          backdropPath: w.backdrop_path ?? "",
-          description: "",
-          genres: [],
-          type: w.type === "movie" ? "movie" : "series",
-          mediaType: w.type,
-        }));
-        setList(content);
-      } else {
-        setList(MY_LIST);
-      }
-    } catch {
-      setList(MY_LIST);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const [deviceId, setDeviceId] = useState<string | null>(null);
 
   useEffect(() => {
-    getDeviceId().then((id) => {
-      setDeviceId(id);
-      loadList(id);
-    });
-  }, [loadList]);
+    getDeviceId().then(setDeviceId);
+  }, []);
+
+  const rawList = useQuery(
+    api.watchlist.getAll,
+    deviceId ? { deviceId } : "skip"
+  );
+  const removeMutation = useMutation(api.watchlist.remove);
+
+  const list: ContentItem[] = (rawList ?? []).map((w: any) => ({
+    id: String(w.tmdbId),
+    tmdbId: w.tmdbId,
+    title: w.title ?? "Sem título",
+    year: 2024,
+    rating: 0,
+    posterPath: w.posterPath ?? "",
+    backdropPath: w.backdropPath ?? "",
+    description: "",
+    genres: [],
+    type: w.type === "movie" ? "movie" as const : "series" as const,
+    mediaType: w.type,
+  }));
+
+  const loading = rawList === undefined || deviceId === null;
 
   const removeItem = async (item: ContentItem) => {
-    const type = item.mediaType ?? (item.type === "movie" ? "movie" : "tv");
-    const tmdbId = item.tmdbId ?? Number(item.id);
-    setList((prev) => prev.filter((x) => x.id !== item.id));
-    if (deviceId) {
-      await db.watchlist.remove(deviceId, tmdbId, type as "movie" | "tv");
-    }
+    if (!deviceId) return;
+    await removeMutation({
+      deviceId,
+      tmdbId: item.tmdbId ?? Number(item.id),
+      type: (item.mediaType ?? (item.type === "movie" ? "movie" : "tv")) as "movie" | "tv",
+    });
   };
 
   const goToPlayer = (item: ContentItem) => {
@@ -94,7 +85,7 @@ export default function ListScreen() {
       <View style={[styles.header, { paddingTop: topPad + 8 }]}>
         <Text style={[styles.title, { color: colors.foreground }]}>Minha Lista</Text>
         <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
-          {list.length} {list.length === 1 ? "título" : "títulos"} salvos
+          {loading ? "Carregando..." : `${list.length} ${list.length === 1 ? "título" : "títulos"} salvos`}
         </Text>
       </View>
 
@@ -130,10 +121,7 @@ export default function ListScreen() {
               >
                 <Feather name="x" size={12} color={colors.mutedForeground} />
               </Pressable>
-              <Text
-                style={[styles.cardTitle, { color: colors.mutedForeground }]}
-                numberOfLines={1}
-              >
+              <Text style={[styles.cardTitle, { color: colors.mutedForeground }]} numberOfLines={1}>
                 {item.title}
               </Text>
             </View>
@@ -142,6 +130,84 @@ export default function ListScreen() {
       )}
     </View>
   );
+}
+
+function LocalList() {
+  const colors = useColors();
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const isWeb = Platform.OS === "web";
+  const topPad = isWeb ? 67 : insets.top;
+
+  const [list, setList] = useState(MY_LIST);
+
+  const removeItem = (id: string) => setList((prev) => prev.filter((x) => x.id !== id));
+
+  const goToPlayer = (item: ContentItem) => {
+    router.push({
+      pathname: "/player",
+      params: {
+        type: item.mediaType ?? (item.type === "movie" ? "movie" : "tv"),
+        id: String(item.tmdbId ?? item.id),
+        title: item.title,
+      },
+    });
+  };
+
+  const CARD_WIDTH = 104;
+  const CARD_HEIGHT = 152;
+
+  return (
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <StatusBar style="light" />
+      <View style={[styles.header, { paddingTop: topPad + 8 }]}>
+        <Text style={[styles.title, { color: colors.foreground }]}>Minha Lista</Text>
+        <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
+          {list.length} {list.length === 1 ? "título" : "títulos"} salvos
+        </Text>
+      </View>
+
+      {list.length === 0 ? (
+        <View style={styles.empty}>
+          <Feather name="bookmark" size={44} color={colors.border} />
+          <Text style={[styles.emptyTitle, { color: colors.mutedForeground }]}>Lista vazia</Text>
+          <Text style={[styles.emptyDesc, { color: colors.border }]}>
+            Adicione filmes e séries para assistir depois
+          </Text>
+        </View>
+      ) : (
+        <FlatList
+          data={list}
+          keyExtractor={(item) => item.id}
+          numColumns={3}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 120 }}
+          renderItem={({ item }) => (
+            <View style={styles.cardWrap}>
+              <ContentCard
+                item={item}
+                width={CARD_WIDTH}
+                height={CARD_HEIGHT}
+                onPress={() => goToPlayer(item)}
+              />
+              <Pressable
+                onPress={() => removeItem(item.id)}
+                style={[styles.removeBtn, { backgroundColor: colors.card }]}
+              >
+                <Feather name="x" size={12} color={colors.mutedForeground} />
+              </Pressable>
+              <Text style={[styles.cardTitle, { color: colors.mutedForeground }]} numberOfLines={1}>
+                {item.title}
+              </Text>
+            </View>
+          )}
+        />
+      )}
+    </View>
+  );
+}
+
+export default function ListScreen() {
+  return isConvexConfigured ? <ConvexList /> : <LocalList />;
 }
 
 const styles = StyleSheet.create({
@@ -171,11 +237,5 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     zIndex: 5,
   },
-  cardTitle: {
-    fontSize: 10,
-    fontWeight: "500",
-    marginTop: 5,
-    width: 104,
-    textAlign: "center",
-  },
+  cardTitle: { fontSize: 10, fontWeight: "500", marginTop: 5, width: 104, textAlign: "center" },
 });
