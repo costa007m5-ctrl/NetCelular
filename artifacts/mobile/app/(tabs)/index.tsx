@@ -149,11 +149,11 @@ export default function HomeScreen() {
           />
         }
       >
-        <View style={{ marginTop: topPad }}>
+        <View>
           <HeroBanner items={heroItems} onItemPress={goToPlayer} />
         </View>
 
-        <View style={{ paddingTop: 28 }}>
+        <View style={{ paddingTop: 0, marginTop: -52 }}>
           <View style={styles.categoriesRow}>
             <ScrollView
               horizontal
