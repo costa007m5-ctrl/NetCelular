@@ -100,6 +100,9 @@ export const api = {
 
     checkAvailable: (type: "movie" | "tv", id: number, season = 1, episode = 1): Promise<{ available: boolean }> =>
       apiFetch(`/tmdb/redeflix/available?type=${type}&id=${id}&season=${season}&episode=${episode}`).catch(() => ({ available: true })),
+
+    streaming: (providerId: number, type: "movie" | "tv", page = 1): Promise<TmdbSearchResult> =>
+      apiFetch(`/tmdb/streaming?provider_id=${providerId}&type=${type}&page=${page}`),
   },
 
   redeflix: {

@@ -92,6 +92,15 @@ router.get("/tv/:id/season/:seasonNum", handle(async (req) => {
   return tmdb.tv.season(id, seasonNum);
 }));
 
+router.get("/streaming", handle(async (req) => {
+  const providerId = Number(req.query.provider_id ?? 0);
+  const type = String(req.query.type ?? "movie");
+  const page = Number(req.query.page ?? 1);
+  if (!providerId) return { results: [], total_pages: 0, total_results: 0, page: 1 };
+  if (type === "tv") return tmdb.discover.tv(undefined, page, providerId);
+  return tmdb.discover.movies(undefined, page, providerId);
+}));
+
 router.get("/discover", handle(async (req) => {
   const type = String(req.query.type ?? "movie");
   const genreId = req.query.genre_id ? Number(req.query.genre_id) : undefined;

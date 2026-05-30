@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Animated,
+  Image,
   Platform,
+  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -11,6 +13,7 @@ import {
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { Feather } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
@@ -24,9 +27,52 @@ import { api, tmdbItemToContent } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
 import type { ContentItem } from "@/constants/content";
-import { CATEGORIES, HERO_ITEMS, TOP_10_SERIES, TRENDING } from "@/constants/content";
+import { HERO_ITEMS, TOP_10_SERIES, TRENDING } from "@/constants/content";
+import { MAIN_PLATFORMS, STREAMING_PLATFORMS } from "@/constants/streamings";
+import type { StreamingPlatform } from "@/constants/streamings";
 
 const TAB_BAR_CLEARANCE = 110;
+
+// Streaming chips shown in the home row (first 6 main + "Ver todos")
+const HOME_STREAMING = MAIN_PLATFORMS.slice(0, 6);
+
+function StreamingChip({
+  platform,
+  onPress,
+}: {
+  platform: StreamingPlatform;
+  onPress: () => void;
+}) {
+  const [logoError, setLogoError] = useState(false);
+  const logoUrl = platform.logoPath
+    ? `https://image.tmdb.org/t/p/w185${platform.logoPath}`
+    : null;
+
+  return (
+    <Pressable onPress={onPress} style={styles.streamingChip}>
+      <LinearGradient
+        colors={[platform.bgGradient[0], platform.bgGradient[1]] as [string, string]}
+        style={styles.streamingChipGradient}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+      >
+        <View style={[styles.streamingChipAccent, { backgroundColor: platform.brandColor }]} />
+        {logoUrl && !logoError ? (
+          <Image
+            source={{ uri: logoUrl }}
+            style={styles.streamingChipLogo}
+            resizeMode="contain"
+            onError={() => setLogoError(true)}
+          />
+        ) : (
+          <Text style={[styles.streamingChipText, { color: platform.brandColor }]} numberOfLines={1}>
+            {platform.name.split(" ")[0]}
+          </Text>
+        )}
+      </LinearGradient>
+    </Pressable>
+  );
+}
 
 const GENRE_SECTIONS = [
   { id: 28,    type: "movie" as const, label: "Filmes de Ação" },
@@ -63,7 +109,6 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [syncProgress, setSyncProgress] = useState(2);
   const [showSync, setShowSync] = useState(true);
-  const [activeCategory, setActiveCategory] = useState("all");
 
   const [heroItems, setHeroItems] = useState<ContentItem[]>(HERO_ITEMS);
   const [trendingItems, setTrendingItems] = useState<ContentItem[]>(TRENDING);
@@ -178,40 +223,30 @@ export default function HomeScreen() {
         </View>
 
         <View style={{ paddingTop: 0, marginTop: 0 }}>
-          <View style={styles.categoriesRow}>
+          {/* Streaming platforms row */}
+          <View style={styles.streamingRow}>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ paddingHorizontal: 20, gap: 8 }}
+              contentContainerStyle={styles.streamingScroll}
             >
-              {CATEGORIES.map((cat) => (
-                <TouchableOpacity
-                  key={cat.id}
-                  onPress={() => setActiveCategory(cat.id)}
-                  style={[
-                    styles.categoryPill,
-                    {
-                      backgroundColor:
-                        activeCategory === cat.id ? colors.primary : colors.card,
-                      borderColor:
-                        activeCategory === cat.id ? colors.primary : colors.border,
-                    },
-                  ]}
-                  activeOpacity={0.7}
-                >
-                  <Text
-                    style={[
-                      styles.categoryText,
-                      {
-                        color:
-                          activeCategory === cat.id ? "#fff" : colors.mutedForeground,
-                      },
-                    ]}
-                  >
-                    {cat.label}
-                  </Text>
-                </TouchableOpacity>
+              {HOME_STREAMING.map((p) => (
+                <StreamingChip
+                  key={p.id}
+                  platform={p}
+                  onPress={() => router.push({ pathname: "/streaming", params: { id: p.id } })}
+                />
               ))}
+              {/* "Ver todos" chip */}
+              <Pressable
+                onPress={() => router.push("/streamings-all")}
+                style={[styles.seeAllChip, { borderColor: colors.border }]}
+              >
+                <Feather name="grid" size={14} color={colors.mutedForeground} />
+                <Text style={[styles.seeAllChipText, { color: colors.mutedForeground }]}>
+                  Ver todos
+                </Text>
+              </Pressable>
             </ScrollView>
           </View>
 
@@ -356,14 +391,41 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderRadius: 20,
   },
-  categoriesRow: { marginTop: 12, marginBottom: 20 },
-  categoryPill: {
-    paddingHorizontal: 16,
-    paddingVertical: 7,
-    borderRadius: 20,
-    borderWidth: 1,
+  streamingRow: { marginTop: 12, marginBottom: 20 },
+  streamingScroll: { paddingHorizontal: 16, gap: 8, alignItems: "center" },
+  streamingChip: {
+    borderRadius: 12,
+    overflow: "hidden",
+    width: 100,
+    height: 56,
   },
-  categoryText: { fontSize: 13, fontWeight: "600" },
+  streamingChipGradient: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 6,
+  },
+  streamingChipAccent: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 2,
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
+  },
+  streamingChipLogo: { width: 84, height: 34 },
+  streamingChipText: { fontSize: 13, fontWeight: "800", letterSpacing: 0.3 },
+  seeAllChip: {
+    borderRadius: 12,
+    borderWidth: 1,
+    width: 90,
+    height: 56,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+  seeAllChipText: { fontSize: 11, fontWeight: "600" },
   topTenSection: { marginBottom: 32 },
   sectionHeader: {
     flexDirection: "row",
