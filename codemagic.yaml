@@ -37,11 +37,6 @@ workflows:
           echo "EXPO_PUBLIC_SUPABASE_URL=$SUPABASE_URL" >> .env
           echo "EXPO_PUBLIC_SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY" >> .env
 
-      - name: Corrigir versões de pacotes Expo
-        script: |
-          cd artifacts/mobile
-          npx expo install --fix
-
       - name: Expo Prebuild (gera pasta android/)
         script: |
           cd artifacts/mobile
@@ -113,11 +108,6 @@ workflows:
           cd artifacts/mobile
           echo "EXPO_PUBLIC_SUPABASE_URL=$SUPABASE_URL" >> .env
           echo "EXPO_PUBLIC_SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY" >> .env
-
-      - name: Corrigir versões de pacotes Expo
-        script: |
-          cd artifacts/mobile
-          npx expo install --fix
 
       - name: Expo Prebuild (gera pasta ios/)
         script: |
