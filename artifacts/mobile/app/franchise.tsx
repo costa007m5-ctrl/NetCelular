@@ -17,24 +17,29 @@ import { StatusBar } from "expo-status-bar";
 import { Feather } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { FRANCHISES, getFranchise } from "@/constants/franchises";
+import { FRANCHISES, getFranchise, type ChronologicalItem } from "@/constants/franchises";
 import { api, tmdbItemToContent, TMDB_IMG } from "@/lib/api";
+import { useFavorites } from "@/hooks/useFavorites";
 import type { ContentItem } from "@/constants/content";
 
 const { width: W } = Dimensions.get("window");
 const BACKDROP_H = 320;
 const CARD_W = 120;
-const CARD_H = 175;
+const CARD_H = 178;
+
+type Tab = "filmes" | "series" | "cronologia";
 
 // ─── Poster card for horizontal carousel ───────────────────────
 function PosterCard({
   item,
   accentColor,
   onPress,
+  rank,
 }: {
   item: ContentItem;
   accentColor: string;
   onPress: () => void;
+  rank?: number;
 }) {
   const [imgErr, setImgErr] = useState(false);
   return (
@@ -60,6 +65,11 @@ function PosterCard({
             <Text style={styles.mediaTypeBadgeText}>TV</Text>
           </View>
         )}
+        {rank != null && (
+          <View style={styles.rankBadge}>
+            <Text style={styles.rankBadgeText}>{rank}</Text>
+          </View>
+        )}
         {item.rating > 0 && (
           <View style={styles.ratingBadge}>
             <Feather name="star" size={8} color="#fbbf24" />
@@ -80,12 +90,14 @@ function ContentCarousel({
   accentColor,
   onPressItem,
   loading,
+  showRanks,
 }: {
   title: string;
   items: ContentItem[];
   accentColor: string;
   onPressItem: (item: ContentItem) => void;
   loading?: boolean;
+  showRanks?: boolean;
 }) {
   if (!loading && items.length === 0) return null;
   return (
@@ -109,12 +121,13 @@ function ContentCarousel({
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.carouselScroll}
         >
-          {items.map((item) => (
+          {items.map((item, i) => (
             <PosterCard
               key={item.id}
               item={item}
               accentColor={accentColor}
               onPress={() => onPressItem(item)}
+              rank={showRanks ? i + 1 : undefined}
             />
           ))}
         </ScrollView>
@@ -123,11 +136,111 @@ function ContentCarousel({
   );
 }
 
+// ─── Chronological order row ────────────────────────────────────
+function ChronologyRow({
+  items,
+  contentItems,
+  accentColor,
+  onPressItem,
+  loading,
+}: {
+  items: ChronologicalItem[];
+  contentItems: ContentItem[];
+  accentColor: string;
+  onPressItem: (item: ContentItem) => void;
+  loading: boolean;
+}) {
+  if (loading) {
+    return (
+      <View style={styles.centered}>
+        <ActivityIndicator color={accentColor} size="large" />
+        <Text style={styles.loadingText}>Montando linha do tempo...</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={{ paddingHorizontal: 16 }}>
+      {items.map((chrono, idx) => {
+        const found = contentItems.find(
+          (c) => Number(c.tmdbId) === chrono.tmdbId
+        );
+        const [imgErr, setImgErr] = useState(false);
+        return (
+          <Pressable
+            key={`${chrono.tmdbId}-${idx}`}
+            onPress={() => found && onPressItem(found)}
+            style={styles.chronoItem}
+          >
+            {/* Timeline line */}
+            <View style={styles.chronoLeft}>
+              <View style={[styles.chronoDot, { backgroundColor: accentColor }]} />
+              {idx < items.length - 1 && (
+                <View style={[styles.chronoLine, { backgroundColor: accentColor + "33" }]} />
+              )}
+            </View>
+
+            {/* Content */}
+            <View style={styles.chronoContent}>
+              <View style={styles.chronoPoster}>
+                {found && found.posterPath && !imgErr ? (
+                  <Image
+                    source={{ uri: found.posterPath }}
+                    style={styles.chronoPosterImg}
+                    resizeMode="cover"
+                    onError={() => setImgErr(true)}
+                  />
+                ) : (
+                  <LinearGradient
+                    colors={[accentColor + "33", "#111"]}
+                    style={[styles.chronoPosterImg, styles.posterPlaceholder]}
+                  >
+                    <Feather name="film" size={14} color={accentColor} />
+                  </LinearGradient>
+                )}
+              </View>
+              <View style={styles.chronoInfo}>
+                <Text style={[styles.chronoLabel, { color: accentColor }]}>{chrono.label}</Text>
+                {chrono.note && (
+                  <Text style={styles.chronoNote}>{chrono.note}</Text>
+                )}
+                {found && (
+                  <>
+                    <Text style={styles.chronoTitle} numberOfLines={1}>{found.title}</Text>
+                    <View style={styles.chronoMeta}>
+                      <Text style={styles.chronoYear}>{found.year}</Text>
+                      {found.rating > 0 && (
+                        <View style={styles.ratingRow}>
+                          <Feather name="star" size={9} color="#fbbf24" />
+                          <Text style={styles.ratingText}>{found.rating.toFixed(1)}</Text>
+                        </View>
+                      )}
+                    </View>
+                  </>
+                )}
+                {!found && (
+                  <Text style={styles.chronoTitle} numberOfLines={1}>
+                    {chrono.type === "movie" ? "Filme" : "Série"}
+                  </Text>
+                )}
+              </View>
+              {found && (
+                <View style={[styles.playBtn, { backgroundColor: accentColor + "22", borderColor: accentColor + "55" }]}>
+                  <Feather name="play" size={14} color={accentColor} />
+                </View>
+              )}
+            </View>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 // ─── Related franchise card with real image ────────────────────
 function RelatedCard({ franchiseId, onPress }: { franchiseId: string; onPress: () => void }) {
   const f = getFranchise(franchiseId);
   const [imgUrl, setImgUrl] = useState<string | null>(null);
-  const [imgErr, setImgErr] = useState(false);
 
   useEffect(() => {
     if (!f) return;
@@ -138,12 +251,11 @@ function RelatedCard({ franchiseId, onPress }: { franchiseId: string; onPress: (
           const d = await api.tmdb.collection(f.tmdbCollectionId);
           path = d.backdrop_path;
         } else if (f.tmdbTvId) {
-          const d = await api.tmdb.tv(f.tmdbTvId) as any;
+          const d = await (api.tmdb.tv(f.tmdbTvId) as Promise<any>);
           path = d.backdrop_path ?? null;
         } else {
-          const q = f.searchQuery ?? f.name;
           const type = f.category === "anime" ? "tv" : "movie";
-          const d = await api.tmdb.search(q, type as any);
+          const d = await api.tmdb.search(f.searchQuery ?? f.name, type as any);
           path = d.results[0]?.backdrop_path ?? null;
         }
         if (path) setImgUrl(TMDB_IMG(path, "w780") ?? null);
@@ -156,19 +268,14 @@ function RelatedCard({ franchiseId, onPress }: { franchiseId: string; onPress: (
 
   return (
     <Pressable onPress={onPress} style={styles.relatedCard}>
-      {imgUrl && !imgErr ? (
-        <Image
-          source={{ uri: imgUrl }}
-          style={[StyleSheet.absoluteFill, { borderRadius: 12 }]}
-          resizeMode="cover"
-          onError={() => setImgErr(true)}
-        />
+      {imgUrl ? (
+        <Image source={{ uri: imgUrl }} style={[StyleSheet.absoluteFill, { borderRadius: 12 }]} resizeMode="cover" />
       ) : (
         <LinearGradient colors={f.bgGradient} style={StyleSheet.absoluteFill} />
       )}
       <LinearGradient
-        colors={["transparent", "rgba(0,0,0,0.8)"]}
-        locations={[0.3, 1]}
+        colors={["transparent", "rgba(0,0,0,0.85)"]}
+        locations={[0.2, 1]}
         style={StyleSheet.absoluteFill}
       />
       <View style={[styles.relatedAccent, { backgroundColor: f.color }]} />
@@ -188,11 +295,13 @@ export default function FranchiseScreen() {
   const franchise = getFranchise(params.id ?? "");
   const isWeb = Platform.OS === "web";
   const topPad = isWeb ? 0 : insets.top;
+  const { isFavorite, toggle } = useFavorites();
 
   const [backdropUrl, setBackdropUrl] = useState<string | null>(null);
   const [movies, setMovies] = useState<ContentItem[]>([]);
   const [series, setSeries] = useState<ContentItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<Tab>("filmes");
 
   const scrollY = useRef(new Animated.Value(0)).current;
   const headerOpacity = scrollY.interpolate({
@@ -211,7 +320,7 @@ export default function FranchiseScreen() {
           const d = await api.tmdb.collection(franchise.tmdbCollectionId);
           path = d.backdrop_path;
         } else if (franchise.tmdbTvId) {
-          const d = await api.tmdb.tv(franchise.tmdbTvId) as any;
+          const d = await (api.tmdb.tv(franchise.tmdbTvId) as Promise<any>);
           path = d.backdrop_path ?? null;
         } else {
           const q = franchise.searchQuery ?? franchise.name;
@@ -237,48 +346,59 @@ export default function FranchiseScreen() {
         let allItems: ContentItem[] = [];
 
         if (franchise.fetchType === "collection" && franchise.tmdbCollectionId) {
-          // Movie sagas — ordered by release date
+          // Ordered movie collection
           const data = await api.tmdb.collection(franchise.tmdbCollectionId);
-          allItems = data.parts.map((p) =>
+          const movieItems = data.parts.map((p) =>
             tmdbItemToContent({ ...p, media_type: "movie" })
           );
+          // Also fetch any specified TV shows (e.g. Star Wars Disney+ series)
+          let tvItems: ContentItem[] = [];
+          if (franchise.relatedTvIds && franchise.relatedTvIds.length > 0) {
+            const results = await Promise.allSettled(
+              franchise.relatedTvIds.map((id) => api.tmdb.tv(id) as Promise<any>)
+            );
+            tvItems = results
+              .filter((r) => r.status === "fulfilled")
+              .map((r: any) => tmdbItemToContent({ ...r.value, media_type: "tv" }));
+          }
+          allItems = [...movieItems, ...tvItems];
 
         } else if (franchise.fetchType === "keyword" && franchise.tmdbKeywordId) {
-          // Keyword-based (Marvel, DC, Star Wars, etc.)
+          // Keyword-based (Marvel, DC, Conjuring…)
           const [mvData, tvData] = await Promise.all([
             api.tmdb.keywordDiscover(franchise.tmdbKeywordId, "movie", 1),
             api.tmdb.keywordDiscover(franchise.tmdbKeywordId, "tv", 1),
           ]);
-          const mvItems = mvData.results.map((m) =>
-            tmdbItemToContent({ ...m, media_type: "movie" })
-          );
-          const tvItems = tvData.results.map((t) =>
-            tmdbItemToContent({ ...t, media_type: "tv" })
-          );
+          const mvItems = mvData.results
+            .slice(0, 20)
+            .map((m) => tmdbItemToContent({ ...m, media_type: "movie" }));
+          const tvItems = tvData.results
+            .slice(0, 10)
+            .map((t) => tmdbItemToContent({ ...t, media_type: "tv" }));
           allItems = [...mvItems, ...tvItems].sort((a, b) => b.rating - a.rating);
 
         } else if (franchise.fetchType === "tv" && franchise.tmdbTvId) {
-          // TV franchise — main show + defined spinoffs (no random similar)
+          // Specific TV show(s) — main + defined spinoffs only
           const tvIds = [franchise.tmdbTvId, ...(franchise.relatedTvIds ?? [])];
-          const tvResults = await Promise.allSettled(
+          const results = await Promise.allSettled(
             tvIds.map((id) => api.tmdb.tv(id) as Promise<any>)
           );
-          allItems = tvResults
+          allItems = results
             .filter((r) => r.status === "fulfilled")
             .map((r: any) => tmdbItemToContent({ ...r.value, media_type: "tv" }));
 
         } else {
-          // Search fallback — specific title + type
+          // Search fallback
           const q = franchise.searchQuery ?? franchise.name;
           const type = franchise.searchType ?? (franchise.category === "anime" ? "tv" : "movie");
           const data = await api.tmdb.search(q, type as any);
           allItems = data.results
-            .slice(0, 20)
+            .slice(0, 15)
             .map((item) => tmdbItemToContent({ ...item, media_type: type as any }));
           allItems.sort((a, b) => b.rating - a.rating);
         }
 
-        // Deduplicate by tmdbId
+        // Deduplicate
         const seen = new Set<number>();
         const unique = allItems.filter((item) => {
           if (!item.tmdbId || seen.has(item.tmdbId)) return false;
@@ -318,6 +438,15 @@ export default function FranchiseScreen() {
   }
 
   const allItems = [...movies, ...series];
+  const hasCronologia = !!franchise.chronologicalContent;
+
+  const TABS: { id: Tab; label: string }[] = [
+    { id: "filmes", label: `Filmes (${movies.length})` },
+    { id: "series", label: `Séries (${series.length})` },
+    ...(hasCronologia ? [{ id: "cronologia" as Tab, label: "⏱ Cronologia" }] : []),
+  ];
+
+  const fav = isFavorite(franchise.id);
 
   return (
     <View style={{ flex: 1, backgroundColor: "#000" }}>
@@ -332,29 +461,19 @@ export default function FranchiseScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}
       >
-        {/* ── Backdrop header ───────────────────────── */}
+        {/* ── Backdrop header ─────────────────────────── */}
         <View style={[styles.backdrop, { height: BACKDROP_H }]}>
           {backdropUrl ? (
-            <Image
-              source={{ uri: backdropUrl }}
-              style={[StyleSheet.absoluteFill, { borderBottomLeftRadius: 0, borderBottomRightRadius: 0 }]}
-              resizeMode="cover"
-            />
+            <Image source={{ uri: backdropUrl }} style={StyleSheet.absoluteFill} resizeMode="cover" />
           ) : (
             <LinearGradient colors={franchise.bgGradient} style={StyleSheet.absoluteFill} />
           )}
-
-          {/* dark gradient overlay */}
           <LinearGradient
-            colors={["rgba(0,0,0,0.15)", "rgba(0,0,0,0.55)", "#000"]}
-            locations={[0, 0.55, 1]}
+            colors={["rgba(0,0,0,0.1)", "rgba(0,0,0,0.5)", "#000"]}
+            locations={[0, 0.5, 1]}
             style={StyleSheet.absoluteFill}
           />
-
-          {/* accent bar at top */}
           <View style={[styles.backdropAccent, { backgroundColor: franchise.color }]} />
-
-          {/* info overlay */}
           <View style={styles.backdropInfo}>
             <View style={[styles.categoryBadge, { borderColor: franchise.color + "80" }]}>
               <Text style={[styles.categoryBadgeText, { color: franchise.accentColor }]}>
@@ -368,12 +487,12 @@ export default function FranchiseScreen() {
           </View>
         </View>
 
-        {/* ── Stats ────────────────────────────────── */}
+        {/* ── Stats ────────────────────────────────────── */}
         <View style={styles.statsRow}>
           {[
-            { icon: "film" as const, value: String(franchise.contentCount), label: "Títulos" },
-            { icon: "clock" as const, value: `${franchise.totalHours}h`, label: "Total" },
-            { icon: "calendar" as const, value: franchise.yearRange, label: "Período" },
+            { icon: "film" as const,     value: String(franchise.contentCount), label: "Títulos" },
+            { icon: "clock" as const,    value: `${franchise.totalHours}h`,     label: "Total" },
+            { icon: "calendar" as const, value: franchise.yearRange,            label: "Período" },
           ].map((s) => (
             <View key={s.label} style={[styles.statItem, { borderColor: franchise.color + "33" }]}>
               <Feather name={s.icon} size={14} color={franchise.accentColor} />
@@ -383,10 +502,10 @@ export default function FranchiseScreen() {
           ))}
         </View>
 
-        {/* ── Description ──────────────────────────── */}
+        {/* ── Description ──────────────────────────────── */}
         <Text style={styles.description}>{franchise.description}</Text>
 
-        {/* ── Action buttons ───────────────────────── */}
+        {/* ── Action buttons ────────────────────────────── */}
         <View style={styles.actionsRow}>
           <TouchableOpacity
             style={[styles.primaryBtn, { backgroundColor: franchise.color }]}
@@ -395,59 +514,127 @@ export default function FranchiseScreen() {
             <Feather name="play" size={14} color="#fff" />
             <Text style={styles.primaryBtnText}>Maratonar Tudo</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.secondaryBtn}>
-            <Feather name="heart" size={14} color="rgba(255,255,255,0.7)" />
-            <Text style={styles.secondaryBtnText}>Favoritar</Text>
+          <TouchableOpacity
+            style={[
+              styles.secondaryBtn,
+              fav && { backgroundColor: franchise.color + "22", borderColor: franchise.color + "55" },
+            ]}
+            onPress={() => toggle(franchise.id)}
+          >
+            <Feather name="heart" size={14} color={fav ? franchise.accentColor : "rgba(255,255,255,0.7)"} />
+            <Text style={[styles.secondaryBtnText, fav && { color: franchise.accentColor }]}>
+              {fav ? "Favoritado" : "Favoritar"}
+            </Text>
           </TouchableOpacity>
         </View>
 
-        {/* ── Divider ──────────────────────────────── */}
-        <View style={[styles.divider, { backgroundColor: franchise.color + "25" }]} />
+        {/* ── Tabs ──────────────────────────────────────── */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.tabsScroll}
+          style={{ marginBottom: 4 }}
+        >
+          {TABS.map((tab) => (
+            <TouchableOpacity
+              key={tab.id}
+              onPress={() => setActiveTab(tab.id)}
+              style={[
+                styles.tab,
+                activeTab === tab.id
+                  ? { borderBottomColor: franchise.color, borderBottomWidth: 2 }
+                  : {},
+              ]}
+            >
+              <Text
+                style={[
+                  styles.tabText,
+                  { color: activeTab === tab.id ? "#fff" : "rgba(255,255,255,0.45)" },
+                ]}
+              >
+                {tab.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
 
-        {/* ── Movies carousel ──────────────────────── */}
-        {(loading || movies.length > 0) && (
-          <ContentCarousel
-            title="Filmes"
-            items={movies}
-            accentColor={franchise.accentColor}
-            onPressItem={goToDetail}
-            loading={loading && movies.length === 0}
-          />
+        <View style={[styles.divider, { backgroundColor: "rgba(255,255,255,0.08)" }]} />
+
+        {/* ── Tab: Filmes ───────────────────────────────── */}
+        {activeTab === "filmes" && (
+          <>
+            {loading && movies.length === 0 ? (
+              <View style={styles.centered}>
+                <ActivityIndicator size="large" color={franchise.accentColor} />
+                <Text style={styles.loadingText}>Carregando filmes...</Text>
+              </View>
+            ) : movies.length === 0 ? (
+              <View style={styles.centered}>
+                <Feather name="film" size={32} color="rgba(255,255,255,0.2)" />
+                <Text style={styles.emptyText}>Nenhum filme encontrado</Text>
+              </View>
+            ) : (
+              <ContentCarousel
+                title="Filmes"
+                items={movies}
+                accentColor={franchise.accentColor}
+                onPressItem={goToDetail}
+                loading={false}
+              />
+            )}
+          </>
         )}
 
-        {/* ── Series carousel ──────────────────────── */}
-        {(loading || series.length > 0) && (
-          <ContentCarousel
-            title="Séries"
-            items={series}
-            accentColor={franchise.accentColor}
-            onPressItem={goToDetail}
-            loading={loading && series.length === 0}
-          />
+        {/* ── Tab: Séries ───────────────────────────────── */}
+        {activeTab === "series" && (
+          <>
+            {loading && series.length === 0 ? (
+              <View style={styles.centered}>
+                <ActivityIndicator size="large" color={franchise.accentColor} />
+                <Text style={styles.loadingText}>Carregando séries...</Text>
+              </View>
+            ) : series.length === 0 ? (
+              <View style={styles.centered}>
+                <Feather name="tv" size={32} color="rgba(255,255,255,0.2)" />
+                <Text style={styles.emptyText}>Nenhuma série encontrada</Text>
+              </View>
+            ) : (
+              <ContentCarousel
+                title="Séries"
+                items={series}
+                accentColor={franchise.accentColor}
+                onPressItem={goToDetail}
+                loading={false}
+              />
+            )}
+          </>
         )}
 
-        {/* Loading state when no data yet */}
-        {loading && movies.length === 0 && series.length === 0 && (
-          <View style={styles.centered}>
-            <ActivityIndicator size="large" color={franchise.accentColor} />
-            <Text style={styles.loadingText}>Carregando conteúdo...</Text>
+        {/* ── Tab: Cronologia ───────────────────────────── */}
+        {activeTab === "cronologia" && hasCronologia && (
+          <View>
+            <View style={styles.chronoIntro}>
+              <Feather name="clock" size={16} color={franchise.accentColor} />
+              <Text style={[styles.chronoIntroText, { color: franchise.accentColor }]}>
+                Ordem cronológica do universo
+              </Text>
+            </View>
+            <ChronologyRow
+              items={franchise.chronologicalContent!}
+              contentItems={allItems}
+              accentColor={franchise.accentColor}
+              onPressItem={goToDetail}
+              loading={loading}
+            />
           </View>
         )}
 
-        {/* Empty state */}
-        {!loading && movies.length === 0 && series.length === 0 && (
-          <View style={styles.centered}>
-            <Feather name="inbox" size={36} color="rgba(255,255,255,0.2)" />
-            <Text style={styles.emptyText}>Nenhum conteúdo encontrado</Text>
-          </View>
-        )}
-
-        {/* ── Related franchises ───────────────────── */}
+        {/* ── Related franchises ────────────────────────── */}
         {franchise.related.length > 0 && (
           <View style={styles.relatedSection}>
             <View style={styles.sectionHeader}>
               <View style={[styles.accentBar, { backgroundColor: franchise.color }]} />
-              <Text style={styles.sectionTitle}>Se você gosta de {franchise.shortName}...</Text>
+              <Text style={styles.sectionTitle}>Se você gosta de {franchise.shortName}…</Text>
             </View>
             <ScrollView
               horizontal
@@ -466,14 +653,9 @@ export default function FranchiseScreen() {
         )}
       </Animated.ScrollView>
 
-      {/* ── Sticky header ────────────────────────── */}
-      <Animated.View
-        style={[styles.stickyHeader, { paddingTop: topPad }]}
-        pointerEvents="box-none"
-      >
-        <Animated.View
-          style={[StyleSheet.absoluteFill, { backgroundColor: "#000", opacity: headerOpacity }]}
-        />
+      {/* ── Sticky header ─────────────────────────────── */}
+      <Animated.View style={[styles.stickyHeader, { paddingTop: topPad }]} pointerEvents="box-none">
+        <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: "#000", opacity: headerOpacity }]} />
         <View style={styles.stickyHeaderContent}>
           <TouchableOpacity onPress={() => router.back()} style={styles.circleBtn}>
             <Feather name="arrow-left" size={20} color="#fff" />
@@ -481,7 +663,9 @@ export default function FranchiseScreen() {
           <Animated.Text style={[styles.stickyTitle, { opacity: headerOpacity }]}>
             {franchise.shortName.toUpperCase()}
           </Animated.Text>
-          <View style={{ width: 40 }} />
+          <TouchableOpacity style={styles.circleBtn} onPress={() => toggle(franchise.id)}>
+            <Feather name="heart" size={18} color={isFavorite(franchise.id) ? franchise.accentColor : "rgba(255,255,255,0.7)"} />
+          </TouchableOpacity>
         </View>
       </Animated.View>
     </View>
@@ -489,25 +673,9 @@ export default function FranchiseScreen() {
 }
 
 const styles = StyleSheet.create({
-  // ── Backdrop ─────────────────────────────────────────────────
-  backdrop: {
-    position: "relative",
-    justifyContent: "flex-end",
-    overflow: "hidden",
-  },
-  backdropAccent: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 3,
-    zIndex: 2,
-  },
-  backdropInfo: {
-    paddingHorizontal: 20,
-    paddingBottom: 22,
-    zIndex: 2,
-  },
+  backdrop: { position: "relative", justifyContent: "flex-end", overflow: "hidden" },
+  backdropAccent: { position: "absolute", top: 0, left: 0, right: 0, height: 3, zIndex: 2 },
+  backdropInfo: { paddingHorizontal: 20, paddingBottom: 22, zIndex: 2 },
   categoryBadge: {
     alignSelf: "flex-start",
     borderWidth: 1,
@@ -517,202 +685,115 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   categoryBadgeText: { fontSize: 9, fontWeight: "800", letterSpacing: 1.5 },
-  franchiseName: {
-    fontSize: 28,
-    fontWeight: "900",
-    color: "#fff",
-    letterSpacing: 2,
-    lineHeight: 32,
-    marginBottom: 4,
-  },
+  franchiseName: { fontSize: 28, fontWeight: "900", color: "#fff", letterSpacing: 2, lineHeight: 32, marginBottom: 4 },
   franchiseTagline: { fontSize: 13, fontWeight: "600", letterSpacing: 0.3 },
 
-  // ── Stats ─────────────────────────────────────────────────────
-  statsRow: {
-    flexDirection: "row",
-    paddingHorizontal: 16,
-    gap: 10,
-    marginTop: 16,
-    marginBottom: 16,
-  },
+  statsRow: { flexDirection: "row", paddingHorizontal: 16, gap: 10, marginTop: 16, marginBottom: 16 },
   statItem: {
-    flex: 1,
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingVertical: 12,
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "rgba(255,255,255,0.04)",
+    flex: 1, borderWidth: 1, borderRadius: 12, paddingVertical: 12,
+    alignItems: "center", gap: 4, backgroundColor: "rgba(255,255,255,0.04)",
   },
   statValue: { color: "#fff", fontSize: 13, fontWeight: "800" },
   statLabel: { color: "rgba(255,255,255,0.4)", fontSize: 10, fontWeight: "500" },
 
-  // ── Description ───────────────────────────────────────────────
-  description: {
-    color: "rgba(255,255,255,0.6)",
-    fontSize: 13,
-    lineHeight: 20,
-    paddingHorizontal: 20,
-    marginBottom: 18,
-  },
+  description: { color: "rgba(255,255,255,0.6)", fontSize: 13, lineHeight: 20, paddingHorizontal: 20, marginBottom: 18 },
 
-  // ── Actions ───────────────────────────────────────────────────
-  actionsRow: {
-    flexDirection: "row",
-    paddingHorizontal: 20,
-    gap: 10,
-    marginBottom: 20,
-  },
+  actionsRow: { flexDirection: "row", paddingHorizontal: 20, gap: 10, marginBottom: 20 },
   primaryBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 10,
-    flex: 1,
-    justifyContent: "center",
+    flexDirection: "row", alignItems: "center", gap: 8,
+    paddingHorizontal: 20, paddingVertical: 12, borderRadius: 10, flex: 1, justifyContent: "center",
   },
   primaryBtnText: { color: "#fff", fontSize: 14, fontWeight: "700" },
   secondaryBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.15)",
-    backgroundColor: "rgba(255,255,255,0.06)",
+    flexDirection: "row", alignItems: "center", gap: 8,
+    paddingHorizontal: 18, paddingVertical: 12, borderRadius: 10,
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.15)", backgroundColor: "rgba(255,255,255,0.06)",
   },
   secondaryBtnText: { color: "rgba(255,255,255,0.7)", fontSize: 14, fontWeight: "600" },
 
-  divider: { height: 1, marginHorizontal: 16, marginBottom: 4 },
+  tabsScroll: { paddingHorizontal: 16, gap: 4 },
+  tab: { paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 2, borderBottomColor: "transparent" },
+  tabText: { fontSize: 14, fontWeight: "700" },
+  divider: { height: 1, marginBottom: 8 },
 
-  // ── Carousel ──────────────────────────────────────────────────
   carouselSection: { marginBottom: 24 },
-  carouselHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 20,
-    gap: 8,
-    marginBottom: 14,
-  },
+  carouselHeader: { flexDirection: "row", alignItems: "center", paddingHorizontal: 20, gap: 8, marginBottom: 14 },
   accentBar: { width: 3, height: 16, borderRadius: 2 },
   carouselTitle: { color: "#fff", fontSize: 16, fontWeight: "700", flex: 1 },
   carouselCount: { fontSize: 12, fontWeight: "600" },
-  carouselLoading: {
-    height: CARD_H,
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  carouselLoading: { height: CARD_H, alignItems: "center", justifyContent: "center" },
   carouselScroll: { paddingHorizontal: 20, paddingBottom: 4 },
 
-  // ── Poster card ───────────────────────────────────────────────
-  posterCard: {
-    width: CARD_W,
-    height: CARD_H,
-    borderRadius: 10,
-    overflow: "hidden",
-    marginBottom: 6,
-    position: "relative",
-  },
+  posterCard: { width: CARD_W, height: CARD_H, borderRadius: 10, overflow: "hidden", marginBottom: 6, position: "relative" },
   posterCardImg: { width: "100%", height: "100%" },
   posterPlaceholder: { alignItems: "center", justifyContent: "center" },
-  mediaTypeBadge: {
-    position: "absolute",
-    top: 6,
-    left: 6,
-    paddingHorizontal: 5,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
+  mediaTypeBadge: { position: "absolute", top: 6, left: 6, paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4 },
   mediaTypeBadgeText: { color: "#fff", fontSize: 8, fontWeight: "800", letterSpacing: 0.5 },
+  rankBadge: {
+    position: "absolute", bottom: 6, left: 6,
+    backgroundColor: "rgba(0,0,0,0.8)", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5,
+  },
+  rankBadgeText: { color: "#fff", fontSize: 11, fontWeight: "900" },
   ratingBadge: {
-    position: "absolute",
-    top: 6,
-    right: 6,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 2,
-    backgroundColor: "rgba(0,0,0,0.75)",
-    paddingHorizontal: 5,
-    paddingVertical: 3,
-    borderRadius: 5,
+    position: "absolute", top: 6, right: 6,
+    flexDirection: "row", alignItems: "center", gap: 2,
+    backgroundColor: "rgba(0,0,0,0.75)", paddingHorizontal: 5, paddingVertical: 3, borderRadius: 5,
   },
   ratingBadgeText: { color: "#fbbf24", fontSize: 9, fontWeight: "800" },
-  posterCardTitle: {
-    color: "#fff",
-    fontSize: 12,
-    fontWeight: "600",
-    lineHeight: 16,
-  },
+  posterCardTitle: { color: "#fff", fontSize: 12, fontWeight: "600", lineHeight: 16 },
   posterCardYear: { color: "rgba(255,255,255,0.4)", fontSize: 10, marginTop: 1 },
 
-  // ── States ────────────────────────────────────────────────────
+  // ── Chronology ───────────────────────────────────────────────
+  chronoIntro: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    paddingHorizontal: 20, paddingVertical: 12, marginBottom: 4,
+  },
+  chronoIntroText: { fontSize: 13, fontWeight: "600", letterSpacing: 0.3 },
+  chronoItem: { flexDirection: "row", marginBottom: 0 },
+  chronoLeft: { width: 32, alignItems: "center" },
+  chronoDot: { width: 10, height: 10, borderRadius: 5, marginTop: 14, zIndex: 1 },
+  chronoLine: { width: 2, flex: 1, marginTop: 2, minHeight: 40 },
+  chronoContent: {
+    flex: 1, flexDirection: "row", alignItems: "flex-start", gap: 10,
+    paddingBottom: 16, paddingRight: 16,
+  },
+  chronoPoster: { width: 52, height: 75, borderRadius: 6, overflow: "hidden", flexShrink: 0 },
+  chronoPosterImg: { width: "100%", height: "100%" },
+  chronoInfo: { flex: 1, paddingTop: 2 },
+  chronoLabel: { fontSize: 11, fontWeight: "800", letterSpacing: 0.5, marginBottom: 2 },
+  chronoNote: { color: "rgba(255,255,255,0.35)", fontSize: 10, marginBottom: 4 },
+  chronoTitle: { color: "#fff", fontSize: 13, fontWeight: "700", marginBottom: 3 },
+  chronoMeta: { flexDirection: "row", alignItems: "center", gap: 8 },
+  chronoYear: { color: "rgba(255,255,255,0.45)", fontSize: 11 },
+  ratingRow: { flexDirection: "row", alignItems: "center", gap: 3 },
+  ratingText: { color: "#fbbf24", fontSize: 11, fontWeight: "700" },
+  playBtn: {
+    width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center",
+    borderWidth: 1, marginTop: 8,
+  },
+
   centered: { alignItems: "center", paddingVertical: 50, gap: 10 },
   loadingText: { color: "rgba(255,255,255,0.4)", fontSize: 13 },
   emptyText: { color: "rgba(255,255,255,0.3)", fontSize: 14 },
 
-  // ── Related ───────────────────────────────────────────────────
   relatedSection: { marginTop: 4, marginBottom: 20 },
-  sectionHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 20,
-    gap: 8,
-    marginBottom: 14,
-  },
+  sectionHeader: { flexDirection: "row", alignItems: "center", paddingHorizontal: 20, gap: 8, marginBottom: 14 },
   sectionTitle: { color: "#fff", fontSize: 16, fontWeight: "700" },
   relatedScroll: { paddingHorizontal: 16, gap: 10 },
-  relatedCard: {
-    width: 140,
-    height: 105,
-    borderRadius: 12,
-    overflow: "hidden",
-    position: "relative",
-  },
-  relatedAccent: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 2,
-    zIndex: 2,
-  },
-  relatedInfo: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: 10,
-    zIndex: 2,
-  },
+  relatedCard: { width: 140, height: 105, borderRadius: 12, overflow: "hidden", position: "relative" },
+  relatedAccent: { position: "absolute", top: 0, left: 0, right: 0, height: 2, zIndex: 2 },
+  relatedInfo: { position: "absolute", bottom: 0, left: 0, right: 0, padding: 10, zIndex: 2 },
   relatedName: { color: "#fff", fontSize: 13, fontWeight: "800", marginBottom: 2 },
   relatedCount: { fontSize: 10, fontWeight: "600" },
 
-  // ── Sticky header ─────────────────────────────────────────────
-  stickyHeader: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 10,
-  },
+  stickyHeader: { position: "absolute", top: 0, left: 0, right: 0, zIndex: 10 },
   stickyHeaderContent: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingHorizontal: 16, paddingVertical: 8,
   },
   circleBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "rgba(255,255,255,0.12)",
-    alignItems: "center",
-    justifyContent: "center",
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.12)", alignItems: "center", justifyContent: "center",
   },
   stickyTitle: { color: "#fff", fontSize: 16, fontWeight: "900", letterSpacing: 2 },
 });
