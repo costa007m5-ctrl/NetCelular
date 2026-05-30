@@ -15,7 +15,6 @@ import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useColors } from "@/hooks/useColors";
 import {
   liveTvApi,
   calcProgress,
@@ -29,10 +28,9 @@ import {
 } from "@/lib/live-tv-api";
 
 const { width: W } = Dimensions.get("window");
-const CARD_WIDTH = (W - 48) / 2;
+const CARD_W = 160;
 
 export default function ChannelsScreen() {
-  const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const isWeb = Platform.OS === "web";
@@ -41,9 +39,7 @@ export default function ChannelsScreen() {
   const [channels, setChannels] = useState<LiveChannel[]>([]);
   const [epgMap, setEpgMap] = useState<Record<string, EpgEntry["epg"]>>({});
   const [loading, setLoading] = useState(true);
-  const [activeCat, setActiveCat] = useState(0);
   const [heroIndex, setHeroIndex] = useState(0);
-  const [pulse, setPulse] = useState(true);
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const heroFade = useRef(new Animated.Value(1)).current;
@@ -71,6 +67,9 @@ export default function ChannelsScreen() {
       .finally(() => setLoading(false));
   }, []);
 
+  const heroChannels = channels.filter((c) => c.categories.includes(1) || c.categories.includes(6)).slice(0, 6);
+  const hero = heroChannels[heroIndex] ?? channels[0];
+
   useEffect(() => {
     if (heroChannels.length <= 1) return;
     const t = setInterval(() => {
@@ -80,15 +79,7 @@ export default function ChannelsScreen() {
       });
     }, 5000);
     return () => clearInterval(t);
-  }, [channels]);
-
-  const heroChannels = channels.filter((c) => c.categories.includes(1) || c.categories.includes(6)).slice(0, 6);
-  const hero = heroChannels[heroIndex] ?? channels[0];
-
-  const filtered =
-    activeCat === 0
-      ? channels
-      : channels.filter((c) => c.categories.includes(activeCat));
+  }, [heroChannels.length]);
 
   const goToDetail = (ch: LiveChannel) => {
     const epg = epgMap[ch.id];
@@ -100,6 +91,7 @@ export default function ChannelsScreen() {
         channelImage: ch.image,
         channelPreview: ch.preview,
         channelUrl: ch.url,
+        channelCategories: JSON.stringify(ch.categories),
         epgTitle: epg?.title ?? "Ao Vivo",
         epgDesc: epg?.desc ?? "",
         epgStart: epg?.start_date ?? "",
@@ -107,23 +99,15 @@ export default function ChannelsScreen() {
     });
   };
 
-  const goToPlayer = (ch: LiveChannel, e?: any) => {
-    if (e) e.stopPropagation?.();
-    const epg = epgMap[ch.id];
-    router.push({
-      pathname: "/player",
-      params: {
-        type: "live",
-        id: "0",
-        streamUrl: ch.url,
-        isLive: "true",
-        title: epg?.title ? `${ch.name} • ${epg.title}` : ch.name,
-      },
-    });
-  };
+  // Build carousels: one per category
+  const carousels = MAIN_CATEGORIES.filter((id) => id !== 0).map((catId) => ({
+    catId,
+    label: CATEGORY_LABELS[catId] ?? String(catId),
+    channels: channels.filter((c) => c.categories.includes(catId)),
+  })).filter((g) => g.channels.length > 0);
 
   return (
-    <View style={[styles.container, { backgroundColor: "#0a0a0a" }]}>
+    <View style={styles.container}>
       <StatusBar style="light" />
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
         <View style={{ height: topPad }} />
@@ -135,27 +119,23 @@ export default function ChannelsScreen() {
           </View>
         ) : hero ? (
           <Animated.View style={[styles.heroWrap, { opacity: heroFade }]}>
-            <Pressable onPress={() => goToDetail(hero)}>
+            <Pressable onPress={() => goToDetail(hero)} style={{ flex: 1 }}>
               <Image
                 source={{ uri: hero.preview || hero.image }}
                 style={styles.heroImg}
                 resizeMode="cover"
               />
               <LinearGradient
-                colors={["transparent", "rgba(10,10,10,0.6)", "#0a0a0a"]}
+                colors={["transparent", "rgba(10,10,10,0.7)", "#0a0a0a"]}
                 style={StyleSheet.absoluteFillObject}
               />
               <LinearGradient
-                colors={["rgba(10,10,10,0.7)", "transparent"]}
-                style={[StyleSheet.absoluteFillObject, { height: 120 }]}
+                colors={["rgba(10,10,10,0.55)", "transparent"]}
+                style={[StyleSheet.absoluteFillObject, { height: 100 }]}
               />
-
-              {/* Red glow */}
-              <View style={styles.heroGlow} pointerEvents="none" />
 
               {/* Content */}
               <View style={styles.heroContent}>
-                {/* Live badge */}
                 <View style={styles.heroTopRow}>
                   <View style={styles.liveBadge}>
                     <Animated.View style={[styles.liveDot, { opacity: pulseAnim }]} />
@@ -164,35 +144,15 @@ export default function ChannelsScreen() {
                   <Text style={styles.heroPagination}>{heroIndex + 1}/{heroChannels.length}</Text>
                 </View>
 
-                {/* Channel label */}
                 <Text style={styles.heroChannelLabel}>{hero.name.toUpperCase()}</Text>
 
-                {/* EPG title */}
                 <Text style={styles.heroTitle} numberOfLines={2}>
                   {epgMap[hero.id]?.title ?? hero.name}
                 </Text>
 
-                {/* Viewers */}
                 <View style={styles.heroViewersRow}>
                   <Animated.View style={[styles.liveDotSmall, { opacity: pulseAnim }]} />
-                  <Text style={styles.heroViewers}>{fakeViewers(hero.id)} assistindo</Text>
-                </View>
-
-                {/* Buttons */}
-                <View style={styles.heroBtns}>
-                  <Pressable
-                    style={({ pressed }) => [styles.heroPlayBtn, { opacity: pressed ? 0.85 : 1 }]}
-                    onPress={() => goToPlayer(hero)}
-                  >
-                    <Text style={styles.heroPlayIcon}>▶</Text>
-                    <Text style={styles.heroPlayText}>Assistir Agora</Text>
-                  </Pressable>
-                  <Pressable
-                    style={({ pressed }) => [styles.heroSecBtn, { opacity: pressed ? 0.8 : 1 }]}
-                    onPress={() => goToDetail(hero)}
-                  >
-                    <Text style={styles.heroSecText}>Sinopse</Text>
-                  </Pressable>
+                  <Text style={styles.heroViewers}>{fakeViewers(hero.id)} assistindo • Toque para detalhes</Text>
                 </View>
               </View>
 
@@ -206,114 +166,85 @@ export default function ChannelsScreen() {
           </Animated.View>
         ) : null}
 
-        {/* ── CATEGORY PILLS ───────────────────────── */}
-        <View style={{ marginTop: 4 }}>
-          <View style={styles.sectionHeader}>
-            <View style={styles.sectionHeaderLeft}>
-              <Animated.View style={[styles.liveIndicator, { opacity: pulseAnim }]} />
-              <Text style={styles.sectionTitle}>CANAIS AO VIVO</Text>
-            </View>
-            <Text style={styles.seeAll}>Ver todos →</Text>
-          </View>
-
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.pillsRow}
-          >
-            {MAIN_CATEGORIES.map((catId) => (
-              <Pressable
-                key={catId}
-                onPress={() => setActiveCat(catId)}
-                style={[styles.pill, activeCat === catId && styles.pillActive]}
-              >
-                <Text style={[styles.pillText, activeCat === catId && styles.pillTextActive]}>
-                  {CATEGORY_LABELS[catId]}
-                </Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-        </View>
-
-        {/* ── CHANNEL GRID ─────────────────────────── */}
+        {/* ── CAROUSELS BY GENRE ─────────────────── */}
         {loading ? (
-          <View style={styles.loadingGrid}>
-            {[1, 2, 3, 4].map((n) => (
-              <View key={n} style={[styles.skeletonCard, { width: CARD_WIDTH }]} />
-            ))}
+          <View style={styles.skeletonSection}>
+            <View style={styles.skeletonTitle} />
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingHorizontal: 16 }}>
+              {[1, 2, 3].map((n) => <View key={n} style={styles.skeletonCard} />)}
+            </ScrollView>
           </View>
         ) : (
-          <View style={styles.grid}>
-            {filtered.map((ch) => {
-              const epg = epgMap[ch.id];
-              const accent = getAccent(ch.id);
-              const progress = epg ? calcProgress(epg.start_date) : 45;
-              const remaining = epg ? calcRemaining(epg.start_date) : "AO VIVO";
-              return (
-                <Pressable
-                  key={ch.id}
-                  style={({ pressed }) => [styles.card, { width: CARD_WIDTH, opacity: pressed ? 0.85 : 1 }]}
-                  onPress={() => goToDetail(ch)}
-                >
-                  {/* Top: logo + badge + viewers */}
-                  <View style={styles.cardTop}>
-                    <View style={[styles.cardLogo, { backgroundColor: accent + "22", borderColor: accent + "55" }]}>
-                      <Image
-                        source={{ uri: ch.image }}
-                        style={styles.cardLogoImg}
-                        resizeMode="contain"
-                      />
-                    </View>
-                    <View style={styles.cardBadgeViewers}>
-                      <View style={[styles.cardLiveBadge, { backgroundColor: accent + "25", borderColor: accent + "55" }]}>
-                        <Animated.View style={[styles.cardLiveDot, { backgroundColor: accent, opacity: pulseAnim }]} />
-                        <Text style={[styles.cardLiveTxt, { color: accent }]}>AO VIVO</Text>
-                      </View>
-                      <View style={styles.viewersRow}>
-                        <Text style={styles.eyeIcon}>👁</Text>
-                        <Text style={styles.viewersText}>{fakeViewers(ch.id)}</Text>
-                      </View>
-                    </View>
-                  </View>
+          carousels.map(({ catId, label, channels: catChannels }) => (
+            <View key={catId} style={styles.carouselSection}>
+              {/* Section header */}
+              <View style={styles.sectionHeader}>
+                <View style={styles.sectionHeaderLeft}>
+                  <Animated.View style={[styles.liveIndicator, { opacity: pulseAnim }]} />
+                  <Text style={styles.sectionTitle}>{label.toUpperCase()}</Text>
+                </View>
+                <Text style={styles.seeAll}>{catChannels.length} canais</Text>
+              </View>
 
-                  {/* Center: program info */}
-                  <View style={styles.cardMid}>
-                    <Text style={styles.cardProgram} numberOfLines={1}>
-                      {epg?.title ?? ch.name}
-                    </Text>
-                    <Text style={styles.cardRemaining} numberOfLines={1}>{remaining}</Text>
-                  </View>
-
-                  {/* Progress bar */}
-                  <View style={styles.progressWrap}>
-                    <View style={styles.progressBg}>
-                      <View
-                        style={[styles.progressFill, {
-                          width: `${progress}%` as any,
-                          backgroundColor: accent,
-                          shadowColor: accent,
-                        }]}
-                      />
-                    </View>
-                  </View>
-
-                  {/* Bottom: quality + play */}
-                  <View style={styles.cardBottom}>
-                    <Text style={styles.cardQuality}>HD</Text>
+              {/* Horizontal scroll */}
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.carouselRow}
+              >
+                {catChannels.map((ch) => {
+                  const epg = epgMap[ch.id];
+                  const accent = getAccent(ch.id);
+                  const progress = epg ? calcProgress(epg.start_date) : 45;
+                  return (
                     <Pressable
-                      style={[styles.playBtn, {
-                        backgroundColor: accent,
-                        shadowColor: accent,
-                      }]}
-                      onPress={() => goToPlayer(ch)}
+                      key={ch.id}
+                      style={({ pressed }) => [styles.card, { opacity: pressed ? 0.85 : 1 }]}
+                      onPress={() => goToDetail(ch)}
                     >
-                      <Text style={styles.playBtnIcon}>▶</Text>
+                      {/* Logo + badge */}
+                      <View style={styles.cardTop}>
+                        <View style={[styles.cardLogo, { backgroundColor: accent + "22", borderColor: accent + "55" }]}>
+                          <Image source={{ uri: ch.image }} style={styles.cardLogoImg} resizeMode="contain" />
+                        </View>
+                        <View style={styles.cardBadgeCol}>
+                          <View style={[styles.cardLiveBadge, { backgroundColor: accent + "25", borderColor: accent + "55" }]}>
+                            <Animated.View style={[styles.cardLiveDot, { backgroundColor: accent, opacity: pulseAnim }]} />
+                            <Text style={[styles.cardLiveTxt, { color: accent }]}>AO VIVO</Text>
+                          </View>
+                          <View style={styles.viewersRow}>
+                            <Text style={styles.eyeIcon}>👁</Text>
+                            <Text style={styles.viewersText}>{fakeViewers(ch.id)}</Text>
+                          </View>
+                        </View>
+                      </View>
+
+                      {/* Program info */}
+                      <View style={styles.cardMid}>
+                        <Text style={styles.cardProgram} numberOfLines={2}>
+                          {epg?.title ?? ch.name}
+                        </Text>
+                        <Text style={styles.cardName} numberOfLines={1}>{ch.name}</Text>
+                      </View>
+
+                      {/* Progress + play */}
+                      <View style={styles.cardBottom}>
+                        <View style={styles.progressBg}>
+                          <View style={[styles.progressFill, { width: `${progress}%` as any, backgroundColor: accent }]} />
+                        </View>
+                        <View style={styles.cardPlayRow}>
+                          <Text style={styles.cardQuality}>HD</Text>
+                          <View style={[styles.playBtn, { backgroundColor: accent }]}>
+                            <Text style={styles.playBtnIcon}>▶</Text>
+                          </View>
+                        </View>
+                      </View>
                     </Pressable>
-                  </View>
-                </Pressable>
-              );
-            })}
-          </View>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          ))
         )}
       </ScrollView>
     </View>
@@ -321,142 +252,46 @@ export default function ChannelsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  container: { flex: 1, backgroundColor: "#0a0a0a" },
 
-  // Hero
-  heroSkeleton: {
-    height: 340,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#111",
-  },
-  heroWrap: { width: "100%", height: 340, position: "relative" },
-  heroImg: { width: "100%", height: 340, position: "absolute" },
-  heroGlow: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    width: 200,
-    height: 120,
-    borderRadius: 100,
-    backgroundColor: "rgba(229,9,20,0.18)",
-  },
-  heroContent: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: 20,
-    paddingBottom: 24,
-  },
-  heroTopRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    marginBottom: 12,
-  },
+  heroSkeleton: { height: 300, alignItems: "center", justifyContent: "center", backgroundColor: "#111" },
+  heroWrap: { width: "100%", height: 300 },
+  heroImg: { width: "100%", height: 300, position: "absolute" },
+  heroContent: { position: "absolute", bottom: 0, left: 0, right: 0, padding: 20, paddingBottom: 22 },
+  heroTopRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 },
   liveBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: "#e50914",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
+    flexDirection: "row", alignItems: "center", gap: 6,
+    backgroundColor: "#e50914", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6,
   },
   liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#fff" },
   liveDotSmall: { width: 5, height: 5, borderRadius: 3, backgroundColor: "#e50914" },
   liveBadgeText: { color: "#fff", fontSize: 9, fontWeight: "800", letterSpacing: 1.5 },
   heroPagination: { color: "rgba(255,255,255,0.5)", fontSize: 10, fontWeight: "600" },
-  heroChannelLabel: { color: "rgba(255,255,255,0.5)", fontSize: 9, fontWeight: "700", letterSpacing: 2, marginBottom: 4 },
+  heroChannelLabel: { color: "rgba(255,255,255,0.45)", fontSize: 9, fontWeight: "700", letterSpacing: 2, marginBottom: 3 },
   heroTitle: { color: "#fff", fontSize: 22, fontWeight: "900", letterSpacing: -0.5, lineHeight: 26, marginBottom: 6 },
-  heroViewersRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 16 },
-  heroViewers: { color: "rgba(255,255,255,0.55)", fontSize: 12, fontWeight: "500" },
-  heroBtns: { flexDirection: "row", gap: 10, alignItems: "center" },
-  heroPlayBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    backgroundColor: "#e50914",
-    paddingHorizontal: 18,
-    paddingVertical: 11,
-    borderRadius: 12,
-    shadowColor: "#e50914",
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  heroPlayIcon: { color: "#fff", fontSize: 12 },
-  heroPlayText: { color: "#fff", fontSize: 14, fontWeight: "800" },
-  heroSecBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-    borderRadius: 12,
-    backgroundColor: "rgba(255,255,255,0.12)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.15)",
-  },
-  heroSecText: { color: "rgba(255,255,255,0.85)", fontSize: 14, fontWeight: "600" },
-  heroDots: {
-    position: "absolute",
-    top: 16,
-    right: 16,
-    gap: 4,
-  },
+  heroViewersRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  heroViewers: { color: "rgba(255,255,255,0.5)", fontSize: 11, fontWeight: "500" },
+  heroDots: { position: "absolute", top: 16, right: 16, gap: 4 },
   heroDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.3)" },
   heroDotActive: { width: 4, height: 14, backgroundColor: "#e50914" },
 
-  // Section header
+  skeletonSection: { marginTop: 24 },
+  skeletonTitle: { height: 16, width: 120, backgroundColor: "#1a1a1a", borderRadius: 8, marginHorizontal: 16, marginBottom: 12 },
+  skeletonCard: { width: CARD_W, height: 160, borderRadius: 16, backgroundColor: "#1a1a1a" },
+
+  carouselSection: { marginTop: 24 },
   sectionHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    marginBottom: 12,
-    marginTop: 8,
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingHorizontal: 16, marginBottom: 12,
   },
   sectionHeaderLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
   liveIndicator: { width: 8, height: 8, borderRadius: 4, backgroundColor: "#e50914" },
   sectionTitle: { color: "#fff", fontSize: 13, fontWeight: "800", letterSpacing: 1 },
-  seeAll: { color: "#e50914", fontSize: 12, fontWeight: "600" },
+  seeAll: { color: "rgba(255,255,255,0.35)", fontSize: 11, fontWeight: "500" },
+  carouselRow: { paddingHorizontal: 16, gap: 10 },
 
-  // Pills
-  pillsRow: { paddingHorizontal: 16, gap: 8, marginBottom: 16 },
-  pill: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 20,
-    backgroundColor: "rgba(255,255,255,0.07)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.1)",
-  },
-  pillActive: { backgroundColor: "#e50914", borderColor: "#e50914" },
-  pillText: { color: "rgba(255,255,255,0.6)", fontSize: 12, fontWeight: "600" },
-  pillTextActive: { color: "#fff" },
-
-  // Grid
-  grid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    paddingHorizontal: 16,
-    gap: 12,
-    paddingBottom: 16,
-  },
-  loadingGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    paddingHorizontal: 16,
-    gap: 12,
-  },
-  skeletonCard: {
-    height: 150,
-    borderRadius: 16,
-    backgroundColor: "#1a1a1a",
-  },
-
-  // Card
   card: {
+    width: CARD_W,
     backgroundColor: "#161616",
     borderRadius: 16,
     borderWidth: 1,
@@ -465,77 +300,37 @@ const styles = StyleSheet.create({
     paddingTop: 12,
   },
   cardTop: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    paddingHorizontal: 12,
-    marginBottom: 8,
+    flexDirection: "row", alignItems: "flex-start",
+    justifyContent: "space-between", paddingHorizontal: 10, marginBottom: 8,
   },
   cardLogo: {
-    width: 38,
-    height: 38,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    overflow: "hidden",
+    width: 36, height: 36, borderRadius: 10,
+    alignItems: "center", justifyContent: "center", borderWidth: 1, overflow: "hidden",
   },
-  cardLogoImg: { width: 30, height: 30 },
-  cardBadgeViewers: { alignItems: "flex-end", gap: 5 },
+  cardLogoImg: { width: 28, height: 28 },
+  cardBadgeCol: { alignItems: "flex-end", gap: 4 },
   cardLiveBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderRadius: 5,
-    borderWidth: 1,
+    flexDirection: "row", alignItems: "center", gap: 3,
+    paddingHorizontal: 5, paddingVertical: 3, borderRadius: 5, borderWidth: 1,
   },
   cardLiveDot: { width: 4, height: 4, borderRadius: 2 },
   cardLiveTxt: { fontSize: 8, fontWeight: "800", letterSpacing: 0.5 },
   viewersRow: { flexDirection: "row", alignItems: "center", gap: 3 },
   eyeIcon: { fontSize: 9 },
-  viewersText: { color: "rgba(255,255,255,0.45)", fontSize: 9, fontWeight: "600" },
+  viewersText: { color: "rgba(255,255,255,0.4)", fontSize: 9, fontWeight: "600" },
 
-  // Card middle
-  cardMid: { paddingHorizontal: 12, marginBottom: 8 },
-  cardProgram: { color: "#fff", fontSize: 11, fontWeight: "700", lineHeight: 15, marginBottom: 2 },
-  cardRemaining: { color: "rgba(255,255,255,0.35)", fontSize: 9, fontWeight: "500" },
+  cardMid: { paddingHorizontal: 10, marginBottom: 8, flex: 1 },
+  cardProgram: { color: "#fff", fontSize: 11, fontWeight: "700", lineHeight: 15, marginBottom: 3 },
+  cardName: { color: "rgba(255,255,255,0.35)", fontSize: 9, fontWeight: "500" },
 
-  // Progress
-  progressWrap: { paddingHorizontal: 12, marginBottom: 2 },
-  progressBg: { height: 2, backgroundColor: "rgba(255,255,255,0.1)", borderRadius: 1, overflow: "hidden" },
-  progressFill: {
-    height: 2,
-    borderRadius: 1,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-
-  // Card bottom
-  cardBottom: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderTopWidth: 1,
-    borderTopColor: "rgba(255,255,255,0.05)",
-    marginTop: 4,
-  },
+  cardBottom: { paddingHorizontal: 10, paddingBottom: 10 },
+  progressBg: { height: 2, backgroundColor: "rgba(255,255,255,0.1)", borderRadius: 1, overflow: "hidden", marginBottom: 8 },
+  progressFill: { height: 2, borderRadius: 1 },
+  cardPlayRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   cardQuality: { color: "rgba(255,255,255,0.3)", fontSize: 9, fontWeight: "700", letterSpacing: 0.5 },
   playBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.6,
-    shadowRadius: 8,
-    elevation: 4,
+    width: 28, height: 28, borderRadius: 14,
+    alignItems: "center", justifyContent: "center",
   },
   playBtnIcon: { color: "#fff", fontSize: 10, marginLeft: 2 },
 });
