@@ -11,9 +11,6 @@ workflows:
         - netplay_secrets      # EXPO_TOKEN, SUPABASE_URL, SUPABASE_ANON_KEY, TMDB_API_KEY
         - android_keystore     # CM_KEYSTORE, CM_KEYSTORE_PASSWORD, CM_KEY_ALIAS, CM_KEY_PASSWORD
       node: 20.18.0
-      vars:
-        EXPO_PUBLIC_DOMAIN: ""
-        EXPO_PUBLIC_REPL_ID: ""
 
     scripts:
       - name: Instalar pnpm
@@ -85,8 +82,6 @@ workflows:
       cocoapods: default
       vars:
         BUNDLE_ID: com.netplay.app
-        EXPO_PUBLIC_DOMAIN: ""
-        EXPO_PUBLIC_REPL_ID: ""
 
     scripts:
       - name: Instalar pnpm
