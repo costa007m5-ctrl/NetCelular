@@ -1,0 +1,188 @@
+workflows:
+
+  # ─────────────────────────────────────────────────────────────
+  # ANDROID — gera APK (debug) e AAB (release para Play Store)
+  # ─────────────────────────────────────────────────────────────
+  android-release:
+    name: NETPLAY — Android Release
+    max_build_duration: 60
+    environment:
+      groups:
+        - netplay_secrets      # EXPO_TOKEN, SUPABASE_URL, SUPABASE_ANON_KEY
+        - android_keystore     # CM_KEYSTORE, CM_KEYSTORE_PASSWORD, CM_KEY_ALIAS, CM_KEY_PASSWORD
+      node: 20.18.0
+      vars:
+        EXPO_PUBLIC_DOMAIN: ""
+        EXPO_PUBLIC_REPL_ID: ""
+
+    scripts:
+      - name: Instalar pnpm
+        script: npm install -g pnpm
+
+      - name: Instalar dependências do workspace
+        script: pnpm install --frozen-lockfile
+        working_directory: .
+
+      - name: Instalar dependências do app mobile
+        script: |
+          cd artifacts/mobile
+          npm install
+        # Codemagic / EAS usam package-lock.json do diretório do app
+
+      - name: Configurar variáveis de ambiente do Expo
+        script: |
+          cd artifacts/mobile
+          echo "EXPO_PUBLIC_SUPABASE_URL=$SUPABASE_URL" >> .env
+          echo "EXPO_PUBLIC_SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY" >> .env
+
+      - name: Expo Prebuild (gera pasta android/)
+        script: |
+          cd artifacts/mobile
+          npx expo prebuild --clean --platform android
+
+      - name: Configurar keystore de assinatura
+        script: |
+          cd artifacts/mobile/android
+          echo $CM_KEYSTORE | base64 --decode > keystore.jks
+          cat >> gradle.properties << EOF
+          KEYSTORE_PATH=../keystore.jks
+          KEYSTORE_PASSWORD=$CM_KEYSTORE_PASSWORD
+          KEY_ALIAS=$CM_KEY_ALIAS
+          KEY_PASSWORD=$CM_KEY_PASSWORD
+          EOF
+
+      - name: Build AAB (Play Store)
+        script: |
+          cd artifacts/mobile/android
+          ./gradlew bundleRelease --no-daemon
+
+    artifacts:
+      - artifacts/mobile/android/app/build/outputs/**/*.aab
+      - artifacts/mobile/android/app/build/outputs/**/*.apk
+
+    publishing:
+      email:
+        recipients:
+          - your@email.com
+        notify:
+          success: true
+          failure: true
+
+  # ─────────────────────────────────────────────────────────────
+  # iOS — gera IPA para App Store / TestFlight
+  # ─────────────────────────────────────────────────────────────
+  ios-release:
+    name: NETPLAY — iOS Release
+    max_build_duration: 90
+    instance_type: mac_mini_m2
+    environment:
+      groups:
+        - netplay_secrets      # EXPO_TOKEN, SUPABASE_URL, SUPABASE_ANON_KEY
+        - ios_credentials      # APP_STORE_CONNECT_KEY_IDENTIFIER, APP_STORE_CONNECT_ISSUER_ID,
+                               # APP_STORE_CONNECT_PRIVATE_KEY, CERTIFICATE_PRIVATE_KEY
+      node: 20.18.0
+      xcode: latest
+      cocoapods: default
+      vars:
+        BUNDLE_ID: com.netplay.app
+        EXPO_PUBLIC_DOMAIN: ""
+        EXPO_PUBLIC_REPL_ID: ""
+
+    scripts:
+      - name: Instalar pnpm
+        script: npm install -g pnpm
+
+      - name: Instalar dependências do workspace
+        script: pnpm install --frozen-lockfile
+
+      - name: Instalar dependências do app mobile
+        script: |
+          cd artifacts/mobile
+          npm install
+
+      - name: Configurar variáveis de ambiente do Expo
+        script: |
+          cd artifacts/mobile
+          echo "EXPO_PUBLIC_SUPABASE_URL=$SUPABASE_URL" >> .env
+          echo "EXPO_PUBLIC_SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY" >> .env
+
+      - name: Expo Prebuild (gera pasta ios/)
+        script: |
+          cd artifacts/mobile
+          npx expo prebuild --clean --platform ios
+
+      - name: Instalar pods
+        script: |
+          cd artifacts/mobile/ios
+          pod install
+
+      - name: Configurar code signing (App Store Connect API)
+        script: |
+          keychain initialize
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --create
+          keychain add-certificates
+
+      - name: Build IPA
+        script: |
+          cd artifacts/mobile
+          xcode-project build-ipa \
+            --workspace ios/NETPLAY.xcworkspace \
+            --scheme NETPLAY
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+      email:
+        recipients:
+          - your@email.com
+        notify:
+          success: true
+          failure: true
+
+  # ─────────────────────────────────────────────────────────────
+  # EAS BUILD — alternativa usando Expo Application Services
+  # ─────────────────────────────────────────────────────────────
+  eas-build:
+    name: NETPLAY — EAS Build
+    max_build_duration: 60
+    environment:
+      groups:
+        - netplay_secrets
+      node: 20.18.0
+      vars:
+        EAS_PROJECT_ID: aa86cc57-e8c0-4ce7-806c-0d1e5e345991
+
+    scripts:
+      - name: Instalar pnpm
+        script: npm install -g pnpm
+
+      - name: Instalar dependências
+        script: pnpm install --frozen-lockfile
+
+      - name: Instalar EAS CLI
+        script: npm install -g eas-cli
+
+      - name: Login no Expo
+        script: eas login --token $EXPO_TOKEN
+
+      - name: EAS Build Android
+        script: |
+          cd artifacts/mobile
+          eas build --platform android --profile production --non-interactive
+
+      - name: EAS Build iOS
+        script: |
+          cd artifacts/mobile
+          eas build --platform ios --profile production --non-interactive
+
+    artifacts:
+      - "**/*.apk"
+      - "**/*.aab"
+      - "**/*.ipa"
