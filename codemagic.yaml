@@ -8,7 +8,7 @@ workflows:
     max_build_duration: 60
     environment:
       groups:
-        - netplay_secrets      # EXPO_TOKEN, SUPABASE_URL, SUPABASE_ANON_KEY
+        - netplay_secrets      # EXPO_TOKEN, SUPABASE_URL, SUPABASE_ANON_KEY, TMDB_API_KEY
         - android_keystore     # CM_KEYSTORE, CM_KEYSTORE_PASSWORD, CM_KEY_ALIAS, CM_KEY_PASSWORD
       node: 20.18.0
       vars:
