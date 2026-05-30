@@ -86,13 +86,32 @@ export const db = {
       return { id: data.id, email: data.email, name: data.name, role: data.role, avatarLetter: data.avatar_letter };
     },
 
-    login: async (email: string, passwordHash: string) => {
-      const { data, error } = await supabase
+    login: async (email: string, passwordHash: string, fallbackHash?: string) => {
+      const emailLower = email.toLowerCase().trim();
+      let { data, error } = await supabase
         .from("users")
         .select("*")
-        .eq("email", email.toLowerCase().trim())
+        .eq("email", emailLower)
         .eq("password_hash", passwordHash)
         .maybeSingle();
+
+      if ((error || !data) && fallbackHash) {
+        const res = await supabase
+          .from("users")
+          .select("*")
+          .eq("email", emailLower)
+          .eq("password_hash", fallbackHash)
+          .maybeSingle();
+        if (!res.error && res.data) {
+          data = res.data;
+          error = null;
+          await supabase
+            .from("users")
+            .update({ password_hash: passwordHash })
+            .eq("id", res.data.id);
+        }
+      }
+
       if (error || !data) return { error: "Email ou senha incorretos" };
       return { id: data.id, email: data.email, name: data.name, role: data.role, avatarLetter: data.avatar_letter };
     },

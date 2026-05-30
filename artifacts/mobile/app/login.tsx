@@ -14,7 +14,7 @@ import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useAuth, hashPassword } from "@/lib/auth-context";
+import { useAuth, hashPassword, simpleHashPassword } from "@/lib/auth-context";
 import { db } from "@/lib/supabase";
 
 export default function LoginScreen() {
@@ -44,7 +44,8 @@ export default function LoginScreen() {
         if ("error" in result && result.error) { setError(result.error); return; }
         await setUser(result as any);
       } else {
-        const result = await db.users.login(email, ph);
+        const fallbackPh = simpleHashPassword(password);
+        const result = await db.users.login(email, ph, ph !== fallbackPh ? fallbackPh : undefined);
         if ("error" in result && result.error) { setError(result.error); return; }
         await setUser(result as any);
       }

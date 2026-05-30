@@ -73,7 +73,12 @@ export async function hashPassword(password: string): Promise<string> {
       .map((b) => b.toString(16).padStart(2, "0"))
       .join("");
   }
-  // Fallback: simple hash for environments without crypto.subtle
+  return simpleHashPassword(password);
+}
+
+export function simpleHashPassword(password: string): string {
+  const salt = "netplay_salt_2024_v1";
+  const msg = password + salt;
   let hash = 0;
   for (let i = 0; i < msg.length; i++) {
     hash = (hash << 5) - hash + msg.charCodeAt(i);
