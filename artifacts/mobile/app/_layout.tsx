@@ -26,6 +26,7 @@ function RootLayoutNav() {
   return (
     <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#000" } }}>
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      <Stack.Screen name="player" options={{ headerShown: false, presentation: "fullScreenModal" }} />
     </Stack>
   );
 }

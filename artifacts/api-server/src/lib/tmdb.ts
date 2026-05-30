@@ -1,0 +1,122 @@
+const TMDB_BASE = "https://api.themoviedb.org/3";
+const LANGUAGE = "pt-BR";
+
+function getKey(): string {
+  const key = process.env["TMDB_API_KEY"];
+  if (!key) throw new Error("TMDB_API_KEY not configured");
+  return key;
+}
+
+function buildUrl(path: string, params: Record<string, string> = {}): string {
+  const url = new URL(`${TMDB_BASE}${path}`);
+  url.searchParams.set("api_key", getKey());
+  url.searchParams.set("language", LANGUAGE);
+  for (const [k, v] of Object.entries(params)) {
+    url.searchParams.set(k, v);
+  }
+  return url.toString();
+}
+
+async function tmdbFetch<T>(path: string, params: Record<string, string> = {}): Promise<T> {
+  const url = buildUrl(path, params);
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`TMDB error ${res.status}: ${res.statusText}`);
+  }
+  return res.json() as Promise<T>;
+}
+
+export interface TmdbMovie {
+  id: number;
+  title: string;
+  original_title: string;
+  overview: string;
+  poster_path: string | null;
+  backdrop_path: string | null;
+  release_date: string;
+  vote_average: number;
+  vote_count: number;
+  genre_ids?: number[];
+  genres?: { id: number; name: string }[];
+  runtime?: number;
+  media_type?: string;
+}
+
+export interface TmdbTv {
+  id: number;
+  name: string;
+  original_name: string;
+  overview: string;
+  poster_path: string | null;
+  backdrop_path: string | null;
+  first_air_date: string;
+  vote_average: number;
+  vote_count: number;
+  genre_ids?: number[];
+  genres?: { id: number; name: string }[];
+  number_of_seasons?: number;
+  number_of_episodes?: number;
+  media_type?: string;
+}
+
+export interface TmdbPage<T> {
+  page: number;
+  results: T[];
+  total_pages: number;
+  total_results: number;
+}
+
+export const tmdb = {
+  trending: {
+    all: (timeWindow: "day" | "week" = "week") =>
+      tmdbFetch<TmdbPage<TmdbMovie & TmdbTv>>(`/trending/all/${timeWindow}`),
+    movies: (timeWindow: "day" | "week" = "week") =>
+      tmdbFetch<TmdbPage<TmdbMovie>>(`/trending/movie/${timeWindow}`),
+    tv: (timeWindow: "day" | "week" = "week") =>
+      tmdbFetch<TmdbPage<TmdbTv>>(`/trending/tv/${timeWindow}`),
+  },
+
+  movie: {
+    popular: () => tmdbFetch<TmdbPage<TmdbMovie>>("/movie/popular"),
+    topRated: () => tmdbFetch<TmdbPage<TmdbMovie>>("/movie/top_rated"),
+    details: (id: number) =>
+      tmdbFetch<TmdbMovie>(`/movie/${id}`, { append_to_response: "credits,similar,videos" }),
+    similar: (id: number) => tmdbFetch<TmdbPage<TmdbMovie>>(`/movie/${id}/similar`),
+  },
+
+  tv: {
+    popular: () => tmdbFetch<TmdbPage<TmdbTv>>("/tv/popular"),
+    topRated: () => tmdbFetch<TmdbPage<TmdbTv>>("/tv/top_rated"),
+    details: (id: number) =>
+      tmdbFetch<TmdbTv>(`/tv/${id}`, { append_to_response: "credits,similar,videos" }),
+    similar: (id: number) => tmdbFetch<TmdbPage<TmdbTv>>(`/tv/${id}/similar`),
+  },
+
+  search: {
+    multi: (query: string, page = 1) =>
+      tmdbFetch<TmdbPage<(TmdbMovie | TmdbTv) & { media_type: string }>>("/search/multi", {
+        query,
+        page: String(page),
+        include_adult: "false",
+      }),
+    movies: (query: string, page = 1) =>
+      tmdbFetch<TmdbPage<TmdbMovie>>("/search/movie", { query, page: String(page) }),
+    tv: (query: string, page = 1) =>
+      tmdbFetch<TmdbPage<TmdbTv>>("/search/tv", { query, page: String(page) }),
+  },
+
+  genres: {
+    movies: () => tmdbFetch<{ genres: { id: number; name: string }[] }>("/genre/movie/list"),
+    tv: () => tmdbFetch<{ genres: { id: number; name: string }[] }>("/genre/tv/list"),
+  },
+
+  redeflix: {
+    movieUrl: (tmdbId: number) => `https://redeflixapi.store/filme/${tmdbId}`,
+    tvUrl: (tmdbId: number, season: number, episode: number) =>
+      `https://redeflixapi.store/serie/${tmdbId}/${season}/${episode}`,
+    listMovieIds: () =>
+      fetch("https://redeflixapi.store/list-movie-ids.txt").then((r) => r.text()),
+    listTvIds: () =>
+      fetch("https://redeflixapi.store/list-tv-ids.txt").then((r) => r.text()),
+  },
+};

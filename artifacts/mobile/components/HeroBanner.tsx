@@ -19,6 +19,7 @@ const HERO_HEIGHT = 480;
 
 interface HeroBannerProps {
   items: ContentItem[];
+  onItemPress?: (item: ContentItem) => void;
 }
 
 interface HeroItemProps {
@@ -125,7 +126,7 @@ function HeroItem({ item, colors, onWatch, onDetails }: HeroItemProps) {
   );
 }
 
-export function HeroBanner({ items }: HeroBannerProps) {
+export function HeroBanner({ items, onItemPress }: HeroBannerProps) {
   const colors = useColors();
   const [activeIndex, setActiveIndex] = useState(0);
   const scrollX = useRef(new Animated.Value(0)).current;
@@ -159,7 +160,12 @@ export function HeroBanner({ items }: HeroBannerProps) {
         scrollEnabled
       >
         {items.map((item) => (
-          <HeroItem key={item.id} item={item} colors={colors} />
+          <HeroItem
+            key={item.id}
+            item={item}
+            colors={colors}
+            onWatch={onItemPress ? () => onItemPress(item) : undefined}
+          />
         ))}
       </Animated.ScrollView>
 

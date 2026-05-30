@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Animated,
   Platform,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -10,6 +11,7 @@ import {
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { Feather } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { HeroBanner } from "@/components/HeroBanner";
@@ -17,27 +19,29 @@ import { ContentRow } from "@/components/ContentRow";
 import { TopTenCard } from "@/components/TopTenCard";
 import { SyncBar } from "@/components/SyncBar";
 import { SkeletonRow } from "@/components/SkeletonLoader";
-import {
-  HERO_ITEMS,
-  TOP_10_SERIES,
-  TRENDING,
-  CONTINUE_WATCHING,
-  CATEGORIES,
-} from "@/constants/content";
+import { api, tmdbItemToContent, TMDB_IMG } from "@/lib/api";
+import type { ContentItem } from "@/constants/content";
+import { CATEGORIES, HERO_ITEMS, TOP_10_SERIES, TRENDING, CONTINUE_WATCHING } from "@/constants/content";
 
-const TAB_BAR_CLEARANCE = 100;
+const TAB_BAR_CLEARANCE = 110;
 
 export default function HomeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const isWeb = Platform.OS === "web";
-
   const topPad = isWeb ? 67 : insets.top;
 
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [syncProgress, setSyncProgress] = useState(2);
   const [showSync, setShowSync] = useState(true);
   const [activeCategory, setActiveCategory] = useState("all");
+
+  const [heroItems, setHeroItems] = useState<ContentItem[]>(HERO_ITEMS);
+  const [trendingItems, setTrendingItems] = useState<ContentItem[]>(TRENDING);
+  const [top10, setTop10] = useState<ContentItem[]>(TOP_10_SERIES);
+  const [continueItems, setContinueItems] = useState<ContentItem[]>(CONTINUE_WATCHING);
 
   const scrollY = useRef(new Animated.Value(0)).current;
   const headerOpacity = scrollY.interpolate({
@@ -46,10 +50,27 @@ export default function HomeScreen() {
     extrapolate: "clamp",
   });
 
-  useEffect(() => {
-    const timer = setTimeout(() => setLoading(false), 1200);
-    return () => clearTimeout(timer);
+  const loadData = useCallback(async () => {
+    try {
+      const data = await api.tmdb.trending();
+      const all = data.all.map(tmdbItemToContent);
+      const movies = data.movies.map(tmdbItemToContent);
+      const tv = data.tv.map(tmdbItemToContent);
+
+      setHeroItems(all.slice(0, 3));
+      setTrendingItems(all.slice(0, 8));
+      setTop10([...movies.slice(0, 3), ...tv.slice(0, 2)]);
+    } catch (err) {
+      console.log("Using mock data:", err);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   }, []);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   useEffect(() => {
     if (!showSync) return;
@@ -57,14 +78,30 @@ export default function HomeScreen() {
       setSyncProgress((p) => {
         if (p >= 100) {
           clearInterval(interval);
-          setTimeout(() => setShowSync(false), 600);
+          setTimeout(() => setShowSync(false), 800);
           return 100;
         }
-        return p + Math.floor(Math.random() * 8) + 3;
+        return Math.min(p + Math.floor(Math.random() * 8) + 3, 100);
       });
-    }, 180);
+    }, 160);
     return () => clearInterval(interval);
   }, [showSync]);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    loadData();
+  }, [loadData]);
+
+  const goToPlayer = (item: ContentItem) => {
+    router.push({
+      pathname: "/player",
+      params: {
+        type: item.type === "movie" ? "movie" : "tv",
+        id: String(item.tmdbId ?? item.id),
+        title: item.title,
+      },
+    });
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -78,14 +115,26 @@ export default function HomeScreen() {
         scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: TAB_BAR_CLEARANCE }}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
+          />
+        }
       >
         <View style={{ marginTop: topPad }}>
-          <HeroBanner items={HERO_ITEMS} />
+          <HeroBanner items={heroItems} onItemPress={goToPlayer} />
         </View>
 
         <View style={{ paddingTop: 28 }}>
           <View style={styles.categoriesRow}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20, gap: 8 }}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 20, gap: 8 }}
+            >
               {CATEGORIES.map((cat) => (
                 <TouchableOpacity
                   key={cat.id}
@@ -106,9 +155,7 @@ export default function HomeScreen() {
                       styles.categoryText,
                       {
                         color:
-                          activeCategory === cat.id
-                            ? "#fff"
-                            : colors.mutedForeground,
+                          activeCategory === cat.id ? "#fff" : colors.mutedForeground,
                       },
                     ]}
                   >
@@ -129,10 +176,11 @@ export default function HomeScreen() {
               <ContentRow
                 title="Em Alta"
                 icon="fire"
-                items={TRENDING}
+                items={trendingItems}
                 cardWidth={150}
                 cardHeight={210}
                 onSeeAll={() => {}}
+                onItemPress={goToPlayer}
               />
 
               <View style={styles.topTenSection}>
@@ -152,8 +200,13 @@ export default function HomeScreen() {
                   showsHorizontalScrollIndicator={false}
                   contentContainerStyle={styles.topTenScroll}
                 >
-                  {TOP_10_SERIES.map((item, i) => (
-                    <TopTenCard key={item.id} item={item} rank={i + 1} />
+                  {top10.map((item, i) => (
+                    <TopTenCard
+                      key={item.id}
+                      item={item}
+                      rank={i + 1}
+                      onPress={() => goToPlayer(item)}
+                    />
                   ))}
                 </ScrollView>
               </View>
@@ -161,7 +214,7 @@ export default function HomeScreen() {
               <ContentRow
                 title="Continue Assistindo"
                 icon="play"
-                items={CONTINUE_WATCHING}
+                items={continueItems}
                 cardWidth={170}
                 cardHeight={100}
                 showProgress
@@ -169,12 +222,13 @@ export default function HomeScreen() {
               />
 
               <ContentRow
-                title="Animações e Universos"
+                title="Populares Agora"
                 icon="star"
-                items={TRENDING.slice(0, 4)}
+                items={trendingItems.slice(3, 8)}
                 cardWidth={130}
                 cardHeight={190}
                 onSeeAll={() => {}}
+                onItemPress={goToPlayer}
               />
 
               <View style={[styles.hypeBanner, { backgroundColor: colors.card, borderColor: colors.primary }]}>
@@ -194,16 +248,7 @@ export default function HomeScreen() {
       </Animated.ScrollView>
 
       <Animated.View
-        style={[
-          styles.header,
-          {
-            paddingTop: topPad,
-            backgroundColor: headerOpacity.interpolate
-              ? undefined
-              : "transparent",
-          },
-          { top: 0 },
-        ]}
+        style={[styles.header, { paddingTop: topPad, top: 0 }]}
         pointerEvents="box-none"
       >
         <Animated.View
@@ -215,10 +260,16 @@ export default function HomeScreen() {
         <View style={styles.headerContent}>
           <Text style={[styles.logo, { color: colors.primary }]}>NETPLAY</Text>
           <View style={styles.headerActions}>
-            <TouchableOpacity style={styles.iconBtn}>
+            <TouchableOpacity
+              style={styles.iconBtn}
+              onPress={() => router.push("/(tabs)/search")}
+            >
               <Feather name="search" size={22} color="rgba(255,255,255,0.85)" />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.iconBtn}>
+            <TouchableOpacity
+              style={styles.iconBtn}
+              onPress={() => router.push("/(tabs)/profile")}
+            >
               <Feather name="user" size={22} color="rgba(255,255,255,0.85)" />
             </TouchableOpacity>
           </View>
@@ -235,9 +286,7 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
+  container: { flex: 1 },
   header: {
     position: "absolute",
     left: 0,
@@ -267,22 +316,15 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderRadius: 20,
   },
-  categoriesRow: {
-    marginBottom: 24,
-  },
+  categoriesRow: { marginBottom: 24 },
   categoryPill: {
     paddingHorizontal: 16,
     paddingVertical: 7,
     borderRadius: 20,
     borderWidth: 1,
   },
-  categoryText: {
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  topTenSection: {
-    marginBottom: 32,
-  },
+  categoryText: { fontSize: 13, fontWeight: "600" },
+  topTenSection: { marginBottom: 32 },
   sectionHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -290,26 +332,11 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     gap: 8,
   },
-  redBar: {
-    width: 3,
-    height: 16,
-    borderRadius: 2,
-  },
-  sectionTitle: {
-    fontSize: 17,
-    fontWeight: "700",
-    flex: 1,
-    letterSpacing: -0.3,
-  },
+  redBar: { width: 3, height: 16, borderRadius: 2 },
+  sectionTitle: { fontSize: 17, fontWeight: "700", flex: 1, letterSpacing: -0.3 },
   seeAllBtn: {},
-  seeAllText: {
-    fontSize: 12,
-    fontWeight: "500",
-  },
-  topTenScroll: {
-    paddingHorizontal: 20,
-    gap: 4,
-  },
+  seeAllText: { fontSize: 12, fontWeight: "500" },
+  topTenScroll: { paddingHorizontal: 20, gap: 4 },
   hypeBanner: {
     marginHorizontal: 20,
     marginBottom: 32,
@@ -318,27 +345,10 @@ const styles = StyleSheet.create({
     padding: 18,
     borderLeftWidth: 3,
   },
-  hypeContent: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-  },
-  hypeDot: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    opacity: 0.9,
-  },
-  hypePercent: {
-    fontSize: 20,
-    fontWeight: "800",
-    letterSpacing: -0.5,
-  },
-  hypeDesc: {
-    fontSize: 12,
-    fontWeight: "400",
-    marginTop: 2,
-  },
+  hypeContent: { flexDirection: "row", alignItems: "center", gap: 14 },
+  hypeDot: { width: 40, height: 40, borderRadius: 20, opacity: 0.9 },
+  hypePercent: { fontSize: 20, fontWeight: "800", letterSpacing: -0.5 },
+  hypeDesc: { fontSize: 12, fontWeight: "400", marginTop: 2 },
   syncWrapper: {
     position: "absolute",
     left: 0,

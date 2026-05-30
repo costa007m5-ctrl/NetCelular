@@ -1,5 +1,6 @@
 export type ContentItem = {
   id: string;
+  tmdbId?: number;
   title: string;
   originalTitle?: string;
   year: number;
@@ -10,6 +11,7 @@ export type ContentItem = {
   description: string;
   genres: string[];
   type: "movie" | "series";
+  mediaType?: "movie" | "tv";
   duration?: string;
   progress?: number;
   channel?: string;

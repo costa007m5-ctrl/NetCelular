@@ -19,6 +19,7 @@ interface ContentRowProps {
   showProgress?: boolean;
   showTitles?: boolean;
   onSeeAll?: () => void;
+  onItemPress?: (item: ContentItem) => void;
 }
 
 export function ContentRow({
@@ -30,6 +31,7 @@ export function ContentRow({
   showProgress = false,
   showTitles = false,
   onSeeAll,
+  onItemPress,
 }: ContentRowProps) {
   const colors = useColors();
 
@@ -63,6 +65,7 @@ export function ContentRow({
             height={cardHeight}
             showProgress={showProgress}
             showTitle={showTitles}
+            onPress={onItemPress ? () => onItemPress(item) : undefined}
           />
         ))}
       </ScrollView>
