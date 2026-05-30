@@ -156,6 +156,8 @@ export default function DetailScreen() {
         season: String(season),
         episode: String(episode),
         title: details?.title ?? details?.name ?? "",
+        posterPath: details?.poster_path ?? "",
+        backdropPath: details?.backdrop_path ?? "",
       },
     });
   };

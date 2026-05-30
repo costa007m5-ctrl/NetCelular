@@ -13,15 +13,19 @@ import { StatusBar } from "expo-status-bar";
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useQuery } from "convex/react";
 import { useColors } from "@/hooks/useColors";
 import { HeroBanner } from "@/components/HeroBanner";
 import { ContentRow } from "@/components/ContentRow";
 import { TopTenCard } from "@/components/TopTenCard";
 import { SyncBar } from "@/components/SyncBar";
 import { SkeletonRow } from "@/components/SkeletonLoader";
-import { api, tmdbItemToContent, TMDB_IMG } from "@/lib/api";
+import { api, tmdbItemToContent } from "@/lib/api";
+import { api as convexApi } from "@/convex/_generated/api";
+import { useAuth } from "@/lib/auth-context";
+import { isConvexConfigured } from "@/lib/convex-client";
 import type { ContentItem } from "@/constants/content";
-import { CATEGORIES, HERO_ITEMS, TOP_10_SERIES, TRENDING, CONTINUE_WATCHING } from "@/constants/content";
+import { CATEGORIES, HERO_ITEMS, TOP_10_SERIES, TRENDING } from "@/constants/content";
 
 const TAB_BAR_CLEARANCE = 110;
 
@@ -29,6 +33,7 @@ export default function HomeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { user } = useAuth();
   const isWeb = Platform.OS === "web";
   const topPad = isWeb ? 67 : insets.top;
 
@@ -41,7 +46,27 @@ export default function HomeScreen() {
   const [heroItems, setHeroItems] = useState<ContentItem[]>(HERO_ITEMS);
   const [trendingItems, setTrendingItems] = useState<ContentItem[]>(TRENDING);
   const [top10, setTop10] = useState<ContentItem[]>(TOP_10_SERIES);
-  const [continueItems, setContinueItems] = useState<ContentItem[]>(CONTINUE_WATCHING);
+
+  const userId = user?.id ?? "";
+  const rawProgress = useQuery(
+    isConvexConfigured && userId ? convexApi.progress.getAll : "skip",
+    isConvexConfigured && userId ? { userId } : "skip"
+  );
+
+  const continueItems: ContentItem[] = (rawProgress ?? []).map((p: any) => ({
+    id: String(p.tmdbId),
+    tmdbId: p.tmdbId,
+    title: p.title ?? "Sem título",
+    year: 2024,
+    rating: 0,
+    posterPath: p.posterPath ?? "",
+    backdropPath: p.backdropPath ?? "",
+    description: "",
+    genres: [],
+    type: p.type === "movie" ? ("movie" as const) : ("series" as const),
+    mediaType: p.type,
+    progress: p.progress ?? 0,
+  }));
 
   const scrollY = useRef(new Animated.Value(0)).current;
   const headerOpacity = scrollY.interpolate({
@@ -211,15 +236,18 @@ export default function HomeScreen() {
                 </ScrollView>
               </View>
 
-              <ContentRow
-                title="Continue Assistindo"
-                icon="play"
-                items={continueItems}
-                cardWidth={170}
-                cardHeight={100}
-                showProgress
-                onSeeAll={() => {}}
-              />
+              {continueItems.length > 0 && (
+                <ContentRow
+                  title="Continue Assistindo"
+                  icon="play"
+                  items={continueItems}
+                  cardWidth={170}
+                  cardHeight={100}
+                  showProgress
+                  onSeeAll={() => {}}
+                  onItemPress={goToPlayer}
+                />
+              )}
 
               <ContentRow
                 title="Populares Agora"

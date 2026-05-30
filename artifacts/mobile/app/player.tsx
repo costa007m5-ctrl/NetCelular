@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Dimensions,
@@ -12,8 +12,12 @@ import { StatusBar } from "expo-status-bar";
 import { Feather } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useMutation } from "convex/react";
 import { useColors } from "@/hooks/useColors";
-import { api } from "@/lib/api";
+import { api, TMDB_IMG } from "@/lib/api";
+import { api as convexApi } from "@/convex/_generated/api";
+import { useAuth } from "@/lib/auth-context";
+import { isConvexConfigured } from "@/lib/convex-client";
 
 const { width: W, height: H } = Dimensions.get("window");
 
@@ -99,12 +103,15 @@ export default function PlayerScreen() {
   const colors = useColors();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
   const params = useLocalSearchParams<{
     type: string;
     id: string;
     season?: string;
     episode?: string;
     title?: string;
+    posterPath?: string;
+    backdropPath?: string;
   }>();
 
   const type = (params.type ?? "movie") as "movie" | "tv";
@@ -112,9 +119,40 @@ export default function PlayerScreen() {
   const season = Number(params.season ?? 1);
   const episode = Number(params.episode ?? 1);
   const title = params.title ?? "";
+  const posterPath = params.posterPath ?? "";
+  const backdropPath = params.backdropPath ?? "";
+
+  const upsertProgress = useMutation(convexApi.progress.upsert);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [progressSaved, setProgressSaved] = useState(false);
+
+  const saveProgress = async () => {
+    if (!user?.id || !id || !isConvexConfigured || progressSaved) return;
+    try {
+      setProgressSaved(true);
+      await upsertProgress({
+        userId: user.id,
+        tmdbId: id,
+        type,
+        title,
+        posterPath: TMDB_IMG(posterPath || null, "w500") ?? posterPath,
+        backdropPath: TMDB_IMG(backdropPath || null, "w1280") ?? undefined,
+        progress: 0.05,
+        ...(type === "tv" ? { season, episode } : {}),
+      });
+    } catch (e) {
+      setProgressSaved(false);
+    }
+  };
+
+  useEffect(() => {
+    if (Platform.OS === "web" && id) {
+      const timer = setTimeout(() => saveProgress(), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [id, type]);
 
   const playerUrl = api.redeflix.url(type, id, season, episode);
   const topPad = Platform.OS === "web" ? 67 : insets.top;
@@ -223,7 +261,7 @@ export default function PlayerScreen() {
         source={{ uri: playerUrl }}
         style={styles.webview}
         onLoadStart={() => { setLoading(true); setError(false); }}
-        onLoadEnd={() => setLoading(false)}
+        onLoadEnd={() => { setLoading(false); saveProgress(); }}
         onError={() => { setError(true); setLoading(false); }}
         allowsFullscreenVideo
         allowsInlineMediaPlayback
