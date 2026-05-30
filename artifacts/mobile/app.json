@@ -14,9 +14,12 @@
       "backgroundColor": "#000000"
     },
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "bundleIdentifier": "com.netplay.app"
     },
-    "android": {},
+    "android": {
+      "package": "com.netplay.app"
+    },
     "web": {
       "favicon": "./assets/images/icon.png",
       "bundler": "metro",
