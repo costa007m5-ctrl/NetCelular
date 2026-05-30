@@ -121,6 +121,13 @@ router.get("/streaming-genre", handle(async (req) => {
   return tmdb.discover.movies(genreId, page, providerId);
 }));
 
+router.get("/collection/:id", handle(async (req) => {
+  const id = Number(req.params.id);
+  const data = await tmdb.collection.details(id);
+  data.parts.sort((a, b) => (a.release_date ?? "").localeCompare(b.release_date ?? ""));
+  return data;
+}));
+
 router.get("/movie/:id/providers", handle(async (req) => {
   const id = Number(req.params.id);
   const data = await tmdb.watchProviders.movie(id);

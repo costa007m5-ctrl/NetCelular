@@ -1,0 +1,262 @@
+A aba **Franquias** pode virar uma das áreas mais bonitas do NETPLAY, porque ela permite organizar universos completos em vez de mostrar apenas filmes soltos.
+
+# Conceito
+
+Ao invés de:
+
+```txt
+Filmes
+Séries
+Canais
+```
+
+Você teria:
+
+```txt
+UNIVERSOS
+```
+
+ou
+
+```txt
+FRANQUIAS
+```
+
+---
+
+# Header
+
+Banner cinematográfico:
+
+```txt
+🌌 UNIVERSOS NETPLAY
+Explore sagas e franquias completas
+```
+
+Com:
+
+* fundo animado
+* partículas
+* glow vermelho
+* blur cinematográfico
+
+---
+
+# Pesquisa
+
+```txt
+🔍 Buscar franquia...
+```
+
+Exemplos:
+
+* Marvel
+* DC
+* Star Wars
+* Harry Potter
+* Senhor dos Anéis
+* Dragon Ball
+* Naruto
+* One Piece
+* Velozes e Furiosos
+* Transformers
+
+---
+
+# Destaque Principal
+
+Card gigante:
+
+```txt
+⭐ UNIVERSO EM ALTA
+MARVEL STUDIOS
+35 filmes e séries
+```
+
+Botão:
+
+```txt
+EXPLORAR
+```
+
+---
+
+# Carrossel de Franquias
+
+Cada franquia teria um card grande:
+
+🦸 Marvel
+
+```txt
+35 conteúdos
+Saga completa
+```
+
+⚡ DC
+
+```txt
+22 conteúdos
+Filmes e séries
+```
+
+🌌 Star Wars
+
+```txt
+18 conteúdos
+Ordem cronológica
+```
+
+⚡ Harry Potter
+
+```txt
+11 conteúdos
+Saga completa
+```
+
+---
+
+# Ao abrir uma franquia
+
+Exemplo:
+
+# MARVEL
+
+Banner gigante.
+
+```txt
+MARVEL CINEMATIC UNIVERSE
+```
+
+Descrição:
+
+```txt
+Todos os filmes e séries organizados
+em ordem cronológica.
+```
+
+---
+
+# Organização
+
+## Linha do Tempo
+
+```txt
+1. Capitão América
+2. Capitã Marvel
+3. Homem de Ferro
+4. Hulk
+5. Homem de Ferro 2
+...
+```
+
+---
+
+# Categorias
+
+Separadas:
+
+### Filmes
+
+### Séries
+
+### Especiais
+
+### Próximos Lançamentos
+
+---
+
+# Estatísticas
+
+```txt
+35 conteúdos
+120 horas
+2008 - Atual
+```
+
+---
+
+# Recursos Premium
+
+Botões:
+
+```txt
+▶ Maratonar Tudo
+❤ Favoritar Universo
+📥 Baixar Saga
+📅 Continuar Cronologia
+```
+
+---
+
+# Recomendações
+
+Se o usuário gosta de:
+
+```txt
+Marvel
+```
+
+Mostrar:
+
+```txt
+DC
+Invencível
+The Boys
+X-Men
+```
+
+---
+
+# Visual
+
+Eu faria no estilo:
+
+* Netflix Collections
+* Disney+ Universos
+* Apple TV+
+* VisionOS
+
+Com:
+
+* cards enormes
+* capas 3D
+* glow vermelho
+* fundo escuro
+* blur
+* animações suaves
+
+---
+
+# Franquias que eu colocaria
+
+🎬 Filmes
+
+* Marvel
+* DC
+* Star Wars
+* Harry Potter
+* Senhor dos Anéis
+* Jurassic Park
+* Transformers
+* Velozes e Furiosos
+* Missão Impossível
+* John Wick
+
+📺 Séries
+
+* The Walking Dead
+* Game of Thrones
+* House of the Dragon
+* The Boys
+* Stranger Things
+
+🎌 Animes
+
+* Dragon Ball
+* Naruto
+* One Piece
+* Bleach
+* Pokémon
+* Attack on Titan
+
+Essa aba ficaria parecendo um **Disney+ de universos**, e seria uma das áreas mais fortes do NETPLAY.

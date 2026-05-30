@@ -108,6 +108,15 @@ export const api = {
       const genreParam = genreId ? `&genre_id=${genreId}` : "";
       return apiFetch(`/tmdb/streaming-genre?provider_id=${providerId}&type=${type}&page=${page}${genreParam}`);
     },
+
+    collection: (id: number): Promise<{
+      id: number;
+      name: string;
+      overview: string;
+      poster_path: string | null;
+      backdrop_path: string | null;
+      parts: TmdbItem[];
+    }> => apiFetch(`/tmdb/collection/${id}`),
   },
 
   redeflix: {

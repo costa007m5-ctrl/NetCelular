@@ -15,9 +15,9 @@ function NativeTabLayout() {
         <Icon sf={{ default: "house", selected: "house.fill" }} />
         <Label>Início</Label>
       </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="search">
-        <Icon sf={{ default: "magnifyingglass", selected: "magnifyingglass" }} />
-        <Label>Buscar</Label>
+      <NativeTabs.Trigger name="franquias">
+        <Icon sf={{ default: "sparkles", selected: "sparkles" }} />
+        <Label>Franquias</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="channels">
         <Icon sf={{ default: "tv", selected: "tv.fill" }} />
@@ -108,14 +108,14 @@ function ClassicTabLayout() {
         }}
       />
       <Tabs.Screen
-        name="search"
+        name="franquias"
         options={{
-          title: "Buscar",
+          title: "Franquias",
           tabBarIcon: ({ color }) =>
             isIOS ? (
-              <SymbolView name="magnifyingglass" tintColor={color} size={22} />
+              <SymbolView name="sparkles" tintColor={color} size={22} />
             ) : (
-              <Feather name="search" size={22} color={color} />
+              <Feather name="layers" size={22} color={color} />
             ),
         }}
       />
@@ -165,6 +165,15 @@ function ClassicTabLayout() {
             ) : (
               <Feather name="user" size={22} color={color} />
             ),
+        }}
+      />
+      {/* Search still accessible via header icon but hidden from tab bar */}
+      <Tabs.Screen
+        name="search"
+        options={{
+          href: null,
+          title: "Buscar",
+          tabBarIcon: ({ color }) => <Feather name="search" size={22} color={color} />,
         }}
       />
     </Tabs>
