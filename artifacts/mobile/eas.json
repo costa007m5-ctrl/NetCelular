@@ -9,24 +9,19 @@
       "distribution": "internal",
       "android": {
         "buildType": "apk"
-      },
-      "env": {
-        "NODE_ENV": "development"
       }
     },
     "preview": {
       "distribution": "internal",
       "android": {
         "buildType": "apk"
-      },
-      "customInstallCommand": "npm install --legacy-peer-deps"
+      }
     },
     "production": {
       "autoIncrement": true,
       "android": {
         "buildType": "app-bundle"
-      },
-      "customInstallCommand": "npm install --legacy-peer-deps"
+      }
     }
   },
   "submit": {
