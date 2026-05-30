@@ -1,38 +1,14 @@
 import { BlurView } from "expo-blur";
 import { Redirect, Tabs } from "expo-router";
-import { Icon, Label, NativeTabs } from "expo-router/unstable-native-tabs";
-import { SymbolView } from "expo-symbols";
 import { Feather } from "@expo/vector-icons";
 import React from "react";
 import { ActivityIndicator, Platform, StyleSheet, View } from "react-native";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/lib/auth-context";
 
-function NativeTabLayout() {
-  return (
-    <NativeTabs>
-      <NativeTabs.Trigger name="index">
-        <Icon sf={{ default: "house", selected: "house.fill" }} />
-        <Label>Início</Label>
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="search">
-        <Icon sf={{ default: "magnifyingglass", selected: "magnifyingglass" }} />
-        <Label>Buscar</Label>
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="channels">
-        <Icon sf={{ default: "tv", selected: "tv.fill" }} />
-        <Label>Canais</Label>
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="list">
-        <Icon sf={{ default: "bookmark", selected: "bookmark.fill" }} />
-        <Label>Lista</Label>
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="profile">
-        <Icon sf={{ default: "person", selected: "person.fill" }} />
-        <Label>Perfil</Label>
-      </NativeTabs.Trigger>
-    </NativeTabs>
-  );
+let SymbolView: React.ComponentType<{ name: string; tintColor?: string; size?: number }> | null = null;
+if (Platform.OS === "ios") {
+  SymbolView = require("expo-symbols").SymbolView;
 }
 
 function ClassicTabLayout() {
@@ -96,7 +72,7 @@ function ClassicTabLayout() {
         options={{
           title: "Início",
           tabBarIcon: ({ color }) =>
-            isIOS ? (
+            isIOS && SymbolView ? (
               <SymbolView name="house" tintColor={color} size={22} />
             ) : (
               <Feather name="home" size={22} color={color} />
@@ -108,7 +84,7 @@ function ClassicTabLayout() {
         options={{
           title: "Buscar",
           tabBarIcon: ({ color }) =>
-            isIOS ? (
+            isIOS && SymbolView ? (
               <SymbolView name="magnifyingglass" tintColor={color} size={22} />
             ) : (
               <Feather name="search" size={22} color={color} />
@@ -120,7 +96,7 @@ function ClassicTabLayout() {
         options={{
           title: "Canais",
           tabBarIcon: ({ color }) =>
-            isIOS ? (
+            isIOS && SymbolView ? (
               <SymbolView name="tv" tintColor={color} size={22} />
             ) : (
               <Feather name="tv" size={22} color={color} />
@@ -132,7 +108,7 @@ function ClassicTabLayout() {
         options={{
           title: "Lista",
           tabBarIcon: ({ color }) =>
-            isIOS ? (
+            isIOS && SymbolView ? (
               <SymbolView name="bookmark" tintColor={color} size={22} />
             ) : (
               <Feather name="bookmark" size={22} color={color} />
@@ -144,7 +120,7 @@ function ClassicTabLayout() {
         options={{
           title: "Perfil",
           tabBarIcon: ({ color }) =>
-            isIOS ? (
+            isIOS && SymbolView ? (
               <SymbolView name="person" tintColor={color} size={22} />
             ) : (
               <Feather name="user" size={22} color={color} />
@@ -170,9 +146,6 @@ export default function TabLayout() {
     return <Redirect href="/login" />;
   }
 
-  if (Platform.OS === "ios") {
-    return <NativeTabLayout />;
-  }
   return <ClassicTabLayout />;
 }
 
