@@ -34,6 +34,16 @@
       "env": {
         "NODE_VERSION": "20"
       }
+    },
+    "production-apk": {
+      "autoIncrement": true,
+      "android": {
+        "buildType": "apk",
+        "image": "latest"
+      },
+      "env": {
+        "NODE_VERSION": "20"
+      }
     }
   },
   "submit": {
