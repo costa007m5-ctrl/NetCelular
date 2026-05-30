@@ -51,14 +51,14 @@ workflows:
           KEY_PASSWORD=$CM_KEY_PASSWORD
           EOF
 
-      - name: Build AAB (Play Store)
+      - name: Build AAB (Play Store) + APK (instalação direta)
         script: |
           cd artifacts/mobile/android
-          ./gradlew bundleRelease --no-daemon
+          ./gradlew bundleRelease assembleRelease --no-daemon
 
     artifacts:
-      - artifacts/mobile/android/app/build/outputs/**/*.aab
-      - artifacts/mobile/android/app/build/outputs/**/*.apk
+      - artifacts/mobile/android/app/build/outputs/bundle/release/*.aab
+      - artifacts/mobile/android/app/build/outputs/apk/release/*.apk
 
     publishing:
       email:
