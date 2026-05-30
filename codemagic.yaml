@@ -40,7 +40,7 @@ workflows:
       - name: Expo Prebuild (gera pasta android/)
         script: |
           cd artifacts/mobile
-          NODE_OPTIONS="--stack-size=65536" npx expo prebuild --clean --platform android
+          node --stack-size=65536 ./node_modules/.bin/expo prebuild --clean --platform android
 
       - name: Configurar keystore de assinatura
         script: |
@@ -112,7 +112,7 @@ workflows:
       - name: Expo Prebuild (gera pasta ios/)
         script: |
           cd artifacts/mobile
-          NODE_OPTIONS="--stack-size=65536" npx expo prebuild --clean --platform ios
+          node --stack-size=65536 ./node_modules/.bin/expo prebuild --clean --platform ios
 
       - name: Instalar pods
         script: |
