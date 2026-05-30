@@ -6,8 +6,7 @@ import {
   useFonts,
 } from "@expo-google-fonts/inter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { ConvexProvider } from "convex/react";
-import { Redirect, Stack } from "expo-router";
+import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import * as SystemUI from "expo-system-ui";
 import React, { useEffect } from "react";
@@ -17,7 +16,6 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { convexClient } from "@/lib/convex-client";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 
 SystemUI.setBackgroundColorAsync("#000000");
@@ -25,21 +23,8 @@ SplashScreen.preventAutoHideAsync();
 
 const queryClient = new QueryClient();
 
-function AppProviders({ children }: { children: React.ReactNode }) {
-  if (convexClient) {
-    return (
-      <ConvexProvider client={convexClient}>
-        <QueryClientProvider client={queryClient}>
-          {children}
-        </QueryClientProvider>
-      </ConvexProvider>
-    );
-  }
-  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
-}
-
 function RootNavigator() {
-  const { user, loading } = useAuth();
+  const { loading } = useAuth();
 
   if (loading) {
     return (
@@ -79,13 +64,13 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <ErrorBoundary>
         <AuthProvider>
-          <AppProviders>
+          <QueryClientProvider client={queryClient}>
             <GestureHandlerRootView style={{ flex: 1, backgroundColor: "#000" }}>
               <KeyboardProvider>
                 <RootNavigator />
               </KeyboardProvider>
             </GestureHandlerRootView>
-          </AppProviders>
+          </QueryClientProvider>
         </AuthProvider>
       </ErrorBoundary>
     </SafeAreaProvider>

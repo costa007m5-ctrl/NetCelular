@@ -17,15 +17,13 @@ import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
 import { Feather } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useMutation, useQuery } from "convex/react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { ContentCard } from "@/components/ContentCard";
-import { api as convexApi } from "@/convex/_generated/api";
 import { api as tmdbApi, TMDB_IMG, tmdbItemToContent } from "@/lib/api";
 import type { TmdbItem, TmdbEpisode, TmdbSeason } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import { isConvexConfigured } from "@/lib/convex-client";
+import { db, isSupabaseConfigured } from "@/lib/supabase";
 import type { ContentItem } from "@/constants/content";
 
 const { width: W } = Dimensions.get("window");
@@ -52,22 +50,15 @@ export default function DetailScreen() {
   const [loading, setLoading] = useState(true);
   const [imgError, setImgError] = useState(false);
 
-  // Convex state
   const userId = user?.id ?? "";
-  const inListRaw = useQuery(
-    isConvexConfigured && userId ? convexApi.watchlist.isAdded : "skip",
-    isConvexConfigured && userId ? { userId, tmdbId, type } : "skip"
-  );
-  const ratingRaw = useQuery(
-    isConvexConfigured && userId ? convexApi.ratings.getRating : "skip",
-    isConvexConfigured && userId ? { userId, tmdbId, type } : "skip"
-  );
-  const addToList = useMutation(convexApi.watchlist.add);
-  const removeFromList = useMutation(convexApi.watchlist.remove);
-  const setRating = useMutation(convexApi.ratings.setRating);
+  const [inList, setInList] = useState(false);
+  const [liked, setLiked] = useState<boolean | undefined>(undefined);
 
-  const inList = Boolean(inListRaw);
-  const liked = ratingRaw?.liked;
+  useEffect(() => {
+    if (!userId || !tmdbId || !isSupabaseConfigured) return;
+    db.watchlist.isAdded(userId, tmdbId, type).then(setInList);
+    db.ratings.get(userId, tmdbId, type).then((r) => setLiked(r?.liked));
+  }, [userId, tmdbId, type]);
 
   // Load details
   useEffect(() => {
@@ -123,21 +114,26 @@ export default function DetailScreen() {
 
   const toggleList = async () => {
     if (!userId || !details) return;
-    const args = {
-      userId,
-      tmdbId,
-      type,
-      title: details.title ?? details.name ?? "",
-      posterPath: TMDB_IMG(details.poster_path, "w500") ?? "",
-      backdropPath: TMDB_IMG(details.backdrop_path, "w1280") ?? undefined,
-    };
-    if (inList) await removeFromList({ userId, tmdbId, type });
-    else await addToList(args);
+    if (inList) {
+      await db.watchlist.remove(userId, tmdbId, type);
+      setInList(false);
+    } else {
+      await db.watchlist.add({
+        user_id: userId,
+        tmdb_id: tmdbId,
+        type,
+        title: details.title ?? details.name ?? "",
+        poster_path: TMDB_IMG(details.poster_path, "w500") ?? "",
+        backdrop_path: TMDB_IMG(details.backdrop_path, "w1280") ?? undefined,
+      });
+      setInList(true);
+    }
   };
 
   const handleLike = async (val: boolean) => {
     if (!userId) return;
-    await setRating({ userId, tmdbId, type, liked: val });
+    await db.ratings.set(userId, tmdbId, type, val);
+    setLiked(val);
   };
 
   const handleShare = async () => {

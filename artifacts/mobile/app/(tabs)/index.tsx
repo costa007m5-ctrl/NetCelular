@@ -13,7 +13,6 @@ import { StatusBar } from "expo-status-bar";
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useQuery } from "convex/react";
 import { useColors } from "@/hooks/useColors";
 import { HeroBanner } from "@/components/HeroBanner";
 import { ContentRow } from "@/components/ContentRow";
@@ -21,9 +20,8 @@ import { TopTenCard } from "@/components/TopTenCard";
 import { SyncBar } from "@/components/SyncBar";
 import { SkeletonRow } from "@/components/SkeletonLoader";
 import { api, tmdbItemToContent } from "@/lib/api";
-import { api as convexApi } from "@/convex/_generated/api";
 import { useAuth } from "@/lib/auth-context";
-import { isConvexConfigured } from "@/lib/convex-client";
+import { db, isSupabaseConfigured } from "@/lib/supabase";
 import type { ContentItem } from "@/constants/content";
 import { CATEGORIES, HERO_ITEMS, TOP_10_SERIES, TRENDING } from "@/constants/content";
 
@@ -48,25 +46,27 @@ export default function HomeScreen() {
   const [top10, setTop10] = useState<ContentItem[]>(TOP_10_SERIES);
 
   const userId = user?.id ?? "";
-  const rawProgress = useQuery(
-    isConvexConfigured && userId ? convexApi.progress.getAll : "skip",
-    isConvexConfigured && userId ? { userId } : "skip"
-  );
+  const [continueItems, setContinueItems] = useState<ContentItem[]>([]);
 
-  const continueItems: ContentItem[] = (rawProgress ?? []).map((p: any) => ({
-    id: String(p.tmdbId),
-    tmdbId: p.tmdbId,
-    title: p.title ?? "Sem título",
-    year: 2024,
-    rating: 0,
-    posterPath: p.posterPath ?? "",
-    backdropPath: p.backdropPath ?? "",
-    description: "",
-    genres: [],
-    type: p.type === "movie" ? ("movie" as const) : ("series" as const),
-    mediaType: p.type,
-    progress: p.progress ?? 0,
-  }));
+  useEffect(() => {
+    if (!userId || !isSupabaseConfigured) return;
+    db.progress.getAll(userId).then((items) =>
+      setContinueItems(items.map((p) => ({
+        id: String(p.tmdb_id),
+        tmdbId: p.tmdb_id,
+        title: p.title ?? "Sem título",
+        year: 2024,
+        rating: 0,
+        posterPath: p.poster_path ?? "",
+        backdropPath: p.backdrop_path ?? "",
+        description: "",
+        genres: [],
+        type: p.type === "movie" ? ("movie" as const) : ("series" as const),
+        mediaType: p.type,
+        progress: p.progress ?? 0,
+      })))
+    );
+  }, [userId]);
 
   const scrollY = useRef(new Animated.Value(0)).current;
   const headerOpacity = scrollY.interpolate({

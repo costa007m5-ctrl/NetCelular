@@ -12,12 +12,10 @@ import { StatusBar } from "expo-status-bar";
 import { Feather } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useMutation } from "convex/react";
 import { useColors } from "@/hooks/useColors";
 import { api, TMDB_IMG } from "@/lib/api";
-import { api as convexApi } from "@/convex/_generated/api";
 import { useAuth } from "@/lib/auth-context";
-import { isConvexConfigured } from "@/lib/convex-client";
+import { db, isSupabaseConfigured } from "@/lib/supabase";
 
 const { width: W, height: H } = Dimensions.get("window");
 
@@ -122,23 +120,21 @@ export default function PlayerScreen() {
   const posterPath = params.posterPath ?? "";
   const backdropPath = params.backdropPath ?? "";
 
-  const upsertProgress = useMutation(convexApi.progress.upsert);
-
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [progressSaved, setProgressSaved] = useState(false);
 
   const saveProgress = async () => {
-    if (!user?.id || !id || !isConvexConfigured || progressSaved) return;
+    if (!user?.id || !id || !isSupabaseConfigured || progressSaved) return;
     try {
       setProgressSaved(true);
-      await upsertProgress({
-        userId: user.id,
-        tmdbId: id,
+      await db.progress.upsert({
+        user_id: user.id,
+        tmdb_id: id,
         type,
         title,
-        posterPath: TMDB_IMG(posterPath || null, "w500") ?? posterPath,
-        backdropPath: TMDB_IMG(backdropPath || null, "w1280") ?? undefined,
+        poster_path: TMDB_IMG(posterPath || null, "w500") ?? posterPath,
+        backdrop_path: TMDB_IMG(backdropPath || null, "w1280") ?? undefined,
         progress: 0.05,
         ...(type === "tv" ? { season, episode } : {}),
       });
