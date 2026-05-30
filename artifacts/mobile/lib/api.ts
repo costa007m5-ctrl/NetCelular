@@ -109,6 +109,9 @@ export const api = {
       return apiFetch(`/tmdb/streaming-genre?provider_id=${providerId}&type=${type}&page=${page}${genreParam}`);
     },
 
+    keywordDiscover: (keywordId: number, type: "movie" | "tv", page = 1): Promise<TmdbSearchResult> =>
+      apiFetch(`/tmdb/discover-keyword?keyword_id=${keywordId}&type=${type}&page=${page}`),
+
     collection: (id: number): Promise<{
       id: number;
       name: string;

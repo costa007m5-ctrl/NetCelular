@@ -121,6 +121,15 @@ router.get("/streaming-genre", handle(async (req) => {
   return tmdb.discover.movies(genreId, page, providerId);
 }));
 
+router.get("/discover-keyword", handle(async (req) => {
+  const type = String(req.query.type ?? "movie");
+  const keywordId = Number(req.query.keyword_id ?? 0);
+  const page = Number(req.query.page ?? 1);
+  if (!keywordId) return { results: [], total_pages: 0, total_results: 0, page: 1 };
+  if (type === "tv") return tmdb.discover.tv(undefined, page, undefined, keywordId);
+  return tmdb.discover.movies(undefined, page, undefined, keywordId);
+}));
+
 router.get("/collection/:id", handle(async (req) => {
   const id = Number(req.params.id);
   const data = await tmdb.collection.details(id);

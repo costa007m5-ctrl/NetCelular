@@ -147,16 +147,18 @@ export const tmdb = {
   },
 
   discover: {
-    movies: (genreId?: number, page = 1, providerId?: number) => {
+    movies: (genreId?: number, page = 1, providerId?: number, keywordId?: number) => {
       const params: Record<string, string> = { page: String(page), include_adult: "false", sort_by: "popularity.desc" };
       if (providerId) { params.with_watch_providers = String(providerId); params.watch_region = "BR"; }
       if (genreId) params.with_genres = String(genreId);
+      if (keywordId) params.with_keywords = String(keywordId);
       return tmdbFetch<TmdbPage<TmdbMovie>>("/discover/movie", params);
     },
-    tv: (genreId?: number, page = 1, providerId?: number) => {
+    tv: (genreId?: number, page = 1, providerId?: number, keywordId?: number) => {
       const params: Record<string, string> = { page: String(page), include_adult: "false", sort_by: "popularity.desc" };
       if (providerId) { params.with_watch_providers = String(providerId); params.watch_region = "BR"; }
       if (genreId) params.with_genres = String(genreId);
+      if (keywordId) params.with_keywords = String(keywordId);
       return tmdbFetch<TmdbPage<TmdbTv>>("/discover/tv", params);
     },
   },

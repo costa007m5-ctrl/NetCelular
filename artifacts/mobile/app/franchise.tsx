@@ -17,71 +17,170 @@ import { StatusBar } from "expo-status-bar";
 import { Feather } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { getFranchise } from "@/constants/franchises";
+import { FRANCHISES, getFranchise } from "@/constants/franchises";
 import { api, tmdbItemToContent, TMDB_IMG } from "@/lib/api";
 import type { ContentItem } from "@/constants/content";
 
 const { width: W } = Dimensions.get("window");
-const BACKDROP_H = 340;
-type FilterType = "all" | "movie" | "tv";
+const BACKDROP_H = 320;
+const CARD_W = 120;
+const CARD_H = 175;
 
-function ContentListItem({
+// ─── Poster card for horizontal carousel ───────────────────────
+function PosterCard({
   item,
-  rank,
   accentColor,
   onPress,
 }: {
   item: ContentItem;
-  rank: number;
   accentColor: string;
   onPress: () => void;
 }) {
-  const [imgError, setImgError] = useState(false);
-
+  const [imgErr, setImgErr] = useState(false);
   return (
-    <Pressable onPress={onPress} style={styles.listItem}>
-      <Text style={[styles.listRank, { color: accentColor + "80" }]}>
-        {String(rank).padStart(2, "0")}
-      </Text>
-      <View style={styles.listPoster}>
-        {!imgError && item.posterPath ? (
+    <Pressable onPress={onPress} style={{ width: CARD_W, marginRight: 10 }}>
+      <View style={styles.posterCard}>
+        {!imgErr && item.posterPath ? (
           <Image
             source={{ uri: item.posterPath }}
-            style={styles.posterImg}
+            style={styles.posterCardImg}
             resizeMode="cover"
-            onError={() => setImgError(true)}
+            onError={() => setImgErr(true)}
           />
         ) : (
           <LinearGradient
-            colors={[accentColor + "33", "#1a1a1a"]}
-            style={[styles.posterImg, styles.posterPlaceholder]}
+            colors={[accentColor + "44", "#111"]}
+            style={[styles.posterCardImg, styles.posterPlaceholder]}
           >
-            <Feather name="film" size={18} color={accentColor} />
+            <Feather name="film" size={20} color={accentColor} />
           </LinearGradient>
         )}
         {item.type === "series" && (
-          <View style={[styles.typeBadge, { backgroundColor: accentColor }]}>
-            <Text style={styles.typeBadgeText}>SÉRIE</Text>
+          <View style={[styles.mediaTypeBadge, { backgroundColor: accentColor }]}>
+            <Text style={styles.mediaTypeBadgeText}>TV</Text>
+          </View>
+        )}
+        {item.rating > 0 && (
+          <View style={styles.ratingBadge}>
+            <Feather name="star" size={8} color="#fbbf24" />
+            <Text style={styles.ratingBadgeText}>{item.rating.toFixed(1)}</Text>
           </View>
         )}
       </View>
-      <View style={styles.listInfo}>
-        <Text style={styles.listTitle} numberOfLines={2}>{item.title}</Text>
-        <View style={styles.listMeta}>
-          <Text style={styles.listYear}>{item.year}</Text>
-          {item.rating > 0 && (
-            <View style={styles.ratingRow}>
-              <Feather name="star" size={10} color="#fbbf24" />
-              <Text style={styles.ratingText}>{item.rating.toFixed(1)}</Text>
-            </View>
-          )}
+      <Text style={styles.posterCardTitle} numberOfLines={2}>{item.title}</Text>
+      <Text style={styles.posterCardYear}>{item.year}</Text>
+    </Pressable>
+  );
+}
+
+// ─── Horizontal carousel section ───────────────────────────────
+function ContentCarousel({
+  title,
+  items,
+  accentColor,
+  onPressItem,
+  loading,
+}: {
+  title: string;
+  items: ContentItem[];
+  accentColor: string;
+  onPressItem: (item: ContentItem) => void;
+  loading?: boolean;
+}) {
+  if (!loading && items.length === 0) return null;
+  return (
+    <View style={styles.carouselSection}>
+      <View style={styles.carouselHeader}>
+        <View style={[styles.accentBar, { backgroundColor: accentColor }]} />
+        <Text style={styles.carouselTitle}>{title}</Text>
+        {!loading && (
+          <Text style={[styles.carouselCount, { color: accentColor }]}>
+            {items.length} títulos
+          </Text>
+        )}
+      </View>
+      {loading ? (
+        <View style={styles.carouselLoading}>
+          <ActivityIndicator color={accentColor} size="small" />
         </View>
-        <Text style={styles.listDesc} numberOfLines={2}>{item.description}</Text>
+      ) : (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.carouselScroll}
+        >
+          {items.map((item) => (
+            <PosterCard
+              key={item.id}
+              item={item}
+              accentColor={accentColor}
+              onPress={() => onPressItem(item)}
+            />
+          ))}
+        </ScrollView>
+      )}
+    </View>
+  );
+}
+
+// ─── Related franchise card with real image ────────────────────
+function RelatedCard({ franchiseId, onPress }: { franchiseId: string; onPress: () => void }) {
+  const f = getFranchise(franchiseId);
+  const [imgUrl, setImgUrl] = useState<string | null>(null);
+  const [imgErr, setImgErr] = useState(false);
+
+  useEffect(() => {
+    if (!f) return;
+    const load = async () => {
+      try {
+        let path: string | null = null;
+        if (f.fetchType === "collection" && f.tmdbCollectionId) {
+          const d = await api.tmdb.collection(f.tmdbCollectionId);
+          path = d.backdrop_path;
+        } else if (f.tmdbTvId) {
+          const d = await api.tmdb.tv(f.tmdbTvId) as any;
+          path = d.backdrop_path ?? null;
+        } else {
+          const q = f.searchQuery ?? f.name;
+          const type = f.category === "anime" ? "tv" : "movie";
+          const d = await api.tmdb.search(q, type as any);
+          path = d.results[0]?.backdrop_path ?? null;
+        }
+        if (path) setImgUrl(TMDB_IMG(path, "w780") ?? null);
+      } catch {}
+    };
+    load();
+  }, [franchiseId]);
+
+  if (!f) return null;
+
+  return (
+    <Pressable onPress={onPress} style={styles.relatedCard}>
+      {imgUrl && !imgErr ? (
+        <Image
+          source={{ uri: imgUrl }}
+          style={[StyleSheet.absoluteFill, { borderRadius: 12 }]}
+          resizeMode="cover"
+          onError={() => setImgErr(true)}
+        />
+      ) : (
+        <LinearGradient colors={f.bgGradient} style={StyleSheet.absoluteFill} />
+      )}
+      <LinearGradient
+        colors={["transparent", "rgba(0,0,0,0.8)"]}
+        locations={[0.3, 1]}
+        style={StyleSheet.absoluteFill}
+      />
+      <View style={[styles.relatedAccent, { backgroundColor: f.color }]} />
+      <View style={styles.relatedInfo}>
+        <Text style={styles.relatedName}>{f.shortName}</Text>
+        <Text style={[styles.relatedCount, { color: f.accentColor }]}>{f.contentCount} títulos</Text>
       </View>
     </Pressable>
   );
 }
 
+// ─── Main screen ───────────────────────────────────────────────
 export default function FranchiseScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -90,9 +189,10 @@ export default function FranchiseScreen() {
   const isWeb = Platform.OS === "web";
   const topPad = isWeb ? 0 : insets.top;
 
-  const [items, setItems] = useState<ContentItem[]>([]);
+  const [backdropUrl, setBackdropUrl] = useState<string | null>(null);
+  const [movies, setMovies] = useState<ContentItem[]>([]);
+  const [series, setSeries] = useState<ContentItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<FilterType>("all");
 
   const scrollY = useRef(new Animated.Value(0)).current;
   const headerOpacity = scrollY.interpolate({
@@ -101,44 +201,93 @@ export default function FranchiseScreen() {
     extrapolate: "clamp",
   });
 
+  // ── Fetch backdrop image ──────────────────────────────────────
+  useEffect(() => {
+    if (!franchise) return;
+    const load = async () => {
+      try {
+        let path: string | null = null;
+        if (franchise.fetchType === "collection" && franchise.tmdbCollectionId) {
+          const d = await api.tmdb.collection(franchise.tmdbCollectionId);
+          path = d.backdrop_path;
+        } else if (franchise.tmdbTvId) {
+          const d = await api.tmdb.tv(franchise.tmdbTvId) as any;
+          path = d.backdrop_path ?? null;
+        } else {
+          const q = franchise.searchQuery ?? franchise.name;
+          const type = franchise.category === "anime" ? "tv" : "movie";
+          const d = await api.tmdb.search(q, type as any);
+          path = d.results[0]?.backdrop_path ?? null;
+        }
+        if (path) setBackdropUrl(TMDB_IMG(path, "w1280") ?? null);
+      } catch {}
+    };
+    load();
+  }, [franchise?.id]);
+
+  // ── Fetch content ─────────────────────────────────────────────
   useEffect(() => {
     if (!franchise) return;
     setLoading(true);
-    setItems([]);
+    setMovies([]);
+    setSeries([]);
 
     const load = async () => {
       try {
         let allItems: ContentItem[] = [];
 
         if (franchise.fetchType === "collection" && franchise.tmdbCollectionId) {
+          // Movie sagas — ordered by release date
           const data = await api.tmdb.collection(franchise.tmdbCollectionId);
           allItems = data.parts.map((p) =>
             tmdbItemToContent({ ...p, media_type: "movie" })
           );
-        } else if (franchise.fetchType === "tv" && franchise.tmdbTvId) {
-          const tv = await api.tmdb.tv(franchise.tmdbTvId);
-          allItems = [tmdbItemToContent({ ...tv, media_type: "tv" })];
-          const similar = await api.tmdb.tvSimilar(franchise.tmdbTvId);
-          allItems = [...allItems, ...similar.slice(0, 6).map((s) =>
-            tmdbItemToContent({ ...s, media_type: "tv" })
-          )];
-        } else {
-          const q = franchise.searchQuery ?? franchise.name;
-          const [movieData, tvData] = await Promise.all([
-            api.tmdb.search(q, "movie"),
-            api.tmdb.search(q, "tv"),
+
+        } else if (franchise.fetchType === "keyword" && franchise.tmdbKeywordId) {
+          // Keyword-based (Marvel, DC, Star Wars, etc.)
+          const [mvData, tvData] = await Promise.all([
+            api.tmdb.keywordDiscover(franchise.tmdbKeywordId, "movie", 1),
+            api.tmdb.keywordDiscover(franchise.tmdbKeywordId, "tv", 1),
           ]);
-          const movies = movieData.results.map((m) =>
+          const mvItems = mvData.results.map((m) =>
             tmdbItemToContent({ ...m, media_type: "movie" })
           );
-          const tvs = tvData.results.map((t) =>
+          const tvItems = tvData.results.map((t) =>
             tmdbItemToContent({ ...t, media_type: "tv" })
           );
-          allItems = [...movies, ...tvs];
+          allItems = [...mvItems, ...tvItems].sort((a, b) => b.rating - a.rating);
+
+        } else if (franchise.fetchType === "tv" && franchise.tmdbTvId) {
+          // TV franchise — main show + defined spinoffs (no random similar)
+          const tvIds = [franchise.tmdbTvId, ...(franchise.relatedTvIds ?? [])];
+          const tvResults = await Promise.allSettled(
+            tvIds.map((id) => api.tmdb.tv(id) as Promise<any>)
+          );
+          allItems = tvResults
+            .filter((r) => r.status === "fulfilled")
+            .map((r: any) => tmdbItemToContent({ ...r.value, media_type: "tv" }));
+
+        } else {
+          // Search fallback — specific title + type
+          const q = franchise.searchQuery ?? franchise.name;
+          const type = franchise.searchType ?? (franchise.category === "anime" ? "tv" : "movie");
+          const data = await api.tmdb.search(q, type as any);
+          allItems = data.results
+            .slice(0, 20)
+            .map((item) => tmdbItemToContent({ ...item, media_type: type as any }));
           allItems.sort((a, b) => b.rating - a.rating);
         }
 
-        setItems(allItems);
+        // Deduplicate by tmdbId
+        const seen = new Set<number>();
+        const unique = allItems.filter((item) => {
+          if (!item.tmdbId || seen.has(item.tmdbId)) return false;
+          seen.add(item.tmdbId);
+          return true;
+        });
+
+        setMovies(unique.filter((i) => i.type === "movie"));
+        setSeries(unique.filter((i) => i.type === "series"));
       } catch (e) {
         console.warn("Franchise fetch error:", e);
       } finally {
@@ -160,19 +309,6 @@ export default function FranchiseScreen() {
     });
   };
 
-  const relatedFranchises = franchise?.related
-    .map((rid) => {
-      const f = require("@/constants/franchises").getFranchise(rid);
-      return f;
-    })
-    .filter(Boolean) ?? [];
-
-  const filteredItems = items.filter((item) => {
-    if (filter === "movie") return item.type === "movie";
-    if (filter === "tv") return item.type === "series";
-    return true;
-  });
-
   if (!franchise) {
     return (
       <View style={{ flex: 1, backgroundColor: "#000", alignItems: "center", justifyContent: "center" }}>
@@ -181,22 +317,11 @@ export default function FranchiseScreen() {
     );
   }
 
-  const FILTERS: { id: FilterType; label: string }[] = [
-    { id: "all", label: "Tudo" },
-    { id: "movie", label: "Filmes" },
-    { id: "tv", label: "Séries" },
-  ];
+  const allItems = [...movies, ...series];
 
   return (
-    <View style={[styles.container, { backgroundColor: franchise.bgGradient[2] }]}>
+    <View style={{ flex: 1, backgroundColor: "#000" }}>
       <StatusBar style="light" />
-
-      <LinearGradient
-        colors={franchise.bgGradient}
-        style={StyleSheet.absoluteFill}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 0, y: 1 }}
-      />
 
       <Animated.ScrollView
         onScroll={Animated.event(
@@ -207,28 +332,29 @@ export default function FranchiseScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}
       >
-        {/* ── Backdrop Header ─────────────────────────────── */}
+        {/* ── Backdrop header ───────────────────────── */}
         <View style={[styles.backdrop, { height: BACKDROP_H }]}>
+          {backdropUrl ? (
+            <Image
+              source={{ uri: backdropUrl }}
+              style={[StyleSheet.absoluteFill, { borderBottomLeftRadius: 0, borderBottomRightRadius: 0 }]}
+              resizeMode="cover"
+            />
+          ) : (
+            <LinearGradient colors={franchise.bgGradient} style={StyleSheet.absoluteFill} />
+          )}
+
+          {/* dark gradient overlay */}
           <LinearGradient
-            colors={[franchise.bgGradient[0], franchise.bgGradient[1]]}
+            colors={["rgba(0,0,0,0.15)", "rgba(0,0,0,0.55)", "#000"]}
+            locations={[0, 0.55, 1]}
             style={StyleSheet.absoluteFill}
           />
 
-          {/* Animated glow */}
-          <View style={[styles.backdropGlow, { backgroundColor: franchise.color }]} />
+          {/* accent bar at top */}
+          <View style={[styles.backdropAccent, { backgroundColor: franchise.color }]} />
 
-          {/* Emoji large */}
-          <Text style={styles.backdropEmoji}>{franchise.emoji}</Text>
-
-          {/* Gradient overlay to body */}
-          <LinearGradient
-            colors={["transparent", franchise.bgGradient[2]]}
-            style={styles.backdropFade}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 0, y: 1 }}
-          />
-
-          {/* Franchise info */}
+          {/* info overlay */}
           <View style={styles.backdropInfo}>
             <View style={[styles.categoryBadge, { borderColor: franchise.color + "80" }]}>
               <Text style={[styles.categoryBadgeText, { color: franchise.accentColor }]}>
@@ -242,29 +368,29 @@ export default function FranchiseScreen() {
           </View>
         </View>
 
-        {/* ── Stats ───────────────────────────────────────── */}
+        {/* ── Stats ────────────────────────────────── */}
         <View style={styles.statsRow}>
           {[
-            { icon: "film" as const, value: String(franchise.contentCount), label: "Conteúdos" },
+            { icon: "film" as const, value: String(franchise.contentCount), label: "Títulos" },
             { icon: "clock" as const, value: `${franchise.totalHours}h`, label: "Total" },
             { icon: "calendar" as const, value: franchise.yearRange, label: "Período" },
-          ].map((stat) => (
-            <View key={stat.label} style={[styles.statItem, { borderColor: franchise.color + "33" }]}>
-              <Feather name={stat.icon} size={14} color={franchise.accentColor} />
-              <Text style={styles.statValue}>{stat.value}</Text>
-              <Text style={styles.statLabel}>{stat.label}</Text>
+          ].map((s) => (
+            <View key={s.label} style={[styles.statItem, { borderColor: franchise.color + "33" }]}>
+              <Feather name={s.icon} size={14} color={franchise.accentColor} />
+              <Text style={styles.statValue}>{s.value}</Text>
+              <Text style={styles.statLabel}>{s.label}</Text>
             </View>
           ))}
         </View>
 
-        {/* ── Description ─────────────────────────────────── */}
+        {/* ── Description ──────────────────────────── */}
         <Text style={styles.description}>{franchise.description}</Text>
 
-        {/* ── Action Buttons ───────────────────────────────── */}
+        {/* ── Action buttons ───────────────────────── */}
         <View style={styles.actionsRow}>
           <TouchableOpacity
             style={[styles.primaryBtn, { backgroundColor: franchise.color }]}
-            onPress={() => filteredItems[0] && goToDetail(filteredItems[0])}
+            onPress={() => allItems[0] && goToDetail(allItems[0])}
           >
             <Feather name="play" size={14} color="#fff" />
             <Text style={styles.primaryBtnText}>Maratonar Tudo</Text>
@@ -275,106 +401,78 @@ export default function FranchiseScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* ── Filter Tabs ─────────────────────────────────── */}
-        <View style={styles.filterRow}>
-          {FILTERS.map((f) => (
-            <TouchableOpacity
-              key={f.id}
-              onPress={() => setFilter(f.id)}
-              style={[
-                styles.filterTab,
-                filter === f.id
-                  ? { backgroundColor: franchise.color, borderColor: franchise.color }
-                  : { backgroundColor: "rgba(255,255,255,0.06)", borderColor: "rgba(255,255,255,0.1)" },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.filterTabText,
-                  { color: filter === f.id ? "#fff" : "rgba(255,255,255,0.55)" },
-                ]}
-              >
-                {f.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
+        {/* ── Divider ──────────────────────────────── */}
+        <View style={[styles.divider, { backgroundColor: franchise.color + "25" }]} />
 
-        {/* ── Divider ─────────────────────────────────────── */}
-        <View style={[styles.divider, { backgroundColor: franchise.color + "30" }]} />
+        {/* ── Movies carousel ──────────────────────── */}
+        {(loading || movies.length > 0) && (
+          <ContentCarousel
+            title="Filmes"
+            items={movies}
+            accentColor={franchise.accentColor}
+            onPressItem={goToDetail}
+            loading={loading && movies.length === 0}
+          />
+        )}
 
-        {/* ── Content List ────────────────────────────────── */}
-        {loading ? (
+        {/* ── Series carousel ──────────────────────── */}
+        {(loading || series.length > 0) && (
+          <ContentCarousel
+            title="Séries"
+            items={series}
+            accentColor={franchise.accentColor}
+            onPressItem={goToDetail}
+            loading={loading && series.length === 0}
+          />
+        )}
+
+        {/* Loading state when no data yet */}
+        {loading && movies.length === 0 && series.length === 0 && (
           <View style={styles.centered}>
             <ActivityIndicator size="large" color={franchise.accentColor} />
-            <Text style={{ color: "rgba(255,255,255,0.4)", marginTop: 12, fontSize: 13 }}>
-              Carregando conteúdo...
-            </Text>
-          </View>
-        ) : filteredItems.length === 0 ? (
-          <View style={styles.centered}>
-            <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 14 }}>
-              Nenhum conteúdo encontrado
-            </Text>
-          </View>
-        ) : (
-          <View style={styles.list}>
-            {filteredItems.map((item, i) => (
-              <ContentListItem
-                key={item.id}
-                item={item}
-                rank={i + 1}
-                accentColor={franchise.accentColor}
-                onPress={() => goToDetail(item)}
-              />
-            ))}
+            <Text style={styles.loadingText}>Carregando conteúdo...</Text>
           </View>
         )}
 
-        {/* ── Related Franchises ───────────────────────────── */}
-        {relatedFranchises.length > 0 && (
+        {/* Empty state */}
+        {!loading && movies.length === 0 && series.length === 0 && (
+          <View style={styles.centered}>
+            <Feather name="inbox" size={36} color="rgba(255,255,255,0.2)" />
+            <Text style={styles.emptyText}>Nenhum conteúdo encontrado</Text>
+          </View>
+        )}
+
+        {/* ── Related franchises ───────────────────── */}
+        {franchise.related.length > 0 && (
           <View style={styles.relatedSection}>
             <View style={styles.sectionHeader}>
               <View style={[styles.accentBar, { backgroundColor: franchise.color }]} />
-              <Text style={styles.sectionTitle}>Se você gosta de {franchise.shortName}</Text>
+              <Text style={styles.sectionTitle}>Se você gosta de {franchise.shortName}...</Text>
             </View>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.relatedScroll}
             >
-              {relatedFranchises.map((rel: any) => (
-                <Pressable
-                  key={rel.id}
-                  onPress={() => router.push({ pathname: "/franchise", params: { id: rel.id } })}
-                  style={styles.relatedCard}
-                >
-                  <LinearGradient
-                    colors={rel.bgGradient as [string, string, string]}
-                    style={StyleSheet.absoluteFill}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                  />
-                  <View style={[styles.relatedAccent, { backgroundColor: rel.color }]} />
-                  <Text style={styles.relatedEmoji}>{rel.emoji}</Text>
-                  <Text style={styles.relatedName}>{rel.shortName}</Text>
-                  <Text style={[styles.relatedCount, { color: rel.accentColor }]}>
-                    {rel.contentCount} conteúdos
-                  </Text>
-                </Pressable>
+              {franchise.related.map((rid) => (
+                <RelatedCard
+                  key={rid}
+                  franchiseId={rid}
+                  onPress={() => router.push({ pathname: "/franchise", params: { id: rid } })}
+                />
               ))}
             </ScrollView>
           </View>
         )}
       </Animated.ScrollView>
 
-      {/* ── Sticky Header ───────────────────────────────── */}
+      {/* ── Sticky header ────────────────────────── */}
       <Animated.View
         style={[styles.stickyHeader, { paddingTop: topPad }]}
         pointerEvents="box-none"
       >
         <Animated.View
-          style={[StyleSheet.absoluteFill, { backgroundColor: franchise.bgGradient[2], opacity: headerOpacity }]}
+          style={[StyleSheet.absoluteFill, { backgroundColor: "#000", opacity: headerOpacity }]}
         />
         <View style={styles.stickyHeaderContent}>
           <TouchableOpacity onPress={() => router.back()} style={styles.circleBtn}>
@@ -391,42 +489,23 @@ export default function FranchiseScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  centered: { alignItems: "center", justifyContent: "center", paddingVertical: 60 },
-
-  // Backdrop
+  // ── Backdrop ─────────────────────────────────────────────────
   backdrop: {
     position: "relative",
-    alignItems: "center",
     justifyContent: "flex-end",
     overflow: "hidden",
   },
-  backdropGlow: {
+  backdropAccent: {
     position: "absolute",
-    width: 300,
-    height: 300,
-    borderRadius: 150,
-    top: -80,
-    right: -60,
-    opacity: 0.25,
-  },
-  backdropEmoji: {
-    position: "absolute",
-    fontSize: 120,
-    top: 40,
-    opacity: 0.15,
-  },
-  backdropFade: {
-    position: "absolute",
-    bottom: 0,
+    top: 0,
     left: 0,
     right: 0,
-    height: 180,
+    height: 3,
+    zIndex: 2,
   },
   backdropInfo: {
-    width: "100%",
     paddingHorizontal: 20,
-    paddingBottom: 20,
+    paddingBottom: 22,
     zIndex: 2,
   },
   categoryBadge: {
@@ -439,22 +518,22 @@ const styles = StyleSheet.create({
   },
   categoryBadgeText: { fontSize: 9, fontWeight: "800", letterSpacing: 1.5 },
   franchiseName: {
-    fontSize: 30,
+    fontSize: 28,
     fontWeight: "900",
     color: "#fff",
     letterSpacing: 2,
-    lineHeight: 34,
+    lineHeight: 32,
     marginBottom: 4,
   },
-  franchiseTagline: { fontSize: 14, fontWeight: "600", letterSpacing: 0.3 },
+  franchiseTagline: { fontSize: 13, fontWeight: "600", letterSpacing: 0.3 },
 
-  // Stats
+  // ── Stats ─────────────────────────────────────────────────────
   statsRow: {
     flexDirection: "row",
     paddingHorizontal: 16,
     gap: 10,
+    marginTop: 16,
     marginBottom: 16,
-    marginTop: 8,
   },
   statItem: {
     flex: 1,
@@ -468,16 +547,16 @@ const styles = StyleSheet.create({
   statValue: { color: "#fff", fontSize: 13, fontWeight: "800" },
   statLabel: { color: "rgba(255,255,255,0.4)", fontSize: 10, fontWeight: "500" },
 
-  // Description
+  // ── Description ───────────────────────────────────────────────
   description: {
-    color: "rgba(255,255,255,0.65)",
+    color: "rgba(255,255,255,0.6)",
     fontSize: 13,
     lineHeight: 20,
     paddingHorizontal: 20,
     marginBottom: 18,
   },
 
-  // Actions
+  // ── Actions ───────────────────────────────────────────────────
   actionsRow: {
     flexDirection: "row",
     paddingHorizontal: 20,
@@ -508,64 +587,11 @@ const styles = StyleSheet.create({
   },
   secondaryBtnText: { color: "rgba(255,255,255,0.7)", fontSize: 14, fontWeight: "600" },
 
-  // Filter
-  filterRow: {
-    flexDirection: "row",
-    paddingHorizontal: 20,
-    gap: 8,
-    marginBottom: 16,
-  },
-  filterTab: {
-    paddingHorizontal: 18,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-  },
-  filterTabText: { fontSize: 13, fontWeight: "700" },
-  divider: { height: 1, marginHorizontal: 16, marginBottom: 16 },
+  divider: { height: 1, marginHorizontal: 16, marginBottom: 4 },
 
-  // List
-  list: { paddingHorizontal: 16 },
-  listItem: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 12,
-    marginBottom: 16,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.06)",
-  },
-  listRank: {
-    fontSize: 22,
-    fontWeight: "900",
-    width: 32,
-    textAlign: "right",
-    lineHeight: 28,
-    letterSpacing: -1,
-  },
-  listPoster: { position: "relative" },
-  posterImg: { width: 70, height: 105, borderRadius: 8 },
-  posterPlaceholder: { alignItems: "center", justifyContent: "center" },
-  typeBadge: {
-    position: "absolute",
-    top: 4,
-    left: 4,
-    paddingHorizontal: 4,
-    paddingVertical: 2,
-    borderRadius: 3,
-  },
-  typeBadgeText: { color: "#fff", fontSize: 7, fontWeight: "800", letterSpacing: 0.4 },
-  listInfo: { flex: 1, paddingTop: 2 },
-  listTitle: { color: "#fff", fontSize: 14, fontWeight: "700", marginBottom: 4, lineHeight: 19 },
-  listMeta: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 },
-  listYear: { color: "rgba(255,255,255,0.45)", fontSize: 11, fontWeight: "500" },
-  ratingRow: { flexDirection: "row", alignItems: "center", gap: 3 },
-  ratingText: { color: "#fbbf24", fontSize: 11, fontWeight: "700" },
-  listDesc: { color: "rgba(255,255,255,0.45)", fontSize: 11, lineHeight: 16 },
-
-  // Related
-  relatedSection: { marginTop: 16, marginBottom: 20 },
-  sectionHeader: {
+  // ── Carousel ──────────────────────────────────────────────────
+  carouselSection: { marginBottom: 24 },
+  carouselHeader: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 20,
@@ -573,14 +599,77 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   accentBar: { width: 3, height: 16, borderRadius: 2 },
+  carouselTitle: { color: "#fff", fontSize: 16, fontWeight: "700", flex: 1 },
+  carouselCount: { fontSize: 12, fontWeight: "600" },
+  carouselLoading: {
+    height: CARD_H,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  carouselScroll: { paddingHorizontal: 20, paddingBottom: 4 },
+
+  // ── Poster card ───────────────────────────────────────────────
+  posterCard: {
+    width: CARD_W,
+    height: CARD_H,
+    borderRadius: 10,
+    overflow: "hidden",
+    marginBottom: 6,
+    position: "relative",
+  },
+  posterCardImg: { width: "100%", height: "100%" },
+  posterPlaceholder: { alignItems: "center", justifyContent: "center" },
+  mediaTypeBadge: {
+    position: "absolute",
+    top: 6,
+    left: 6,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  mediaTypeBadgeText: { color: "#fff", fontSize: 8, fontWeight: "800", letterSpacing: 0.5 },
+  ratingBadge: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    backgroundColor: "rgba(0,0,0,0.75)",
+    paddingHorizontal: 5,
+    paddingVertical: 3,
+    borderRadius: 5,
+  },
+  ratingBadgeText: { color: "#fbbf24", fontSize: 9, fontWeight: "800" },
+  posterCardTitle: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 16,
+  },
+  posterCardYear: { color: "rgba(255,255,255,0.4)", fontSize: 10, marginTop: 1 },
+
+  // ── States ────────────────────────────────────────────────────
+  centered: { alignItems: "center", paddingVertical: 50, gap: 10 },
+  loadingText: { color: "rgba(255,255,255,0.4)", fontSize: 13 },
+  emptyText: { color: "rgba(255,255,255,0.3)", fontSize: 14 },
+
+  // ── Related ───────────────────────────────────────────────────
+  relatedSection: { marginTop: 4, marginBottom: 20 },
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    gap: 8,
+    marginBottom: 14,
+  },
   sectionTitle: { color: "#fff", fontSize: 16, fontWeight: "700" },
   relatedScroll: { paddingHorizontal: 16, gap: 10 },
   relatedCard: {
-    width: 130,
-    height: 110,
-    borderRadius: 14,
+    width: 140,
+    height: 105,
+    borderRadius: 12,
     overflow: "hidden",
-    padding: 12,
     position: "relative",
   },
   relatedAccent: {
@@ -589,12 +678,20 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: 2,
+    zIndex: 2,
   },
-  relatedEmoji: { fontSize: 22, marginBottom: 4 },
-  relatedName: { color: "#fff", fontSize: 12, fontWeight: "800", marginBottom: 3 },
+  relatedInfo: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 10,
+    zIndex: 2,
+  },
+  relatedName: { color: "#fff", fontSize: 13, fontWeight: "800", marginBottom: 2 },
   relatedCount: { fontSize: 10, fontWeight: "600" },
 
-  // Sticky header
+  // ── Sticky header ─────────────────────────────────────────────
   stickyHeader: {
     position: "absolute",
     top: 0,
@@ -617,10 +714,5 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  stickyTitle: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "900",
-    letterSpacing: 2,
-  },
+  stickyTitle: { color: "#fff", fontSize: 16, fontWeight: "900", letterSpacing: 2 },
 });
