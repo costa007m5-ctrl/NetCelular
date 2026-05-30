@@ -18,7 +18,8 @@
       "bundleIdentifier": "com.netplay.app"
     },
     "android": {
-      "package": "com.netplay.app"
+      "package": "com.netplay.app",
+      "versionCode": 1
     },
     "web": {
       "favicon": "./assets/images/icon.png",
