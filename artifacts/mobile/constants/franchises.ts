@@ -30,6 +30,7 @@ export interface Franchise {
   genre: FranchiseGenre;
   fetchType: FranchiseFetchType;
   tmdbCollectionId?: number;
+  relatedCollectionIds?: number[];
   tmdbKeywordId?: number;
   tmdbTvId?: number;
   relatedTvIds?: number[];
@@ -123,7 +124,7 @@ export const FRANCHISES: Franchise[] = [
     genre: "superherois",
     fetchType: "collection",
     tmdbCollectionId: 531241,
-    relatedTvIds: [],
+    relatedCollectionIds: [556],
     yearRange: "2002 - Atual",
     contentCount: 9,
     totalHours: 20,
@@ -1627,6 +1628,7 @@ export const FRANCHISES: Franchise[] = [
     fetchType: "tv",
     tmdbTvId: 12609,
     relatedTvIds: [39230, 60554],
+    relatedCollectionIds: [386410, 425164, 620873],
     yearRange: "1986 - Atual",
     contentCount: 8,
     totalHours: 600,
@@ -1649,6 +1651,7 @@ export const FRANCHISES: Franchise[] = [
     fetchType: "tv",
     tmdbTvId: 46260,
     relatedTvIds: [31910, 70261],
+    relatedCollectionIds: [23616],
     yearRange: "2002 - Atual",
     contentCount: 4,
     totalHours: 900,
@@ -1769,6 +1772,7 @@ export const FRANCHISES: Franchise[] = [
     genre: "anime",
     fetchType: "tv",
     tmdbTvId: 46261,
+    relatedCollectionIds: [23497],
     yearRange: "2004 - Atual",
     contentCount: 1,
     totalHours: 380,
@@ -2738,6 +2742,7 @@ export const FRANCHISES: Franchise[] = [
     genre: "anime",
     fetchType: "tv",
     tmdbTvId: 890,
+    relatedCollectionIds: [96850, 210303],
     yearRange: "1995 - Atual",
     contentCount: 1,
     totalHours: 15,

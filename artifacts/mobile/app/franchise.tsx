@@ -345,22 +345,30 @@ export default function FranchiseScreen() {
       try {
         let allItems: ContentItem[] = [];
 
+        // Helper: fetch a list of TMDB collection IDs and return movie ContentItems
+        const fetchCollections = async (ids: number[]): Promise<ContentItem[]> => {
+          const results = await Promise.allSettled(ids.map((id) => api.tmdb.collection(id)));
+          return results
+            .filter((r) => r.status === "fulfilled")
+            .flatMap((r: any) => r.value.parts ?? [])
+            .map((p: any) => tmdbItemToContent({ ...p, media_type: "movie" }));
+        };
+
+        // Helper: fetch a list of TV IDs and return series ContentItems
+        const fetchTvShows = async (ids: number[]): Promise<ContentItem[]> => {
+          const results = await Promise.allSettled(ids.map((id) => api.tmdb.tv(id) as Promise<any>));
+          return results
+            .filter((r) => r.status === "fulfilled")
+            .map((r: any) => tmdbItemToContent({ ...r.value, media_type: "tv" }));
+        };
+
         if (franchise.fetchType === "collection" && franchise.tmdbCollectionId) {
-          // Ordered movie collection
-          const data = await api.tmdb.collection(franchise.tmdbCollectionId);
-          const movieItems = data.parts.map((p) =>
-            tmdbItemToContent({ ...p, media_type: "movie" })
-          );
-          // Also fetch any specified TV shows (e.g. Star Wars Disney+ series)
-          let tvItems: ContentItem[] = [];
-          if (franchise.relatedTvIds && franchise.relatedTvIds.length > 0) {
-            const results = await Promise.allSettled(
-              franchise.relatedTvIds.map((id) => api.tmdb.tv(id) as Promise<any>)
-            );
-            tvItems = results
-              .filter((r) => r.status === "fulfilled")
-              .map((r: any) => tmdbItemToContent({ ...r.value, media_type: "tv" }));
-          }
+          // Primary collection + any extra collections + related TV shows
+          const allCollectionIds = [franchise.tmdbCollectionId, ...(franchise.relatedCollectionIds ?? [])];
+          const [movieItems, tvItems] = await Promise.all([
+            fetchCollections(allCollectionIds),
+            fetchTvShows(franchise.relatedTvIds ?? []),
+          ]);
           allItems = [...movieItems, ...tvItems];
 
         } else if (franchise.fetchType === "keyword" && franchise.tmdbKeywordId) {
@@ -375,14 +383,13 @@ export default function FranchiseScreen() {
           allItems = [...mvItems, ...tvItems].sort((a, b) => b.rating - a.rating);
 
         } else if (franchise.fetchType === "tv" && franchise.tmdbTvId) {
-          // Specific TV show(s) — main + defined spinoffs only
+          // TV show(s) + any related movie collections (coletâneas TMDB)
           const tvIds = [franchise.tmdbTvId, ...(franchise.relatedTvIds ?? [])];
-          const results = await Promise.allSettled(
-            tvIds.map((id) => api.tmdb.tv(id) as Promise<any>)
-          );
-          allItems = results
-            .filter((r) => r.status === "fulfilled")
-            .map((r: any) => tmdbItemToContent({ ...r.value, media_type: "tv" }));
+          const [tvItems, movieItems] = await Promise.all([
+            fetchTvShows(tvIds),
+            fetchCollections(franchise.relatedCollectionIds ?? []),
+          ]);
+          allItems = [...tvItems, ...movieItems];
 
         } else {
           // Search fallback
