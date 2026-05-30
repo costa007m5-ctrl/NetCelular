@@ -27,6 +27,10 @@ function NativeTabLayout() {
         <Icon sf={{ default: "star", selected: "star.fill" }} />
         <Label>Novidades</Label>
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="list">
+        <Icon sf={{ default: "bookmark", selected: "bookmark.fill" }} />
+        <Label>Lista</Label>
+      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="profile">
         <Icon sf={{ default: "person", selected: "person.fill" }} />
         <Label>Perfil</Label>
@@ -139,7 +143,18 @@ function ClassicTabLayout() {
             ),
         }}
       />
-      <Tabs.Screen name="list" options={{ href: null }} />
+      <Tabs.Screen
+        name="list"
+        options={{
+          title: "Lista",
+          tabBarIcon: ({ color }) =>
+            isIOS ? (
+              <SymbolView name="bookmark" tintColor={color} size={22} />
+            ) : (
+              <Feather name="bookmark" size={22} color={color} />
+            ),
+        }}
+      />
       <Tabs.Screen
         name="profile"
         options={{
