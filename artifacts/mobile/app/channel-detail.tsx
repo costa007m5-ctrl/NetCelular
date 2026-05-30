@@ -192,8 +192,26 @@ export default function ChannelDetailScreen() {
               <Text style={styles.thumbLiveText}>AO VIVO</Text>
             </View>
           </>
+        ) : isWeb ? (
+          /* ── Web iframe Player ── */
+          <>
+            <iframe
+              src={channelUrl}
+              style={{ width: "100%", height: "100%", border: "none", backgroundColor: "#000" } as any}
+              allowFullScreen
+              allow="autoplay; fullscreen; encrypted-media"
+            />
+            <Pressable style={styles.fsBtn} onPress={() => setFullscreen((v) => !v)}>
+              <Feather name={fullscreen ? "minimize" : "maximize"} size={18} color="#fff" />
+            </Pressable>
+            {!fullscreen && (
+              <Pressable style={[styles.backBtnPlayer, { top: topPad + 8 }]} onPress={() => router.back()}>
+                <Feather name="arrow-left" size={20} color="#fff" />
+              </Pressable>
+            )}
+          </>
         ) : WebView ? (
-          /* ── WebView Player ── */
+          /* ── Native WebView Player ── */
           <>
             <WebView
               source={{ uri: channelUrl }}
@@ -231,24 +249,7 @@ export default function ChannelDetailScreen() {
               </Pressable>
             )}
           </>
-        ) : (
-          /* Web fallback */
-          <>
-            <iframe
-              src={channelUrl}
-              style={{ width: "100%", height: "100%", border: "none", backgroundColor: "#000" } as any}
-              allowFullScreen
-            />
-            <Pressable style={styles.fsBtn} onPress={() => setFullscreen((v) => !v)}>
-              <Feather name={fullscreen ? "minimize" : "maximize"} size={18} color="#fff" />
-            </Pressable>
-            {!fullscreen && (
-              <Pressable style={[styles.backBtnPlayer, { top: topPad + 8 }]} onPress={() => router.back()}>
-                <Feather name="arrow-left" size={20} color="#fff" />
-              </Pressable>
-            )}
-          </>
-        )}
+        ) : null}
       </View>
 
       {/* ── SCROLLABLE INFO ─────────────────────── */}
