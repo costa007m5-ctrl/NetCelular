@@ -37,10 +37,15 @@ workflows:
           echo "EXPO_PUBLIC_SUPABASE_URL=$SUPABASE_URL" >> .env
           echo "EXPO_PUBLIC_SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY" >> .env
 
+      - name: Corrigir versões de pacotes Expo
+        script: |
+          cd artifacts/mobile
+          npx expo install --fix
+
       - name: Expo Prebuild (gera pasta android/)
         script: |
           cd artifacts/mobile
-          npx expo prebuild --clean --platform android
+          NODE_OPTIONS="--stack-size=65536" npx expo prebuild --clean --platform android
 
       - name: Configurar keystore de assinatura
         script: |
@@ -109,10 +114,15 @@ workflows:
           echo "EXPO_PUBLIC_SUPABASE_URL=$SUPABASE_URL" >> .env
           echo "EXPO_PUBLIC_SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY" >> .env
 
+      - name: Corrigir versões de pacotes Expo
+        script: |
+          cd artifacts/mobile
+          npx expo install --fix
+
       - name: Expo Prebuild (gera pasta ios/)
         script: |
           cd artifacts/mobile
-          npx expo prebuild --clean --platform ios
+          NODE_OPTIONS="--stack-size=65536" npx expo prebuild --clean --platform ios
 
       - name: Instalar pods
         script: |
