@@ -32,6 +32,15 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+    return Promise.race([
+      promise,
+      new Promise<T>((_, reject) =>
+        setTimeout(() => reject(new Error("Tempo esgotado. Verifique sua conexão e tente novamente.")), ms)
+      ),
+    ]);
+  }
+
   const handleSubmit = async () => {
     setError("");
     if (!email.trim() || !password.trim()) {
@@ -52,14 +61,20 @@ export default function LoginScreen() {
       const ph = await hashPassword(password);
 
       if (mode === "register") {
-        const result = await registerMutation({ email, name, passwordHash: ph });
-        if ("error" in result && result.error) {
+        const result = await withTimeout(
+          registerMutation({ email, name, passwordHash: ph }),
+          10000
+        );
+        if (result && "error" in result && result.error) {
           setError(result.error as string);
           return;
         }
         await setUser(result as any);
       } else {
-        const result = await loginMutation({ email, passwordHash: ph });
+        const result = await withTimeout(
+          loginMutation({ email, passwordHash: ph }),
+          10000
+        );
         if (!result || ("error" in result && result.error)) {
           setError((result as any)?.error ?? "Email ou senha incorretos");
           return;

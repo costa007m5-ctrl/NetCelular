@@ -1,6 +1,7 @@
 import { ConvexReactClient } from "convex/react";
 
-const url = process.env.EXPO_PUBLIC_CONVEX_URL;
+const rawUrl = process.env.EXPO_PUBLIC_CONVEX_URL;
+const url = rawUrl ? rawUrl.replace(/\/+$/, "") : undefined;
 
 export const convexClient = url ? new ConvexReactClient(url) : null;
 
