@@ -39,6 +39,7 @@ function RootNavigator() {
       <Stack.Screen name="login" options={{ headerShown: false }} />
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="detail" options={{ headerShown: false }} />
+      <Stack.Screen name="channel-detail" options={{ headerShown: false }} />
       <Stack.Screen name="player" options={{ headerShown: false, presentation: "fullScreenModal" }} />
       <Stack.Screen name="admin" options={{ headerShown: false }} />
       <Stack.Screen name="+not-found" />

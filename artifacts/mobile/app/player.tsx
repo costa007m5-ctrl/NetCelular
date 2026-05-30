@@ -38,60 +38,63 @@ try {
 const AD_BLOCKER_JS = `
 (function() {
   window.open = function() { return null; };
-  var _pushState = history.pushState;
   history.pushState = function() { return null; };
-  
+
+  function isAllowedSrc(src) {
+    return !src || src.includes('redeflix') || src.includes('embedtv') || src.includes('faz-o-eli');
+  }
+
   function removeAds() {
+    // Remove ad iframes
+    try {
+      document.querySelectorAll('iframe').forEach(function(el) {
+        if (!isAllowedSrc(el.src)) el.remove();
+      });
+    } catch(e) {}
+
+    // Neutralize popup links
+    try {
+      document.querySelectorAll('a[target="_blank"],a[onclick*="open"]').forEach(function(el) {
+        el.removeAttribute('href');
+        el.removeAttribute('onclick');
+        el.removeAttribute('target');
+        el.addEventListener('click', function(e) { e.preventDefault(); e.stopPropagation(); }, true);
+      });
+    } catch(e) {}
+
+    // Remove overlay/ad containers
     var adSelectors = [
-      'a[target="_blank"]',
-      'a[onclick*="window.open"]',
-      '[id*="google_ads"]',
-      '[id*="aswift"]',
-      '[class*="overlay-ad"]',
-      '[class*="ad-container"]',
-      '[id*="ad-container"]',
-      'iframe[src*="googlesyndication"]',
-      'iframe[src*="doubleclick"]',
-      'iframe[src*="ads"]',
-      'div[style*="z-index: 999"]',
-      'div[style*="z-index:999"]',
-      '#preroll-ads',
-      '.preroll',
+      '[id*="google_ads"],[id*="aswift"],[class*="overlay-ad"]',
+      '[class*="ad-container"],[id*="ad-container"]',
+      'iframe[src*="googlesyndication"],iframe[src*="doubleclick"]',
+      '#preroll-ads,.preroll,[class*="preroll"]',
+      '[class*="popup"],[id*="popup"]',
     ];
     adSelectors.forEach(function(sel) {
-      try {
-        document.querySelectorAll(sel).forEach(function(el) {
-          var tag = el.tagName.toLowerCase();
-          if (tag === 'a') {
-            el.removeAttribute('href');
-            el.removeAttribute('onclick');
-            el.addEventListener('click', function(e) { e.preventDefault(); e.stopPropagation(); }, true);
-          } else if (tag === 'iframe' && !el.src.includes('redeflix')) {
-            el.remove();
-          }
-        });
-      } catch(e) {}
+      try { document.querySelectorAll(sel).forEach(function(el) { el.remove(); }); } catch(e) {}
     });
+
+    // Kill high-z-index overlays that aren't the player
     try {
-      document.querySelectorAll('div,section').forEach(function(el) {
-        var style = window.getComputedStyle(el);
-        var zIndex = parseInt(style.zIndex) || 0;
-        if (zIndex > 100 && !el.querySelector('video') && !el.querySelector('iframe[src*="redeflix"]')) {
-          var rect = el.getBoundingClientRect();
-          if (rect.width > window.innerWidth * 0.5 && rect.height > 80) {
-            el.style.display = 'none';
+      document.querySelectorAll('div,section,aside').forEach(function(el) {
+        var z = parseInt(window.getComputedStyle(el).zIndex) || 0;
+        if (z > 100) {
+          var hasVideo = el.querySelector('video');
+          var hasPlayer = el.querySelector('iframe[src*="embedtv"],iframe[src*="redeflix"]');
+          if (!hasVideo && !hasPlayer) {
+            var r = el.getBoundingClientRect();
+            if (r.width > window.innerWidth * 0.45 && r.height > 60) {
+              el.style.display = 'none';
+            }
           }
         }
       });
     } catch(e) {}
   }
-  
+
   removeAds();
-  setInterval(removeAds, 1500);
-  try {
-    var obs = new MutationObserver(removeAds);
-    obs.observe(document.body, { childList: true, subtree: true });
-  } catch(e) {}
+  setInterval(removeAds, 1000);
+  try { new MutationObserver(removeAds).observe(document.body, { childList: true, subtree: true }); } catch(e) {}
 })();
 true;
 `;
@@ -109,15 +112,19 @@ export default function PlayerScreen() {
     title?: string;
     posterPath?: string;
     backdropPath?: string;
+    streamUrl?: string;
+    isLive?: string;
   }>();
 
-  const type = (params.type ?? "movie") as "movie" | "tv";
+  const type = (params.type ?? "movie") as "movie" | "tv" | "live";
   const id = Number(params.id ?? 0);
   const season = Number(params.season ?? 1);
   const episode = Number(params.episode ?? 1);
   const title = params.title ?? "";
   const posterPath = params.posterPath ?? "";
   const backdropPath = params.backdropPath ?? "";
+  const streamUrl = params.streamUrl ?? "";
+  const isLive = params.isLive === "true";
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -162,10 +169,10 @@ export default function PlayerScreen() {
     }
   }, [id, type]);
 
-  const playerUrl = api.redeflix.url(type, id, season, episode);
+  const playerUrl = isLive && streamUrl ? streamUrl : api.redeflix.url(type as "movie" | "tv", id, season, episode);
   const topPad = Platform.OS === "web" ? 0 : insets.top;
 
-  if (!id) {
+  if (!id && !isLive) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <View style={[styles.backBtn, { top: topPad + 8 }]}>
@@ -275,7 +282,8 @@ export default function PlayerScreen() {
         injectedJavaScript={AD_BLOCKER_JS}
         injectedJavaScriptBeforeContentLoaded={`(function(){ window.open = function(){ return null; }; })(); true;`}
         onShouldStartLoadWithRequest={(req) => {
-          if (!req.url.includes("redeflix") && req.navigationType === "click") return false;
+          const allowed = req.url.includes("redeflix") || req.url.includes("embedtv") || req.url.includes("faz-o-eli");
+          if (!allowed && req.navigationType === "click") return false;
           return true;
         }}
       />
@@ -327,7 +335,7 @@ export default function PlayerScreen() {
         </View>
       )}
 
-      {type === "tv" && !error && (
+      {type === "tv" && !isLive && !error && (
         <View style={[styles.episodeBar, { backgroundColor: "rgba(0,0,0,0.85)", bottom: 0, position: "absolute", left: 0, right: 0 }]}>
           <Text style={[styles.episodeText, { color: colors.mutedForeground }]}>
             T{season} · Ep {episode}
