@@ -1,134 +1,711 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  FlatList,
+  Animated,
+  Dimensions,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
+import { LinearGradient } from "expo-linear-gradient";
+import { Image } from "expo-image";
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useColors } from "@/hooks/useColors";
-import { ContentCard } from "@/components/ContentCard";
 import { useAuth } from "@/lib/auth-context";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
-import type { ContentItem } from "@/constants/content";
+import type { WatchlistItem, WatchProgress } from "@/lib/supabase";
 
-export default function ListScreen() {
-  const colors = useColors();
-  const router = useRouter();
-  const insets = useSafeAreaInsets();
-  const { user } = useAuth();
-  const isWeb = Platform.OS === "web";
-  const topPad = isWeb ? 67 : insets.top;
+const { width: SW } = Dimensions.get("window");
+const TMDB = "https://image.tmdb.org/t/p";
 
-  const [list, setList] = useState<ContentItem[]>([]);
-  const [loading, setLoading] = useState(true);
+const FILTERS = ["Todos", "Filmes", "Séries", "Canais", "Programas"] as const;
+type Filter = (typeof FILTERS)[number];
 
-  const loadList = useCallback(async () => {
-    if (!user?.id || !isSupabaseConfigured) { setLoading(false); return; }
-    setLoading(true);
-    const items = await db.watchlist.getAll(user.id);
-    setList(items.map((w) => ({
-      id: String(w.tmdb_id),
-      tmdbId: w.tmdb_id,
-      title: w.title ?? "Sem título",
-      year: 2024,
-      rating: 0,
-      posterPath: w.poster_path ?? "",
-      backdropPath: w.backdrop_path ?? "",
-      description: "",
-      genres: [],
-      type: w.type === "movie" ? ("movie" as const) : ("series" as const),
-      mediaType: w.type,
-    })));
-    setLoading(false);
-  }, [user?.id]);
+const RED = "#ff1a1a";
+const RED_GLOW = "rgba(255,26,26,0.18)";
+const GLASS = "rgba(255,255,255,0.04)";
+const GLASS_BORDER = "rgba(255,255,255,0.08)";
+const BG = "#050505";
 
-  useEffect(() => { loadList(); }, [loadList]);
-
-  const removeItem = async (item: ContentItem) => {
-    if (!user?.id) return;
-    await db.watchlist.remove(user.id, item.tmdbId ?? Number(item.id), (item.mediaType ?? (item.type === "movie" ? "movie" : "tv")) as "movie" | "tv");
-    setList((prev) => prev.filter((x) => x.id !== item.id));
-  };
-
-  const goToDetail = (item: ContentItem) => {
-    router.push({ pathname: "/detail", params: { type: item.mediaType ?? "movie", id: String(item.tmdbId ?? item.id), title: item.title } });
-  };
-
-  const CARD_WIDTH = 104;
-  const CARD_HEIGHT = 152;
-
+function StatCard({ icon, value, label, color }: { icon: any; value: any; label: string; color?: string }) {
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      <StatusBar style="light" />
-      <View style={[styles.header, { paddingTop: topPad + 8 }]}>
-        <Text style={[styles.title, { color: colors.foreground }]}>Minha Lista</Text>
-        <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
-          {loading ? "Carregando..." : `${list.length} ${list.length === 1 ? "título" : "títulos"} salvos`}
-        </Text>
+    <View style={sc.card}>
+      <View style={[sc.iconWrap, { backgroundColor: color ? `${color}22` : RED_GLOW }]}>
+        <Feather name={icon} size={14} color={color ?? RED} />
       </View>
-
-      {loading ? (
-        <View style={styles.centered}><ActivityIndicator size="large" color={colors.primary} /></View>
-      ) : !user ? (
-        <View style={styles.empty}>
-          <Feather name="user" size={44} color={colors.border} />
-          <Text style={[styles.emptyTitle, { color: colors.mutedForeground }]}>Entre na sua conta</Text>
-          <Text style={[styles.emptyDesc, { color: colors.border }]}>Faça login para ver sua lista salva</Text>
-        </View>
-      ) : list.length === 0 ? (
-        <View style={styles.empty}>
-          <Feather name="bookmark" size={44} color={colors.border} />
-          <Text style={[styles.emptyTitle, { color: colors.mutedForeground }]}>Lista vazia</Text>
-          <Text style={[styles.emptyDesc, { color: colors.border }]}>Adicione filmes e séries para assistir depois</Text>
-        </View>
-      ) : (
-        <FlatList
-          data={list}
-          keyExtractor={(item) => item.id}
-          numColumns={3}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 120 }}
-          renderItem={({ item }) => (
-            <View style={styles.cardWrap}>
-              <ContentCard item={item} width={CARD_WIDTH} height={CARD_HEIGHT} onPress={() => goToDetail(item)} />
-              <Pressable onPress={() => removeItem(item)} style={[styles.removeBtn, { backgroundColor: colors.card }]}>
-                <Feather name="x" size={12} color={colors.mutedForeground} />
-              </Pressable>
-              <Text style={[styles.cardTitle, { color: colors.mutedForeground }]} numberOfLines={1}>{item.title}</Text>
-            </View>
-          )}
-        />
-      )}
+      <Text style={sc.value}>{value}</Text>
+      <Text style={sc.label}>{label}</Text>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1 },
-  header: { paddingHorizontal: 20, paddingBottom: 20 },
-  title: { fontSize: 26, fontWeight: "800", letterSpacing: -0.5 },
-  subtitle: { fontSize: 13, marginTop: 4 },
-  centered: { flex: 1, alignItems: "center", justifyContent: "center" },
-  empty: { flex: 1, alignItems: "center", justifyContent: "center", gap: 10, paddingHorizontal: 40 },
-  emptyTitle: { fontSize: 18, fontWeight: "600" },
-  emptyDesc: { fontSize: 13, textAlign: "center", lineHeight: 19 },
-  cardWrap: { margin: 5, alignItems: "center", position: "relative" },
-  removeBtn: {
-    position: "absolute",
-    top: 6,
-    right: 6,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+const sc = StyleSheet.create({
+  card: {
+    flex: 1,
+    backgroundColor: GLASS,
+    borderWidth: 1,
+    borderColor: GLASS_BORDER,
+    borderRadius: 16,
+    padding: 12,
+    alignItems: "flex-start",
+    gap: 6,
+  },
+  iconWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
-    zIndex: 5,
   },
-  cardTitle: { fontSize: 10, fontWeight: "500", marginTop: 5, width: 104, textAlign: "center" },
+  value: { fontSize: 18, fontWeight: "800", color: "#fff", letterSpacing: -0.5 },
+  label: { fontSize: 10, color: "rgba(255,255,255,0.4)", fontWeight: "600", letterSpacing: 0.5 },
+});
+
+function FilterPill({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} style={[fp.pill, active && fp.pillActive]}>
+      {active && (
+        <View style={fp.glow} />
+      )}
+      <Text style={[fp.text, active && fp.textActive]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+const fp = StyleSheet.create({
+  pill: {
+    paddingHorizontal: 18,
+    paddingVertical: 9,
+    borderRadius: 50,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+    marginRight: 8,
+    backgroundColor: GLASS,
+    position: "relative",
+    overflow: "hidden",
+  },
+  pillActive: {
+    borderColor: RED,
+    backgroundColor: "rgba(255,26,26,0.15)",
+  },
+  glow: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: RED_GLOW,
+    borderRadius: 50,
+  },
+  text: { fontSize: 13, fontWeight: "600", color: "rgba(255,255,255,0.4)" },
+  textActive: { color: "#fff" },
+});
+
+function SectionHeader({ title, icon }: { title: string; icon: any }) {
+  return (
+    <View style={sh.row}>
+      <View style={sh.iconWrap}>
+        <Feather name={icon} size={14} color={RED} />
+      </View>
+      <Text style={sh.title}>{title}</Text>
+      <Text style={sh.seeAll}>Ver tudo  ›</Text>
+    </View>
+  );
+}
+
+const sh = StyleSheet.create({
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    marginBottom: 14,
+    gap: 8,
+  },
+  iconWrap: {
+    width: 26,
+    height: 26,
+    borderRadius: 8,
+    backgroundColor: RED_GLOW,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  title: { fontSize: 16, fontWeight: "800", color: "#fff", flex: 1, letterSpacing: -0.3 },
+  seeAll: { fontSize: 12, color: "rgba(255,255,255,0.35)", fontWeight: "600" },
+});
+
+function ContinueCard({ item, onPress }: { item: WatchProgress; onPress: () => void }) {
+  const pct = Math.min(Math.max(item.progress ?? 0, 0), 100);
+  const isLive = item.type === "tv" && item.season == null && item.episode == null;
+  const imgUri = item.backdrop_path
+    ? `${TMDB}/w780${item.backdrop_path}`
+    : item.poster_path
+    ? `${TMDB}/w342${item.poster_path}`
+    : null;
+
+  return (
+    <Pressable onPress={onPress} style={cc.wrap}>
+      <View style={cc.card}>
+        {imgUri ? (
+          <Image source={{ uri: imgUri }} style={StyleSheet.absoluteFill} contentFit="cover" />
+        ) : (
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: "#111" }]} />
+        )}
+        <LinearGradient
+          colors={["transparent", "rgba(5,5,5,0.5)", "rgba(5,5,5,0.97)"]}
+          locations={[0.3, 0.6, 1]}
+          style={StyleSheet.absoluteFill}
+        />
+        {isLive && (
+          <View style={cc.liveBadge}>
+            <View style={cc.liveDot} />
+            <Text style={cc.liveText}>AO VIVO</Text>
+          </View>
+        )}
+        <View style={cc.info}>
+          <Text style={cc.title} numberOfLines={1}>{item.title}</Text>
+          {item.season != null && (
+            <Text style={cc.sub}>T{item.season} · E{item.episode ?? 1}</Text>
+          )}
+          <View style={cc.progressBg}>
+            <View style={[cc.progressBar, { width: `${pct}%` }]} />
+          </View>
+          <Text style={cc.remaining}>{100 - pct}% restante</Text>
+        </View>
+      </View>
+    </Pressable>
+  );
+}
+
+const cc = StyleSheet.create({
+  wrap: { marginRight: 12 },
+  card: {
+    width: 200,
+    height: 280,
+    borderRadius: 18,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: GLASS_BORDER,
+    backgroundColor: "#111",
+    justifyContent: "flex-end",
+  },
+  liveBadge: {
+    position: "absolute",
+    top: 10,
+    left: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: RED,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    gap: 5,
+  },
+  liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#fff" },
+  liveText: { fontSize: 10, fontWeight: "800", color: "#fff", letterSpacing: 1 },
+  info: { padding: 12, gap: 4 },
+  title: { fontSize: 14, fontWeight: "700", color: "#fff" },
+  sub: { fontSize: 11, color: RED, fontWeight: "600" },
+  progressBg: {
+    height: 3,
+    backgroundColor: "rgba(255,255,255,0.15)",
+    borderRadius: 2,
+    marginTop: 6,
+    overflow: "hidden",
+  },
+  progressBar: {
+    height: 3,
+    backgroundColor: RED,
+    borderRadius: 2,
+    shadowColor: RED,
+    shadowRadius: 4,
+    shadowOpacity: 1,
+  },
+  remaining: { fontSize: 10, color: "rgba(255,255,255,0.4)", marginTop: 2 },
+});
+
+function FavoriteCard({
+  item,
+  onPress,
+  onRemove,
+}: {
+  item: WatchlistItem;
+  onPress: () => void;
+  onRemove: () => void;
+}) {
+  const imgUri = item.poster_path ? `${TMDB}/w342${item.poster_path}` : null;
+
+  return (
+    <Pressable onPress={onPress} style={fv.wrap}>
+      <View style={fv.card}>
+        {imgUri ? (
+          <Image source={{ uri: imgUri }} style={StyleSheet.absoluteFill} contentFit="cover" />
+        ) : (
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: "#111" }]} />
+        )}
+        <LinearGradient
+          colors={["transparent", "rgba(5,5,5,0.95)"]}
+          locations={[0.5, 1]}
+          style={StyleSheet.absoluteFill}
+        />
+        <Pressable onPress={onRemove} style={fv.heartBtn} hitSlop={8}>
+          <Feather name="heart" size={14} color={RED} />
+        </Pressable>
+        <View style={fv.badge}>
+          <Text style={fv.badgeText}>{item.type === "movie" ? "FILME" : "SÉRIE"}</Text>
+        </View>
+        <View style={fv.bottom}>
+          <Text style={fv.title} numberOfLines={2}>{item.title}</Text>
+        </View>
+      </View>
+    </Pressable>
+  );
+}
+
+const fv = StyleSheet.create({
+  wrap: { marginRight: 12 },
+  card: {
+    width: 140,
+    height: 210,
+    borderRadius: 16,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: GLASS_BORDER,
+    backgroundColor: "#111",
+    justifyContent: "space-between",
+  },
+  heartBtn: {
+    position: "absolute",
+    top: 10,
+    right: 10,
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    backgroundColor: "rgba(255,26,26,0.25)",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,26,26,0.3)",
+  },
+  badge: {
+    position: "absolute",
+    top: 10,
+    left: 10,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderWidth: 1,
+    borderColor: GLASS_BORDER,
+  },
+  badgeText: { fontSize: 8, fontWeight: "800", color: "rgba(255,255,255,0.6)", letterSpacing: 0.8 },
+  bottom: { padding: 10 },
+  title: { fontSize: 12, fontWeight: "700", color: "#fff", lineHeight: 16 },
+});
+
+function SavedRow({
+  item,
+  onPress,
+  onRemove,
+}: {
+  item: WatchlistItem;
+  onPress: () => void;
+  onRemove: () => void;
+}) {
+  const imgUri = item.poster_path ? `${TMDB}/w185${item.poster_path}` : null;
+
+  return (
+    <Pressable onPress={onPress} style={sr.row}>
+      <View style={sr.thumb}>
+        {imgUri ? (
+          <Image source={{ uri: imgUri }} style={StyleSheet.absoluteFill} contentFit="cover" />
+        ) : (
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: "#111" }]} />
+        )}
+        <LinearGradient
+          colors={["transparent", "rgba(0,0,0,0.5)"]}
+          style={StyleSheet.absoluteFill}
+        />
+      </View>
+      <View style={sr.info}>
+        <Text style={sr.title} numberOfLines={1}>{item.title}</Text>
+        <Text style={sr.meta}>{item.type === "movie" ? "Filme" : "Série"}</Text>
+        <View style={sr.progressBg}>
+          <View style={[sr.progressBar, { width: "0%" }]} />
+        </View>
+      </View>
+      <View style={sr.actions}>
+        <Pressable onPress={onPress} style={sr.playBtn} hitSlop={8}>
+          <Feather name="play" size={14} color="#fff" />
+        </Pressable>
+        <Pressable onPress={onRemove} style={sr.moreBtn} hitSlop={8}>
+          <Feather name="more-vertical" size={16} color="rgba(255,255,255,0.35)" />
+        </Pressable>
+      </View>
+    </Pressable>
+  );
+}
+
+const sr = StyleSheet.create({
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginHorizontal: 20,
+    marginBottom: 10,
+    backgroundColor: GLASS,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: GLASS_BORDER,
+    overflow: "hidden",
+    padding: 0,
+  },
+  thumb: {
+    width: 72,
+    height: 68,
+    backgroundColor: "#111",
+    position: "relative",
+  },
+  info: { flex: 1, paddingHorizontal: 12, paddingVertical: 10, gap: 4 },
+  title: { fontSize: 13, fontWeight: "700", color: "#fff" },
+  meta: { fontSize: 11, color: "rgba(255,255,255,0.35)", fontWeight: "500" },
+  progressBg: {
+    height: 2,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderRadius: 1,
+    marginTop: 4,
+    overflow: "hidden",
+  },
+  progressBar: {
+    height: 2,
+    backgroundColor: RED,
+    borderRadius: 1,
+  },
+  actions: { flexDirection: "row", alignItems: "center", gap: 6, paddingRight: 12 },
+  playBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: RED,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: RED,
+    shadowRadius: 8,
+    shadowOpacity: 0.6,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  moreBtn: { padding: 4 },
+});
+
+export default function ListScreen() {
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const { user } = useAuth();
+  const isWeb = Platform.OS === "web";
+  const topPad = isWeb ? 64 : insets.top;
+
+  const [watchlist, setWatchlist] = useState<WatchlistItem[]>([]);
+  const [progress, setProgress] = useState<WatchProgress[]>([]);
+  const [activeFilter, setActiveFilter] = useState<Filter>("Todos");
+  const [loading, setLoading] = useState(true);
+
+  const loadData = useCallback(async () => {
+    if (!user?.id || !isSupabaseConfigured) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    const [wl, pr] = await Promise.all([
+      db.watchlist.getAll(user.id),
+      db.progress.getAll(user.id),
+    ]);
+    setWatchlist(wl);
+    setProgress(pr);
+    setLoading(false);
+  }, [user?.id]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const removeWatchlist = async (item: WatchlistItem) => {
+    if (!user?.id) return;
+    await db.watchlist.remove(user.id, item.tmdb_id, item.type);
+    setWatchlist((prev) =>
+      prev.filter((x) => !(x.tmdb_id === item.tmdb_id && x.type === item.type))
+    );
+  };
+
+  const navigate = (id: number, type: "movie" | "tv", title: string) => {
+    router.push({ pathname: "/detail", params: { type, id: String(id), title } });
+  };
+
+  const filteredWatchlist = watchlist.filter((item) => {
+    if (activeFilter === "Todos" || activeFilter === "Canais" || activeFilter === "Programas") return true;
+    if (activeFilter === "Filmes") return item.type === "movie";
+    if (activeFilter === "Séries") return item.type === "tv";
+    return true;
+  });
+
+  const movieCount = watchlist.filter((w) => w.type === "movie").length;
+  const tvCount = watchlist.filter((w) => w.type === "tv").length;
+  const totalItems = watchlist.length;
+  const estHours = Math.round(movieCount * 2 + tvCount * 0.75);
+
+  if (!user) {
+    return (
+      <View style={s.container}>
+        <StatusBar style="light" />
+        <View style={[s.emptyWrap, { paddingTop: topPad }]}>
+          <View style={s.emptyIcon}>
+            <Feather name="user" size={28} color={RED} />
+          </View>
+          <Text style={s.emptyTitle}>Entre na sua conta</Text>
+          <Text style={s.emptyDesc}>Faça login para ver sua lista salva</Text>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View style={s.container}>
+      <StatusBar style="light" />
+
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 150 }}
+      >
+        {/* AMBIENT GLOW BG */}
+        <View style={s.ambientGlow} />
+
+        {/* HEADER */}
+        <View style={[s.header, { paddingTop: topPad + 12 }]}>
+          <View style={s.headerRow}>
+            <Text style={s.logo}>
+              <Text style={s.logoRed}>NET</Text>PLAY
+            </Text>
+            <View style={s.headerActions}>
+              <Pressable style={s.iconBtn}>
+                <Feather name="search" size={20} color="rgba(255,255,255,0.7)" />
+              </Pressable>
+              <Pressable style={s.avatarBtn}>
+                <Text style={s.avatarText}>{user.avatarLetter}</Text>
+              </Pressable>
+            </View>
+          </View>
+          <Text style={s.pageTitle}>Minha Lista</Text>
+          <Text style={s.pageSubtitle}>Tudo que você salvou para assistir depois.</Text>
+        </View>
+
+        {loading ? (
+          <View style={s.loadingWrap}>
+            <ActivityIndicator size="large" color={RED} />
+          </View>
+        ) : (
+          <>
+            {/* STATS CARDS */}
+            <View style={s.statsRow}>
+              <StatCard icon="bookmark" value={totalItems} label="Na lista" />
+              <StatCard icon="clock" value={`${estHours}h`} label="Estimado" color="#a78bfa" />
+              <StatCard icon="film" value={movieCount} label="Filmes" color="#60a5fa" />
+              <StatCard icon="monitor" value={tvCount} label="Séries" color="#34d399" />
+            </View>
+
+            {/* FILTERS */}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={s.filtersWrap}
+            >
+              {FILTERS.map((f) => (
+                <FilterPill
+                  key={f}
+                  label={f}
+                  active={activeFilter === f}
+                  onPress={() => setActiveFilter(f)}
+                />
+              ))}
+            </ScrollView>
+
+            {/* CONTINUE ASSISTINDO */}
+            {progress.length > 0 && (
+              <View style={s.section}>
+                <SectionHeader title="Continue Assistindo" icon="play-circle" />
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={s.hScroll}
+                >
+                  {progress.map((item) => (
+                    <ContinueCard
+                      key={`${item.tmdb_id}-${item.type}`}
+                      item={item}
+                      onPress={() => navigate(item.tmdb_id, item.type, item.title)}
+                    />
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+
+            {/* MEUS FAVORITOS */}
+            {filteredWatchlist.length > 0 && (
+              <View style={s.section}>
+                <SectionHeader title="Meus Favoritos" icon="heart" />
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={s.hScroll}
+                >
+                  {filteredWatchlist.slice(0, 10).map((item) => (
+                    <FavoriteCard
+                      key={`${item.tmdb_id}-${item.type}`}
+                      item={item}
+                      onPress={() => navigate(item.tmdb_id, item.type, item.title)}
+                      onRemove={() => removeWatchlist(item)}
+                    />
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+
+            {/* SALVOS PARA DEPOIS */}
+            {filteredWatchlist.length > 0 && (
+              <View style={s.section}>
+                <SectionHeader title="Salvos para Depois" icon="bookmark" />
+                {filteredWatchlist.map((item) => (
+                  <SavedRow
+                    key={`${item.tmdb_id}-${item.type}-row`}
+                    item={item}
+                    onPress={() => navigate(item.tmdb_id, item.type, item.title)}
+                    onRemove={() => removeWatchlist(item)}
+                  />
+                ))}
+              </View>
+            )}
+
+            {/* EMPTY STATE */}
+            {filteredWatchlist.length === 0 && progress.length === 0 && (
+              <View style={s.emptyWrap}>
+                <View style={s.emptyIcon}>
+                  <Feather name="bookmark" size={28} color={RED} />
+                </View>
+                <Text style={s.emptyTitle}>Lista vazia</Text>
+                <Text style={s.emptyDesc}>
+                  Explore e adicione filmes e séries para assistir depois
+                </Text>
+              </View>
+            )}
+          </>
+        )}
+      </ScrollView>
+    </View>
+  );
+}
+
+const s = StyleSheet.create({
+  container: { flex: 1, backgroundColor: BG },
+  ambientGlow: {
+    position: "absolute",
+    top: -80,
+    left: SW / 2 - 150,
+    width: 300,
+    height: 300,
+    borderRadius: 150,
+    backgroundColor: "rgba(255,26,26,0.06)",
+  },
+  header: {
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+  },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 20,
+  },
+  logo: { fontSize: 20, fontWeight: "900", color: "#fff", letterSpacing: 3 },
+  logoRed: { color: RED },
+  headerActions: { flexDirection: "row", alignItems: "center", gap: 10 },
+  iconBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: GLASS,
+    borderWidth: 1,
+    borderColor: GLASS_BORDER,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: RED,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: RED,
+    shadowRadius: 10,
+    shadowOpacity: 0.5,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  avatarText: { fontSize: 16, fontWeight: "800", color: "#fff" },
+  pageTitle: {
+    fontSize: 30,
+    fontWeight: "900",
+    color: "#fff",
+    letterSpacing: -0.8,
+    marginBottom: 6,
+  },
+  pageSubtitle: {
+    fontSize: 13,
+    color: "rgba(255,255,255,0.35)",
+    fontWeight: "500",
+    letterSpacing: 0.1,
+  },
+  statsRow: {
+    flexDirection: "row",
+    paddingHorizontal: 20,
+    gap: 10,
+    marginBottom: 20,
+  },
+  filtersWrap: {
+    paddingHorizontal: 20,
+    paddingBottom: 24,
+    alignItems: "center",
+  },
+  section: { marginBottom: 32 },
+  hScroll: { paddingHorizontal: 20, paddingBottom: 4 },
+  loadingWrap: {
+    height: 300,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  emptyWrap: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingTop: 80,
+    paddingHorizontal: 40,
+    gap: 14,
+  },
+  emptyIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 20,
+    backgroundColor: RED_GLOW,
+    borderWidth: 1,
+    borderColor: "rgba(255,26,26,0.2)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#fff",
+    textAlign: "center",
+  },
+  emptyDesc: {
+    fontSize: 14,
+    color: "rgba(255,255,255,0.35)",
+    textAlign: "center",
+    lineHeight: 20,
+  },
 });
