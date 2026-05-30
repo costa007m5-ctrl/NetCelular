@@ -1,4 +1,13 @@
-const API_BASE = "http://embedtv.lat/api";
+import { Platform } from "react-native";
+
+function getBase(): string {
+  const domain = process.env.EXPO_PUBLIC_DOMAIN;
+  if (Platform.OS === "web") return "/api";
+  if (domain) return `https://${domain}/api`;
+  return "http://localhost:8080/api";
+}
+
+const BASE = getBase();
 
 export interface LiveChannel {
   id: string;
@@ -30,13 +39,13 @@ export interface ChannelsResponse {
 
 export const liveTvApi = {
   async getChannels(): Promise<ChannelsResponse> {
-    const res = await fetch(`${API_BASE}/channels`);
-    if (!res.ok) throw new Error("Failed to fetch channels");
+    const res = await fetch(`${BASE}/live/channels`);
+    if (!res.ok) throw new Error(`Failed to fetch channels: ${res.status}`);
     return res.json();
   },
   async getEpgs(): Promise<EpgEntry[]> {
-    const res = await fetch(`${API_BASE}/epgs_full`);
-    if (!res.ok) throw new Error("Failed to fetch EPG");
+    const res = await fetch(`${BASE}/live/epgs`);
+    if (!res.ok) throw new Error(`Failed to fetch EPG: ${res.status}`);
     return res.json();
   },
 };
