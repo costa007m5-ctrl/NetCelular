@@ -7,10 +7,16 @@ workflows:
     name: NETPLAY — Android Release
     max_build_duration: 60
     environment:
-      groups:
-        - netplay_secrets      # EXPO_TOKEN, SUPABASE_URL, SUPABASE_ANON_KEY, TMDB_API_KEY
-        - android_keystore     # CM_KEYSTORE, CM_KEYSTORE_PASSWORD, CM_KEY_ALIAS, CM_KEY_PASSWORD
       node: 20.18.0
+      vars:
+        # Cadastre estas variáveis em: Codemagic > seu app > Environment variables
+        SUPABASE_URL: $SUPABASE_URL
+        SUPABASE_ANON_KEY: $SUPABASE_ANON_KEY
+        TMDB_API_KEY: $TMDB_API_KEY
+        CM_KEYSTORE: $CM_KEYSTORE
+        CM_KEYSTORE_PASSWORD: $CM_KEYSTORE_PASSWORD
+        CM_KEY_ALIAS: $CM_KEY_ALIAS
+        CM_KEY_PASSWORD: $CM_KEY_PASSWORD
 
     scripts:
       - name: Instalar pnpm
@@ -24,7 +30,6 @@ workflows:
         script: |
           cd artifacts/mobile
           npm install
-        # Codemagic / EAS usam package-lock.json do diretório do app
 
       - name: Configurar variáveis de ambiente do Expo
         script: |
@@ -73,15 +78,18 @@ workflows:
     max_build_duration: 90
     instance_type: mac_mini_m2
     environment:
-      groups:
-        - netplay_secrets      # EXPO_TOKEN, SUPABASE_URL, SUPABASE_ANON_KEY
-        - ios_credentials      # APP_STORE_CONNECT_KEY_IDENTIFIER, APP_STORE_CONNECT_ISSUER_ID,
-                               # APP_STORE_CONNECT_PRIVATE_KEY, CERTIFICATE_PRIVATE_KEY
       node: 20.18.0
       xcode: latest
       cocoapods: default
       vars:
         BUNDLE_ID: com.netplay.app
+        # Cadastre estas variáveis em: Codemagic > seu app > Environment variables
+        SUPABASE_URL: $SUPABASE_URL
+        SUPABASE_ANON_KEY: $SUPABASE_ANON_KEY
+        APP_STORE_CONNECT_KEY_IDENTIFIER: $APP_STORE_CONNECT_KEY_IDENTIFIER
+        APP_STORE_CONNECT_ISSUER_ID: $APP_STORE_CONNECT_ISSUER_ID
+        APP_STORE_CONNECT_PRIVATE_KEY: $APP_STORE_CONNECT_PRIVATE_KEY
+        CERTIFICATE_PRIVATE_KEY: $CERTIFICATE_PRIVATE_KEY
 
     scripts:
       - name: Instalar pnpm
@@ -150,11 +158,13 @@ workflows:
     name: NETPLAY — EAS Build
     max_build_duration: 60
     environment:
-      groups:
-        - netplay_secrets
       node: 20.18.0
       vars:
         EAS_PROJECT_ID: aa86cc57-e8c0-4ce7-806c-0d1e5e345991
+        # Cadastre estas variáveis em: Codemagic > seu app > Environment variables
+        EXPO_TOKEN: $EXPO_TOKEN
+        SUPABASE_URL: $SUPABASE_URL
+        SUPABASE_ANON_KEY: $SUPABASE_ANON_KEY
 
     scripts:
       - name: Instalar pnpm
