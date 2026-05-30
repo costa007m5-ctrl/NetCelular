@@ -466,9 +466,9 @@ const lc = StyleSheet.create({
 });
 
 /* ── Universo Card ── */
-function UniversoCard({ u }: { u: typeof UNIVERSOS[0] }) {
+function UniversoCard({ u, onPress }: { u: typeof UNIVERSOS[0]; onPress: () => void }) {
   return (
-    <Pressable style={[uc.card, { borderColor: `${u.color}33`, backgroundColor: `${u.color}11` }]}>
+    <Pressable onPress={onPress} style={[uc.card, { borderColor: `${u.color}33`, backgroundColor: `${u.color}11` }]}>
       <Text style={uc.emoji}>{u.emoji}</Text>
       <Text style={[uc.label, { color: u.color }]}>{u.label}</Text>
     </Pressable>
@@ -479,6 +479,15 @@ const uc = StyleSheet.create({
   emoji: { fontSize: 22 },
   label: { fontSize: 12, fontWeight: "800", letterSpacing: 0.5 },
 });
+
+const UNIVERSO_GENRES: Record<string, { genre_id: string; type: string; title: string }> = {
+  Marvel:  { genre_id: "28",  type: "movie", title: "Marvel" },
+  DC:      { genre_id: "28",  type: "movie", title: "DC" },
+  Anime:   { genre_id: "16",  type: "movie", title: "Anime" },
+  Terror:  { genre_id: "27",  type: "movie", title: "Terror" },
+  "Sci-Fi":{ genre_id: "878", type: "movie", title: "Sci-Fi" },
+  Ação:    { genre_id: "28",  type: "movie", title: "Ação" },
+};
 
 /* ══════════════ MAIN SCREEN ══════════════ */
 export default function NovidadesScreen() {
@@ -493,6 +502,25 @@ export default function NovidadesScreen() {
   const [trending, setTrending] = useState<TmdbItem[]>([]);
   const [popular, setPopular] = useState<TmdbItem[]>([]);
   const [topRated, setTopRated] = useState<TmdbItem[]>([]);
+
+  const addToList = async (item: TmdbItem) => {
+    if (!user?.id || !isSupabaseConfigured) {
+      Alert.alert("Login necessário", "Faça login para adicionar à sua lista.");
+      return;
+    }
+    try {
+      await db.watchlist.add({
+        user_id: user.id,
+        tmdb_id: item.id,
+        type: itemIsMovie(item) ? "movie" : "tv",
+        title: itemTitle(item),
+        poster_path: item.poster_path ?? "",
+      });
+      Alert.alert("Adicionado!", `"${itemTitle(item)}" foi adicionado à sua lista.`);
+    } catch {
+      Alert.alert("Erro", "Não foi possível adicionar à lista. Tente novamente.");
+    }
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -544,7 +572,7 @@ export default function NovidadesScreen() {
 
           {/* ── HERO BANNER (header inside) ── */}
           {hero && (
-            <HeroBanner item={hero} topPad={topPad} user={user} onPress={() => navigate(hero)} />
+            <HeroBanner item={hero} topPad={topPad} user={user} onPress={() => navigate(hero)} onAddToList={() => addToList(hero)} />
           )}
 
           {/* ── FILTERS below banner ── */}
@@ -584,7 +612,7 @@ export default function NovidadesScreen() {
               <SectionHeader title="Próximos Lançamentos" icon="clock" accent="#a78bfa" />
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.hScroll}>
                 {proximos.map((item) => (
-                  <WideCard key={item.id} item={item} onPress={() => navigate(item)} />
+                  <WideCard key={item.id} item={item} onPress={() => navigate(item)} onRemind={() => addToList(item)} />
                 ))}
               </ScrollView>
             </View>
@@ -605,7 +633,7 @@ export default function NovidadesScreen() {
           {/* ── CANAIS AO VIVO ── */}
           <View style={s.section}>
             <SectionHeader title="Novidades nos Canais ao Vivo" icon="radio" accent="#22d3ee" />
-            {LIVE_CHANNELS.map((ch) => <LiveCard key={ch.name} channel={ch} />)}
+            {LIVE_CHANNELS.map((ch) => <LiveCard key={ch.name} channel={ch} onPress={() => router.push("/(tabs)/channels")} />)}
           </View>
 
           {/* ── TOP STREAMING ── */}
@@ -624,7 +652,16 @@ export default function NovidadesScreen() {
           <View style={s.section}>
             <SectionHeader title="Universos" icon="globe" />
             <View style={s.universoGrid}>
-              {UNIVERSOS.map((u) => <UniversoCard key={u.label} u={u} />)}
+              {UNIVERSOS.map((u) => (
+              <UniversoCard
+                key={u.label}
+                u={u}
+                onPress={() => {
+                  const g = UNIVERSO_GENRES[u.label];
+                  if (g) router.push({ pathname: "/genre-browse", params: { genre_id: g.genre_id, type: g.type, title: g.title } });
+                }}
+              />
+            ))}
             </View>
           </View>
 
