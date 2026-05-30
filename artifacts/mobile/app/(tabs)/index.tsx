@@ -274,7 +274,7 @@ export default function HomeScreen() {
                   <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
                     Top 10 Séries
                   </Text>
-                  <TouchableOpacity style={styles.seeAllBtn}>
+                  <TouchableOpacity style={styles.seeAllBtn} onPress={() => router.push({ pathname: "/genre-browse", params: { genre_id: "18", type: "tv", title: "Top 10 Séries" } })}>
                     <Text style={[styles.seeAllText, { color: colors.mutedForeground }]}>
                       Ver mais
                     </Text>
@@ -304,7 +304,7 @@ export default function HomeScreen() {
                   cardWidth={170}
                   cardHeight={100}
                   showProgress
-                  onSeeAll={() => {}}
+                  onSeeAll={() => router.push("/(tabs)/list")}
                   onItemPress={goToPlayer}
                 />
               )}

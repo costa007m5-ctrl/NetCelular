@@ -137,11 +137,11 @@ export default function ProfileScreen() {
         <View style={styles.section}>
           <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Conta</Text>
           <View style={[styles.sectionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <SettingRow icon="shield" label="Privacidade" onPress={() => {}} />
+            <SettingRow icon="shield" label="Privacidade" onPress={() => router.push("/privacy")} />
             <View style={[styles.separator, { backgroundColor: colors.border }]} />
-            <SettingRow icon="download" label="Downloads offline" value="0 itens" onPress={() => {}} />
+            <SettingRow icon="download" label="Downloads offline" value="0 itens" onPress={() => router.push("/(tabs)/list")} />
             <View style={[styles.separator, { backgroundColor: colors.border }]} />
-            <SettingRow icon="help-circle" label="Ajuda e suporte" onPress={() => {}} />
+            <SettingRow icon="help-circle" label="Ajuda e suporte" onPress={() => router.push("/help")} />
           </View>
         </View>
 

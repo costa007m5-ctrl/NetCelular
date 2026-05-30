@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Dimensions,
   Platform,
   Pressable,
@@ -16,6 +17,7 @@ import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/lib/auth-context";
+import { db, isSupabaseConfigured } from "@/lib/supabase";
 import { api } from "@/lib/api";
 import type { TmdbItem } from "@/lib/api";
 
@@ -70,10 +72,11 @@ const fp = StyleSheet.create({
 
 /* ── Hero Banner (header overlaid on top) ── */
 function HeroBanner({
-  item, topPad, user, onPress,
+  item, topPad, user, onPress, onAddToList,
 }: {
-  item: TmdbItem; topPad: number; user: any; onPress: () => void;
+  item: TmdbItem; topPad: number; user: any; onPress: () => void; onAddToList: () => void;
 }) {
+  const router = useRouter();
   const img = TMDB_URL(item.backdrop_path, "w1280") ?? TMDB_URL(item.poster_path, "w500");
   const rating = item.vote_average?.toFixed(1) ?? "–";
   const isMovie = itemIsMovie(item);
@@ -99,14 +102,14 @@ function HeroBanner({
       <View style={[hb.header, { paddingTop: topPad + 12 }]}>
         <Text style={hb.logo}><Text style={hb.logoRed}>NET</Text>PLAY</Text>
         <View style={hb.actions}>
-          <Pressable style={hb.iconBtn}>
+          <Pressable style={hb.iconBtn} onPress={() => router.push("/(tabs)/search")}>
             <Feather name="search" size={19} color="rgba(255,255,255,0.85)" />
           </Pressable>
-          <Pressable style={hb.iconBtn}>
+          <Pressable style={hb.iconBtn} onPress={() => Alert.alert("Notificações", "Você não tem novas notificações no momento.")}>
             <Feather name="bell" size={19} color="rgba(255,255,255,0.85)" />
             <View style={hb.notifDot} />
           </Pressable>
-          <Pressable style={hb.avatarBtn}>
+          <Pressable style={hb.avatarBtn} onPress={() => router.push("/(tabs)/profile")}>
             <Text style={hb.avatarText}>{user?.avatarLetter ?? "N"}</Text>
           </Pressable>
         </View>
@@ -139,7 +142,7 @@ function HeroBanner({
             <Feather name="play" size={15} color="#fff" />
             <Text style={hb.playText}>Assistir agora</Text>
           </Pressable>
-          <Pressable style={hb.listBtn}>
+          <Pressable style={hb.listBtn} onPress={onAddToList}>
             <Feather name="plus" size={15} color="#fff" />
             <Text style={hb.listText}>Minha Lista</Text>
           </Pressable>
@@ -326,7 +329,7 @@ const pc = StyleSheet.create({
 function rank_enabled() { return false; }
 
 /* ── Wide Card (Próximos Lançamentos) ── */
-function WideCard({ item, onPress }: { item: TmdbItem; onPress: () => void }) {
+function WideCard({ item, onPress, onRemind }: { item: TmdbItem; onPress: () => void; onRemind: () => void }) {
   const img = TMDB_URL(item.backdrop_path, "w780") ?? TMDB_URL(item.poster_path);
   return (
     <Pressable onPress={onPress} style={wc.card}>
@@ -343,7 +346,7 @@ function WideCard({ item, onPress }: { item: TmdbItem; onPress: () => void }) {
       <View style={wc.info}>
         <Text style={wc.title} numberOfLines={1}>{itemTitle(item)}</Text>
         <Text style={wc.year}>{itemYear(item)}</Text>
-        <Pressable style={wc.remindBtn}>
+        <Pressable style={wc.remindBtn} onPress={(e) => { e.stopPropagation?.(); onRemind(); }}>
           <Feather name="bell" size={11} color="#fff" />
           <Text style={wc.remindTxt}>Lembrar-me</Text>
         </Pressable>
@@ -419,9 +422,9 @@ const tc = StyleSheet.create({
 });
 
 /* ── Live Channel Row ── */
-function LiveCard({ channel }: { channel: typeof LIVE_CHANNELS[0] }) {
+function LiveCard({ channel, onPress }: { channel: typeof LIVE_CHANNELS[0]; onPress: () => void }) {
   return (
-    <View style={lc.wrap}>
+    <Pressable style={lc.wrap} onPress={onPress}>
       <View style={[lc.logoBox, { backgroundColor: `${channel.color}22`, borderColor: `${channel.color}44` }]}>
         <Text style={[lc.logoTxt, { color: channel.color }]}>{channel.name}</Text>
       </View>
@@ -436,10 +439,10 @@ function LiveCard({ channel }: { channel: typeof LIVE_CHANNELS[0] }) {
           <View style={[lc.progBar, { width: "60%", backgroundColor: channel.color }]} />
         </View>
       </View>
-      <Pressable style={[lc.playBtn, { backgroundColor: channel.color, shadowColor: channel.color }]}>
+      <View style={[lc.playBtn, { backgroundColor: channel.color, shadowColor: channel.color }]}>
         <Feather name="play" size={14} color="#fff" />
-      </Pressable>
-    </View>
+      </View>
+    </Pressable>
   );
 }
 const lc = StyleSheet.create({
