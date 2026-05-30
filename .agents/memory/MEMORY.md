@@ -1,4 +1,4 @@
 - [Detail screen navigation](detail-nav.md) — all screens navigate to /detail (not /player) with params {type, id, title}; player is only opened from detail screen.
 - [Auth guard placement](auth-guard.md) — auth guard is in (tabs)/_layout.tsx (not root layout); uses Redirect from expo-router to /login when user is null.
 - [Supabase migration](supabase-migration.md) — Convex fully replaced by Supabase; custom user auth with hashed passwords in public.users table; anon key with RLS policies.
-- [EAS Build pnpm config](eas-pnpm-build.md) — EAS uses pnpm v8 (lockfileVersion 6.0); must add node-linker=hoisted to .npmrc or Gradle fails resolving native modules.
+- [EAS Build lockfile config](eas-build-lockfile.md) — mobile uses package-lock.json (npm) for EAS builds; pnpm workspace root keeps pnpm-lock.yaml for local dev only.
