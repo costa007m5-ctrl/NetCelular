@@ -66,6 +66,29 @@ export interface TmdbPage<T> {
   total_results: number;
 }
 
+export interface TmdbEpisode {
+  id: number;
+  episode_number: number;
+  season_number: number;
+  name: string;
+  overview: string;
+  still_path: string | null;
+  air_date: string;
+  vote_average: number;
+  runtime: number | null;
+}
+
+export interface TmdbSeason {
+  id: number;
+  season_number: number;
+  name: string;
+  overview: string;
+  episode_count: number;
+  poster_path: string | null;
+  air_date: string;
+  episodes?: TmdbEpisode[];
+}
+
 export const tmdb = {
   trending: {
     all: (timeWindow: "day" | "week" = "week") =>
@@ -90,6 +113,8 @@ export const tmdb = {
     details: (id: number) =>
       tmdbFetch<TmdbTv>(`/tv/${id}`, { append_to_response: "credits,similar,videos" }),
     similar: (id: number) => tmdbFetch<TmdbPage<TmdbTv>>(`/tv/${id}/similar`),
+    season: (id: number, seasonNum: number) =>
+      tmdbFetch<TmdbSeason>(`/tv/${id}/season/${seasonNum}`),
   },
 
   search: {

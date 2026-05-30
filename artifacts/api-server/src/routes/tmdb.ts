@@ -86,6 +86,12 @@ router.get("/tv/:id/similar", handle(async (req) => {
   return data.results;
 }));
 
+router.get("/tv/:id/season/:seasonNum", handle(async (req) => {
+  const id = Number(req.params.id);
+  const seasonNum = Number(req.params.seasonNum);
+  return tmdb.tv.season(id, seasonNum);
+}));
+
 router.get("/genres", handle(async () => {
   const [movies, tv] = await Promise.all([
     tmdb.genres.movies(),

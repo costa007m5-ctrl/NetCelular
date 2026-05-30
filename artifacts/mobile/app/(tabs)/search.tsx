@@ -77,7 +77,7 @@ export default function SearchScreen() {
 
   const goToPlayer = (item: ContentItem) => {
     router.push({
-      pathname: "/player",
+      pathname: "/detail",
       params: {
         type: item.type === "movie" ? "movie" : "tv",
         id: String((item as any).tmdbId ?? item.id),

@@ -9,6 +9,8 @@
  */
 
 import type * as progress from "../progress.js";
+import type * as ratings from "../ratings.js";
+import type * as users from "../users.js";
 import type * as watchlist from "../watchlist.js";
 
 import type {
@@ -19,6 +21,8 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   progress: typeof progress;
+  ratings: typeof ratings;
+  users: typeof users;
   watchlist: typeof watchlist;
 }>;
 

@@ -1,52 +1,45 @@
 import { mutation, query } from "./_generated/server.js";
 import { v } from "convex/values";
 
-export const getAll = query({
-  args: { userId: v.string() },
-  handler: async (ctx, { userId }) => {
-    return ctx.db
-      .query("watchlist")
-      .withIndex("by_user", (q) => q.eq("userId", userId))
-      .order("desc")
-      .collect();
+export const getRating = query({
+  args: {
+    userId: v.string(),
+    tmdbId: v.number(),
+    type: v.union(v.literal("movie"), v.literal("tv")),
   },
-});
-
-export const isAdded = query({
-  args: { userId: v.string(), tmdbId: v.number(), type: v.union(v.literal("movie"), v.literal("tv")) },
   handler: async (ctx, { userId, tmdbId, type }) => {
-    const item = await ctx.db
-      .query("watchlist")
+    return ctx.db
+      .query("ratings")
       .withIndex("by_user_tmdb_type", (q) =>
         q.eq("userId", userId).eq("tmdbId", tmdbId).eq("type", type)
       )
       .unique();
-    return !!item;
   },
 });
 
-export const add = mutation({
+export const setRating = mutation({
   args: {
     userId: v.string(),
     tmdbId: v.number(),
     type: v.union(v.literal("movie"), v.literal("tv")),
-    title: v.string(),
-    posterPath: v.string(),
-    backdropPath: v.optional(v.string()),
+    liked: v.boolean(),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
-      .query("watchlist")
+      .query("ratings")
       .withIndex("by_user_tmdb_type", (q) =>
         q.eq("userId", args.userId).eq("tmdbId", args.tmdbId).eq("type", args.type)
       )
       .unique();
-    if (existing) return existing._id;
-    return ctx.db.insert("watchlist", args);
+    if (existing) {
+      await ctx.db.patch(existing._id, { liked: args.liked });
+      return existing._id;
+    }
+    return ctx.db.insert("ratings", args);
   },
 });
 
-export const remove = mutation({
+export const removeRating = mutation({
   args: {
     userId: v.string(),
     tmdbId: v.number(),
@@ -54,7 +47,7 @@ export const remove = mutation({
   },
   handler: async (ctx, { userId, tmdbId, type }) => {
     const item = await ctx.db
-      .query("watchlist")
+      .query("ratings")
       .withIndex("by_user_tmdb_type", (q) =>
         q.eq("userId", userId).eq("tmdbId", tmdbId).eq("type", type)
       )
@@ -66,7 +59,7 @@ export const remove = mutation({
 export const countAll = query({
   args: {},
   handler: async (ctx) => {
-    const all = await ctx.db.query("watchlist").collect();
+    const all = await ctx.db.query("ratings").collect();
     return all.length;
   },
 });

@@ -45,6 +45,29 @@ export interface TmdbSearchResult {
   page: number;
 }
 
+export interface TmdbEpisode {
+  id: number;
+  episode_number: number;
+  season_number: number;
+  name: string;
+  overview: string;
+  still_path: string | null;
+  air_date: string;
+  vote_average: number;
+  runtime: number | null;
+}
+
+export interface TmdbSeason {
+  id: number;
+  season_number: number;
+  name: string;
+  overview: string;
+  episode_count: number;
+  poster_path: string | null;
+  air_date: string;
+  episodes?: TmdbEpisode[];
+}
+
 export const api = {
   tmdb: {
     trending: (): Promise<{ all: TmdbItem[]; movies: TmdbItem[]; tv: TmdbItem[] }> =>
@@ -63,6 +86,8 @@ export const api = {
 
     tv: (id: number): Promise<TmdbItem> => apiFetch(`/tmdb/tv/${id}`),
     tvSimilar: (id: number): Promise<TmdbItem[]> => apiFetch(`/tmdb/tv/${id}/similar`),
+    tvSeason: (id: number, seasonNum: number): Promise<TmdbSeason> =>
+      apiFetch(`/tmdb/tv/${id}/season/${seasonNum}`),
 
     genres: (): Promise<{ movies: { id: number; name: string }[]; tv: { id: number; name: string }[] }> =>
       apiFetch("/tmdb/genres"),

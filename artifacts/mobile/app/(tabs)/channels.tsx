@@ -10,11 +10,13 @@ import {
 import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
 import { Feather } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { ContentRow } from "@/components/ContentRow";
 import { TRENDING, TOP_10_SERIES } from "@/constants/content";
 import { CHANNELS } from "@/constants/content";
+import type { ContentItem } from "@/constants/content";
 
 const CHANNEL_CONTENT: Record<string, typeof TRENDING> = {
   ch1: TRENDING.slice(0, 4),
@@ -28,8 +30,20 @@ const CHANNEL_CONTENT: Record<string, typeof TRENDING> = {
 export default function ChannelsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const isWeb = Platform.OS === "web";
   const topPad = isWeb ? 67 : insets.top;
+
+  const goToDetail = (item: ContentItem) => {
+    router.push({
+      pathname: "/detail",
+      params: {
+        type: (item as any).mediaType ?? (item.type === "movie" ? "movie" : "tv"),
+        id: String((item as any).tmdbId ?? item.id),
+        title: item.title,
+      },
+    });
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -88,6 +102,7 @@ export default function ChannelsScreen() {
               cardWidth={130}
               cardHeight={185}
               onSeeAll={() => {}}
+              onItemPress={goToDetail}
             />
           );
         })}

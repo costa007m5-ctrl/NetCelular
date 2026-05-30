@@ -94,9 +94,9 @@ export default function HomeScreen() {
 
   const goToPlayer = (item: ContentItem) => {
     router.push({
-      pathname: "/player",
+      pathname: "/detail",
       params: {
-        type: item.type === "movie" ? "movie" : "tv",
+        type: item.mediaType ?? (item.type === "movie" ? "movie" : "tv"),
         id: String(item.tmdbId ?? item.id),
         title: item.title,
       },

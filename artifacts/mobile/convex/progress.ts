@@ -2,11 +2,11 @@ import { mutation, query } from "./_generated/server.js";
 import { v } from "convex/values";
 
 export const getAll = query({
-  args: { deviceId: v.string() },
-  handler: async (ctx, { deviceId }) => {
+  args: { userId: v.string() },
+  handler: async (ctx, { userId }) => {
     return ctx.db
       .query("watchProgress")
-      .withIndex("by_device", (q) => q.eq("deviceId", deviceId))
+      .withIndex("by_user", (q) => q.eq("userId", userId))
       .order("desc")
       .collect();
   },
@@ -14,7 +14,7 @@ export const getAll = query({
 
 export const upsert = mutation({
   args: {
-    deviceId: v.string(),
+    userId: v.string(),
     tmdbId: v.number(),
     type: v.union(v.literal("movie"), v.literal("tv")),
     title: v.string(),
@@ -27,11 +27,10 @@ export const upsert = mutation({
   handler: async (ctx, args) => {
     const existing = await ctx.db
       .query("watchProgress")
-      .withIndex("by_device_tmdb_type", (q) =>
-        q.eq("deviceId", args.deviceId).eq("tmdbId", args.tmdbId).eq("type", args.type)
+      .withIndex("by_user_tmdb_type", (q) =>
+        q.eq("userId", args.userId).eq("tmdbId", args.tmdbId).eq("type", args.type)
       )
       .unique();
-
     if (existing) {
       await ctx.db.patch(existing._id, {
         progress: args.progress,
