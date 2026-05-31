@@ -29,15 +29,24 @@ async function tmdbFetch<T>(path: string, params: Record<string, string> = {}): 
 
 async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
   if (!API_BASE) throw new Error("No API server configured");
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...opts,
-    headers: { "Content-Type": "application/json", ...(opts?.headers ?? {}) },
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error((err as any).error ?? `HTTP ${res.status}`);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      ...opts,
+      signal: controller.signal,
+      headers: { "Content-Type": "application/json", ...(opts?.headers ?? {}) },
+    });
+    clearTimeout(timer);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error((err as any).error ?? `HTTP ${res.status}`);
+    }
+    return res.json() as Promise<T>;
+  } catch (e) {
+    clearTimeout(timer);
+    throw e;
   }
-  return res.json() as Promise<T>;
 }
 
 async function apiFetchOrDirect<T>(apiPath: string, directFn: () => Promise<T>): Promise<T> {

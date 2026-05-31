@@ -61,7 +61,16 @@ export function CatalogProvider({ children }: { children: React.ReactNode }) {
       }
 
       const base = getApiBase();
-      const res = await fetch(`${base}/redeflix/catalog`);
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 5000);
+      let res: Response;
+      try {
+        res = await fetch(`${base}/redeflix/catalog`, { signal: controller.signal });
+        clearTimeout(timer);
+      } catch (e) {
+        clearTimeout(timer);
+        throw e;
+      }
       if (!res.ok) throw new Error("catalog fetch failed");
       const data = await res.json();
 
