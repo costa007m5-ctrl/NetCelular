@@ -379,11 +379,12 @@ const ap = StyleSheet.create({
 interface EditModalProps {
   visible: boolean;
   initial?: NetplayProfile | null;
+  saving?: boolean;
   onSave: (name: string, avatarUrl: string, isKids: boolean) => void;
   onClose: () => void;
 }
 
-function EditProfileModal({ visible, initial, onSave, onClose }: EditModalProps) {
+function EditProfileModal({ visible, initial, saving, onSave, onClose }: EditModalProps) {
   const [name, setName] = useState(initial?.name ?? "");
   const [avatarUrl, setAvatarUrl] = useState(initial?.avatarUrl ?? "");
   const [isKids, setIsKids] = useState(initial?.isKids ?? false);
@@ -441,12 +442,16 @@ function EditProfileModal({ visible, initial, onSave, onClose }: EditModalProps)
           </Pressable>
 
           <Pressable
-            style={[styles.saveBtn, !name.trim() && { opacity: 0.4 }]}
-            onPress={() => { if (name.trim()) onSave(name.trim(), avatarUrl, isKids); }}
-            disabled={!name.trim()}
+            style={[styles.saveBtn, (!name.trim() || saving) && { opacity: 0.6 }]}
+            onPress={() => { if (name.trim() && !saving) onSave(name.trim(), avatarUrl, isKids); }}
+            disabled={!name.trim() || saving}
           >
-            <LinearGradient colors={["#e50914", "#8b0000"]} style={StyleSheet.absoluteFill} />
-            <Text style={styles.saveBtnText}>SALVAR PERFIL</Text>
+            <LinearGradient colors={["#e50914", "#8b0000"]} style={[StyleSheet.absoluteFill, { pointerEvents: "none" } as any]} />
+            {saving ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <Text style={styles.saveBtnText}>SALVAR PERFIL</Text>
+            )}
           </Pressable>
         </View>
       </KeyboardAvoidingView>
@@ -459,6 +464,7 @@ export default function ProfileSelectScreen() {
   const { user } = useAuth();
   const [profiles, setProfiles] = useState<NetplayProfile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [editModal, setEditModal] = useState(false);
   const [editTarget, setEditTarget] = useState<NetplayProfile | null>(null);
 
@@ -492,25 +498,25 @@ export default function ProfileSelectScreen() {
       Alert.alert("Erro", "Usuário não autenticado. Faça login novamente.");
       return;
     }
-    const profile: NetplayProfile = {
-      id: editTarget?.id ?? generateUUID(),
-      name, avatarUrl,
-      avatarIndex: editTarget?.avatarIndex ?? 0,
-      userId: user.id, isKids,
-    };
-    const result = await saveProfile(profile);
-    if (result.dbError) {
-      console.warn("[profile-select] Salvo localmente, falha no banco:", result.dbError);
-      if (result.dbError.includes("does not exist")) {
-        Alert.alert(
-          "Configure o banco de dados",
-          "A tabela de perfis ainda não foi criada no Supabase. Execute o supabase-schema.sql no Supabase → SQL Editor.",
-          [{ text: "OK" }]
-        );
+    setSaving(true);
+    try {
+      const profile: NetplayProfile = {
+        id: editTarget?.id ?? generateUUID(),
+        name, avatarUrl,
+        avatarIndex: editTarget?.avatarIndex ?? 0,
+        userId: user.id, isKids,
+      };
+      const result = await saveProfile(profile);
+      if (result.dbError) {
+        console.warn("[profile-select] Salvo localmente, falha no banco:", result.dbError);
       }
+      setEditModal(false);
+      await load();
+    } catch (e: any) {
+      Alert.alert("Erro", e?.message ?? "Não foi possível salvar o perfil. Tente novamente.");
+    } finally {
+      setSaving(false);
     }
-    setEditModal(false);
-    await load();
   };
 
   const handleDelete = (profile: NetplayProfile) => {
@@ -600,6 +606,7 @@ export default function ProfileSelectScreen() {
       <EditProfileModal
         visible={editModal}
         initial={editTarget}
+        saving={saving}
         onSave={handleSave}
         onClose={() => setEditModal(false)}
       />

@@ -24,15 +24,24 @@ const AuthContext = createContext<AuthContextValue>({
 });
 
 async function buildAuthUser(supabaseUserId: string, email: string): Promise<AuthUser | null> {
-  const profile = await db.users.getById(supabaseUserId);
-  if (!profile) return null;
-  return {
-    id: supabaseUserId,
-    email,
-    name: profile.name,
-    role: profile.role,
-    avatarLetter: profile.avatar_letter,
-  };
+  try {
+    let profile = await db.users.getById(supabaseUserId);
+    if (!profile) {
+      const fallbackName = email.split("@")[0] || "Usuário";
+      await db.users.upsertProfile(supabaseUserId, email, fallbackName);
+      profile = await db.users.getById(supabaseUserId);
+    }
+    if (!profile) return null;
+    return {
+      id: supabaseUserId,
+      email,
+      name: profile.name,
+      role: profile.role,
+      avatarLetter: profile.avatar_letter,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
