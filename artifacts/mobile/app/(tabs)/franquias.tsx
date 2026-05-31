@@ -305,6 +305,18 @@ function FranchiseCard({
   );
 }
 
+/* ── Genre → TMDB search keyword mapping ─────────────────── */
+const GENRE_KEYWORDS: Record<string, string> = {
+  superherois: "superhero",
+  acao:        "action",
+  scifi:       "sci-fi",
+  fantasia:    "fantasy",
+  terror:      "horror",
+  drama:       "drama",
+  animacao:    "animation",
+  anime:       "anime",
+};
+
 /* ── Category Filter Pills ─────────────────────────────────── */
 const GENRE_FILTERS = [
   { key: "all", label: "Todos" },
@@ -343,12 +355,23 @@ function SectionRow({
   label?: string;
 }) {
   if (franchises.length === 0) return null;
+  const keyword = genre ? GENRE_KEYWORDS[genre] : null;
+  const color = accentColor ?? RED;
 
   return (
     <View style={s.section}>
       <View style={s.sectionHeader}>
-        <View style={[s.accentBar, { backgroundColor: accentColor ?? RED }]} />
+        <View style={[s.accentBar, { backgroundColor: color }]} />
         <Text style={s.sectionTitle}>{title}</Text>
+        {keyword && router && (
+          <Pressable
+            onPress={() => router.push({ pathname: "/collections-browser", params: { q: keyword, title: label ?? title } })}
+            style={[s.verMaisBtn, { borderColor: color + "55" }]}
+          >
+            <Text style={[s.verMaisBtnTxt, { color: color }]}>Ver mais</Text>
+            <Feather name="chevron-right" size={12} color={color} />
+          </Pressable>
+        )}
       </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.hScroll}>
         {franchises.map((f, i) => (
@@ -361,6 +384,23 @@ function SectionRow({
             rank={showRanks ? i + 1 : undefined}
           />
         ))}
+        {/* TMDB "load more" card */}
+        {keyword && router && (
+          <Pressable
+            onPress={() => router.push({ pathname: "/collections-browser", params: { q: keyword, title: label ?? title } })}
+            style={s.tmdbMoreCard}
+          >
+            <LinearGradient
+              colors={[color + "18", color + "08"]}
+              style={StyleSheet.absoluteFill}
+            />
+            <View style={[s.tmdbMoreIcon, { borderColor: color + "55" }]}>
+              <Feather name="grid" size={20} color={color} />
+            </View>
+            <Text style={[s.tmdbMoreTxt, { color }]}>Ver mais</Text>
+            <Text style={s.tmdbMoreSub}>no TMDB</Text>
+          </Pressable>
+        )}
       </ScrollView>
     </View>
   );
@@ -738,6 +778,29 @@ const s = StyleSheet.create({
     color: "#fff", fontSize: 13, fontWeight: "800", lineHeight: 17,
     textShadowColor: "rgba(0,0,0,0.95)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 8,
   },
+
+  // Ver mais (section header button)
+  verMaisBtn: {
+    flexDirection: "row", alignItems: "center", gap: 3,
+    paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 1,
+  },
+  verMaisBtnTxt: { fontSize: 11, fontWeight: "700" },
+
+  // TMDB "load more" card in horizontal scroll
+  tmdbMoreCard: {
+    width: 100, height: CARD_H,
+    borderRadius: 14, overflow: "hidden",
+    marginRight: 4, borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.10)",
+    borderStyle: "dashed",
+    alignItems: "center", justifyContent: "center", gap: 8,
+  },
+  tmdbMoreIcon: {
+    width: 44, height: 44, borderRadius: 22, borderWidth: 1.5,
+    alignItems: "center", justifyContent: "center",
+  },
+  tmdbMoreTxt: { fontSize: 13, fontWeight: "800" },
+  tmdbMoreSub: { color: "rgba(255,255,255,0.35)", fontSize: 10, fontWeight: "600" },
 
   // Sticky header
   stickyHeader: { position: "absolute", top: 0, left: 0, right: 0, zIndex: 10 },

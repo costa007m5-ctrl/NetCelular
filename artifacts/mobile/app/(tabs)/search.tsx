@@ -392,13 +392,19 @@ export default function SearchScreen() {
     saveRecent(q.trim());
     setSearchLoading(true);
     try {
-      const data = await api.tmdb.search(q, "multi");
-      const items = data.results
+      const [multiData, colData] = await Promise.all([
+        api.tmdb.search(q, "multi"),
+        api.tmdb.searchCollections(q, 1),
+      ]);
+      const items = multiData.results
         .filter((r: TmdbItem) => r.media_type === "movie" || r.media_type === "tv")
         .map(tmdbItemToContent);
-      const cols = data.results.filter((r: any) => r.media_type === "collection");
+      // Merge collections from multi search + dedicated search, deduplicate by id
+      const multiCols = multiData.results.filter((r: any) => r.media_type === "collection");
+      const dedupMap = new Map<number, any>();
+      [...(colData.results ?? []), ...multiCols].forEach((c: any) => dedupMap.set(c.id, c));
       setResults(items);
-      setCollectionResults(cols);
+      setCollectionResults(Array.from(dedupMap.values()));
     } catch { setResults([]); setCollectionResults([]); }
     finally { setSearchLoading(false); }
   }, []);

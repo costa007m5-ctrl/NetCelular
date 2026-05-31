@@ -1372,7 +1372,7 @@ const _FRANCHISES_RAW: Franchise[] = [
     category: "filmes",
     genre: "animacao",
     fetchType: "collection",
-    tmdbCollectionId: 230,
+    tmdbCollectionId: 2150,
     yearRange: "2001 - Atual",
     contentCount: 5,
     totalHours: 8,

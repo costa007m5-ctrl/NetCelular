@@ -14,7 +14,7 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
 import { Feather } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api, TMDB_IMG } from "@/lib/api";
 
@@ -87,13 +87,17 @@ function CollectionCard({
 export default function CollectionsBrowserScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const params = useLocalSearchParams<{ q?: string; title?: string }>();
+
+  const initialQ = params.q ?? "";
+  const screenTitle = params.title ?? "Coletâneas TMDB";
 
   const [collections, setCollections] = useState<CollectionEntry[]>([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(999);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(initialQ);
   const [searchActive, setSearchActive] = useState(false);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -105,7 +109,7 @@ export default function CollectionsBrowserScreen() {
         const data = query.trim()
           ? await api.tmdb.searchCollections(query, pageNum)
           : await api.tmdb.popularCollections(pageNum);
-        setTotalPages(data.total_pages);
+        setTotalPages(data.total_pages ?? 1);
         setCollections((prev) =>
           replace ? data.results : [...prev, ...data.results]
         );
@@ -121,7 +125,7 @@ export default function CollectionsBrowserScreen() {
   );
 
   useEffect(() => {
-    loadPage(1, "", true);
+    loadPage(1, initialQ, true);
   }, []);
 
   useEffect(() => {
@@ -152,7 +156,7 @@ export default function CollectionsBrowserScreen() {
           <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
             <Feather name="arrow-left" size={20} color="#fff" />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Coletâneas TMDB</Text>
+          <Text style={styles.headerTitle}>{screenTitle}</Text>
           <View style={{ width: 36 }} />
         </View>
 
