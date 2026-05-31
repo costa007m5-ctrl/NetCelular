@@ -20,6 +20,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import NetplaySplash from "@/components/NetplaySplash";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { ThemeProvider } from "@/lib/theme-context";
+import { CatalogProvider } from "@/lib/catalog-context";
 import { requestPermissionsAndSetup, scheduleNewContentNotification } from "@/lib/notifications";
 import { supabase } from "@/lib/supabase";
 
@@ -154,16 +155,18 @@ export default function RootLayout() {
       <ErrorBoundary>
         <ThemeProvider>
           <AuthProvider>
-            <QueryClientProvider client={queryClient}>
-              <GestureHandlerRootView style={{ flex: 1, backgroundColor: "#000" }}>
-                <KeyboardProvider>
-                  <View style={{ flex: 1 }}>
-                    <RootNavigator />
-                    {showSplash && <NetplaySplash onFinish={handleSplashFinish} />}
-                  </View>
-                </KeyboardProvider>
-              </GestureHandlerRootView>
-            </QueryClientProvider>
+            <CatalogProvider>
+              <QueryClientProvider client={queryClient}>
+                <GestureHandlerRootView style={{ flex: 1, backgroundColor: "#000" }}>
+                  <KeyboardProvider>
+                    <View style={{ flex: 1 }}>
+                      <RootNavigator />
+                      {showSplash && <NetplaySplash onFinish={handleSplashFinish} />}
+                    </View>
+                  </KeyboardProvider>
+                </GestureHandlerRootView>
+              </QueryClientProvider>
+            </CatalogProvider>
           </AuthProvider>
         </ThemeProvider>
       </ErrorBoundary>

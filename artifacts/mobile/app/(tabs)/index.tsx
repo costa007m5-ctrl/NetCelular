@@ -27,6 +27,7 @@ import { SkeletonRow } from "@/components/SkeletonLoader";
 import { GenreRow } from "@/components/GenreRow";
 import { api, tmdbItemToContent } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import { useCatalog } from "@/lib/catalog-context";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
 import type { ContentItem } from "@/constants/content";
 import { HERO_ITEMS, TOP_10_SERIES, TRENDING } from "@/constants/content";
@@ -149,6 +150,7 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user } = useAuth();
+  const { isAvailable } = useCatalog();
   const isWeb = Platform.OS === "web";
   const topPad = isWeb ? 0 : insets.top;
 
@@ -284,20 +286,21 @@ export default function HomeScreen() {
   const loadData = useCallback(async () => {
     try {
       const data = await api.tmdb.trending();
-      const all = data.all.map(tmdbItemToContent);
-      const movies = data.movies.map(tmdbItemToContent);
-      const tv = data.tv.map(tmdbItemToContent);
+      const all    = data.all.map(tmdbItemToContent).filter((c) => isAvailable(c.tmdbId));
+      const movies = data.movies.map(tmdbItemToContent).filter((c) => isAvailable(c.tmdbId));
+      const tv     = data.tv.map(tmdbItemToContent).filter((c) => isAvailable(c.tmdbId));
 
-      setHeroItems(all.slice(0, 3));
-      setTrendingItems(all.slice(0, 8));
-      setTop10([...movies.slice(0, 3), ...tv.slice(0, 2)]);
+      if (all.length > 0)    setHeroItems(all.slice(0, 3));
+      if (all.length > 0)    setTrendingItems(all.slice(0, 8));
+      if (movies.length > 0 || tv.length > 0)
+        setTop10([...movies.slice(0, 3), ...tv.slice(0, 2)]);
     } catch (err) {
       console.log("Using mock data:", err);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [isAvailable]);
 
   useEffect(() => {
     loadData();

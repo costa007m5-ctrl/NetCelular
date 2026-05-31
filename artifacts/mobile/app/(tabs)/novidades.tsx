@@ -22,6 +22,7 @@ import { useAuth } from "@/lib/auth-context";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
 import { api } from "@/lib/api";
 import type { TmdbItem } from "@/lib/api";
+import { useCatalog } from "@/lib/catalog-context";
 
 const { width: SW } = Dimensions.get("window");
 const RED = "#e50914";
@@ -397,6 +398,7 @@ export default function NovidadesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
+  const { byType } = useCatalog();
   const isWeb = Platform.OS === "web";
   const topPad = isWeb ? 0 : insets.top;
 
@@ -411,24 +413,31 @@ export default function NovidadesScreen() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      /* Step 1: fetch all 4 ID lists in parallel */
-      const [movieIds, tvIds, animeIds, doramaIds] = await Promise.all([
-        api.redeflix.listIds("movie"),
-        api.redeflix.listIds("tv"),
-        api.redeflix.listIds("anime"),
-        api.redeflix.listIds("dorama"),
-      ]);
+      /* Step 1: use IDs from the shared catalog cache (refreshed every hour) */
+      const movieIds  = byType.movie  ?? [];
+      const tvIds     = byType.tv     ?? [];
+      const animeIds  = byType.anime  ?? [];
+      const doramaIds = byType.dorama ?? [];
+
+      /* If catalog not loaded yet, fall back to API */
+      const [mIds, tIds, aIds, dIds] = movieIds.length > 0
+        ? [movieIds, tvIds, animeIds, doramaIds]
+        : await Promise.all([
+            api.redeflix.listIds("movie"),
+            api.redeflix.listIds("tv"),
+            api.redeflix.listIds("anime"),
+            api.redeflix.listIds("dorama"),
+          ]);
 
       /* Step 2: take first BATCH from each and fetch TMDB details in parallel */
-      const mSlice = movieIds.slice(0, BATCH);
-      const tSlice = tvIds.slice(0, BATCH);
-      const aSlice = animeIds.slice(0, BATCH);
-      const dSlice = doramaIds.slice(0, BATCH);
+      const mSlice = mIds.slice(0, BATCH);
+      const tSlice = tIds.slice(0, BATCH);
+      const aSlice = aIds.slice(0, BATCH);
+      const dSlice = dIds.slice(0, BATCH);
 
-      const tvIdSet = new Set(tvIds.slice(0, 200).map(String));
-      const movieIdSet = new Set(movieIds.slice(0, 200).map(String));
+      const tvIdSet    = new Set(tIds.slice(0, 200).map(String));
+      const movieIdSet = new Set(mIds.slice(0, 200).map(String));
 
-      /* For anime/dorama: check if the ID is known to be movie or tv */
       const inferType = (id: number, fallback: "tv" | "movie"): "movie" | "tv" => {
         if (tvIdSet.has(String(id))) return "tv";
         if (movieIdSet.has(String(id))) return "movie";
@@ -456,7 +465,7 @@ export default function NovidadesScreen() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [byType]);
 
   useEffect(() => { load(); }, [load]);
 

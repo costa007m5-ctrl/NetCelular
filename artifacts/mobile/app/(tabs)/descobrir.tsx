@@ -16,6 +16,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useCatalog } from "@/lib/catalog-context";
 
 const { width: SW } = Dimensions.get("window");
 const BG = "#050505";
@@ -326,6 +327,7 @@ function HeroBanner({ items }: { items: any[] }) {
 export default function DescobrirScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { isAvailable } = useCatalog();
   const [trending, setTrending] = useState<any[]>([]);
   const [heroBanners, setHeroBanners] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -340,16 +342,18 @@ export default function DescobrirScreen() {
         .then((r) => r.json()),
     ])
       .then(([trendData, nowData]) => {
-        const trendItems = (trendData.results ?? []).slice(0, 10);
+        const trendItems = (trendData.results ?? [])
+          .filter((m: any) => isAvailable(m.id))
+          .slice(0, 10);
         setTrending(trendItems);
         const bannerItems = (nowData.results ?? [])
-          .filter((m: any) => m.backdrop_path)
+          .filter((m: any) => m.backdrop_path && isAvailable(m.id))
           .slice(0, 6);
         setHeroBanners(bannerItems);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }, [isAvailable]);
 
   const handleMood = (genre: string, type: string, label: string) => {
     router.push({ pathname: "/genre-browse", params: { genre_id: genre, type, title: label } });
