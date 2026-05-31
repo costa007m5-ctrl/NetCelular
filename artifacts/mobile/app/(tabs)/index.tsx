@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   Platform,
@@ -75,13 +75,21 @@ function StreamingChip({
   );
 }
 
-const GENRE_SECTIONS = [
+const DEFAULT_GENRE_SECTIONS = [
   { id: 28,  type: "movie" as const, label: "Filmes de Ação" },
   { id: 18,  type: "tv"    as const, label: "Séries Drama" },
   { id: 16,  type: "movie" as const, label: "Animação" },
   { id: 35,  type: "movie" as const, label: "Comédia" },
   { id: 27,  type: "movie" as const, label: "Terror" },
 ];
+
+const GENRE_NAMES: Record<number, string> = {
+  28: "Ação", 12: "Aventura", 16: "Animação", 35: "Comédia", 80: "Crime",
+  99: "Documentário", 18: "Drama", 10751: "Família", 14: "Fantasia",
+  36: "História", 27: "Terror", 10402: "Música", 9648: "Mistério",
+  10749: "Romance", 878: "Ficção Científica", 10770: "TV Movie",
+  53: "Suspense", 10752: "Guerra", 37: "Faroeste", 10759: "Ação & Aventura",
+};
 
 export default function HomeScreen() {
   const colors = useColors();
@@ -103,12 +111,80 @@ export default function HomeScreen() {
   const userId = user?.id ?? "";
   const [continueItems, setContinueItems] = useState<ContentItem[]>([]);
   const [activeProfile, setActiveProfile] = useState<any>(null);
+  const [preferences, setPreferences] = useState<{
+    genres?: number[];
+    contentTypes?: string[];
+    decades?: string[];
+    movies?: number[];
+    series?: number[];
+  } | null>(null);
+  const [personalizedItems, setPersonalizedItems] = useState<ContentItem[]>([]);
 
   useEffect(() => {
     AsyncStorage.getItem("netplay_active_profile_v2")
       .then((raw) => { if (raw) setActiveProfile(JSON.parse(raw)); })
       .catch(() => {});
   }, [userId]);
+
+  useEffect(() => {
+    AsyncStorage.getItem("netplay_preferences")
+      .then((raw) => { if (raw) setPreferences(JSON.parse(raw)); })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!preferences?.genres?.length) return;
+    const topGenre = preferences.genres[0];
+    const preferSeries =
+      preferences.contentTypes?.includes("Séries") &&
+      !preferences.contentTypes?.includes("Filmes");
+    const mediaType = preferSeries ? "tv" : "movie";
+    api.tmdb
+      .discover(mediaType, topGenre)
+      .then((data) =>
+        setPersonalizedItems(data.results.slice(0, 10).map(tmdbItemToContent))
+      )
+      .catch(() => {});
+  }, [preferences]);
+
+  const genreSections = useMemo(() => {
+    if (!preferences?.genres?.length) return DEFAULT_GENRE_SECTIONS;
+    return preferences.genres.slice(0, 6).map((genreId, i) => ({
+      id: genreId,
+      type: (i % 2 === 0 ? "movie" : "tv") as "movie" | "tv",
+      label: `${GENRE_NAMES[genreId] ?? "Para Você"}`,
+    }));
+  }, [preferences]);
+
+  const displayTrending = useMemo(() => {
+    if (!preferences?.contentTypes?.length) return trendingItems;
+    const wantsMovies = preferences.contentTypes.includes("Filmes");
+    const wantsSeries = preferences.contentTypes.includes("Séries");
+    if (wantsMovies && !wantsSeries)
+      return trendingItems.filter(
+        (i) => i.type === "movie" || i.mediaType === "movie"
+      );
+    if (wantsSeries && !wantsMovies)
+      return trendingItems.filter(
+        (i) => i.type === "series" || i.mediaType === "tv"
+      );
+    return trendingItems;
+  }, [trendingItems, preferences]);
+
+  const displayHero = useMemo(() => {
+    if (!preferences?.contentTypes?.length) return heroItems;
+    const wantsMovies = preferences.contentTypes.includes("Filmes");
+    const wantsSeries = preferences.contentTypes.includes("Séries");
+    if (wantsMovies && !wantsSeries)
+      return heroItems.filter(
+        (i) => i.type === "movie" || i.mediaType === "movie"
+      );
+    if (wantsSeries && !wantsMovies)
+      return heroItems.filter(
+        (i) => i.type === "series" || i.mediaType === "tv"
+      );
+    return heroItems;
+  }, [heroItems, preferences]);
 
   useEffect(() => {
     if (!userId || !isSupabaseConfigured) return;
@@ -212,7 +288,7 @@ export default function HomeScreen() {
         }
       >
         <View>
-          <HeroBanner items={heroItems} onItemPress={goToPlayer} />
+          <HeroBanner items={displayHero.length > 0 ? displayHero : heroItems} onItemPress={goToPlayer} />
         </View>
 
         {/* ── SEARCH BAR ─────────────────────────────────── */}
@@ -266,10 +342,32 @@ export default function HomeScreen() {
             </>
           ) : (
             <>
+              {personalizedItems.length > 0 && (
+                <ContentRow
+                  title="Para Você"
+                  icon="star"
+                  items={personalizedItems}
+                  cardWidth={150}
+                  cardHeight={210}
+                  seeAllLabel="Ver mais"
+                  onSeeAll={() =>
+                    router.push({
+                      pathname: "/genre-browse",
+                      params: {
+                        genre_id: String(preferences?.genres?.[0] ?? 0),
+                        type: "movie",
+                        title: "Para Você",
+                      },
+                    })
+                  }
+                  onItemPress={goToPlayer}
+                />
+              )}
+
               <ContentRow
-                title="Em Alta"
+                title={preferences?.genres?.length ? "Em Alta" : "Em Alta"}
                 icon="fire"
-                items={trendingItems}
+                items={displayTrending.length > 0 ? displayTrending : trendingItems}
                 cardWidth={150}
                 cardHeight={210}
                 seeAllLabel="Ver mais"
@@ -318,7 +416,7 @@ export default function HomeScreen() {
                 />
               )}
 
-              {GENRE_SECTIONS.map((genre) => (
+              {genreSections.map((genre) => (
                 <GenreRow
                   key={`${genre.type}-${genre.id}`}
                   genreId={genre.id}

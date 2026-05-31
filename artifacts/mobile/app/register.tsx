@@ -80,7 +80,7 @@ export default function RegisterScreen() {
       // está DESATIVADA no projeto → pula direto para o onboarding.
       // Se session for null, a verificação está ATIVADA → mostra etapa 5.
       if (data.session) {
-        router.replace("/onboarding/profile");
+        router.replace("/onboarding/preferences");
       } else {
         setStep(5);
       }
