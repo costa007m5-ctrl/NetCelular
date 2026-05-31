@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getMergedPreferences } from "@/lib/smart-preferences";
 import {
   Animated,
   Platform,
@@ -179,8 +180,8 @@ export default function HomeScreen() {
   }, [userId]);
 
   useEffect(() => {
-    AsyncStorage.getItem("netplay_preferences")
-      .then((raw) => { if (raw) setPreferences(JSON.parse(raw)); })
+    getMergedPreferences()
+      .then((merged) => { if (merged) setPreferences(merged); })
       .catch(() => {});
   }, []);
 

@@ -40,6 +40,15 @@ import {
   setNotificationsEnabled,
 } from "@/lib/notifications";
 import type { WatchlistItem } from "@/lib/supabase";
+import {
+  analyzeWatchHistory,
+  clearLearnedPreferences,
+  getLearnedPreferences,
+  getMergedPreferences,
+  saveManualPreferences,
+  type LearnedPreferences,
+  type ManualPreferences,
+} from "@/lib/smart-preferences";
 
 const { width: SW } = Dimensions.get("window");
 const ACTIVE_PROFILE_KEY = "netplay_active_profile_v2";
@@ -200,6 +209,15 @@ export default function ProfileScreen() {
   const [reportText, setReportText] = useState("");
   const [sendingReport, setSendingReport] = useState(false);
 
+  const [showPrefsModal, setShowPrefsModal] = useState(false);
+  const [manualPrefs, setManualPrefs] = useState<ManualPreferences | null>(null);
+  const [learnedPrefs, setLearnedPrefs] = useState<LearnedPreferences | null>(null);
+  const [editGenres, setEditGenres] = useState<number[]>([]);
+  const [editContentTypes, setEditContentTypes] = useState<string[]>([]);
+  const [editDecades, setEditDecades] = useState<string[]>([]);
+  const [savingPrefs, setSavingPrefs] = useState(false);
+  const [analyzingHistory, setAnalyzingHistory] = useState(false);
+
   const [pickerConfig, setPickerConfig] = useState<{ key: keyof UserSettings; title: string; options: string[] } | null>(null);
 
   const [editName, setEditName] = useState("");
@@ -272,6 +290,85 @@ export default function ProfileScreen() {
   }, [user?.id]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  useEffect(() => {
+    getMergedPreferences().then((p) => {
+      if (p) setManualPrefs(p);
+    });
+    getLearnedPreferences().then((l) => {
+      if (l) setLearnedPrefs(l);
+    });
+  }, []);
+
+  const openPrefsModal = async () => {
+    const [merged, learned] = await Promise.all([
+      getMergedPreferences(),
+      getLearnedPreferences(),
+    ]);
+    if (merged) {
+      setManualPrefs(merged);
+      setEditGenres(merged.genres ?? []);
+      setEditContentTypes(merged.contentTypes ?? []);
+      setEditDecades(merged.decades ?? []);
+    } else {
+      setEditGenres([]);
+      setEditContentTypes([]);
+      setEditDecades([]);
+    }
+    if (learned) setLearnedPrefs(learned);
+    setShowPrefsModal(true);
+  };
+
+  const handleAnalyzeHistory = async () => {
+    if (!watchHistory.length) return;
+    setAnalyzingHistory(true);
+    await analyzeWatchHistory(watchHistory.map((h) => ({
+      tmdb_id: h.tmdb_id,
+      type: h.type,
+      progress: h.progress ?? 0.1,
+    })));
+    const learned = await getLearnedPreferences();
+    if (learned) setLearnedPrefs(learned);
+    setAnalyzingHistory(false);
+  };
+
+  const handleSavePrefs = async () => {
+    setSavingPrefs(true);
+    try {
+      const prefs: ManualPreferences = {
+        genres: editGenres,
+        contentTypes: editContentTypes,
+        decades: editDecades,
+        movies: manualPrefs?.movies ?? [],
+        series: manualPrefs?.series ?? [],
+      };
+      await saveManualPreferences(prefs);
+      setManualPrefs(prefs);
+      if (user?.id) {
+        await supabase.from("users").update({ preferences: prefs }).eq("id", user.id).catch(() => {});
+      }
+      setShowPrefsModal(false);
+    } catch {}
+    setSavingPrefs(false);
+  };
+
+  const handleClearLearned = () => {
+    Alert.alert(
+      "Limpar dados aprendidos",
+      "Isso removerá todos os dados que o NETPLAY aprendeu com seu histórico. Suas preferências manuais serão mantidas.",
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Limpar",
+          style: "destructive",
+          onPress: async () => {
+            await clearLearnedPreferences();
+            setLearnedPrefs(null);
+          },
+        },
+      ]
+    );
+  };
 
   const fetchBannerMovies = async () => {
     setLoadingBanners(true);
@@ -788,6 +885,39 @@ export default function ProfileScreen() {
           </Section>
         )}
 
+        {/* ── PERSONALIZAÇÃO ──────────────────────────────── */}
+        <Section title="PERSONALIZAÇÃO DE CONTEÚDO">
+          <Row
+            icon="sliders"
+            label="Personalizar Conteúdos"
+            iconBg="#e5091422"
+            iconColor={RED}
+            accent
+            badge={
+              (manualPrefs?.genres?.length ?? 0) > 0
+                ? `${manualPrefs!.genres.length} gênero${manualPrefs!.genres.length > 1 ? "s" : ""}`
+                : learnedPrefs?.watchedCount
+                ? "Auto"
+                : undefined
+            }
+            badgeColor={learnedPrefs?.watchedCount ? "#4ade80" : RED}
+            onPress={openPrefsModal}
+          />
+          <Row
+            icon="cpu"
+            label="Analisar meu histórico"
+            iconBg="#4ade8022"
+            iconColor="#4ade80"
+            value={
+              learnedPrefs
+                ? `${learnedPrefs.watchedCount} título${learnedPrefs.watchedCount !== 1 ? "s" : ""} analisado${learnedPrefs.watchedCount !== 1 ? "s" : ""}`
+                : watchHistory.length > 0 ? "Toque para analisar" : "Sem histórico ainda"
+            }
+            onPress={watchHistory.length > 0 ? handleAnalyzeHistory : undefined}
+            last
+          />
+        </Section>
+
         {/* ── CONTA ───────────────────────────────────────── */}
         <Section title="CONTA">
           <Row icon="refresh-cw" label="Trocar Perfil" onPress={() => router.push("/profile-select")} />
@@ -1169,6 +1299,213 @@ export default function ProfileScreen() {
         </View>
       </ModalSheet>
 
+      {/* ── PERSONALIZAÇÃO MODAL ────────────────────────── */}
+      <Modal
+        visible={showPrefsModal}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowPrefsModal(false)}
+      >
+        <View style={s.prefsModalOverlay}>
+          <View style={[s.prefsSheet, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={s.prefsHandle} />
+            <View style={[s.prefsHeader, { borderBottomColor: colors.border }]}>
+              <Text style={[s.prefsTitle, { color: colors.foreground }]}>Personalizar Conteúdos</Text>
+              <Text style={[s.prefsSub, { color: colors.mutedForeground }]}>
+                Ajuste seus gostos ou veja o que o NETPLAY aprendeu sobre você
+              </Text>
+            </View>
+            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+
+              {/* O QUE O APP APRENDEU */}
+              <View style={s.prefsSection}>
+                <Text style={[s.prefsSectionTitle, { color: colors.foreground }]}>O QUE O NETPLAY APRENDEU</Text>
+                {learnedPrefs && learnedPrefs.genreScores.length > 0 ? (
+                  <View style={[s.learnedCard, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                    <Text style={[s.prefsSub, { color: colors.mutedForeground, marginBottom: 12 }]}>
+                      Baseado em {learnedPrefs.watchedCount} título{learnedPrefs.watchedCount !== 1 ? "s" : ""} que você assistiu
+                    </Text>
+                    {learnedPrefs.genreScores.slice(0, 6).map((g, idx) => {
+                      const maxScore = learnedPrefs.genreScores[0]?.score ?? 1;
+                      const pct = g.score / maxScore;
+                      return (
+                        <View key={g.id} style={s.learnedRow}>
+                          <Text style={[s.learnedGenreName, { color: colors.foreground }]}>{g.name}</Text>
+                          <View style={[s.learnedGenreBar, { backgroundColor: colors.border }]}>
+                            <View style={[s.learnedGenreFill, { width: `${Math.round(pct * 100)}%`, backgroundColor: idx === 0 ? RED : colors.primary ?? "#4ade80" }]} />
+                          </View>
+                          <Text style={[s.learnedGenreCount, { color: colors.mutedForeground }]}>{g.count}x</Text>
+                        </View>
+                      );
+                    })}
+                    {watchHistory.length > 0 && (
+                      <TouchableOpacity
+                        style={[s.analyzeBtn, { borderColor: colors.border }]}
+                        onPress={handleAnalyzeHistory}
+                        disabled={analyzingHistory}
+                      >
+                        {analyzingHistory
+                          ? <ActivityIndicator size="small" color={colors.foreground} />
+                          : <Feather name="refresh-cw" size={14} color={colors.foreground} />
+                        }
+                        <Text style={[{ color: colors.foreground, fontSize: 13, fontWeight: "600" }]}>
+                          {analyzingHistory ? "Analisando..." : "Reanalisar histórico"}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                    <TouchableOpacity style={s.clearLearnedBtn} onPress={handleClearLearned}>
+                      <Feather name="trash-2" size={13} color="#ef4444" />
+                      <Text style={{ color: "#ef4444", fontSize: 12, fontWeight: "600" }}>Limpar dados aprendidos</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <View style={[s.learnedCard, { backgroundColor: colors.background, borderColor: colors.border, alignItems: "center", paddingVertical: 20 }]}>
+                    <Feather name="cpu" size={28} color={colors.mutedForeground} style={{ marginBottom: 10 }} />
+                    <Text style={{ color: colors.foreground, fontWeight: "700", marginBottom: 4 }}>Nada aprendido ainda</Text>
+                    <Text style={[s.prefsSub, { color: colors.mutedForeground, textAlign: "center" }]}>
+                      {watchHistory.length > 0
+                        ? "Toque em \"Reanalisar\" para processar seu histórico"
+                        : "Assista alguns títulos e o NETPLAY aprenderá seu gosto automaticamente"}
+                    </Text>
+                    {watchHistory.length > 0 && (
+                      <TouchableOpacity
+                        style={[s.analyzeBtn, { borderColor: colors.border, marginTop: 14 }]}
+                        onPress={handleAnalyzeHistory}
+                        disabled={analyzingHistory}
+                      >
+                        {analyzingHistory
+                          ? <ActivityIndicator size="small" color={colors.foreground} />
+                          : <Feather name="cpu" size={14} color={colors.foreground} />
+                        }
+                        <Text style={{ color: colors.foreground, fontSize: 13, fontWeight: "600" }}>
+                          {analyzingHistory ? "Analisando..." : `Analisar ${watchHistory.length} título${watchHistory.length !== 1 ? "s" : ""}`}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                )}
+              </View>
+
+              {/* GÊNEROS */}
+              <View style={s.prefsSection}>
+                <Text style={[s.prefsSectionTitle, { color: colors.foreground }]}>GÊNEROS FAVORITOS</Text>
+                <Text style={[s.prefsSectionSub, { color: colors.mutedForeground }]}>Selecione todos que você curte</Text>
+                <View style={s.chipRow}>
+                  {[
+                    { id: 28, name: "Ação" }, { id: 12, name: "Aventura" }, { id: 16, name: "Animação" },
+                    { id: 35, name: "Comédia" }, { id: 80, name: "Crime" }, { id: 99, name: "Documentário" },
+                    { id: 18, name: "Drama" }, { id: 10751, name: "Família" }, { id: 14, name: "Fantasia" },
+                    { id: 27, name: "Terror" }, { id: 9648, name: "Mistério" }, { id: 10749, name: "Romance" },
+                    { id: 878, name: "Ficção Científica" }, { id: 53, name: "Suspense" }, { id: 37, name: "Faroeste" },
+                    { id: 10752, name: "Guerra" }, { id: 36, name: "História" }, { id: 10402, name: "Música" },
+                  ].map((genre) => {
+                    const sel = editGenres.includes(genre.id);
+                    const isLearned = (learnedPrefs?.genreScores ?? []).slice(0, 3).some((g) => g.id === genre.id);
+                    return (
+                      <TouchableOpacity
+                        key={genre.id}
+                        style={[
+                          s.chip,
+                          sel
+                            ? { backgroundColor: RED, borderColor: RED }
+                            : isLearned
+                            ? { backgroundColor: "#4ade8022", borderColor: "#4ade8066" }
+                            : { backgroundColor: colors.background, borderColor: colors.border },
+                        ]}
+                        onPress={() =>
+                          setEditGenres((prev) =>
+                            prev.includes(genre.id) ? prev.filter((g) => g !== genre.id) : [...prev, genre.id]
+                          )
+                        }
+                      >
+                        <Text style={{ color: sel ? "#fff" : isLearned ? "#4ade80" : colors.foreground, fontSize: 13, fontWeight: sel ? "700" : "500" }}>
+                          {genre.name}{isLearned && !sel ? " ✦" : ""}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+
+              {/* TIPO DE CONTEÚDO */}
+              <View style={s.prefsSection}>
+                <Text style={[s.prefsSectionTitle, { color: colors.foreground }]}>TIPO DE CONTEÚDO</Text>
+                <View style={s.chipRow}>
+                  {["Filmes", "Séries", "Animes", "Documentários"].map((ct) => {
+                    const sel = editContentTypes.includes(ct);
+                    return (
+                      <TouchableOpacity
+                        key={ct}
+                        style={[
+                          s.chip,
+                          sel
+                            ? { backgroundColor: RED, borderColor: RED }
+                            : { backgroundColor: colors.background, borderColor: colors.border },
+                        ]}
+                        onPress={() =>
+                          setEditContentTypes((prev) =>
+                            prev.includes(ct) ? prev.filter((c) => c !== ct) : [...prev, ct]
+                          )
+                        }
+                      >
+                        <Text style={{ color: sel ? "#fff" : colors.foreground, fontSize: 13, fontWeight: sel ? "700" : "500" }}>{ct}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+
+              {/* DÉCADAS */}
+              <View style={s.prefsSection}>
+                <Text style={[s.prefsSectionTitle, { color: colors.foreground }]}>DÉCADAS FAVORITAS</Text>
+                <View style={s.chipRow}>
+                  {["Clássicos (antes de 1980)", "Anos 80", "Anos 90", "Anos 2000", "Anos 2010", "2020 em diante"].map((dec) => {
+                    const sel = editDecades.includes(dec);
+                    return (
+                      <TouchableOpacity
+                        key={dec}
+                        style={[
+                          s.chip,
+                          sel
+                            ? { backgroundColor: RED, borderColor: RED }
+                            : { backgroundColor: colors.background, borderColor: colors.border },
+                        ]}
+                        onPress={() =>
+                          setEditDecades((prev) =>
+                            prev.includes(dec) ? prev.filter((d) => d !== dec) : [...prev, dec]
+                          )
+                        }
+                      >
+                        <Text style={{ color: sel ? "#fff" : colors.foreground, fontSize: 13, fontWeight: sel ? "700" : "500" }}>{dec}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+
+              <View style={{ height: 20 }} />
+            </ScrollView>
+
+            {/* Botões de ação */}
+            <View style={[{ borderTopWidth: 1, paddingBottom: 12, backgroundColor: colors.card }, { borderTopColor: colors.border }]}>
+              <TouchableOpacity
+                style={[s.prefsSaveBtn, { backgroundColor: RED }]}
+                onPress={handleSavePrefs}
+                disabled={savingPrefs}
+              >
+                {savingPrefs
+                  ? <ActivityIndicator color="#fff" />
+                  : <Text style={s.prefsSaveBtnTxt}>SALVAR PREFERÊNCIAS</Text>
+                }
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setShowPrefsModal(false)} style={{ alignItems: "center", paddingVertical: 8 }}>
+                <Text style={{ color: colors.mutedForeground, fontSize: 14 }}>Cancelar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* ── PICKER ──────────────────────────────────────── */}
       {pickerConfig && (
         <PickerSheet
@@ -1448,4 +1785,49 @@ const s = StyleSheet.create({
   histBar: { height: 3, borderRadius: 2, marginTop: 8, overflow: "hidden" },
   histFill: { height: 3, borderRadius: 2 },
   aboutRow: { paddingVertical: 16, borderBottomWidth: 1, borderTopWidth: 1, marginVertical: 12 },
+
+  prefsModalOverlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.72)" },
+  prefsSheet: {
+    borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    borderWidth: 1, maxHeight: "92%",
+  },
+  prefsHandle: {
+    width: 40, height: 4, borderRadius: 2,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    alignSelf: "center", marginTop: 12, marginBottom: 4,
+  },
+  prefsHeader: {
+    paddingHorizontal: 24, paddingVertical: 14,
+    borderBottomWidth: 1,
+  },
+  prefsTitle: { fontSize: 18, fontWeight: "800", marginBottom: 3 },
+  prefsSub: { fontSize: 12, opacity: 0.5 },
+  prefsSection: { paddingHorizontal: 20, paddingTop: 18, paddingBottom: 4 },
+  prefsSectionTitle: { fontSize: 11, fontWeight: "700", letterSpacing: 1, opacity: 0.5, textTransform: "uppercase", marginBottom: 10 },
+  prefsSectionSub: { fontSize: 11, opacity: 0.45, marginTop: -6, marginBottom: 10 },
+  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  chip: {
+    paddingHorizontal: 13, paddingVertical: 7,
+    borderRadius: 20, borderWidth: 1,
+  },
+  learnedCard: {
+    borderRadius: 14, padding: 14, marginBottom: 4, borderWidth: 1,
+  },
+  learnedRow: { flexDirection: "row", alignItems: "center", marginBottom: 10, gap: 10 },
+  learnedGenreBar: { flex: 1, height: 4, borderRadius: 2, overflow: "hidden" },
+  learnedGenreFill: { height: 4, borderRadius: 2 },
+  learnedGenreName: { fontSize: 13, fontWeight: "600", width: 120 },
+  learnedGenreCount: { fontSize: 11, opacity: 0.45, width: 50, textAlign: "right" },
+  learnedMeta: { fontSize: 12, opacity: 0.4, marginTop: 4 },
+  clearLearnedBtn: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 10, alignSelf: "flex-start" },
+  analyzeBtn: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    borderRadius: 12, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 9,
+    marginTop: 10, alignSelf: "flex-start",
+  },
+  prefsSaveBtn: {
+    borderRadius: 14, paddingVertical: 16,
+    alignItems: "center", marginHorizontal: 20, marginTop: 8, marginBottom: 8,
+  },
+  prefsSaveBtnTxt: { color: "#fff", fontSize: 16, fontWeight: "700" },
 });
