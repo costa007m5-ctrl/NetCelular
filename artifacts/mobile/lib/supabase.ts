@@ -114,6 +114,11 @@ export const db = {
       return data as DbUser | null;
     },
 
+    getByEmail: async (email: string): Promise<DbUser | null> => {
+      const { data } = await supabase.from("users").select("*").eq("email", email.toLowerCase().trim()).maybeSingle();
+      return data as DbUser | null;
+    },
+
     updateName: async (id: string, name: string): Promise<{ error?: string }> => {
       const avatarLetter = name.trim()[0]?.toUpperCase() ?? "U";
       const { error } = await supabase
@@ -217,10 +222,9 @@ export const db = {
           { id: profile.id, user_id: profile.user_id, name: profile.name, avatar_url: profile.avatar_url ?? null, is_kids: profile.is_kids },
           { onConflict: "id" }
         )
-        .select()
-        .single();
+        .select();
       if (error) return { error: error.message };
-      return { data: data as DbProfile };
+      return { data: (data?.[0] ?? undefined) as DbProfile | undefined };
     },
 
     delete: async (profileId: string): Promise<boolean> => {

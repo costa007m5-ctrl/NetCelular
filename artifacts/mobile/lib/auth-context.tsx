@@ -25,16 +25,28 @@ const AuthContext = createContext<AuthContextValue>({
 
 async function buildAuthUser(supabaseUserId: string, email: string): Promise<AuthUser | null> {
   try {
+    // 1. Try to find user by Supabase Auth UUID (new registrations)
     let profile = await db.users.getById(supabaseUserId);
+
+    // 2. If not found by ID, look up by email (old custom-auth users whose UUID differs)
+    if (!profile && email) {
+      profile = await db.users.getByEmail(email);
+    }
+
+    // 3. Still not found — create a new row using the Supabase Auth UUID
     if (!profile) {
       const fallbackName = email.split("@")[0] || "Usuário";
       await db.users.upsertProfile(supabaseUserId, email, fallbackName);
       profile = await db.users.getById(supabaseUserId);
     }
+
     if (!profile) return null;
+
+    // Use the ID stored in the users table (may be old custom UUID),
+    // so existing profiles/watchlist/etc. remain associated correctly.
     return {
-      id: supabaseUserId,
-      email,
+      id: profile.id ?? supabaseUserId,
+      email: profile.email ?? email,
       name: profile.name,
       role: profile.role,
       avatarLetter: profile.avatar_letter,
