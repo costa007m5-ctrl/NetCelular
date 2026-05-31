@@ -337,24 +337,39 @@ export default function DescobrirScreen() {
     <View style={s.container}>
       <StatusBar style="light" />
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 130 }}>
-        
-        {/* ── HERO BANNER CAROUSEL ────────────────── */}
-        {heroBanners.length > 0 && (
-          <View style={{ marginTop: topPad }}>
+
+        {/* ── HERO BANNER + HEADER OVERLAY ────────────── */}
+        {heroBanners.length > 0 ? (
+          <View style={{ position: "relative" }}>
             <HeroBanner items={heroBanners} />
+            {/* Header overlaid at top of banner */}
+            <View style={[s.header, { position: "absolute", top: 0, left: 0, right: 0, paddingTop: topPad + 10 }]}>
+              <LinearGradient
+                colors={["rgba(5,5,5,0.72)", "transparent"]}
+                style={StyleSheet.absoluteFill}
+                locations={[0, 1]}
+              />
+              <View style={{ zIndex: 1 }}>
+                <Text style={s.headerTitle}>Descobrir</Text>
+                <Text style={s.headerSub}>Explore por humor, gênero e universo</Text>
+              </View>
+              <Pressable style={[s.headerSearch, { zIndex: 1 }]} onPress={() => router.push("/(tabs)/search")}>
+                <Feather name="search" size={20} color="rgba(255,255,255,0.7)" />
+              </Pressable>
+            </View>
+          </View>
+        ) : (
+          /* Fallback: no banner yet — show header with top padding */
+          <View style={[s.header, { paddingTop: topPad + 10 }]}>
+            <View>
+              <Text style={s.headerTitle}>Descobrir</Text>
+              <Text style={s.headerSub}>Explore por humor, gênero e universo</Text>
+            </View>
+            <Pressable style={s.headerSearch} onPress={() => router.push("/(tabs)/search")}>
+              <Feather name="search" size={20} color="rgba(255,255,255,0.7)" />
+            </Pressable>
           </View>
         )}
-
-        {/* ── HEADER ─────────────────────────────────── */}
-        <View style={[s.header, { paddingTop: 16 }]}>
-          <View>
-            <Text style={s.headerTitle}>Descobrir</Text>
-            <Text style={s.headerSub}>Explore por humor, gênero e universo</Text>
-          </View>
-          <Pressable style={s.headerSearch} onPress={() => router.push("/(tabs)/search")}>
-            <Feather name="search" size={20} color="rgba(255,255,255,0.7)" />
-          </Pressable>
-        </View>
 
         {/* ── POR HUMOR ──────────────────────────── */}
         <SectionTitle title="Por Humor" subtitle="Escolha como você está se sentindo" />

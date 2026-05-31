@@ -150,7 +150,6 @@ export default function ChannelsScreen() {
     <View style={styles.container}>
       <StatusBar style="light" />
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
-        <View style={{ height: topPad }} />
 
         {isOffline && (
           <View style={styles.offlineBanner}>
