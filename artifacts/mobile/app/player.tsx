@@ -26,6 +26,7 @@ import { useAuth } from "@/lib/auth-context";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
 import { getSettings } from "@/lib/user-settings";
 import type { TmdbEpisode, TmdbSeason } from "@/lib/api";
+import { setPipActive } from "@/lib/pip-flag";
 
 const { width: W, height: H } = Dimensions.get("window");
 
@@ -178,14 +179,12 @@ export default function PlayerScreen() {
   const [loadingEpisodes, setLoadingEpisodes] = useState(false);
 
   useEffect(() => {
-    if (Platform.OS === "web" || !ScreenOrientation) return;
-    try {
-      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
-    } catch {}
+    setPipActive(true);
     return () => {
-      try {
-        ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
-      } catch {}
+      setPipActive(false);
+      if (Platform.OS !== "web" && ScreenOrientation) {
+        try { ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP); } catch {}
+      }
     };
   }, []);
 
@@ -418,12 +417,16 @@ export default function PlayerScreen() {
         mediaPlaybackRequiresUserAction={false}
         javaScriptEnabled
         domStorageEnabled
+        mixedContentMode="always"
         startInLoadingState={false}
         injectedJavaScript={AD_BLOCKER_JS}
         injectedJavaScriptBeforeContentLoaded={`(function(){ window.open = function(){ return null; }; })(); true;`}
         onShouldStartLoadWithRequest={(req) => {
-          const allowed = req.url.includes("redeflix") || req.url.includes("embedtv") || req.url.includes("faz-o-eli");
-          if (!allowed && req.navigationType === "click") return false;
+          const blocked =
+            req.url.includes("googlesyndication") ||
+            req.url.includes("doubleclick.net") ||
+            req.url.includes("google-analytics");
+          if (blocked) return false;
           return true;
         }}
       />

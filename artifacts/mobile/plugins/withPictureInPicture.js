@@ -1,4 +1,6 @@
-const { withAndroidManifest, withMainActivity } = require("@expo/config-plugins");
+const { withAndroidManifest, withMainActivity, withDangerousMod } = require("@expo/config-plugins");
+const fs = require("fs");
+const path = require("path");
 
 function addManifestChanges(config) {
   return withAndroidManifest(config, (cfg) => {
@@ -32,7 +34,7 @@ function addPipToMainActivity(config) {
     if (!contents.includes("PictureInPictureParams")) {
       contents = contents.replace(
         /^(package [^\n]+\n)/m,
-        "$1\nimport android.app.PictureInPictureParams\nimport android.os.Build\nimport java.io.File\n"
+        "$1\nimport android.app.PictureInPictureParams\nimport android.os.Build\n"
       );
     }
 
@@ -43,13 +45,8 @@ function addPipToMainActivity(config) {
 
   override fun onUserLeaveHint() {
     try {
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-        val flagFile = File(cacheDir, "pip_active.txt")
-        val shouldPip = flagFile.exists() && flagFile.readText().trim() == "1"
-        if (shouldPip) {
-          val params = PictureInPictureParams.Builder().build()
-          enterPictureInPictureMode(params)
-        }
+      if (PipModule.isPipActive && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        enterPictureInPictureMode(PictureInPictureParams.Builder().build())
       }
     } catch (_: Exception) {}
     super.onUserLeaveHint()
@@ -62,8 +59,82 @@ function addPipToMainActivity(config) {
   });
 }
 
+function withPipNativeFiles(config) {
+  return withDangerousMod(config, [
+    "android",
+    async (cfg) => {
+      const projectRoot = cfg.modRequest.projectRoot;
+      const srcDir = path.join(
+        projectRoot,
+        "android",
+        "app",
+        "src",
+        "main",
+        "java",
+        "com",
+        "netplay",
+        "app"
+      );
+
+      if (!fs.existsSync(srcDir)) return cfg;
+
+      fs.writeFileSync(
+        path.join(srcDir, "PipModule.kt"),
+        `package com.netplay.app
+
+import com.facebook.react.bridge.ReactApplicationContext
+import com.facebook.react.bridge.ReactContextBaseJavaModule
+import com.facebook.react.bridge.ReactMethod
+
+class PipModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
+  companion object {
+    @JvmStatic var isPipActive = false
+  }
+
+  override fun getName(): String = "PipModule"
+
+  @ReactMethod
+  fun setActive(active: Boolean) {
+    isPipActive = active
+  }
+}`
+      );
+
+      fs.writeFileSync(
+        path.join(srcDir, "PipPackage.kt"),
+        `package com.netplay.app
+
+import com.facebook.react.ReactPackage
+import com.facebook.react.bridge.NativeModule
+import com.facebook.react.bridge.ReactApplicationContext
+import com.facebook.react.uimanager.ViewManager
+
+class PipPackage : ReactPackage {
+  override fun createNativeModules(ctx: ReactApplicationContext): List<NativeModule> = listOf(PipModule(ctx))
+  override fun createViewManagers(ctx: ReactApplicationContext): List<ViewManager<*, *>> = emptyList()
+}`
+      );
+
+      const mainAppPath = path.join(srcDir, "MainApplication.kt");
+      if (fs.existsSync(mainAppPath)) {
+        let contents = fs.readFileSync(mainAppPath, "utf-8");
+        if (!contents.includes("PipPackage")) {
+          contents = contents.replace(
+            /(val packages = PackageList\(this\)\.packages)/,
+            "$1\n        packages.add(PipPackage())"
+          );
+          fs.writeFileSync(mainAppPath, contents);
+        }
+      }
+
+      return cfg;
+    },
+  ]);
+}
+
 module.exports = function withPictureInPicture(config) {
   config = addManifestChanges(config);
   config = addPipToMainActivity(config);
+  config = withPipNativeFiles(config);
   return config;
 };
