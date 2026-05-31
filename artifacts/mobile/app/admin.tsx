@@ -283,11 +283,15 @@ export default function AdminScreen() {
   const [userCount, setUserCount] = useState<number | null>(null);
   const [watchlistCount, setWatchlistCount] = useState<number | null>(null);
   const [ratingsCount, setRatingsCount] = useState<number | null>(null);
-  const [activeTab, setActiveTab] = useState<"sistema" | "emails" | "indicacoes">("sistema");
+  const [activeTab, setActiveTab] = useState<"sistema" | "emails" | "indicacoes" | "notifs">("sistema");
 
   const [contentRequests, setContentRequests] = useState<ContentRequest[]>([]);
   const [pendingCount, setPendingCount] = useState(0);
   const [addingContent, setAddingContent] = useState<string | null>(null);
+
+  const [tokenCount, setTokenCount] = useState<number | null>(null);
+  const [sendingTest, setSendingTest] = useState(false);
+  const [lastTestResult, setLastTestResult] = useState<{ sent: number; failed: number } | null>(null);
 
   const loadRequests = useCallback(async () => {
     if (!isSupabaseConfigured) return;
@@ -298,9 +302,45 @@ export default function AdminScreen() {
     } catch {}
   }, []);
 
+  const loadTokenCount = useCallback(async () => {
+    if (!isSupabaseConfigured) return;
+    try {
+      const tokens = await db.pushTokens.getAll();
+      setTokenCount(tokens.length);
+    } catch {}
+  }, []);
+
+  const handleSendTestNotification = async () => {
+    setSendingTest(true);
+    setLastTestResult(null);
+    try {
+      const tokens = await db.pushTokens.getAll();
+      if (tokens.length === 0) {
+        Alert.alert("Nenhum token", "Nenhum usuário com push ativo encontrado no Supabase.");
+        return;
+      }
+      const result = await sendPushNotificationsToTokens(
+        tokens,
+        "🔥 Novidades no NETPLAY",
+        "Teste de notificação: novos títulos foram adicionados ao catálogo!",
+        { type: "new_content", count: 1 }
+      );
+      setLastTestResult(result);
+      Alert.alert(
+        result.sent > 0 ? "✅ Enviado!" : "⚠️ Aviso",
+        `Enviado: ${result.sent} | Falhou: ${result.failed} | Total tokens: ${tokens.length}`
+      );
+    } catch (e: any) {
+      Alert.alert("Erro", e?.message ?? "Não foi possível enviar.");
+    } finally {
+      setSendingTest(false);
+    }
+  };
+
   useEffect(() => {
     if (activeTab === "indicacoes") loadRequests();
-  }, [activeTab, loadRequests]);
+    if (activeTab === "notifs") loadTokenCount();
+  }, [activeTab, loadRequests, loadTokenCount]);
 
   const handleMarkAsAdded = async (tmdbId: number, type: "movie" | "tv", title: string) => {
     const key = `${type}_${tmdbId}`;
@@ -414,19 +454,19 @@ export default function AdminScreen() {
 
       {/* ── TABS ── */}
       <View style={[styles.tabsRow, { borderBottomColor: colors.border }]}>
-        {(["sistema", "indicacoes", "emails"] as const).map((tab) => (
+        {(["sistema", "notifs", "indicacoes", "emails"] as const).map((tab) => (
           <Pressable
             key={tab}
             onPress={() => setActiveTab(tab)}
             style={[styles.tab, activeTab === tab && { borderBottomColor: RED, borderBottomWidth: 2 }]}
           >
             <Feather
-              name={tab === "sistema" ? "activity" : tab === "indicacoes" ? "bell" : "mail"}
+              name={tab === "sistema" ? "activity" : tab === "notifs" ? "send" : tab === "indicacoes" ? "inbox" : "mail"}
               size={14}
               color={activeTab === tab ? RED : colors.mutedForeground}
             />
             <Text style={[styles.tabTxt, { color: activeTab === tab ? RED : colors.mutedForeground }]}>
-              {tab === "sistema" ? "Sistema" : tab === "indicacoes" ? "Indicações" : "E-mails"}
+              {tab === "sistema" ? "Sistema" : tab === "notifs" ? "Push" : tab === "indicacoes" ? "Pedidos" : "E-mails"}
             </Text>
             {tab === "indicacoes" && pendingCount > 0 && (
               <View style={[styles.badge, { backgroundColor: RED }]}>
@@ -482,6 +522,119 @@ export default function AdminScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={[styles.infoTitle, { color: colors.foreground }]}>Conta Admin</Text>
                 <Text style={[styles.infoSub, { color: colors.mutedForeground }]}>{user.email}</Text>
+              </View>
+            </View>
+          </>
+        )}
+
+        {/* ── ABA PUSH ── */}
+        {activeTab === "notifs" && (
+          <>
+            {/* Contagem de tokens */}
+            <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginTop: 20 }]}>TOKENS REGISTRADOS</Text>
+            <View style={[styles.statsGrid, { marginBottom: 20 }]}>
+              <View style={[styles.statCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <Feather name="smartphone" size={20} color={RED} />
+                <Text style={[styles.statValue, { color: colors.foreground }]}>{tokenCount ?? "..."}</Text>
+                <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>Dispositivos</Text>
+              </View>
+              <View style={[styles.statCard, { backgroundColor: colors.card, borderColor: colors.border, flex: 2 }]}>
+                <Feather name="bell" size={20} color="#4caf50" />
+                <Text style={[styles.statValue, { color: colors.foreground, fontSize: 14, textAlign: "center" }]}>
+                  {tokenCount === null ? "..." : tokenCount === 0 ? "Nenhum token ainda" : "Pronto para enviar"}
+                </Text>
+                <TouchableOpacity
+                  onPress={loadTokenCount}
+                  style={[styles.refreshBtn, { backgroundColor: colors.cardElevated ?? colors.border, alignSelf: "center", marginTop: 4 }]}
+                >
+                  <Feather name="refresh-cw" size={12} color={colors.mutedForeground} />
+                  <Text style={[styles.refreshText, { color: colors.mutedForeground }]}>Atualizar</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Botão de teste */}
+            <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginBottom: 10 }]}>TESTAR NOTIFICAÇÃO</Text>
+            <View style={[{ backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1, borderRadius: 16, padding: 16, marginBottom: 20 }]}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                <View style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: `${RED}18`, alignItems: "center", justifyContent: "center" }}>
+                  <Text style={{ fontSize: 20 }}>🔥</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[{ fontSize: 14, fontWeight: "700" }, { color: colors.foreground }]}>Novidades no NETPLAY</Text>
+                  <Text style={[{ fontSize: 12, marginTop: 2 }, { color: colors.mutedForeground }]}>
+                    Simula o push automático de novos títulos
+                  </Text>
+                </View>
+              </View>
+
+              {lastTestResult && (
+                <View style={[{ borderRadius: 10, padding: 10, marginBottom: 12, flexDirection: "row", gap: 16 }, { backgroundColor: lastTestResult.sent > 0 ? "#4caf5015" : "#e5091415", borderWidth: 1, borderColor: lastTestResult.sent > 0 ? "#4caf5040" : "#e5091440" }]}>
+                  <View style={{ alignItems: "center" }}>
+                    <Text style={[{ fontSize: 18, fontWeight: "800" }, { color: "#4caf50" }]}>{lastTestResult.sent}</Text>
+                    <Text style={[{ fontSize: 10 }, { color: colors.mutedForeground }]}>Enviados</Text>
+                  </View>
+                  <View style={{ width: 1, backgroundColor: colors.border }} />
+                  <View style={{ alignItems: "center" }}>
+                    <Text style={[{ fontSize: 18, fontWeight: "800" }, { color: lastTestResult.failed > 0 ? RED : colors.mutedForeground }]}>{lastTestResult.failed}</Text>
+                    <Text style={[{ fontSize: 10 }, { color: colors.mutedForeground }]}>Falharam</Text>
+                  </View>
+                  <View style={{ width: 1, backgroundColor: colors.border }} />
+                  <View style={{ alignItems: "center" }}>
+                    <Text style={[{ fontSize: 18, fontWeight: "800" }, { color: colors.foreground }]}>{lastTestResult.sent + lastTestResult.failed}</Text>
+                    <Text style={[{ fontSize: 10 }, { color: colors.mutedForeground }]}>Total</Text>
+                  </View>
+                </View>
+              )}
+
+              <TouchableOpacity
+                style={[{ borderRadius: 12, paddingVertical: 14, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8 }, { backgroundColor: sendingTest ? colors.border : RED, opacity: sendingTest ? 0.7 : 1 }]}
+                onPress={handleSendTestNotification}
+                disabled={sendingTest}
+              >
+                <Feather name={sendingTest ? "loader" : "send"} size={16} color="#fff" />
+                <Text style={{ fontSize: 14, fontWeight: "700", color: "#fff" }}>
+                  {sendingTest ? "Enviando..." : `Enviar para todos (${tokenCount ?? "?"} dispositivos)`}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Como funciona */}
+            <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginBottom: 10 }]}>COMO FUNCIONA</Text>
+            <View style={[styles.infoBox, { backgroundColor: "#3b82f610", borderColor: "#3b82f630", marginBottom: 12 }]}>
+              <Feather name="info" size={16} color="#3b82f6" />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.infoBoxTitle, { color: "#3b82f6" }]}>Envio automático (servidor)</Text>
+                <Text style={[styles.infoBoxText, { color: colors.mutedForeground }]}>
+                  O servidor verifica o catálogo do redeflixapi a cada 1 hora. Quando detecta IDs novos, busca o título no TMDB e envia o push automaticamente para todos os dispositivos registrados.
+                </Text>
+              </View>
+            </View>
+
+            {/* SQL */}
+            <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginBottom: 10, marginTop: 8 }]}>SETUP SUPABASE</Text>
+            <View style={[styles.infoBox, { backgroundColor: "#fbbf2410", borderColor: "#fbbf2430" }]}>
+              <Feather name="database" size={16} color={GOLD} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.infoBoxTitle, { color: GOLD }]}>Tabela push_tokens</Text>
+                <Text style={[styles.infoBoxText, { color: colors.mutedForeground }]}>
+                  Execute este SQL no Supabase → SQL Editor para criar a tabela de tokens:
+                </Text>
+                <TouchableOpacity
+                  style={[styles.copyBtn, { backgroundColor: colors.card, borderColor: colors.border, marginTop: 8 }]}
+                  onPress={() => {
+                    const sql = `-- Tabela de push tokens para notificações\nCREATE TABLE IF NOT EXISTS push_tokens (\n  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,\n  user_id UUID NOT NULL,\n  token TEXT NOT NULL,\n  created_at TIMESTAMPTZ DEFAULT NOW(),\n  UNIQUE(user_id)\n);\nALTER TABLE push_tokens ENABLE ROW LEVEL SECURITY;\nCREATE POLICY IF NOT EXISTS "public_push_tokens"\n  ON push_tokens FOR ALL\n  USING (true) WITH CHECK (true);\n\n-- Tabela de pedidos de conteúdo (para aba Pedidos)\nCREATE TABLE IF NOT EXISTS content_requests (\n  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,\n  user_id UUID NOT NULL,\n  tmdb_id INTEGER NOT NULL,\n  type TEXT NOT NULL,\n  title TEXT NOT NULL,\n  poster_path TEXT,\n  status TEXT NOT NULL DEFAULT 'pending',\n  created_at TIMESTAMPTZ DEFAULT NOW(),\n  UNIQUE(user_id, tmdb_id, type)\n);\nALTER TABLE content_requests ENABLE ROW LEVEL SECURITY;\nCREATE POLICY IF NOT EXISTS "public_content_requests"\n  ON content_requests FOR ALL\n  USING (true) WITH CHECK (true);`;
+                    if (Platform.OS === "web") {
+                      navigator.clipboard?.writeText(sql).catch(() => {});
+                    } else {
+                      Clipboard.setString(sql);
+                    }
+                    Alert.alert("SQL copiado!", "Abra o Supabase → SQL Editor → cole o SQL → clique em Run.");
+                  }}
+                >
+                  <Feather name="copy" size={13} color={GOLD} />
+                  <Text style={[styles.copyBtnTxt, { color: GOLD }]}>Copiar SQL completo</Text>
+                </TouchableOpacity>
               </View>
             </View>
           </>
