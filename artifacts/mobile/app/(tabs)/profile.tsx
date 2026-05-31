@@ -753,6 +753,41 @@ export default function ProfileScreen() {
           <Row icon="info" label="Sobre o NETPLAY" onPress={() => setShowAboutModal(true)} last />
         </Section>
 
+        {/* ── ADMINISTRAÇÃO (só admin) ─────────────────────── */}
+        {user?.role === "admin" && (
+          <Section title="ADMINISTRAÇÃO">
+            <View style={{ marginBottom: 8 }}>
+              <View style={{
+                marginHorizontal: 16,
+                marginBottom: 10,
+                backgroundColor: "#fbbf2412",
+                borderRadius: 8,
+                borderWidth: 1,
+                borderColor: "#fbbf2430",
+                paddingHorizontal: 14,
+                paddingVertical: 10,
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 10,
+              }}>
+                <Feather name="shield" size={14} color="#fbbf24" />
+                <Text style={{ color: "#fbbf24", fontSize: 12, fontWeight: "600", flex: 1 }}>
+                  Você tem acesso de administrador
+                </Text>
+              </View>
+            </View>
+            <Row
+              icon="monitor"
+              label="Painel Administrativo"
+              iconBg="#fbbf2420"
+              iconColor="#fbbf24"
+              accent
+              onPress={() => router.push("/admin")}
+              last
+            />
+          </Section>
+        )}
+
         {/* ── CONTA ───────────────────────────────────────── */}
         <Section title="CONTA">
           <Row icon="refresh-cw" label="Trocar Perfil" onPress={() => router.push("/profile-select")} />
