@@ -2,13 +2,16 @@ import { createClient } from "@supabase/supabase-js";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
 
-const url = (process.env.EXPO_PUBLIC_SUPABASE_URL ?? "").replace(/\/+$/, "");
-const key = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? "";
+const SUPABASE_URL = "https://pjzfsbdcjyhcoptbrlhh.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBqemZzYmRjanloY29wdGJybGhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAwOTA4MjUsImV4cCI6MjA5NTY2NjgyNX0.SB-NiDEKp4RtVr9MSv255IPWoU2rp7td7b5ejccBG8Q";
+
+const url = (process.env.EXPO_PUBLIC_SUPABASE_URL ?? SUPABASE_URL).replace(/\/+$/, "");
+const key = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? SUPABASE_ANON_KEY;
 
 export const isSupabaseConfigured = Boolean(url && key);
 
-const _url = url || "https://placeholder.supabase.co";
-const _key = key || "placeholder-key";
+const _url = url;
+const _key = key;
 
 export const supabase = createClient(_url, _key, {
   auth: {

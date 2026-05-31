@@ -1,16 +1,35 @@
 import { Platform } from "react-native";
 
-function getBase(): string {
+const TMDB_KEY = "8f0beb08cf016ec8de49e454e09879ec";
+const TMDB_BASE = "https://api.themoviedb.org/3";
+const TMDB_LANG = "pt-BR";
+
+function getApiBase(): string {
   const domain = process.env.EXPO_PUBLIC_DOMAIN;
   if (Platform.OS === "web") return "/api";
   if (domain) return `https://${domain}/api`;
-  return "http://localhost:8080/api";
+  return null as any;
 }
 
-const BASE = getBase();
+const API_BASE = getApiBase();
+
+function tmdbUrl(path: string, params: Record<string, string> = {}): string {
+  const url = new URL(`${TMDB_BASE}${path}`);
+  url.searchParams.set("api_key", TMDB_KEY);
+  url.searchParams.set("language", TMDB_LANG);
+  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  return url.toString();
+}
+
+async function tmdbFetch<T>(path: string, params: Record<string, string> = {}): Promise<T> {
+  const res = await fetch(tmdbUrl(path, params));
+  if (!res.ok) throw new Error(`TMDB ${res.status}`);
+  return res.json() as Promise<T>;
+}
 
 async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
+  if (!API_BASE) throw new Error("No API server configured");
+  const res = await fetch(`${API_BASE}${path}`, {
     ...opts,
     headers: { "Content-Type": "application/json", ...(opts?.headers ?? {}) },
   });
@@ -70,71 +89,162 @@ export interface TmdbSeason {
 
 export const api = {
   tmdb: {
-    trending: (): Promise<{ all: TmdbItem[]; movies: TmdbItem[]; tv: TmdbItem[] }> =>
-      apiFetch("/tmdb/trending"),
-
-    popularMovies: (): Promise<TmdbItem[]> => apiFetch("/tmdb/popular/movies"),
-    popularTv: (): Promise<TmdbItem[]> => apiFetch("/tmdb/popular/tv"),
-    topMovies: (): Promise<TmdbItem[]> => apiFetch("/tmdb/top/movies"),
-    topTv: (): Promise<TmdbItem[]> => apiFetch("/tmdb/top/tv"),
-
-    search: (q: string, type: "multi" | "movie" | "tv" = "multi"): Promise<TmdbSearchResult> =>
-      apiFetch(`/tmdb/search?q=${encodeURIComponent(q)}&type=${type}`),
-
-    movie: (id: number): Promise<TmdbItem> => apiFetch(`/tmdb/movie/${id}`),
-    movieSimilar: (id: number): Promise<TmdbItem[]> => apiFetch(`/tmdb/movie/${id}/similar`),
-
-    tv: (id: number): Promise<TmdbItem> => apiFetch(`/tmdb/tv/${id}`),
-    tvSimilar: (id: number): Promise<TmdbItem[]> => apiFetch(`/tmdb/tv/${id}/similar`),
-    tvSeason: (id: number, seasonNum: number): Promise<TmdbSeason> =>
-      apiFetch(`/tmdb/tv/${id}/season/${seasonNum}`),
-
-    genres: (): Promise<{ movies: { id: number; name: string }[]; tv: { id: number; name: string }[] }> =>
-      apiFetch("/tmdb/genres"),
-
-    discover: (type: "movie" | "tv", genreId: number, page = 1): Promise<TmdbSearchResult> =>
-      apiFetch(`/tmdb/discover?type=${type}&genre_id=${genreId}&page=${page}`),
-
-    providers: (type: "movie" | "tv", id: number): Promise<{ flatrate?: { logo_path: string; provider_id: number; provider_name: string }[] } | null> =>
-      apiFetch(`/tmdb/${type}/${id}/providers`).catch(() => null),
-
-    checkAvailable: (type: "movie" | "tv", id: number, season = 1, episode = 1): Promise<{ available: boolean }> =>
-      apiFetch(`/tmdb/redeflix/available?type=${type}&id=${id}&season=${season}&episode=${episode}`).catch(() => ({ available: true })),
-
-    streaming: (providerId: number, type: "movie" | "tv", page = 1): Promise<TmdbSearchResult> =>
-      apiFetch(`/tmdb/streaming?provider_id=${providerId}&type=${type}&page=${page}`),
-
-    streamingGenre: (providerId: number, type: "movie" | "tv", genreId?: number, page = 1): Promise<TmdbSearchResult> => {
-      const genreParam = genreId ? `&genre_id=${genreId}` : "";
-      return apiFetch(`/tmdb/streaming-genre?provider_id=${providerId}&type=${type}&page=${page}${genreParam}`);
+    trending: async (): Promise<{ all: TmdbItem[]; movies: TmdbItem[]; tv: TmdbItem[] }> => {
+      if (API_BASE) return apiFetch("/tmdb/trending");
+      const [all, movies, tv] = await Promise.all([
+        tmdbFetch<{ results: TmdbItem[] }>("/trending/all/week"),
+        tmdbFetch<{ results: TmdbItem[] }>("/trending/movie/week"),
+        tmdbFetch<{ results: TmdbItem[] }>("/trending/tv/week"),
+      ]);
+      return { all: all.results, movies: movies.results, tv: tv.results };
     },
 
-    keywordDiscover: (keywordId: number, type: "movie" | "tv", page = 1): Promise<TmdbSearchResult> =>
-      apiFetch(`/tmdb/discover-keyword?keyword_id=${keywordId}&type=${type}&page=${page}`),
+    popularMovies: async (): Promise<TmdbItem[]> => {
+      if (API_BASE) return apiFetch("/tmdb/popular/movies");
+      return tmdbFetch<{ results: TmdbItem[] }>("/movie/popular").then((r) => r.results);
+    },
 
-    collection: (id: number): Promise<{
-      id: number;
-      name: string;
-      overview: string;
-      poster_path: string | null;
-      backdrop_path: string | null;
-      parts: TmdbItem[];
-    }> => apiFetch(`/tmdb/collection/${id}`),
+    popularTv: async (): Promise<TmdbItem[]> => {
+      if (API_BASE) return apiFetch("/tmdb/popular/tv");
+      return tmdbFetch<{ results: TmdbItem[] }>("/tv/popular").then((r) => r.results);
+    },
 
-    franchiseLogo: (type: "collection" | "tv" | "movie", id: number): Promise<{ logo_path: string | null }> =>
-      apiFetch(`/tmdb/franchise-logo?type=${type}&id=${id}`).catch(() => ({ logo_path: null })),
+    topMovies: async (): Promise<TmdbItem[]> => {
+      if (API_BASE) return apiFetch("/tmdb/top/movies");
+      return tmdbFetch<{ results: TmdbItem[] }>("/movie/top_rated").then((r) => r.results);
+    },
 
-    popularCollections: (page = 1): Promise<{
-      results: { id: number; name: string; poster_path: string | null; backdrop_path: string | null }[];
-      page: number;
-      total_pages: number;
-    }> => apiFetch(`/tmdb/popular-collections?page=${page}`),
+    topTv: async (): Promise<TmdbItem[]> => {
+      if (API_BASE) return apiFetch("/tmdb/top/tv");
+      return tmdbFetch<{ results: TmdbItem[] }>("/tv/top_rated").then((r) => r.results);
+    },
 
-    searchCollections: (q: string, page = 1): Promise<{
-      results: { id: number; name: string; poster_path: string | null; backdrop_path: string | null; overview: string }[];
-      page: number;
-      total_pages: number;
-    }> => apiFetch(`/tmdb/search-collections?q=${encodeURIComponent(q)}&page=${page}`),
+    search: async (q: string, type: "multi" | "movie" | "tv" = "multi"): Promise<TmdbSearchResult> => {
+      if (API_BASE) return apiFetch(`/tmdb/search?q=${encodeURIComponent(q)}&type=${type}`);
+      const path = type === "multi" ? "/search/multi" : type === "movie" ? "/search/movie" : "/search/tv";
+      return tmdbFetch<TmdbSearchResult>(path, { query: q, include_adult: "false" });
+    },
+
+    movie: async (id: number): Promise<TmdbItem> => {
+      if (API_BASE) return apiFetch(`/tmdb/movie/${id}`);
+      return tmdbFetch<TmdbItem>(`/movie/${id}`, { append_to_response: "credits,similar,videos" });
+    },
+
+    movieSimilar: async (id: number): Promise<TmdbItem[]> => {
+      if (API_BASE) return apiFetch(`/tmdb/movie/${id}/similar`);
+      return tmdbFetch<{ results: TmdbItem[] }>(`/movie/${id}/similar`).then((r) => r.results);
+    },
+
+    tv: async (id: number): Promise<TmdbItem> => {
+      if (API_BASE) return apiFetch(`/tmdb/tv/${id}`);
+      return tmdbFetch<TmdbItem>(`/tv/${id}`, { append_to_response: "credits,similar,videos" });
+    },
+
+    tvSimilar: async (id: number): Promise<TmdbItem[]> => {
+      if (API_BASE) return apiFetch(`/tmdb/tv/${id}/similar`);
+      return tmdbFetch<{ results: TmdbItem[] }>(`/tv/${id}/similar`).then((r) => r.results);
+    },
+
+    tvSeason: async (id: number, seasonNum: number): Promise<TmdbSeason> => {
+      if (API_BASE) return apiFetch(`/tmdb/tv/${id}/season/${seasonNum}`);
+      return tmdbFetch<TmdbSeason>(`/tv/${id}/season/${seasonNum}`);
+    },
+
+    genres: async (): Promise<{ movies: { id: number; name: string }[]; tv: { id: number; name: string }[] }> => {
+      if (API_BASE) return apiFetch("/tmdb/genres");
+      const [movies, tv] = await Promise.all([
+        tmdbFetch<{ genres: { id: number; name: string }[] }>("/genre/movie/list"),
+        tmdbFetch<{ genres: { id: number; name: string }[] }>("/genre/tv/list"),
+      ]);
+      return { movies: movies.genres, tv: tv.genres };
+    },
+
+    discover: async (type: "movie" | "tv", genreId: number, page = 1): Promise<TmdbSearchResult> => {
+      if (API_BASE) return apiFetch(`/tmdb/discover?type=${type}&genre_id=${genreId}&page=${page}`);
+      const path = type === "movie" ? "/discover/movie" : "/discover/tv";
+      return tmdbFetch<TmdbSearchResult>(path, {
+        with_genres: String(genreId),
+        page: String(page),
+        include_adult: "false",
+        sort_by: "popularity.desc",
+      });
+    },
+
+    providers: async (type: "movie" | "tv", id: number) => {
+      if (API_BASE) return apiFetch(`/tmdb/${type}/${id}/providers`).catch(() => null);
+      const data = await tmdbFetch<{ results: Record<string, any> }>(`/${type}/${id}/watch/providers`).catch(() => null);
+      return data?.results?.["BR"] ?? null;
+    },
+
+    checkAvailable: async (type: "movie" | "tv", id: number, season = 1, episode = 1): Promise<{ available: boolean }> => {
+      if (API_BASE) return apiFetch(`/tmdb/redeflix/available?type=${type}&id=${id}&season=${season}&episode=${episode}`).catch(() => ({ available: true }));
+      return { available: true };
+    },
+
+    streaming: async (providerId: number, type: "movie" | "tv", page = 1): Promise<TmdbSearchResult> => {
+      if (API_BASE) return apiFetch(`/tmdb/streaming?provider_id=${providerId}&type=${type}&page=${page}`);
+      const path = type === "movie" ? "/discover/movie" : "/discover/tv";
+      return tmdbFetch<TmdbSearchResult>(path, {
+        with_watch_providers: String(providerId),
+        watch_region: "BR",
+        page: String(page),
+        include_adult: "false",
+        sort_by: "popularity.desc",
+      });
+    },
+
+    streamingGenre: async (providerId: number, type: "movie" | "tv", genreId?: number, page = 1): Promise<TmdbSearchResult> => {
+      if (API_BASE) {
+        const genreParam = genreId ? `&genre_id=${genreId}` : "";
+        return apiFetch(`/tmdb/streaming-genre?provider_id=${providerId}&type=${type}&page=${page}${genreParam}`);
+      }
+      const path = type === "movie" ? "/discover/movie" : "/discover/tv";
+      const params: Record<string, string> = {
+        with_watch_providers: String(providerId),
+        watch_region: "BR",
+        page: String(page),
+        include_adult: "false",
+        sort_by: "popularity.desc",
+      };
+      if (genreId) params.with_genres = String(genreId);
+      return tmdbFetch<TmdbSearchResult>(path, params);
+    },
+
+    keywordDiscover: async (keywordId: number, type: "movie" | "tv", page = 1): Promise<TmdbSearchResult> => {
+      if (API_BASE) return apiFetch(`/tmdb/discover-keyword?keyword_id=${keywordId}&type=${type}&page=${page}`);
+      const path = type === "movie" ? "/discover/movie" : "/discover/tv";
+      return tmdbFetch<TmdbSearchResult>(path, {
+        with_keywords: String(keywordId),
+        page: String(page),
+        include_adult: "false",
+      });
+    },
+
+    collection: async (id: number) => {
+      if (API_BASE) return apiFetch(`/tmdb/collection/${id}`);
+      return tmdbFetch<any>(`/collection/${id}`);
+    },
+
+    franchiseLogo: async (type: "collection" | "tv" | "movie", id: number): Promise<{ logo_path: string | null }> => {
+      if (API_BASE) return apiFetch(`/tmdb/franchise-logo?type=${type}&id=${id}`).catch(() => ({ logo_path: null }));
+      const res = await fetch(`${TMDB_BASE}/${type}/${id}/images?api_key=${TMDB_KEY}&include_image_language=en,pt,null`).catch(() => null);
+      if (!res?.ok) return { logo_path: null };
+      const data: any = await res.json();
+      const logos: any[] = data.logos ?? [];
+      const best = logos.sort((a, b) => b.vote_average - a.vote_average)[0];
+      return { logo_path: best?.file_path ?? null };
+    },
+
+    popularCollections: async (page = 1) => {
+      if (API_BASE) return apiFetch(`/tmdb/popular-collections?page=${page}`);
+      const data = await tmdbFetch<{ results: any[]; page: number; total_pages: number }>("/collection/popular" as any, { page: String(page) }).catch(() => ({ results: [], page: 1, total_pages: 1 }));
+      return data;
+    },
+
+    searchCollections: async (q: string, page = 1) => {
+      if (API_BASE) return apiFetch(`/tmdb/search-collections?q=${encodeURIComponent(q)}&page=${page}`);
+      return tmdbFetch<any>("/search/collection", { query: q, page: String(page) });
+    },
   },
 
   redeflix: {
