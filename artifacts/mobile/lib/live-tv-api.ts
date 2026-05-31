@@ -1,6 +1,6 @@
 import { Platform } from "react-native";
 
-const EMBEDTV_DIRECT = "https://embedtv.lat/api";
+const EMBEDTV_DIRECT = "http://embedtv.lat/api";
 
 function getBase(): string {
   const domain = process.env.EXPO_PUBLIC_DOMAIN;

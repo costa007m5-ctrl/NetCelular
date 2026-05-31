@@ -16,7 +16,6 @@ import { Feather } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { calcProgress, calcRemaining, fakeViewers, getAccent, CATEGORY_LABELS } from "@/lib/live-tv-api";
-import { setPipActive } from "@/lib/pip-flag";
 
 const { width: W } = Dimensions.get("window");
 
@@ -116,10 +115,6 @@ export default function ChannelDetailScreen() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [favorited, setFavorited] = useState(false);
-
-  useEffect(() => {
-    return () => { setPipActive(false); };
-  }, []);
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const slideAnim = useRef(new Animated.Value(50)).current;
@@ -221,17 +216,15 @@ export default function ChannelDetailScreen() {
               allowsInlineMediaPlayback
               javaScriptEnabled
               domStorageEnabled
-              mixedContentMode="always"
               injectedJavaScript={AD_BLOCKER_JS}
-              onLoadStart={() => { setPipActive(true); }}
               onShouldStartLoadWithRequest={(req: any) => {
                 const url: string = req.url || "";
-                const blocked =
-                  url.includes("googlesyndication") ||
-                  url.includes("doubleclick.net") ||
-                  url.includes("google-analytics") ||
-                  url.includes("facebook.com/tr");
-                return !blocked;
+                const allowed =
+                  url.includes("embedtv") ||
+                  url.includes("faz-o-eli") ||
+                  url.includes("about:blank") ||
+                  url.startsWith("blob:");
+                return allowed;
               }}
             />
             {/* Fullscreen button */}
