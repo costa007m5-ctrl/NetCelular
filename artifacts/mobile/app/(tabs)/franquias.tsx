@@ -1,17 +1,16 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import {
   Animated,
   Dimensions,
-  Image,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
-  TouchableOpacity,
   View,
 } from "react-native";
+import { Image } from "expo-image";
 import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
 import { Feather } from "@expo/vector-icons";
@@ -23,138 +22,153 @@ import {
   TOP10_FRANCHISES,
   GENRE_SECTIONS,
   type Franchise,
-  type FranchiseGenre,
 } from "@/constants/franchises";
 import { api, TMDB_IMG } from "@/lib/api";
 import { useFavorites } from "@/hooks/useFavorites";
 
 const { width: W } = Dimensions.get("window");
-const BANNER_H = 370;
-const CARD_W = 130;
-const CARD_H = 160;
-const ROW_ITEMS_DEFAULT = 8;
+const BG = "#050505";
+const RED = "#e50914";
+const GLASS = "rgba(255,255,255,0.06)";
+const GLASS_B = "rgba(255,255,255,0.11)";
+const CARD_W = 150;
+const CARD_H = 210;
 
-// ── Module-level caches ──────────────────────────────────────
 const _imgCache = new Map<string, string | null>();
-const _imgFetching = new Set<string>();
 const _logoCache = new Map<string, string | null>();
-const _logoFetching = new Set<string>();
 
-async function fetchFranchiseImage(franchise: Franchise): Promise<string | null> {
-  if (_imgCache.has(franchise.id)) return _imgCache.get(franchise.id)!;
-  if (_imgFetching.has(franchise.id)) return null;
-  _imgFetching.add(franchise.id);
+async function fetchFranchiseImage(f: Franchise): Promise<string | null> {
+  if (_imgCache.has(f.id)) return _imgCache.get(f.id)!;
   try {
     let path: string | null = null;
-    if (franchise.fetchType === "collection" && franchise.tmdbCollectionId) {
-      const d = await api.tmdb.collection(franchise.tmdbCollectionId);
+    if (f.fetchType === "collection" && f.tmdbCollectionId) {
+      const d = await api.tmdb.collection(f.tmdbCollectionId);
       path = d.backdrop_path;
-    } else if (franchise.tmdbTvId) {
-      const d = await (api.tmdb.tv(franchise.tmdbTvId) as Promise<any>);
+    } else if (f.tmdbTvId) {
+      const d = await (api.tmdb.tv(f.tmdbTvId) as Promise<any>);
       path = d.backdrop_path ?? null;
     } else {
-      const q = franchise.searchQuery ?? franchise.name;
-      const type = franchise.category === "anime" ? "tv" : "movie";
+      const q = f.searchQuery ?? f.name;
+      const type = f.category === "anime" ? "tv" : "movie";
       const d = await api.tmdb.search(q, type as any);
       path = d.results[0]?.backdrop_path ?? null;
     }
-    const url = path ? (TMDB_IMG(path, "w780") ?? null) : null;
-    _imgCache.set(franchise.id, url);
+    const url = path ? (TMDB_IMG(path, "w1280") ?? null) : null;
+    _imgCache.set(f.id, url);
     return url;
   } catch {
-    _imgCache.set(franchise.id, null);
+    _imgCache.set(f.id, null);
     return null;
-  } finally {
-    _imgFetching.delete(franchise.id);
   }
 }
 
-async function fetchFranchiseLogo(franchise: Franchise): Promise<string | null> {
-  if (_logoCache.has(franchise.id)) return _logoCache.get(franchise.id)!;
-  if (_logoFetching.has(franchise.id)) return null;
-  _logoFetching.add(franchise.id);
+async function fetchFranchiseLogo(f: Franchise): Promise<string | null> {
+  if (_logoCache.has(f.id)) return _logoCache.get(f.id)!;
   try {
     let type: "collection" | "tv" | "movie" = "movie";
     let id = 0;
-    if (franchise.fetchType === "collection" && franchise.tmdbCollectionId) {
-      type = "collection";
-      id = franchise.tmdbCollectionId;
-    } else if (franchise.tmdbTvId) {
-      type = "tv";
-      id = franchise.tmdbTvId;
-    }
-    if (!id) { _logoCache.set(franchise.id, null); return null; }
+    if (f.fetchType === "collection" && f.tmdbCollectionId) { type = "collection"; id = f.tmdbCollectionId; }
+    else if (f.tmdbTvId) { type = "tv"; id = f.tmdbTvId; }
+    if (!id) { _logoCache.set(f.id, null); return null; }
     const data = await api.tmdb.franchiseLogo(type, id);
     const url = data.logo_path ? (TMDB_IMG(data.logo_path, "w500") ?? null) : null;
-    _logoCache.set(franchise.id, url);
+    _logoCache.set(f.id, url);
     return url;
   } catch {
-    _logoCache.set(franchise.id, null);
+    _logoCache.set(f.id, null);
     return null;
-  } finally {
-    _logoFetching.delete(franchise.id);
   }
 }
 
-function useFranchiseImage(franchise: Franchise) {
-  const [url, setUrl] = useState<string | null>(
-    _imgCache.has(franchise.id) ? _imgCache.get(franchise.id)! : null
-  );
+function useFranchiseAssets(f: Franchise) {
+  const [img, setImg] = useState<string | null>(_imgCache.get(f.id) ?? null);
+  const [logo, setLogo] = useState<string | null>(_logoCache.get(f.id) ?? null);
   useEffect(() => {
-    if (_imgCache.has(franchise.id)) { setUrl(_imgCache.get(franchise.id)!); return; }
-    fetchFranchiseImage(franchise).then(setUrl);
-  }, [franchise.id]);
-  return url;
+    if (!_imgCache.has(f.id)) fetchFranchiseImage(f).then(setImg);
+    if (!_logoCache.has(f.id)) fetchFranchiseLogo(f).then(setLogo);
+  }, [f.id]);
+  return { img, logo };
 }
 
-function useFranchiseLogo(franchise: Franchise) {
-  const [url, setUrl] = useState<string | null>(
-    _logoCache.has(franchise.id) ? _logoCache.get(franchise.id)! : null
-  );
-  useEffect(() => {
-    if (_logoCache.has(franchise.id)) { setUrl(_logoCache.get(franchise.id)!); return; }
-    fetchFranchiseLogo(franchise).then(setUrl);
-  }, [franchise.id]);
-  return url;
-}
-
-// ── Banner slide ─────────────────────────────────────────────
-function BannerSlide({ franchise, onPress }: { franchise: Franchise; onPress: () => void }) {
-  const imgUrl = useFranchiseImage(franchise);
+/* ── Hero Banner Card ─────────────────────────────────────── */
+function HeroSlide({ franchise, onPress }: { franchise: Franchise; onPress: () => void }) {
+  const { img, logo } = useFranchiseAssets(franchise);
   return (
-    <View style={{ width: W, height: BANNER_H }}>
-      {imgUrl
-        ? <Image source={{ uri: imgUrl }} style={StyleSheet.absoluteFill} resizeMode="cover" />
-        : <LinearGradient colors={franchise.bgGradient} style={StyleSheet.absoluteFill} />}
+    <Pressable onPress={onPress} style={{ width: W, height: 340 }}>
+      {img ? (
+        <Image source={{ uri: img }} style={StyleSheet.absoluteFill} contentFit="cover" />
+      ) : (
+        <LinearGradient colors={franchise.bgGradient} style={StyleSheet.absoluteFill} />
+      )}
       <LinearGradient
-        colors={["transparent", "rgba(0,0,0,0.5)", "#000"]}
+        colors={["rgba(5,5,5,0.08)", "rgba(5,5,5,0.55)", BG]}
         locations={[0.1, 0.6, 1]}
         style={StyleSheet.absoluteFill}
       />
-      <View style={[styles.bannerAccent, { backgroundColor: franchise.color }]} />
-      <View style={styles.bannerContent}>
-        <View style={[styles.bannerBadge, { borderColor: franchise.color + "99" }]}>
-          <Text style={[styles.bannerBadgeText, { color: franchise.accentColor }]}>
+      <View style={[hero.accentLine, { backgroundColor: franchise.color }]} />
+      <View style={hero.content}>
+        <View style={[hero.badge, { borderColor: franchise.color + "88" }]}>
+          <Text style={[hero.badgeTxt, { color: franchise.accentColor }]}>
             {franchise.category.toUpperCase()}
           </Text>
         </View>
-        <Text style={styles.bannerTitle}>{franchise.name.toUpperCase()}</Text>
-        <Text style={[styles.bannerTagline, { color: franchise.accentColor }]}>{franchise.tagline}</Text>
-        <Text style={styles.bannerMeta}>{franchise.contentCount} conteúdos · {franchise.yearRange}</Text>
-        <TouchableOpacity onPress={onPress} style={[styles.bannerBtn, { backgroundColor: franchise.color }]}>
+        {logo ? (
+          <Image source={{ uri: logo }} style={hero.logo} contentFit="contain" />
+        ) : (
+          <Text style={hero.name}>{franchise.name.toUpperCase()}</Text>
+        )}
+        <Text style={[hero.tagline, { color: franchise.accentColor }]}>{franchise.tagline}</Text>
+        <View style={hero.metaRow}>
+          <View style={[hero.metaPill, { backgroundColor: "rgba(0,0,0,0.5)", borderColor: "rgba(255,255,255,0.15)" }]}>
+            <Feather name="film" size={10} color="rgba(255,255,255,0.6)" />
+            <Text style={hero.metaTxt}>{franchise.contentCount} títulos</Text>
+          </View>
+          <View style={[hero.metaPill, { backgroundColor: "rgba(0,0,0,0.5)", borderColor: "rgba(255,255,255,0.15)" }]}>
+            <Feather name="calendar" size={10} color="rgba(255,255,255,0.6)" />
+            <Text style={hero.metaTxt}>{franchise.yearRange}</Text>
+          </View>
+        </View>
+        <Pressable onPress={onPress} style={[hero.btn, { backgroundColor: franchise.color }]}>
           <Feather name="play" size={12} color="#fff" />
-          <Text style={styles.bannerBtnText}>EXPLORAR</Text>
-        </TouchableOpacity>
+          <Text style={hero.btnTxt}>EXPLORAR UNIVERSO</Text>
+        </Pressable>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
-// ── Rotating banner ──────────────────────────────────────────
-function RotatingBanner({ onPress }: { onPress: (id: string) => void }) {
+const hero = StyleSheet.create({
+  accentLine: { position: "absolute", top: 0, left: 0, right: 0, height: 3, zIndex: 2 },
+  content: { position: "absolute", bottom: 40, left: 20, right: 20, zIndex: 2 },
+  badge: {
+    alignSelf: "flex-start", borderWidth: 1, borderRadius: 6,
+    paddingHorizontal: 9, paddingVertical: 3, marginBottom: 10,
+    backgroundColor: "rgba(0,0,0,0.4)",
+  },
+  badgeTxt: { fontSize: 9, fontWeight: "800", letterSpacing: 1.5 },
+  logo: { width: 180, height: 56, marginBottom: 8 },
+  name: { fontSize: 28, fontWeight: "900", color: "#fff", letterSpacing: 2, lineHeight: 32, marginBottom: 6 },
+  tagline: { fontSize: 12, fontWeight: "600", letterSpacing: 0.2, marginBottom: 12 },
+  metaRow: { flexDirection: "row", gap: 8, marginBottom: 16 },
+  metaPill: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    paddingHorizontal: 9, paddingVertical: 4, borderRadius: 20, borderWidth: 1,
+  },
+  metaTxt: { color: "rgba(255,255,255,0.7)", fontSize: 11, fontWeight: "600" },
+  btn: {
+    flexDirection: "row", alignItems: "center", gap: 7,
+    paddingHorizontal: 20, paddingVertical: 11, borderRadius: 12, alignSelf: "flex-start",
+    shadowOffset: { width: 0, height: 0 }, shadowRadius: 12, shadowOpacity: 0.5,
+  },
+  btnTxt: { color: "#fff", fontSize: 11, fontWeight: "800", letterSpacing: 1 },
+});
+
+/* ── Rotating Hero ─────────────────────────────────────────── */
+function RotatingHero({ onPress }: { onPress: (id: string) => void }) {
   const [idx, setIdx] = useState(0);
   const scrollRef = useRef<any>(null);
   const total = BANNER_FRANCHISES.length;
+
   useEffect(() => {
     const t = setInterval(() => {
       const next = (idx + 1) % total;
@@ -163,99 +177,97 @@ function RotatingBanner({ onPress }: { onPress: (id: string) => void }) {
     }, 5000);
     return () => clearInterval(t);
   }, [idx, total]);
+
   return (
-    <View style={{ height: BANNER_H }}>
+    <View>
       <ScrollView
         ref={scrollRef}
         horizontal pagingEnabled
         showsHorizontalScrollIndicator={false}
         scrollEventThrottle={16}
         onMomentumScrollEnd={(e) => setIdx(Math.round(e.nativeEvent.contentOffset.x / W))}
-        style={{ width: W }}
       >
         {BANNER_FRANCHISES.map((f) => (
-          <BannerSlide key={f.id} franchise={f} onPress={() => onPress(f.id)} />
+          <HeroSlide key={f.id} franchise={f} onPress={() => onPress(f.id)} />
         ))}
       </ScrollView>
-      <View style={styles.dots}>
+      <View style={s.dots}>
         {BANNER_FRANCHISES.map((_, i) => (
-          <View key={i} style={[styles.dot, i === idx
-            ? { backgroundColor: "#fff", width: 18 }
-            : { backgroundColor: "rgba(255,255,255,0.3)", width: 6 }]} />
+          <View key={i} style={[s.dot, i === idx
+            ? { backgroundColor: "#fff", width: 20 }
+            : { backgroundColor: "rgba(255,255,255,0.25)", width: 6 }
+          ]} />
         ))}
       </View>
     </View>
   );
 }
 
-// ── Franchise card ────────────────────────────────────────────
+/* ── Franchise Card ────────────────────────────────────────── */
 function FranchiseCard({
   franchise,
   onPress,
-  showHeart,
   isFav,
   onFavPress,
   rank,
 }: {
   franchise: Franchise;
   onPress: () => void;
-  showHeart?: boolean;
   isFav?: boolean;
   onFavPress?: () => void;
   rank?: number;
 }) {
-  const imgUrl = useFranchiseImage(franchise);
-  const logoUrl = useFranchiseLogo(franchise);
+  const { img, logo } = useFranchiseAssets(franchise);
   const scale = useRef(new Animated.Value(1)).current;
 
   return (
     <Pressable
-      onPress={onPress}
       onPressIn={() => Animated.spring(scale, { toValue: 0.94, useNativeDriver: true, speed: 30, bounciness: 4 }).start()}
       onPressOut={() => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 30, bounciness: 4 }).start()}
+      onPress={onPress}
     >
-      <Animated.View style={[styles.card, { width: CARD_W, height: CARD_H, transform: [{ scale }] }]}>
-        {imgUrl
-          ? <Image source={{ uri: imgUrl }} style={[StyleSheet.absoluteFill, styles.cardImg]} resizeMode="cover" />
-          : <LinearGradient colors={franchise.bgGradient} style={StyleSheet.absoluteFill} />}
+      <Animated.View style={[s.card, { transform: [{ scale }] }]}>
+        {img ? (
+          <Image source={{ uri: img }} style={StyleSheet.absoluteFill} contentFit="cover" />
+        ) : (
+          <LinearGradient colors={franchise.bgGradient} style={StyleSheet.absoluteFill} />
+        )}
         <LinearGradient
-          colors={["rgba(0,0,0,0.15)", "rgba(0,0,0,0.55)", "rgba(0,0,0,0.88)"]}
-          locations={[0, 0.45, 1]}
+          colors={["rgba(0,0,0,0.05)", "rgba(0,0,0,0.35)", "rgba(0,0,0,0.90)"]}
+          locations={[0, 0.4, 1]}
           style={StyleSheet.absoluteFill}
         />
-        <View style={[styles.cardAccent, { backgroundColor: franchise.color }]} />
+        <View style={[s.cardTopLine, { backgroundColor: franchise.color }]} />
 
         {rank != null && (
-          <View style={styles.cardRank}>
-            <Text style={styles.cardRankText}>{rank}</Text>
+          <View style={s.rankBadge}>
+            <Text style={s.rankTxt}>{rank}</Text>
           </View>
         )}
 
-        {showHeart && (
-          <Pressable onPress={onFavPress} style={styles.cardHeart} hitSlop={8}>
-            <Feather name="heart" size={14} color={isFav ? "#FF3B30" : "rgba(255,255,255,0.7)"} />
+        {onFavPress && (
+          <Pressable onPress={onFavPress} style={s.heartBtn} hitSlop={8}>
+            <Feather name={isFav ? "heart" : "heart"} size={13} color={isFav ? "#ff4c4c" : "rgba(255,255,255,0.55)"} />
           </Pressable>
         )}
 
-        {/* Logo area — centered vertically in upper 60% */}
-        <View style={styles.cardLogoArea}>
-          {logoUrl ? (
-            <Image
-              source={{ uri: logoUrl }}
-              style={styles.cardLogoImg}
-              resizeMode="contain"
-            />
+        <View style={s.cardLogoArea}>
+          {logo ? (
+            <Image source={{ uri: logo }} style={s.logoImg} contentFit="contain" />
           ) : (
-            <Text style={[styles.cardNameFallback, { color: franchise.accentColor }]} numberOfLines={2}>
+            <Text style={[s.cardName, { color: franchise.accentColor }]} numberOfLines={2}>
               {franchise.shortName}
             </Text>
           )}
         </View>
 
-        <View style={styles.cardInfo}>
-          <View style={[styles.cardBadge, { backgroundColor: franchise.color + "33", borderColor: franchise.color + "55" }]}>
-            <Text style={[styles.cardBadgeText, { color: franchise.accentColor }]}>
-              {franchise.contentCount} títulos
+        <View style={s.cardBottom}>
+          <View style={[s.countPill, { backgroundColor: franchise.color + "28", borderColor: franchise.color + "55" }]}>
+            <Text style={[s.countTxt, { color: franchise.accentColor }]}>{franchise.contentCount} títulos</Text>
+          </View>
+          <View style={[s.genrePill]}>
+            <Text style={s.genreTxt}>
+              {franchise.category === "anime" ? "🎌" : franchise.category === "series" ? "📺" : "🎬"}
             </Text>
           </View>
         </View>
@@ -264,64 +276,73 @@ function FranchiseCard({
   );
 }
 
-// ── Franchise row (horizontal) ────────────────────────────────
-function FranchiseRow({
+/* ── Category Filter Pills ─────────────────────────────────── */
+const GENRE_FILTERS = [
+  { key: "all", label: "Todos" },
+  { key: "superherois", label: "Super-heróis" },
+  { key: "acao", label: "Ação" },
+  { key: "scifi", label: "Sci-Fi" },
+  { key: "fantasia", label: "Fantasia" },
+  { key: "terror", label: "Terror" },
+  { key: "animacao", label: "Animação" },
+  { key: "anime", label: "Anime" },
+  { key: "drama", label: "Drama" },
+];
+
+/* ── Section Row ───────────────────────────────────────────── */
+function SectionRow({
   title,
-  franchises,
   accentColor,
+  franchises,
   onPress,
-  showHeart,
-  favorites,
+  isFav,
   onFavToggle,
   showRanks,
-  onVerMais,
+  router,
+  genre,
+  label,
 }: {
   title: string;
-  franchises: Franchise[];
   accentColor?: string;
+  franchises: Franchise[];
   onPress: (id: string) => void;
-  showHeart?: boolean;
-  favorites?: string[];
+  isFav?: (id: string) => boolean;
   onFavToggle?: (id: string) => void;
   showRanks?: boolean;
-  onVerMais?: () => void;
+  router?: any;
+  genre?: string;
+  label?: string;
 }) {
-  const visible = franchises.slice(0, ROW_ITEMS_DEFAULT);
-
+  const visible = franchises.slice(0, 10);
   if (franchises.length === 0) return null;
 
   return (
-    <View style={styles.rowSection}>
-      <View style={styles.rowHeader}>
-        <View style={[styles.rowAccentBar, { backgroundColor: accentColor ?? "#E50914" }]} />
-        <Text style={styles.rowTitle}>{title}</Text>
-        <Text style={styles.rowCount}>
-          {franchises.length} franquia{franchises.length !== 1 ? "s" : ""}
-        </Text>
+    <View style={s.section}>
+      <View style={s.sectionHeader}>
+        <View style={[s.accentBar, { backgroundColor: accentColor ?? RED }]} />
+        <Text style={s.sectionTitle}>{title}</Text>
+        <Text style={s.sectionCount}>{franchises.length} universos</Text>
       </View>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.rowScroll}
-      >
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.hScroll}>
         {visible.map((f, i) => (
           <FranchiseCard
             key={f.id}
             franchise={f}
             onPress={() => onPress(f.id)}
-            showHeart={showHeart}
-            isFav={favorites?.includes(f.id)}
+            isFav={isFav?.(f.id)}
             onFavPress={() => onFavToggle?.(f.id)}
             rank={showRanks ? i + 1 : undefined}
           />
         ))}
-        {franchises.length > ROW_ITEMS_DEFAULT && (
-          <Pressable onPress={onVerMais} style={styles.verMaisCard}>
-            <View style={styles.verMaisInner}>
-              <Feather name="grid" size={22} color="#fff" />
-              <Text style={styles.verMaisText}>Ver mais</Text>
-              <Text style={styles.verMaisCount}>+{franchises.length - ROW_ITEMS_DEFAULT}</Text>
-            </View>
+        {franchises.length > 10 && router && genre && label && (
+          <Pressable
+            onPress={() => router.push({ pathname: "/franchises-genre", params: { genre, label } })}
+            style={s.verMaisCard}
+          >
+            <LinearGradient colors={["rgba(255,255,255,0.05)", "rgba(255,255,255,0.02)"]} style={StyleSheet.absoluteFill} />
+            <Feather name="grid" size={24} color="rgba(255,255,255,0.5)" />
+            <Text style={s.verMaisTxt}>Ver mais</Text>
+            <Text style={s.verMaisCount}>+{franchises.length - 10}</Text>
           </Pressable>
         )}
       </ScrollView>
@@ -329,7 +350,7 @@ function FranchiseRow({
   );
 }
 
-// ── Main screen ───────────────────────────────────────────────
+/* ── Main Screen ───────────────────────────────────────────── */
 export default function FranquiasScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -338,130 +359,164 @@ export default function FranquiasScreen() {
   const { favorites, toggle, isFavorite } = useFavorites();
 
   const [search, setSearch] = useState("");
+  const [activeFilter, setActiveFilter] = useState("all");
   const scrollY = useRef(new Animated.Value(0)).current;
-  const headerOpacity = scrollY.interpolate({
-    inputRange: [BANNER_H - 60, BANNER_H],
-    outputRange: [0, 1],
+
+  const headerBg = scrollY.interpolate({
+    inputRange: [270, 320],
+    outputRange: ["rgba(5,5,5,0)", "rgba(5,5,5,0.98)"],
     extrapolate: "clamp",
   });
 
-  const goTo = (id: string) => router.push({ pathname: "/franchise", params: { id } });
+  const goTo = useCallback((id: string) => router.push({ pathname: "/franchise", params: { id } }), [router]);
 
   const searchResults = search.trim()
     ? FRANCHISES.filter(
         (f) =>
           f.name.toLowerCase().includes(search.toLowerCase()) ||
           f.tagline.toLowerCase().includes(search.toLowerCase()) ||
-          f.description.toLowerCase().includes(search.toLowerCase())
+          f.category.toLowerCase().includes(search.toLowerCase())
       )
     : [];
 
   const favoriteFranchises = FRANCHISES.filter((f) => isFavorite(f.id));
 
+  const filteredByGenre = useCallback((genre: string) => {
+    if (activeFilter === "all") return FRANCHISES.filter((f) => f.genre === genre);
+    return FRANCHISES.filter((f) => f.genre === genre && f.genre === activeFilter);
+  }, [activeFilter]);
+
+  const visibleSections = activeFilter === "all"
+    ? GENRE_SECTIONS
+    : GENRE_SECTIONS.filter((g) => g.genre === activeFilter);
+
   return (
-    <View style={styles.container}>
+    <View style={s.container}>
       <StatusBar style="light" />
 
       <Animated.ScrollView
         onScroll={Animated.event(
           [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-          { useNativeDriver: true }
+          { useNativeDriver: false }
         )}
         scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: insets.bottom + 100 }}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 110 }}
       >
-        {/* ── Rotating banner ──────────────────────── */}
-        <RotatingBanner onPress={goTo} />
+        {/* ── HERO BANNER ────────────────────────── */}
+        <RotatingHero onPress={goTo} />
 
-        {/* ── Search bar ───────────────────────────── */}
-        <View style={styles.searchSection}>
-          <View style={styles.searchBar}>
-            <Feather name="search" size={15} color="rgba(255,255,255,0.45)" />
+        {/* ── SEARCH ─────────────────────────────── */}
+        <View style={s.searchWrap}>
+          <View style={s.searchBar}>
+            <Feather name="search" size={16} color="rgba(255,255,255,0.4)" />
             <TextInput
               value={search}
               onChangeText={setSearch}
-              placeholder="Buscar franquias..."
-              placeholderTextColor="rgba(255,255,255,0.3)"
-              style={styles.searchInput}
+              placeholder="Buscar universos e franquias..."
+              placeholderTextColor="rgba(255,255,255,0.28)"
+              style={s.searchInput}
               returnKeyType="search"
             />
             {search.length > 0 && (
               <Pressable onPress={() => setSearch("")}>
-                <Feather name="x" size={14} color="rgba(255,255,255,0.45)" />
+                <Feather name="x" size={15} color="rgba(255,255,255,0.4)" />
               </Pressable>
             )}
           </View>
         </View>
 
-        {/* ── Search results ────────────────────────── */}
-        {search.trim().length > 0 && (
+        {/* ── SEARCH RESULTS ─────────────────────── */}
+        {search.trim().length > 0 ? (
           <View style={{ paddingHorizontal: 16, marginBottom: 20 }}>
-            <Text style={styles.searchResultsTitle}>
+            <Text style={s.searchResultLabel}>
               {searchResults.length} resultado{searchResults.length !== 1 ? "s" : ""} para "{search}"
             </Text>
-            <View style={styles.searchGrid}>
-              {searchResults.map((f) => (
-                <FranchiseCard
-                  key={f.id}
-                  franchise={f}
-                  onPress={() => goTo(f.id)}
-                  showHeart
-                  isFav={isFavorite(f.id)}
-                  onFavPress={() => toggle(f.id)}
-                />
-              ))}
-              {searchResults.length === 0 && (
-                <View style={styles.emptySearch}>
-                  <Feather name="search" size={32} color="rgba(255,255,255,0.2)" />
-                  <Text style={styles.emptyText}>Nenhuma franquia encontrada</Text>
-                </View>
-              )}
-            </View>
+            {searchResults.length === 0 ? (
+              <View style={s.emptySearch}>
+                <Feather name="search" size={36} color="rgba(255,255,255,0.15)" />
+                <Text style={s.emptyTxt}>Nenhuma franquia encontrada</Text>
+              </View>
+            ) : (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.hScroll}>
+                {searchResults.map((f) => (
+                  <FranchiseCard
+                    key={f.id}
+                    franchise={f}
+                    onPress={() => goTo(f.id)}
+                    isFav={isFavorite(f.id)}
+                    onFavPress={() => toggle(f.id)}
+                  />
+                ))}
+              </ScrollView>
+            )}
           </View>
-        )}
-
-        {search.trim().length === 0 && (
+        ) : (
           <>
-            {/* ── Favoritos ────────────────────────────── */}
+            {/* ── CATEGORY FILTER PILLS ────────────── */}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={s.filterRow}
+            >
+              {GENRE_FILTERS.map((gf) => (
+                <Pressable
+                  key={gf.key}
+                  onPress={() => setActiveFilter(gf.key)}
+                  style={[
+                    s.filterPill,
+                    activeFilter === gf.key
+                      ? { backgroundColor: RED, borderColor: RED }
+                      : { backgroundColor: GLASS, borderColor: GLASS_B },
+                  ]}
+                >
+                  <Text style={[s.filterTxt, { color: activeFilter === gf.key ? "#fff" : "rgba(255,255,255,0.65)" }]}>
+                    {gf.label}
+                  </Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+
+            {/* ── FAVORITOS ─────────────────────────── */}
             {favoriteFranchises.length > 0 && (
-              <FranchiseRow
+              <SectionRow
                 title="❤️ Meus Favoritos"
+                accentColor="#ff4c4c"
                 franchises={favoriteFranchises}
-                accentColor="#FF3B30"
                 onPress={goTo}
-                showHeart
-                favorites={favorites}
+                isFav={isFavorite}
                 onFavToggle={toggle}
               />
             )}
 
-            {/* ── Top 10 ──────────────────────────────── */}
-            <FranchiseRow
-              title="🏆 Top 10 Universos"
-              franchises={TOP10_FRANCHISES}
-              accentColor="#FFD700"
-              onPress={goTo}
-              showHeart
-              favorites={favorites}
-              onFavToggle={toggle}
-              showRanks
-            />
+            {/* ── TOP 10 ────────────────────────────── */}
+            {(activeFilter === "all") && (
+              <SectionRow
+                title="🏆 Top 10 Universos"
+                accentColor="#FFD700"
+                franchises={TOP10_FRANCHISES}
+                onPress={goTo}
+                isFav={isFavorite}
+                onFavToggle={toggle}
+                showRanks
+              />
+            )}
 
-            {/* ── Genre rows ───────────────────────────── */}
-            {GENRE_SECTIONS.map(({ genre, label }) => {
+            {/* ── GENRE SECTIONS ────────────────────── */}
+            {visibleSections.map(({ genre, label }) => {
               const items = FRANCHISES.filter((f) => f.genre === genre);
               return (
-                <FranchiseRow
+                <SectionRow
                   key={genre}
                   title={label}
-                  franchises={items}
                   accentColor={items[0]?.color}
+                  franchises={items}
                   onPress={goTo}
-                  showHeart
-                  favorites={favorites}
+                  isFav={isFavorite}
                   onFavToggle={toggle}
-                  onVerMais={() => router.push({ pathname: "/franchises-genre", params: { genre, label } })}
+                  router={router}
+                  genre={genre}
+                  label={label}
                 />
               );
             })}
@@ -469,119 +524,133 @@ export default function FranquiasScreen() {
         )}
       </Animated.ScrollView>
 
-      {/* ── Sticky header ─────────────────────────── */}
-      <Animated.View style={[styles.stickyHeader, { paddingTop: topPad }]} pointerEvents="box-none">
-        <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: "#000", opacity: headerOpacity }]} />
-        <View style={styles.stickyHeaderContent}>
-          <Text style={styles.stickyTitle}>🌌 UNIVERSOS</Text>
-          <TouchableOpacity style={styles.headerIconBtn} onPress={() => router.push("/(tabs)/search")}>
-            <Feather name="search" size={20} color="rgba(255,255,255,0.8)" />
-          </TouchableOpacity>
+      {/* ── STICKY HEADER ──────────────────────── */}
+      <Animated.View
+        style={[s.stickyHeader, { paddingTop: topPad, backgroundColor: headerBg as any }]}
+        pointerEvents="box-none"
+      >
+        <View style={s.stickyContent}>
+          <View>
+            <Text style={s.stickyTitle}>🌌 UNIVERSOS</Text>
+            <Text style={s.stickySub}>{FRANCHISES.length} franquias</Text>
+          </View>
+          <View style={s.stickyRight}>
+            <Pressable
+              style={s.stickyBtn}
+              onPress={() => router.push("/(tabs)/search")}
+            >
+              <Feather name="search" size={18} color="rgba(255,255,255,0.85)" />
+            </Pressable>
+          </View>
         </View>
       </Animated.View>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#000" },
+const s = StyleSheet.create({
+  container: { flex: 1, backgroundColor: BG },
 
-  // Banner
-  bannerAccent: { position: "absolute", top: 0, left: 0, right: 0, height: 3, zIndex: 2 },
-  bannerContent: { position: "absolute", bottom: 52, left: 20, right: 20, zIndex: 2 },
-  bannerBadge: {
-    alignSelf: "flex-start", borderWidth: 1, borderRadius: 5,
-    paddingHorizontal: 8, paddingVertical: 3, marginBottom: 8,
-  },
-  bannerBadgeText: { fontSize: 9, fontWeight: "800", letterSpacing: 1.5 },
-  bannerTitle: { fontSize: 28, fontWeight: "900", color: "#fff", letterSpacing: 2, lineHeight: 32, marginBottom: 4 },
-  bannerTagline: { fontSize: 13, fontWeight: "600", marginBottom: 6, letterSpacing: 0.3 },
-  bannerMeta: { color: "rgba(255,255,255,0.5)", fontSize: 12, marginBottom: 14 },
-  bannerBtn: {
-    flexDirection: "row", alignItems: "center", gap: 7,
-    paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10, alignSelf: "flex-start",
-  },
-  bannerBtnText: { color: "#fff", fontSize: 12, fontWeight: "800", letterSpacing: 1.5 },
+  // Dots
   dots: {
-    position: "absolute", bottom: 18, left: 0, right: 0,
+    position: "absolute", bottom: 14, left: 0, right: 0,
     flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 5,
   },
-  dot: { height: 5, borderRadius: 3 },
+  dot: { height: 4, borderRadius: 2 },
 
   // Search
-  searchSection: { paddingHorizontal: 16, paddingVertical: 14 },
+  searchWrap: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 12 },
   searchBar: {
     flexDirection: "row", alignItems: "center", gap: 10,
-    backgroundColor: "rgba(255,255,255,0.09)", borderRadius: 14,
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.12)",
-    paddingHorizontal: 14, paddingVertical: 11,
+    backgroundColor: GLASS, borderRadius: 16,
+    borderWidth: 1, borderColor: GLASS_B,
+    paddingHorizontal: 14, paddingVertical: 12,
   },
   searchInput: { flex: 1, color: "#fff", fontSize: 14, fontWeight: "500" },
-  searchResultsTitle: { color: "rgba(255,255,255,0.5)", fontSize: 12, marginBottom: 14 },
-  searchGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
-  emptySearch: { width: "100%", alignItems: "center", paddingVertical: 40, gap: 12 },
-  emptyText: { color: "rgba(255,255,255,0.35)", fontSize: 15 },
+
+  searchResultLabel: { color: "rgba(255,255,255,0.4)", fontSize: 12, marginBottom: 14 },
+  emptySearch: { alignItems: "center", paddingVertical: 50, gap: 14 },
+  emptyTxt: { color: "rgba(255,255,255,0.35)", fontSize: 15 },
+
+  // Filter pills
+  filterRow: { paddingHorizontal: 16, gap: 8, paddingBottom: 20 },
+  filterPill: {
+    paddingHorizontal: 14, paddingVertical: 8,
+    borderRadius: 24, borderWidth: 1,
+  },
+  filterTxt: { fontSize: 12, fontWeight: "700" },
+
+  // Section
+  section: { marginBottom: 28 },
+  sectionHeader: {
+    flexDirection: "row", alignItems: "center",
+    paddingHorizontal: 16, gap: 10, marginBottom: 14,
+  },
+  accentBar: { width: 3.5, height: 18, borderRadius: 2 },
+  sectionTitle: { color: "#fff", fontSize: 17, fontWeight: "800", flex: 1 },
+  sectionCount: { color: "rgba(255,255,255,0.3)", fontSize: 12 },
+  hScroll: { paddingHorizontal: 16, paddingBottom: 4, gap: 0 },
 
   // Card
-  card: { borderRadius: 14, overflow: "hidden", position: "relative", marginRight: 10 },
-  cardImg: { borderRadius: 14 },
-  cardAccent: { position: "absolute", top: 0, left: 0, right: 0, height: 2, zIndex: 2 },
-  cardRank: {
-    position: "absolute", top: 8, left: 8, zIndex: 3,
-    backgroundColor: "rgba(0,0,0,0.75)", paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6,
+  card: {
+    width: CARD_W, height: CARD_H,
+    borderRadius: 16, overflow: "hidden",
+    marginRight: 12, backgroundColor: "#1a1a1a",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.08)",
   },
-  cardRankText: { color: "#fff", fontSize: 13, fontWeight: "900" },
-  cardHeart: {
-    position: "absolute", top: 8, right: 8, zIndex: 3,
+  cardTopLine: { position: "absolute", top: 0, left: 0, right: 0, height: 2.5, zIndex: 2 },
+  rankBadge: {
+    position: "absolute", top: 10, left: 10, zIndex: 3,
+    backgroundColor: "rgba(0,0,0,0.72)", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 7,
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.12)",
+  },
+  rankTxt: { color: "#fff", fontSize: 13, fontWeight: "900" },
+  heartBtn: {
+    position: "absolute", top: 10, right: 10, zIndex: 3,
     backgroundColor: "rgba(0,0,0,0.6)", width: 28, height: 28, borderRadius: 14,
     alignItems: "center", justifyContent: "center",
   },
   cardLogoArea: {
-    position: "absolute", top: 0, left: 0, right: 0, bottom: 38,
-    zIndex: 2, alignItems: "center", justifyContent: "center", paddingHorizontal: 8,
+    position: "absolute", top: 0, left: 0, right: 0, bottom: 44,
+    zIndex: 2, alignItems: "center", justifyContent: "center", paddingHorizontal: 10,
   },
-  cardLogoImg: { width: "88%", height: 52, maxWidth: 108 },
-  cardNameFallback: {
-    fontSize: 13, fontWeight: "900", textAlign: "center",
-    textShadowColor: "rgba(0,0,0,0.9)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 5,
+  logoImg: { width: "85%", height: 60, maxWidth: 120 },
+  cardName: {
+    fontSize: 14, fontWeight: "900", textAlign: "center",
+    textShadowColor: "rgba(0,0,0,0.9)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 6,
   },
-  cardInfo: { position: "absolute", bottom: 0, left: 0, right: 0, padding: 8, zIndex: 2 },
-  cardBadge: { alignSelf: "flex-start", paddingHorizontal: 6, paddingVertical: 3, borderRadius: 5, borderWidth: 1 },
-  cardBadgeText: { fontSize: 10, fontWeight: "700" },
-
-  // Row section
-  rowSection: { marginBottom: 28 },
-  rowHeader: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, gap: 8, marginBottom: 14 },
-  rowAccentBar: { width: 3, height: 16, borderRadius: 2 },
-  rowTitle: { color: "#fff", fontSize: 17, fontWeight: "800", flex: 1 },
-  rowCount: { color: "rgba(255,255,255,0.35)", fontSize: 12 },
-  rowScroll: { paddingHorizontal: 16, paddingBottom: 4 },
+  cardBottom: {
+    position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 2,
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    padding: 10,
+  },
+  countPill: { paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6, borderWidth: 1 },
+  countTxt: { fontSize: 10, fontWeight: "700" },
+  genrePill: { width: 24, height: 24, alignItems: "center", justifyContent: "center" },
+  genreTxt: { fontSize: 14 },
 
   // Ver mais
   verMaisCard: {
-    width: CARD_W,
-    height: CARD_H,
-    borderRadius: 14,
-    backgroundColor: "rgba(255,255,255,0.06)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
-    borderStyle: "dashed",
-    alignItems: "center",
-    justifyContent: "center",
+    width: 90, height: CARD_H, borderRadius: 16, overflow: "hidden",
+    marginRight: 12, backgroundColor: GLASS,
+    borderWidth: 1.5, borderColor: GLASS_B, borderStyle: "dashed",
+    alignItems: "center", justifyContent: "center", gap: 8,
   },
-  verMaisInner: { alignItems: "center", gap: 6 },
-  verMaisText: { color: "#fff", fontSize: 13, fontWeight: "700" },
-  verMaisCount: { color: "rgba(255,255,255,0.45)", fontSize: 11 },
+  verMaisTxt: { color: "rgba(255,255,255,0.7)", fontSize: 13, fontWeight: "700" },
+  verMaisCount: { color: "rgba(255,255,255,0.4)", fontSize: 11 },
 
   // Sticky header
   stickyHeader: { position: "absolute", top: 0, left: 0, right: 0, zIndex: 10 },
-  stickyHeaderContent: {
+  stickyContent: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    paddingHorizontal: 20, paddingVertical: 8,
+    paddingHorizontal: 20, paddingVertical: 10,
   },
-  stickyTitle: { color: "#fff", fontSize: 16, fontWeight: "900", letterSpacing: 1.5 },
-  headerIconBtn: {
+  stickyTitle: { color: "#fff", fontSize: 15, fontWeight: "900", letterSpacing: 1.5 },
+  stickySub: { color: "rgba(255,255,255,0.35)", fontSize: 11, marginTop: 1 },
+  stickyRight: { flexDirection: "row", gap: 10 },
+  stickyBtn: {
     width: 38, height: 38, borderRadius: 19,
-    backgroundColor: "rgba(255,255,255,0.1)", alignItems: "center", justifyContent: "center",
+    backgroundColor: GLASS, borderWidth: 1, borderColor: GLASS_B,
+    alignItems: "center", justifyContent: "center",
   },
 });

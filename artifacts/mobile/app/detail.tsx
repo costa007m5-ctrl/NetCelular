@@ -30,7 +30,7 @@ import type { ContentItem } from "@/constants/content";
 
 const { width: W } = Dimensions.get("window");
 const BACKDROP_H = Math.round(W * 0.58);
-type Tab = "about" | "episodes" | "related" | "details";
+type Tab = "about" | "episodes" | "related" | "collection" | "details";
 
 interface Provider {
   logo_path: string;
@@ -168,6 +168,8 @@ export default function DetailScreen() {
   const [unavailableVisible, setUnavailableVisible] = useState(false);
   const [indicated, setIndicated] = useState(false);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [collectionData, setCollectionData] = useState<{ id: number; name: string; parts: any[] } | null>(null);
+  const [loadingCollection, setLoadingCollection] = useState(false);
 
   const userId = user?.id ?? "";
   const [inList, setInList] = useState(false);
@@ -212,6 +214,22 @@ export default function DetailScreen() {
           setDetails(det);
           setSimilar(sim.map(tmdbItemToContent));
           setProviders(prov?.flatrate ?? []);
+          const colId = (det as any)?.belongs_to_collection?.id;
+          if (colId) {
+            setLoadingCollection(true);
+            fetch(`https://api.themoviedb.org/3/collection/${colId}?api_key=8f0beb08cf016ec8de49e454e09879ec&language=pt-BR`)
+              .then((r) => r.json())
+              .then((d) => {
+                const parts = (d.parts ?? []).sort((a: any, b: any) => {
+                  const da = a.release_date ?? "";
+                  const db = b.release_date ?? "";
+                  return da < db ? -1 : da > db ? 1 : 0;
+                });
+                setCollectionData({ id: colId, name: d.name ?? "", parts });
+              })
+              .catch(() => {})
+              .finally(() => setLoadingCollection(false));
+          }
         } else {
           const [det, sim, prov] = await Promise.all([
             tmdbApi.tmdb.tv(tmdbId),
@@ -339,6 +357,7 @@ export default function DetailScreen() {
     { key: "about", label: "SOBRE" },
     ...(type === "tv" ? [{ key: "episodes" as Tab, label: "EPISÓDIOS" }] : []),
     { key: "related", label: "RELACIONADOS" },
+    ...(collectionData ? [{ key: "collection" as Tab, label: "COLEÇÃO" }] : []),
     { key: "details", label: "DETALHES" },
   ];
 
@@ -650,6 +669,96 @@ export default function DetailScreen() {
                 </View>
               )}
 
+              {activeTab === "collection" && (
+                <View style={styles.tabContent}>
+                  {loadingCollection ? (
+                    <ActivityIndicator color={colors.primary} style={{ marginTop: 20 }} />
+                  ) : !collectionData ? (
+                    <Text style={{ color: colors.mutedForeground }}>Sem coleção disponível.</Text>
+                  ) : (
+                    <>
+                      <Text style={[styles.collectionName, { color: colors.foreground }]}>
+                        {collectionData.name}
+                      </Text>
+                      <Text style={[styles.collectionCount, { color: colors.mutedForeground }]}>
+                        {collectionData.parts.length} filmes na coleção
+                      </Text>
+                      <View style={styles.collectionGrid}>
+                        {collectionData.parts.map((part: any) => {
+                          const poster = part.poster_path
+                            ? `https://image.tmdb.org/t/p/w342${part.poster_path}`
+                            : null;
+                          const isCurrent = part.id === tmdbId;
+                          const partYear = (part.release_date ?? "").slice(0, 4);
+                          const partRating = part.vote_average
+                            ? Math.round(part.vote_average * 10) / 10
+                            : null;
+                          return (
+                            <Pressable
+                              key={part.id}
+                              style={[
+                                styles.collectionItem,
+                                { borderColor: isCurrent ? colors.primary : colors.border + "50" },
+                                isCurrent && { backgroundColor: colors.primary + "12" },
+                              ]}
+                              onPress={() =>
+                                !isCurrent &&
+                                router.push({
+                                  pathname: "/detail",
+                                  params: { type: "movie", id: String(part.id), title: part.title },
+                                })
+                              }
+                            >
+                              <View style={styles.collectionPoster}>
+                                {poster ? (
+                                  <Image source={{ uri: poster }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+                                ) : (
+                                  <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.card, alignItems: "center", justifyContent: "center" }]}>
+                                    <Feather name="film" size={20} color={colors.border} />
+                                  </View>
+                                )}
+                                {isCurrent && (
+                                  <View style={styles.nowPlayingBadge}>
+                                    <Feather name="play" size={8} color="#fff" />
+                                  </View>
+                                )}
+                              </View>
+                              <View style={styles.collectionInfo}>
+                                <Text style={[styles.collectionTitle, { color: isCurrent ? colors.primary : colors.foreground }]} numberOfLines={2}>
+                                  {part.title}
+                                </Text>
+                                <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 3 }}>
+                                  {partYear ? <Text style={[styles.collectionMeta, { color: colors.mutedForeground }]}>{partYear}</Text> : null}
+                                  {partRating ? (
+                                    <>
+                                      <Text style={[styles.collectionMeta, { color: colors.mutedForeground }]}>·</Text>
+                                      <Text style={[styles.collectionMeta, { color: "#f5c518", fontWeight: "700" }]}>⭐ {partRating}</Text>
+                                    </>
+                                  ) : null}
+                                </View>
+                                {isCurrent ? (
+                                  <View style={[styles.currentBadge, { backgroundColor: colors.primary + "22", borderColor: colors.primary + "44" }]}>
+                                    <Text style={[styles.currentBadgeTxt, { color: colors.primary }]}>Assistindo agora</Text>
+                                  </View>
+                                ) : (
+                                  <Pressable
+                                    style={[styles.collectionWatchBtn, { backgroundColor: colors.card, borderColor: colors.border + "60" }]}
+                                    onPress={() => router.push({ pathname: "/detail", params: { type: "movie", id: String(part.id), title: part.title } })}
+                                  >
+                                    <Feather name="play" size={10} color={colors.foreground} />
+                                    <Text style={[styles.collectionWatchTxt, { color: colors.foreground }]}>Ver detalhes</Text>
+                                  </Pressable>
+                                )}
+                              </View>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    </>
+                  )}
+                </View>
+              )}
+
               {activeTab === "details" && (
                 <View style={styles.tabContent}>
                   {[
@@ -822,4 +931,39 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   closeModalText: { fontSize: 14, fontWeight: "500" },
+
+  // Collection tab
+  collectionName: { fontSize: 18, fontWeight: "800", marginBottom: 4, letterSpacing: -0.3 },
+  collectionCount: { fontSize: 12, marginBottom: 18 },
+  collectionGrid: { gap: 12 },
+  collectionItem: {
+    flexDirection: "row", alignItems: "flex-start",
+    borderRadius: 14, borderWidth: 1,
+    padding: 10, gap: 12, overflow: "hidden",
+  },
+  collectionPoster: {
+    width: 70, height: 100, borderRadius: 10,
+    overflow: "hidden", flexShrink: 0, backgroundColor: "#1a1a1a",
+  },
+  nowPlayingBadge: {
+    position: "absolute", bottom: 6, right: 6,
+    width: 20, height: 20, borderRadius: 10,
+    backgroundColor: "rgba(229,9,20,0.9)",
+    alignItems: "center", justifyContent: "center",
+  },
+  collectionInfo: { flex: 1, paddingTop: 2, gap: 4 },
+  collectionTitle: { fontSize: 14, fontWeight: "700", lineHeight: 18 },
+  collectionMeta: { fontSize: 11 },
+  currentBadge: {
+    alignSelf: "flex-start", marginTop: 6,
+    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, borderWidth: 1,
+  },
+  currentBadgeTxt: { fontSize: 10, fontWeight: "700" },
+  collectionWatchBtn: {
+    alignSelf: "flex-start", marginTop: 6,
+    flexDirection: "row", alignItems: "center", gap: 5,
+    paddingHorizontal: 10, paddingVertical: 5,
+    borderRadius: 8, borderWidth: 1,
+  },
+  collectionWatchTxt: { fontSize: 11, fontWeight: "600" },
 });
