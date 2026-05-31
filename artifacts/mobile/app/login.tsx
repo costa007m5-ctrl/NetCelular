@@ -43,6 +43,7 @@ export default function LoginScreen() {
         const { data, error: signUpError } = await supabase.auth.signUp({
           email: emailTrimmed,
           password: passwordTrimmed,
+          options: { emailRedirectTo: "netplay://login" },
         });
         if (signUpError) { setError(signUpError.message); return; }
         if (data.user) {
@@ -89,7 +90,7 @@ export default function LoginScreen() {
     }
     try {
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(emailTrimmed, {
-        redirectTo: "mobile://reset-password",
+        redirectTo: "netplay://reset-password",
       });
       if (resetError) throw resetError;
       Alert.alert(

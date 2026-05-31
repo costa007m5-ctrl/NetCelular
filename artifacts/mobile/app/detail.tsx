@@ -307,7 +307,7 @@ export default function DetailScreen() {
   const handleShare = async () => {
     if (!details) return;
     const contentTitle = details.title ?? details.name ?? title;
-    const deepLink = `mobile://detail?type=${type}&id=${tmdbId}&title=${encodeURIComponent(contentTitle)}`;
+    const deepLink = `netplay://detail?type=${type}&id=${tmdbId}&title=${encodeURIComponent(contentTitle)}`;
     const yearVal = (details.release_date ?? details.first_air_date ?? "").slice(0, 4);
     const yearStr = yearVal ? ` (${yearVal})` : "";
     const msg = `🎬 ${contentTitle}${yearStr}\n\nAssista no NETPLAY!\n${deepLink}`;
