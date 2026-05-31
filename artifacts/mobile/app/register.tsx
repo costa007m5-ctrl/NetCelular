@@ -76,7 +76,14 @@ export default function RegisterScreen() {
       if (data.user) {
         await db.users.upsertProfile(data.user.id, email.trim(), name.trim());
       }
-      setStep(5);
+      // Se o Supabase retornou uma sessão ativa, a verificação de e-mail
+      // está DESATIVADA no projeto → pula direto para o onboarding.
+      // Se session for null, a verificação está ATIVADA → mostra etapa 5.
+      if (data.session) {
+        router.replace("/onboarding/profile");
+      } else {
+        setStep(5);
+      }
     } catch (e: any) {
       setError(e?.message ?? "Erro ao criar conta.");
     } finally {
