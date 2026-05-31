@@ -23,7 +23,6 @@ export type DbUser = {
   id?: string;
   email: string;
   name: string;
-  password_hash: string;
   role: "user" | "admin";
   avatar_letter: string;
   avatar_url?: string;
@@ -96,54 +95,18 @@ export type DbProfile = {
 
 export const db = {
   users: {
-    register: async (email: string, name: string, passwordHash: string) => {
+    upsertProfile: async (id: string, email: string, name: string): Promise<{ error?: string }> => {
       const emailLower = email.toLowerCase().trim();
-      const { data: existing } = await supabase.from("users").select("id").eq("email", emailLower).maybeSingle();
-      if (existing) return { error: "Email já cadastrado" };
       const { count } = await supabase.from("users").select("*", { count: "exact", head: true });
       const role = (count ?? 0) === 0 ? "admin" : "user";
       const avatarLetter = name.trim()[0]?.toUpperCase() ?? "U";
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from("users")
-        .insert({ email: emailLower, name: name.trim(), password_hash: passwordHash, role, avatar_letter: avatarLetter })
-        .select().single();
-      if (error) return { error: error.message };
-      return { id: data.id, email: data.email, name: data.name, role: data.role, avatarLetter: data.avatar_letter };
-    },
-
-    login: async (email: string, passwordHash: string, fallbackHash?: string) => {
-      const emailLower = email.toLowerCase().trim();
-
-      const { data: userData, error: userError } = await supabase
-        .from("users")
-        .select("*")
-        .eq("email", emailLower)
-        .maybeSingle();
-
-      if (userError || !userData) return { error: "Email ou senha incorretos" };
-
-      const stored = userData.password_hash as string;
-      const hashesToTry = [passwordHash];
-      if (fallbackHash && fallbackHash !== passwordHash) hashesToTry.push(fallbackHash);
-
-      const matched = hashesToTry.find((h) => h === stored);
-
-      if (!matched) return { error: "Email ou senha incorretos" };
-
-      if (matched !== passwordHash) {
-        try {
-          await supabase.from("users").update({ password_hash: passwordHash }).eq("id", userData.id);
-        } catch {}
-      }
-
-      return {
-        id: userData.id,
-        email: userData.email,
-        name: userData.name,
-        role: userData.role,
-        avatarLetter: userData.avatar_letter,
-        profileBanner: userData.profile_banner ?? null,
-      };
+        .upsert(
+          { id, email: emailLower, name: name.trim(), role, avatar_letter: avatarLetter },
+          { onConflict: "id" }
+        );
+      return error ? { error: error.message } : {};
     },
 
     getById: async (id: string): Promise<DbUser | null> => {
@@ -160,24 +123,12 @@ export const db = {
       return error ? { error: error.message } : {};
     },
 
-    updatePassword: async (id: string, passwordHash: string): Promise<{ error?: string }> => {
-      const { error } = await supabase.from("users").update({ password_hash: passwordHash }).eq("id", id);
-      return error ? { error: error.message } : {};
-    },
-
     updateBanner: async (id: string, bannerUrl: string | null): Promise<{ error?: string }> => {
       const { error } = await supabase
         .from("users")
         .update({ profile_banner: bannerUrl })
         .eq("id", id);
       return error ? { error: error.message } : {};
-    },
-
-    verifyPassword: async (id: string, passwordHash: string, fallbackHash?: string): Promise<boolean> => {
-      const { data } = await supabase.from("users").select("password_hash").eq("id", id).maybeSingle();
-      if (!data) return false;
-      const stored = data.password_hash as string;
-      return stored === passwordHash || (!!fallbackHash && stored === fallbackHash);
     },
 
     countAll: async (): Promise<number> => {

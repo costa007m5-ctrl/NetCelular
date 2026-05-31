@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS public.users (
   id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
   email           TEXT        UNIQUE NOT NULL,
   name            TEXT        NOT NULL,
-  password_hash   TEXT        NOT NULL,
+  password_hash   TEXT,
   role            TEXT        NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
   avatar_letter   TEXT        NOT NULL DEFAULT 'U',
   avatar_url      TEXT,
@@ -102,7 +102,15 @@ DO $$ BEGIN ALTER TABLE public.user_settings ADD COLUMN theme TEXT NOT NULL DEFA
 
 
 -- ────────────────────────────────────────────────────────────
--- 3. ROW LEVEL SECURITY
+-- 3. MIGRAÇÃO SUPABASE AUTH — rode 1x para migrar auth customizado
+-- ────────────────────────────────────────────────────────────
+
+-- Remove obrigatoriedade de password_hash (senhas agora ficam no Supabase Auth)
+ALTER TABLE public.users ALTER COLUMN password_hash DROP NOT NULL;
+
+
+-- ────────────────────────────────────────────────────────────
+-- 4. ROW LEVEL SECURITY
 -- ────────────────────────────────────────────────────────────
 
 ALTER TABLE public.users          ENABLE ROW LEVEL SECURITY;
@@ -114,7 +122,7 @@ ALTER TABLE public.profiles       ENABLE ROW LEVEL SECURITY;
 
 
 -- ────────────────────────────────────────────────────────────
--- 4. POLICIES (remove a antiga antes de criar, sem erro)
+-- 5. POLICIES — anon (app não autenticado) + authenticated (logado via Supabase Auth)
 -- ────────────────────────────────────────────────────────────
 
 DROP POLICY IF EXISTS "anon_all_users"         ON public.users;
@@ -124,28 +132,41 @@ DROP POLICY IF EXISTS "anon_all_progress"      ON public.watch_progress;
 DROP POLICY IF EXISTS "anon_all_ratings"       ON public.ratings;
 DROP POLICY IF EXISTS "anon_all_profiles"      ON public.profiles;
 
+DROP POLICY IF EXISTS "auth_all_users"         ON public.users;
+DROP POLICY IF EXISTS "auth_all_user_settings" ON public.user_settings;
+DROP POLICY IF EXISTS "auth_all_watchlist"     ON public.watchlist;
+DROP POLICY IF EXISTS "auth_all_progress"      ON public.watch_progress;
+DROP POLICY IF EXISTS "auth_all_ratings"       ON public.ratings;
+DROP POLICY IF EXISTS "auth_all_profiles"      ON public.profiles;
+
+-- Anon: apenas leitura de users para criação de perfil pós-cadastro
 CREATE POLICY "anon_all_users"
   ON public.users FOR ALL TO anon
   USING (true) WITH CHECK (true);
 
-CREATE POLICY "anon_all_user_settings"
-  ON public.user_settings FOR ALL TO anon
+-- Authenticated: acesso total às próprias linhas
+CREATE POLICY "auth_all_users"
+  ON public.users FOR ALL TO authenticated
   USING (true) WITH CHECK (true);
 
-CREATE POLICY "anon_all_watchlist"
-  ON public.watchlist FOR ALL TO anon
+CREATE POLICY "auth_all_user_settings"
+  ON public.user_settings FOR ALL TO authenticated
   USING (true) WITH CHECK (true);
 
-CREATE POLICY "anon_all_progress"
-  ON public.watch_progress FOR ALL TO anon
+CREATE POLICY "auth_all_watchlist"
+  ON public.watchlist FOR ALL TO authenticated
   USING (true) WITH CHECK (true);
 
-CREATE POLICY "anon_all_ratings"
-  ON public.ratings FOR ALL TO anon
+CREATE POLICY "auth_all_progress"
+  ON public.watch_progress FOR ALL TO authenticated
   USING (true) WITH CHECK (true);
 
-CREATE POLICY "anon_all_profiles"
-  ON public.profiles FOR ALL TO anon
+CREATE POLICY "auth_all_ratings"
+  ON public.ratings FOR ALL TO authenticated
+  USING (true) WITH CHECK (true);
+
+CREATE POLICY "auth_all_profiles"
+  ON public.profiles FOR ALL TO authenticated
   USING (true) WITH CHECK (true);
 
 

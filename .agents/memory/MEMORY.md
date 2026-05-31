@@ -1,6 +1,6 @@
 - [Detail screen navigation](detail-nav.md) — all screens navigate to /detail (not /player) with params {type, id, title}; player is only opened from detail screen.
 - [Auth guard placement](auth-guard.md) — auth guard is in (tabs)/_layout.tsx (not root layout); uses Redirect from expo-router to /login when user is null.
-- [Supabase migration](supabase-migration.md) — Convex fully replaced by Supabase; custom user auth with hashed passwords in public.users table; anon key with RLS policies.
+- [Supabase Auth migration](supabase-auth.md) — Auth migrated to Supabase Auth built-in; public.users still used for profile data; password_hash must be nullable.
 - [EAS Build lockfile config](eas-build-lockfile.md) — mobile uses package-lock.json (npm) for EAS builds; pnpm workspace root keeps pnpm-lock.yaml for local dev only.
 - [Downloads feature](downloads-feature.md) — downloads.ts has real progress system (activeDownloads Map, subscribeDownloads, cancelDownload, 10GB limit); progress animated over 3-12s based on quality.
 - [Theme system](theme-system.md) — ThemeProvider in lib/theme-context.tsx wraps app in _layout.tsx; useColors() reads palette.dark/light from constants/colors.ts; toggle in profile APARÊNCIA section syncs to Supabase + AsyncStorage.

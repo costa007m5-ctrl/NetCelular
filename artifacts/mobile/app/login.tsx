@@ -15,12 +15,10 @@ import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useAuth, hashPassword, simpleHashPassword } from "@/lib/auth-context";
-import { db } from "@/lib/supabase";
+import { supabase, db } from "@/lib/supabase";
 
 export default function LoginScreen() {
   const router = useRouter();
-  const { setUser } = useAuth();
 
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
@@ -41,17 +39,38 @@ export default function LoginScreen() {
 
     setLoading(true);
     try {
-      const ph = await hashPassword(passwordTrimmed);
-      const simplePh = simpleHashPassword(passwordTrimmed);
-
       if (mode === "register") {
-        const result = await db.users.register(emailTrimmed, name, ph);
-        if ("error" in result && result.error) { setError(result.error); return; }
-        await setUser(result as any);
+        const { data, error: signUpError } = await supabase.auth.signUp({
+          email: emailTrimmed,
+          password: passwordTrimmed,
+        });
+        if (signUpError) { setError(signUpError.message); return; }
+        if (data.user) {
+          const { error: profileError } = await db.users.upsertProfile(
+            data.user.id,
+            emailTrimmed,
+            name.trim()
+          );
+          if (profileError) { setError(profileError); return; }
+        }
+        if (!data.session) {
+          Alert.alert(
+            "Confirme seu email",
+            "Enviamos um link de confirmação para " + emailTrimmed + ". Confirme antes de entrar.",
+            [{ text: "OK" }]
+          );
+          setLoading(false);
+          return;
+        }
       } else {
-        const result = await db.users.login(emailTrimmed, ph, simplePh);
-        if ("error" in result && result.error) { setError(result.error); return; }
-        await setUser(result as any);
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email: emailTrimmed,
+          password: passwordTrimmed,
+        });
+        if (signInError) {
+          setError("Email ou senha incorretos");
+          return;
+        }
       }
 
       router.replace("/profile-select");
@@ -62,12 +81,24 @@ export default function LoginScreen() {
     }
   };
 
-  const handleForgotPassword = () => {
-    Alert.alert(
-      "Esqueceu a senha?",
-      "Para redefinir sua senha, entre em contato com o suporte pelo email: suporte@netplay.app\n\nOu acesse o menu Perfil > Alterar Senha caso já esteja logado.",
-      [{ text: "OK" }]
-    );
+  const handleForgotPassword = async () => {
+    const emailTrimmed = email.trim();
+    if (!emailTrimmed) {
+      Alert.alert("Esqueceu a senha?", "Digite seu email no campo acima e toque em 'Esqueceu a senha?' novamente.");
+      return;
+    }
+    try {
+      const { error: resetError } = await supabase.auth.resetPasswordForEmail(emailTrimmed, {
+        redirectTo: "mobile://reset-password",
+      });
+      if (resetError) throw resetError;
+      Alert.alert(
+        "Email enviado",
+        `Um link de redefinição de senha foi enviado para ${emailTrimmed}. Verifique sua caixa de entrada.`
+      );
+    } catch (e: any) {
+      Alert.alert("Erro", e?.message ?? "Não foi possível enviar o email.");
+    }
   };
 
   return (
@@ -130,7 +161,7 @@ export default function LoginScreen() {
             </Pressable>
           </View>
 
-          <Text style={styles.footer}>NETPLAY v1.0 — Catálogo Premium</Text>
+          <Text style={styles.footer}>NETPLAY v1.1 — Catálogo Premium</Text>
         </ScrollView>
       </KeyboardAvoidingView>
     </View>
