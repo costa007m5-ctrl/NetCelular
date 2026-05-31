@@ -413,54 +413,64 @@ export default function NovidadesScreen() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      /* Step 1: use IDs from the shared catalog cache (refreshed every hour) */
       const movieIds  = byType.movie  ?? [];
       const tvIds     = byType.tv     ?? [];
       const animeIds  = byType.anime  ?? [];
       const doramaIds = byType.dorama ?? [];
 
-      /* If catalog not loaded yet, fall back to API */
-      const [mIds, tIds, aIds, dIds] = movieIds.length > 0
-        ? [movieIds, tvIds, animeIds, doramaIds]
-        : await Promise.all([
-            api.redeflix.listIds("movie"),
-            api.redeflix.listIds("tv"),
-            api.redeflix.listIds("anime"),
-            api.redeflix.listIds("dorama"),
-          ]);
+      if (movieIds.length > 0) {
+        /* Catalog loaded — fetch TMDB details from IDs */
+        const mSlice = movieIds.slice(0, BATCH);
+        const tSlice = tvIds.slice(0, BATCH);
+        const aSlice = animeIds.slice(0, BATCH);
+        const dSlice = doramaIds.slice(0, BATCH);
 
-      /* Step 2: take first BATCH from each and fetch TMDB details in parallel */
-      const mSlice = mIds.slice(0, BATCH);
-      const tSlice = tIds.slice(0, BATCH);
-      const aSlice = aIds.slice(0, BATCH);
-      const dSlice = dIds.slice(0, BATCH);
+        const tvIdSet    = new Set(tvIds.slice(0, 200).map(String));
+        const movieIdSet = new Set(movieIds.slice(0, 200).map(String));
 
-      const tvIdSet    = new Set(tIds.slice(0, 200).map(String));
-      const movieIdSet = new Set(mIds.slice(0, 200).map(String));
+        const inferType = (id: number, fallback: "tv" | "movie"): "movie" | "tv" => {
+          if (tvIdSet.has(String(id))) return "tv";
+          if (movieIdSet.has(String(id))) return "movie";
+          return fallback;
+        };
 
-      const inferType = (id: number, fallback: "tv" | "movie"): "movie" | "tv" => {
-        if (tvIdSet.has(String(id))) return "tv";
-        if (movieIdSet.has(String(id))) return "movie";
-        return fallback;
-      };
+        const [mResults, tResults, aResults, dResults] = await Promise.all([
+          Promise.all(mSlice.map((id) => api.tmdb.movie(id).catch(() => null))),
+          Promise.all(tSlice.map((id) => api.tmdb.tv(id).catch(() => null))),
+          Promise.all(aSlice.map((id) => {
+            const t = inferType(id, "tv");
+            return (t === "tv" ? api.tmdb.tv(id) : api.tmdb.movie(id)).catch(() => null);
+          })),
+          Promise.all(dSlice.map((id) => {
+            const t = inferType(id, "tv");
+            return (t === "tv" ? api.tmdb.tv(id) : api.tmdb.movie(id)).catch(() => null);
+          })),
+        ]);
 
-      const [mResults, tResults, aResults, dResults] = await Promise.all([
-        Promise.all(mSlice.map((id) => api.tmdb.movie(id).catch(() => null))),
-        Promise.all(tSlice.map((id) => api.tmdb.tv(id).catch(() => null))),
-        Promise.all(aSlice.map((id) => {
-          const t = inferType(id, "tv");
-          return (t === "tv" ? api.tmdb.tv(id) : api.tmdb.movie(id)).catch(() => null);
-        })),
-        Promise.all(dSlice.map((id) => {
-          const t = inferType(id, "tv");
-          return (t === "tv" ? api.tmdb.tv(id) : api.tmdb.movie(id)).catch(() => null);
-        })),
-      ]);
+        setMovies(mResults.filter(Boolean) as TmdbItem[]);
+        setSeries(tResults.filter(Boolean) as any[]);
+        setAnimes(aResults.filter(Boolean) as TmdbItem[]);
+        setDoramas(dResults.filter(Boolean) as TmdbItem[]);
+      } else {
+        /* Fallback: catalog not available — use TMDB popular/trending directly */
+        const [popularMovies, popularTv, trending] = await Promise.all([
+          api.tmdb.popularMovies().catch(() => [] as TmdbItem[]),
+          api.tmdb.popularTv().catch(() => [] as TmdbItem[]),
+          api.tmdb.trending().catch(() => ({ all: [] as TmdbItem[], movies: [] as TmdbItem[], tv: [] as TmdbItem[] })),
+        ]);
 
-      setMovies(mResults.filter(Boolean) as TmdbItem[]);
-      setSeries(tResults.filter(Boolean) as any[]);
-      setAnimes(aResults.filter(Boolean) as TmdbItem[]);
-      setDoramas(dResults.filter(Boolean) as TmdbItem[]);
+        setMovies((popularMovies.length > 0 ? popularMovies : trending.movies).slice(0, BATCH));
+        setSeries((popularTv.length > 0 ? popularTv : trending.tv).slice(0, BATCH) as any[]);
+        /* Animes/doramas: filter trending by original_language */
+        const animeItems = trending.all
+          .filter((it) => it.original_language === "ja")
+          .slice(0, BATCH);
+        const doramaItems = trending.all
+          .filter((it) => it.original_language === "ko")
+          .slice(0, BATCH);
+        setAnimes(animeItems);
+        setDoramas(doramaItems);
+      }
     } catch {
     } finally {
       setLoading(false);

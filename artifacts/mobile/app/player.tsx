@@ -52,6 +52,7 @@ try {
 
 const SCREEN = Dimensions.get("screen");
 
+
 const PIP_JS = `
 (function(){
   function tryPip(el) {
@@ -201,6 +202,7 @@ export default function PlayerScreen() {
   const [pipEnabled, setPipEnabled] = useState(false);
   const [pipActive, setPipActive] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isLandscape, setIsLandscape] = useState(false);
   const webviewRef = useRef<any>(null);
 
   const [controlsVisible, setControlsVisible] = useState(true);
@@ -219,14 +221,8 @@ export default function PlayerScreen() {
     if (Platform.OS === "web" || !ScreenOrientation) return;
     navigatingToEpisodeRef.current = false;
     try {
-      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE_LEFT);
+      ScreenOrientation.unlockAsync();
     } catch {}
-    if (Platform.OS === "android" && NavBar) {
-      try {
-        NavBar.setVisibilityAsync("hidden");
-        NavBar.setBehaviorAsync("overlay-swipe");
-      } catch {}
-    }
 
     return () => {
       if (!navigatingToEpisodeRef.current) {
@@ -237,6 +233,26 @@ export default function PlayerScreen() {
       }
     };
   }, []);
+
+  const toggleOrientation = useCallback(async () => {
+    if (!ScreenOrientation) return;
+    const next = !isLandscape;
+    setIsLandscape(next);
+    try {
+      if (next) {
+        await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE_LEFT);
+        if (Platform.OS === "android" && NavBar) {
+          NavBar.setVisibilityAsync("hidden");
+          NavBar.setBehaviorAsync("overlay-swipe");
+        }
+      } else {
+        await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
+        if (Platform.OS === "android" && NavBar) {
+          NavBar.setVisibilityAsync("visible");
+        }
+      }
+    } catch {}
+  }, [isLandscape]);
 
   const toggleFullscreen = useCallback(() => {
     const next = !isFullscreen;
@@ -546,13 +562,18 @@ export default function PlayerScreen() {
             {title ? (
               <Text style={styles.playerTitle} numberOfLines={1}>{title}</Text>
             ) : null}
-            {pipEnabled ? (
-              <Pressable onPress={triggerPiP} style={[styles.iconBtn, pipActive && styles.iconBtnActive]}>
-                <Feather name="minimize-2" size={19} color={pipActive ? "#e50914" : "rgba(255,255,255,0.9)"} />
-              </Pressable>
-            ) : (
-              <View style={{ width: 40 }} />
-            )}
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              {Platform.OS !== "web" && ScreenOrientation && (
+                <Pressable onPress={toggleOrientation} style={[styles.iconBtn, isLandscape && styles.iconBtnActive]}>
+                  <Feather name="rotate-cw" size={18} color={isLandscape ? "#e50914" : "rgba(255,255,255,0.9)"} />
+                </Pressable>
+              )}
+              {pipEnabled ? (
+                <Pressable onPress={triggerPiP} style={[styles.iconBtn, pipActive && styles.iconBtnActive]}>
+                  <Feather name="minimize-2" size={19} color={pipActive ? "#e50914" : "rgba(255,255,255,0.9)"} />
+                </Pressable>
+              ) : null}
+            </View>
           </Animated.View>
 
           {type === "tv" && !isLive && (
@@ -746,14 +767,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#000",
-    width: SCREEN.width,
-    height: SCREEN.height,
   },
   webview: {
     flex: 1,
     backgroundColor: "#000",
-    width: SCREEN.width,
-    height: SCREEN.height,
   },
   playerHeader: {
     position: "absolute",
