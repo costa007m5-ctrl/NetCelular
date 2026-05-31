@@ -285,25 +285,27 @@ export default function HomeScreen() {
 
   const loadData = useCallback(async () => {
     try {
-      const data = await api.tmdb.trending();
-      const all    = data.all.map(tmdbItemToContent).filter((c) => isAvailable(c.tmdbId));
-      const movies = data.movies.map(tmdbItemToContent).filter((c) => isAvailable(c.tmdbId));
-      const tv     = data.tv.map(tmdbItemToContent).filter((c) => isAvailable(c.tmdbId));
+      // Step 1: try TMDB trending filtered by catalog
+      try {
+        const data = await api.tmdb.trending();
+        const all    = data.all.map(tmdbItemToContent).filter((c) => isAvailable(c.tmdbId));
+        const movies = data.movies.map(tmdbItemToContent).filter((c) => isAvailable(c.tmdbId));
+        const tv     = data.tv.map(tmdbItemToContent).filter((c) => isAvailable(c.tmdbId));
 
-      if (all.length >= 4) {
-        setHeroItems(all.slice(0, 3));
-        setTrendingItems(all.slice(0, 8));
-        if (movies.length > 0 || tv.length > 0)
-          setTop10([...movies.slice(0, 3), ...tv.slice(0, 2)]);
-        return;
-      }
-    } catch {}
+        if (all.length >= 4) {
+          setHeroItems(all.slice(0, 3));
+          setTrendingItems(all.slice(0, 8));
+          if (movies.length > 0 || tv.length > 0)
+            setTop10([...movies.slice(0, 3), ...tv.slice(0, 2)]);
+          return;
+        }
+      } catch {}
 
-    // Fallback: populate from catalog IDs directly
-    try {
-      const { byType: catalogByType } = { byType };
-      const movieIds = (catalogByType.movie ?? []).slice(0, 20);
-      const tvIds    = (catalogByType.tv    ?? []).slice(0, 20);
+      // Step 2: fallback — build home from catalog IDs
+      const movieIds = (byType.movie ?? []).slice(0, 20);
+      const tvIds    = (byType.tv    ?? []).slice(0, 20);
+
+      if (movieIds.length === 0 && tvIds.length === 0) return;
 
       const [movieResults, tvResults] = await Promise.all([
         Promise.all(movieIds.slice(0, 10).map((id) => api.tmdb.movie(id).catch(() => null))),
@@ -335,7 +337,7 @@ export default function HomeScreen() {
         setTop10([...validMovies.slice(0, 3), ...validTv.slice(0, 2)]);
       }
     } catch (err) {
-      console.log("Catalog fallback error:", err);
+      console.log("loadData error:", err);
     } finally {
       setLoading(false);
       setRefreshing(false);

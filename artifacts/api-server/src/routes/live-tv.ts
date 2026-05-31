@@ -1,7 +1,7 @@
 import { Router } from "express";
 
 const router = Router();
-const EMBEDTV_BASE = "http://embedtv.lat/api";
+const EMBEDTV_BASE = "https://embedtv.lat/api";
 
 let channelsCache: { data: any; ts: number } | null = null;
 let epgsCache: { data: any; ts: number } | null = null;
