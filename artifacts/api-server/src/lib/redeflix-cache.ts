@@ -1,9 +1,14 @@
+import { notifyNewContent } from "./push-notifications.js";
+
 const LISTS: Record<string, string> = {
   movie:  "https://redeflixapi.store/list-movie-ids.txt",
   tv:     "https://redeflixapi.store/list-tv-ids.txt",
   anime:  "https://redeflixapi.store/list-anime-ids.txt",
   dorama: "https://redeflixapi.store/list-dorama-ids.txt",
 };
+
+const TMDB_KEY = "8f0beb08cf016ec8de49e454e09879ec";
+const TMDB_BASE = "https://api.themoviedb.org/3";
 
 export type ContentType = "movie" | "tv" | "anime" | "dorama";
 
@@ -23,6 +28,8 @@ let snapshot: CatalogSnapshot = {
   newSinceLastCheck: [],
 };
 
+let isFirstLoad = true;
+
 function parseIds(txt: string): number[] {
   return txt
     .split("\n")
@@ -37,6 +44,24 @@ async function fetchList(type: ContentType): Promise<number[]> {
     return parseIds(await res.text());
   } catch {
     return [];
+  }
+}
+
+async function fetchSampleTitle(newIds: number[], movieIds: Set<number>, tvIds: Set<number>): Promise<string | null> {
+  const id = newIds[0];
+  if (!id) return null;
+  try {
+    const type = tvIds.has(id) ? "tv" : "movie";
+    const url =
+      type === "tv"
+        ? `${TMDB_BASE}/tv/${id}?api_key=${TMDB_KEY}&language=pt-BR`
+        : `${TMDB_BASE}/movie/${id}?api_key=${TMDB_KEY}&language=pt-BR`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = (await res.json()) as { title?: string; name?: string };
+    return data.title ?? data.name ?? null;
+  } catch {
+    return null;
   }
 }
 
@@ -66,6 +91,14 @@ async function refresh(): Promise<void> {
   console.log(
     `[redeflix-cache] refreshed — movie:${movie.length} tv:${tv.length} anime:${anime.length} dorama:${dorama.length} | new:${newSinceLastCheck.length}`
   );
+
+  if (!isFirstLoad && newSinceLastCheck.length > 0) {
+    const movieSet = new Set(movie);
+    const tvSet    = new Set(tv);
+    const sampleTitle = await fetchSampleTitle(newSinceLastCheck, movieSet, tvSet);
+    notifyNewContent(newSinceLastCheck.length, sampleTitle).catch(() => {});
+  }
+  isFirstLoad = false;
 }
 
 export function getCatalog(): Omit<CatalogSnapshot, "allIds"> & { allIds: number[] } {

@@ -40,6 +40,10 @@ function NotificationHandler() {
       sub = Notifications.addNotificationResponseReceivedListener((response: any) => {
         try {
           const data = response?.notification?.request?.content?.data;
+          if (data?.type === "new_content") {
+            router.push("/(tabs)/novidades");
+            return;
+          }
           const tmdbId = data?.tmdbId;
           const type = data?.type;
           const title = data?.title ?? "";
