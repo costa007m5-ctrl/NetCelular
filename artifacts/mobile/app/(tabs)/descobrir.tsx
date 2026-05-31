@@ -327,7 +327,7 @@ function HeroBanner({ items }: { items: any[] }) {
 export default function DescobrirScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { isAvailable } = useCatalog();
+  const { isAvailable, byType } = useCatalog();
   const [trending, setTrending] = useState<any[]>([]);
   const [heroBanners, setHeroBanners] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -341,19 +341,38 @@ export default function DescobrirScreen() {
       fetch(`https://api.themoviedb.org/3/movie/now_playing?api_key=${TMDB_KEY}&language=pt-BR&page=1`)
         .then((r) => r.json()),
     ])
-      .then(([trendData, nowData]) => {
+      .then(async ([trendData, nowData]) => {
         const trendItems = (trendData.results ?? [])
-          .filter((m: any) => isAvailable(m.id))
-          .slice(0, 10);
-        setTrending(trendItems);
+          .filter((m: any) => isAvailable(m.id));
         const bannerItems = (nowData.results ?? [])
-          .filter((m: any) => m.backdrop_path && isAvailable(m.id))
-          .slice(0, 6);
-        setHeroBanners(bannerItems);
+          .filter((m: any) => m.backdrop_path && isAvailable(m.id));
+
+        if (trendItems.length >= 4) {
+          setTrending(trendItems.slice(0, 10));
+          setHeroBanners(bannerItems.slice(0, 6));
+          return;
+        }
+
+        // Fallback: use catalog IDs
+        const movieIds = (byType.movie ?? []).slice(0, 10);
+        const tvIds    = (byType.tv    ?? []).slice(0, 10);
+        const [movieRes, tvRes] = await Promise.all([
+          Promise.all(movieIds.map((id: number) =>
+            fetch(`https://api.themoviedb.org/3/movie/${id}?api_key=${TMDB_KEY}&language=pt-BR`)
+              .then((r) => r.ok ? r.json() : null).catch(() => null)
+          )),
+          Promise.all(tvIds.map((id: number) =>
+            fetch(`https://api.themoviedb.org/3/tv/${id}?api_key=${TMDB_KEY}&language=pt-BR`)
+              .then((r) => r.ok ? r.json() : null).catch(() => null)
+          )),
+        ]);
+        const combined = [...(movieRes.filter(Boolean)), ...(tvRes.filter(Boolean))];
+        setTrending(combined.slice(0, 10));
+        setHeroBanners(combined.filter((m: any) => m.backdrop_path).slice(0, 6));
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [isAvailable]);
+  }, [isAvailable, byType]);
 
   const handleMood = (genre: string, type: string, label: string) => {
     router.push({ pathname: "/genre-browse", params: { genre_id: genre, type, title: label } });

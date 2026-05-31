@@ -78,6 +78,7 @@ function RootNavigator() {
         <Stack.Screen name="onboarding/preferences" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="detail" options={{ headerShown: false }} />
+        <Stack.Screen name="catalog-list" options={{ headerShown: false }} />
         <Stack.Screen name="channel-detail" options={{ headerShown: false }} />
         <Stack.Screen name="player" options={{ headerShown: false, presentation: "fullScreenModal" }} />
         <Stack.Screen name="admin" options={{ headerShown: false }} />

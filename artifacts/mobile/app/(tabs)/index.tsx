@@ -150,7 +150,7 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user } = useAuth();
-  const { isAvailable } = useCatalog();
+  const { isAvailable, byType } = useCatalog();
   const isWeb = Platform.OS === "web";
   const topPad = isWeb ? 0 : insets.top;
 
@@ -290,17 +290,57 @@ export default function HomeScreen() {
       const movies = data.movies.map(tmdbItemToContent).filter((c) => isAvailable(c.tmdbId));
       const tv     = data.tv.map(tmdbItemToContent).filter((c) => isAvailable(c.tmdbId));
 
-      if (all.length > 0)    setHeroItems(all.slice(0, 3));
-      if (all.length > 0)    setTrendingItems(all.slice(0, 8));
-      if (movies.length > 0 || tv.length > 0)
-        setTop10([...movies.slice(0, 3), ...tv.slice(0, 2)]);
+      if (all.length >= 4) {
+        setHeroItems(all.slice(0, 3));
+        setTrendingItems(all.slice(0, 8));
+        if (movies.length > 0 || tv.length > 0)
+          setTop10([...movies.slice(0, 3), ...tv.slice(0, 2)]);
+        return;
+      }
+    } catch {}
+
+    // Fallback: populate from catalog IDs directly
+    try {
+      const { byType: catalogByType } = { byType };
+      const movieIds = (catalogByType.movie ?? []).slice(0, 20);
+      const tvIds    = (catalogByType.tv    ?? []).slice(0, 20);
+
+      const [movieResults, tvResults] = await Promise.all([
+        Promise.all(movieIds.slice(0, 10).map((id) => api.tmdb.movie(id).catch(() => null))),
+        Promise.all(tvIds.slice(0, 10).map((id) => api.tmdb.tv(id).catch(() => null))),
+      ]);
+
+      const toContent = (item: any, type: "movie" | "tv"): ContentItem => ({
+        id: String(item.id),
+        tmdbId: item.id,
+        title: item.title ?? item.name ?? "",
+        year: parseInt((item.release_date ?? item.first_air_date ?? "2024").slice(0, 4)) || 2024,
+        rating: item.vote_average ?? 0,
+        posterPath: item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : "",
+        backdropPath: item.backdrop_path ? `https://image.tmdb.org/t/p/w780${item.backdrop_path}` : "",
+        description: item.overview ?? "",
+        genres: item.genre_ids ?? [],
+        type: type === "movie" ? "movie" : "series",
+        mediaType: type,
+      });
+
+      const validMovies = movieResults.filter(Boolean).map((i) => toContent(i, "movie"));
+      const validTv     = tvResults.filter(Boolean).map((i) => toContent(i, "tv"));
+      const combined    = [...validMovies.slice(0, 5), ...validTv.slice(0, 5)];
+
+      if (combined.length > 0) {
+        const heroPool = combined.filter((c) => c.backdropPath);
+        setHeroItems(heroPool.slice(0, 3).length > 0 ? heroPool.slice(0, 3) : combined.slice(0, 3));
+        setTrendingItems(combined.slice(0, 10));
+        setTop10([...validMovies.slice(0, 3), ...validTv.slice(0, 2)]);
+      }
     } catch (err) {
-      console.log("Using mock data:", err);
+      console.log("Catalog fallback error:", err);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [isAvailable]);
+  }, [isAvailable, byType]);
 
   useEffect(() => {
     loadData();

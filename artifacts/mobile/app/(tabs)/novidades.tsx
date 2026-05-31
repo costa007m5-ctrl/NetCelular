@@ -564,7 +564,7 @@ export default function NovidadesScreen() {
                 title="🎬 Novos Filmes"
                 icon="film"
                 accent={RED}
-                onSeeAll={() => router.push({ pathname: "/genre-browse", params: { type: "movie", title: "Novos Filmes" } } as any)}
+                onSeeAll={() => router.push({ pathname: "/catalog-list", params: { catalog_type: "movie", title: "Novos Filmes" } } as any)}
               />
               <FlatList
                 data={movies}
@@ -586,7 +586,7 @@ export default function NovidadesScreen() {
                 title="📺 Novas Séries"
                 icon="tv"
                 accent="#8b5cf6"
-                onSeeAll={() => router.push({ pathname: "/genre-browse", params: { type: "tv", title: "Novas Séries" } } as any)}
+                onSeeAll={() => router.push({ pathname: "/catalog-list", params: { catalog_type: "tv", title: "Novas Séries" } } as any)}
               />
               <FlatList
                 data={series}
@@ -621,7 +621,12 @@ export default function NovidadesScreen() {
           {/* ── Animes ── */}
           {showAnimes && animes.length > 0 && (
             <View style={st.section}>
-              <SectionHeader title="🎌 Animes" icon="zap" accent="#f97316" />
+              <SectionHeader
+                title="🎌 Animes"
+                icon="zap"
+                accent="#f97316"
+                onSeeAll={() => router.push({ pathname: "/catalog-list", params: { catalog_type: "anime", title: "Animes" } } as any)}
+              />
               <FlatList
                 data={animes}
                 keyExtractor={(it) => `a-${it.id}`}
@@ -638,7 +643,12 @@ export default function NovidadesScreen() {
           {/* ── Doramas ── */}
           {showDoramas && doramas.length > 0 && (
             <View style={st.section}>
-              <SectionHeader title="🌸 Doramas" icon="heart" accent="#ec4899" />
+              <SectionHeader
+                title="🌸 Doramas"
+                icon="heart"
+                accent="#ec4899"
+                onSeeAll={() => router.push({ pathname: "/catalog-list", params: { catalog_type: "dorama", title: "Doramas" } } as any)}
+              />
               <FlatList
                 data={doramas}
                 keyExtractor={(it) => `d-${it.id}`}

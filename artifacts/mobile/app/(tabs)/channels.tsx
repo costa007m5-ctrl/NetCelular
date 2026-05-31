@@ -122,7 +122,6 @@ export default function ChannelsScreen() {
   }, [heroChannels.length]);
 
   const goToDetail = (ch: LiveChannel) => {
-    if (!ch.url && isOffline) return;
     const epg = epgMap[ch.id];
     router.push({
       pathname: "/channel-detail",
