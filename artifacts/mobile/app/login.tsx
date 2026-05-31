@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -31,31 +32,42 @@ export default function LoginScreen() {
 
   const handleSubmit = async () => {
     setError("");
-    if (!email.trim() || !password.trim()) { setError("Preencha todos os campos"); return; }
+    const emailTrimmed = email.trim();
+    const passwordTrimmed = password.trim();
+
+    if (!emailTrimmed || !passwordTrimmed) { setError("Preencha todos os campos"); return; }
     if (mode === "register" && !name.trim()) { setError("Informe seu nome"); return; }
-    if (password.length < 6) { setError("Senha deve ter no mínimo 6 caracteres"); return; }
+    if (passwordTrimmed.length < 6) { setError("Senha deve ter no mínimo 6 caracteres"); return; }
 
     setLoading(true);
     try {
-      const ph = await hashPassword(password);
+      const ph = await hashPassword(passwordTrimmed);
+      const simplePh = simpleHashPassword(passwordTrimmed);
 
       if (mode === "register") {
-        const result = await db.users.register(email, name, ph);
+        const result = await db.users.register(emailTrimmed, name, ph);
         if ("error" in result && result.error) { setError(result.error); return; }
         await setUser(result as any);
       } else {
-        const fallbackPh = simpleHashPassword(password);
-        const result = await db.users.login(email, ph, ph !== fallbackPh ? fallbackPh : undefined);
+        const result = await db.users.login(emailTrimmed, ph, simplePh);
         if ("error" in result && result.error) { setError(result.error); return; }
         await setUser(result as any);
       }
 
       router.replace("/profile-select");
     } catch (e: any) {
-      setError(e?.message ?? "Erro ao conectar");
+      setError(e?.message ?? "Erro ao conectar. Verifique sua conexão.");
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleForgotPassword = () => {
+    Alert.alert(
+      "Esqueceu a senha?",
+      "Para redefinir sua senha, entre em contato com o suporte pelo email: suporte@netplay.app\n\nOu acesse o menu Perfil > Alterar Senha caso já esteja logado.",
+      [{ text: "OK" }]
+    );
   };
 
   return (
@@ -104,6 +116,12 @@ export default function LoginScreen() {
               {loading ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.submitText}>{mode === "login" ? "ENTRAR" : "CRIAR CONTA"}</Text>}
             </Pressable>
 
+            {mode === "login" && (
+              <Pressable style={styles.forgotBtn} onPress={handleForgotPassword}>
+                <Text style={styles.forgotText}>Esqueceu a senha?</Text>
+              </Pressable>
+            )}
+
             <Pressable style={styles.switchMode} onPress={() => { setMode((m) => (m === "login" ? "register" : "login")); setError(""); }}>
               <Text style={styles.switchText}>
                 {mode === "login" ? "Não tem conta? " : "Já tem conta? "}
@@ -137,6 +155,8 @@ const styles = StyleSheet.create({
   errorText: { color: "#e50914", fontSize: 13, flex: 1 },
   submitBtn: { backgroundColor: "#e50914", borderRadius: 12, height: 52, alignItems: "center", justifyContent: "center", marginTop: 4 },
   submitText: { color: "#fff", fontSize: 15, fontWeight: "700", letterSpacing: 1 },
+  forgotBtn: { alignItems: "center", paddingVertical: 2 },
+  forgotText: { color: "#e50914", fontSize: 13, fontWeight: "500" },
   switchMode: { alignItems: "center", paddingVertical: 4 },
   switchText: { color: "#666", fontSize: 14 },
   switchLink: { color: "#e50914", fontWeight: "600" },

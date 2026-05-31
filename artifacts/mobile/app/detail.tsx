@@ -306,8 +306,14 @@ export default function DetailScreen() {
 
   const handleShare = async () => {
     if (!details) return;
+    const contentTitle = details.title ?? details.name ?? title;
+    const tmdbType = type === "tv" ? "tv" : "movie";
+    const tmdbUrl = `https://www.themoviedb.org/${tmdbType}/${tmdbId}`;
+    const year = (details.release_date ?? details.first_air_date ?? "").slice(0, 4);
+    const yearStr = year ? ` (${year})` : "";
+    const msg = `🎬 ${contentTitle}${yearStr}\n\nAssista no NETPLAY!\n${tmdbUrl}`;
     try {
-      await Share.share({ message: `Assista "${details.title ?? details.name}" no NETPLAY!` });
+      await Share.share({ message: msg, url: tmdbUrl, title: contentTitle });
     } catch {}
   };
 

@@ -24,8 +24,7 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useColors } from "@/hooks/useColors";
-import { useAuth } from "@/lib/auth-context";
-import { hashPassword } from "@/lib/auth-context";
+import { useAuth, hashPassword, simpleHashPassword } from "@/lib/auth-context";
 import { db, isSupabaseConfigured, type DbUserSettings } from "@/lib/supabase";
 import { useTheme } from "@/lib/theme-context";
 import {
@@ -361,13 +360,14 @@ export default function ProfileScreen() {
 
   const handleChangePassword = async () => {
     if (!newPw || !currentPw || !user?.id) return;
-    if (newPw.length < 6) { Alert.alert("Erro", "A nova senha deve ter pelo menos 6 caracteres."); return; }
+    if (newPw.trim().length < 6) { Alert.alert("Erro", "A nova senha deve ter pelo menos 6 caracteres."); return; }
     if (newPw !== confirmPw) { Alert.alert("Erro", "As senhas não coincidem."); return; }
     setSavingPw(true);
-    const currentHash = await hashPassword(currentPw);
-    const valid = await db.users.verifyPassword(user.id, currentHash);
+    const currentHash = await hashPassword(currentPw.trim());
+    const currentSimple = simpleHashPassword(currentPw.trim());
+    const valid = await db.users.verifyPassword(user.id, currentHash, currentSimple);
     if (!valid) { Alert.alert("Erro", "Senha atual incorreta."); setSavingPw(false); return; }
-    const newHash = await hashPassword(newPw);
+    const newHash = await hashPassword(newPw.trim());
     const { error } = await db.users.updatePassword(user.id, newHash);
     if (error) { Alert.alert("Erro", error); } else {
       Alert.alert("Sucesso", "Senha alterada com sucesso!");

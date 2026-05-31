@@ -113,23 +113,36 @@ export const db = {
 
     login: async (email: string, passwordHash: string, fallbackHash?: string) => {
       const emailLower = email.toLowerCase().trim();
-      let { data, error } = await supabase.from("users").select("*").eq("email", emailLower).eq("password_hash", passwordHash).maybeSingle();
-      if ((error || !data) && fallbackHash) {
-        const res = await supabase.from("users").select("*").eq("email", emailLower).eq("password_hash", fallbackHash).maybeSingle();
-        if (!res.error && res.data) {
-          data = res.data;
-          error = null;
-          await supabase.from("users").update({ password_hash: passwordHash }).eq("id", res.data.id);
-        }
+
+      const { data: userData, error: userError } = await supabase
+        .from("users")
+        .select("*")
+        .eq("email", emailLower)
+        .maybeSingle();
+
+      if (userError || !userData) return { error: "Email ou senha incorretos" };
+
+      const stored = userData.password_hash as string;
+      const hashesToTry = [passwordHash];
+      if (fallbackHash && fallbackHash !== passwordHash) hashesToTry.push(fallbackHash);
+
+      const matched = hashesToTry.find((h) => h === stored);
+
+      if (!matched) return { error: "Email ou senha incorretos" };
+
+      if (matched !== passwordHash) {
+        try {
+          await supabase.from("users").update({ password_hash: passwordHash }).eq("id", userData.id);
+        } catch {}
       }
-      if (error || !data) return { error: "Email ou senha incorretos" };
+
       return {
-        id: data.id,
-        email: data.email,
-        name: data.name,
-        role: data.role,
-        avatarLetter: data.avatar_letter,
-        profileBanner: data.profile_banner ?? null,
+        id: userData.id,
+        email: userData.email,
+        name: userData.name,
+        role: userData.role,
+        avatarLetter: userData.avatar_letter,
+        profileBanner: userData.profile_banner ?? null,
       };
     },
 
@@ -160,9 +173,11 @@ export const db = {
       return error ? { error: error.message } : {};
     },
 
-    verifyPassword: async (id: string, passwordHash: string): Promise<boolean> => {
-      const { data } = await supabase.from("users").select("id").eq("id", id).eq("password_hash", passwordHash).maybeSingle();
-      return !!data;
+    verifyPassword: async (id: string, passwordHash: string, fallbackHash?: string): Promise<boolean> => {
+      const { data } = await supabase.from("users").select("password_hash").eq("id", id).maybeSingle();
+      if (!data) return false;
+      const stored = data.password_hash as string;
+      return stored === passwordHash || (!!fallbackHash && stored === fallbackHash);
     },
 
     countAll: async (): Promise<number> => {

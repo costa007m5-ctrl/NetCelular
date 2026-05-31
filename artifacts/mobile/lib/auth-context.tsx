@@ -62,23 +62,9 @@ export function useAuth() {
   return useContext(AuthContext);
 }
 
-export async function hashPassword(password: string): Promise<string> {
-  const salt = "netplay_salt_2024_v1";
-  const msg = password + salt;
-  if (typeof crypto !== "undefined" && crypto.subtle) {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(msg);
-    const buf = await crypto.subtle.digest("SHA-256", data);
-    return Array.from(new Uint8Array(buf))
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
-  }
-  return simpleHashPassword(password);
-}
-
 export function simpleHashPassword(password: string): string {
   const salt = "netplay_salt_2024_v1";
-  const msg = password + salt;
+  const msg = password.trim() + salt;
   let hash = 0;
   for (let i = 0; i < msg.length; i++) {
     hash = (hash << 5) - hash + msg.charCodeAt(i);
@@ -86,3 +72,28 @@ export function simpleHashPassword(password: string): string {
   }
   return Math.abs(hash).toString(16).padStart(8, "0");
 }
+
+export async function hashPassword(password: string): Promise<string> {
+  const salt = "netplay_salt_2024_v1";
+  const msg = password.trim() + salt;
+  try {
+    const hasCrypto =
+      typeof crypto !== "undefined" &&
+      crypto != null &&
+      typeof crypto.subtle !== "undefined" &&
+      crypto.subtle != null;
+    const hasTextEncoder =
+      typeof TextEncoder !== "undefined" && TextEncoder != null;
+
+    if (hasCrypto && hasTextEncoder) {
+      const encoder = new TextEncoder();
+      const data = encoder.encode(msg);
+      const buf = await crypto.subtle.digest("SHA-256", data);
+      return Array.from(new Uint8Array(buf))
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+    }
+  } catch {}
+  return simpleHashPassword(password);
+}
+
