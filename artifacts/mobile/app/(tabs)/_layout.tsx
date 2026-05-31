@@ -44,6 +44,7 @@ function ClassicTabLayout() {
   const insets = useSafeAreaInsets();
   const isIOS = Platform.OS === "ios";
   const isWeb = Platform.OS === "web";
+  const isAndroid = Platform.OS === "android";
 
   const bottomInset = isWeb ? 34 : Math.max(insets.bottom, 4) + 8;
   const tabBarHeight = 64;
@@ -78,6 +79,18 @@ function ClassicTabLayout() {
               <View style={[StyleSheet.absoluteFill, { borderRadius: 32, backgroundColor: "rgba(10,10,10,0.97)" }]} />
             )}
             <View style={[styles.tabBorder, { borderRadius: 32 }]} />
+            {isAndroid && (
+              <View
+                style={{
+                  position: "absolute",
+                  bottom: -(bottomInset),
+                  left: -18,
+                  right: -18,
+                  height: bottomInset + 4,
+                  backgroundColor: "#000",
+                }}
+              />
+            )}
           </View>
         ),
         tabBarLabelStyle: {

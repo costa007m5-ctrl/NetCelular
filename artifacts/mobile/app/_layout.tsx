@@ -9,8 +9,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import * as SystemUI from "expo-system-ui";
+import * as NavigationBar from "expo-navigation-bar";
 import React, { useEffect, useState } from "react";
-import { View } from "react-native";
+import { Platform, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -22,6 +23,10 @@ import { ThemeProvider } from "@/lib/theme-context";
 import { requestPermissionsAndSetup, scheduleNewContentNotification } from "@/lib/notifications";
 
 SystemUI.setBackgroundColorAsync("#000000");
+if (Platform.OS === "android") {
+  NavigationBar.setBackgroundColorAsync("#000000");
+  NavigationBar.setButtonStyleAsync("light");
+}
 SplashScreen.preventAutoHideAsync();
 
 const queryClient = new QueryClient();

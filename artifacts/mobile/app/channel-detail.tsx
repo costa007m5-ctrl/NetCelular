@@ -216,15 +216,16 @@ export default function ChannelDetailScreen() {
               allowsInlineMediaPlayback
               javaScriptEnabled
               domStorageEnabled
+              mixedContentMode="always"
               injectedJavaScript={AD_BLOCKER_JS}
               onShouldStartLoadWithRequest={(req: any) => {
                 const url: string = req.url || "";
-                const allowed =
-                  url.includes("embedtv") ||
-                  url.includes("faz-o-eli") ||
-                  url.includes("about:blank") ||
-                  url.startsWith("blob:");
-                return allowed;
+                const blocked =
+                  url.includes("googlesyndication") ||
+                  url.includes("doubleclick.net") ||
+                  url.includes("adservice.google") ||
+                  url.includes("pagead2.googlesyndication");
+                return !blocked;
               }}
             />
             {/* Fullscreen button */}

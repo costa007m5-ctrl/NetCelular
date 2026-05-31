@@ -34,7 +34,12 @@
         "NOTIFICATIONS",
         "RECEIVE_BOOT_COMPLETED",
         "VIBRATE"
-      ]
+      ],
+      "navigationBar": {
+        "backgroundColor": "#000000",
+        "barStyle": "light-content"
+      },
+      "softwareKeyboardLayoutMode": "pan"
     },
     "notification": {
       "icon": "./assets/images/icon.png",
