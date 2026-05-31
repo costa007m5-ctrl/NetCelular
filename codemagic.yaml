@@ -17,13 +17,13 @@ workflows:
         script: npm install -g pnpm --force
 
       - name: Instalar dependências do workspace
-        script: pnpm install --frozen-lockfile
+        script: pnpm install --no-frozen-lockfile
         working_directory: .
 
       - name: Instalar dependências do app mobile
         script: |
           cd artifacts/mobile
-          npm install
+          npm install --legacy-peer-deps
 
       - name: Configurar variáveis de ambiente do Expo
         script: |
@@ -36,7 +36,7 @@ workflows:
         script: |
           cd artifacts/mobile
           npx expo prebuild --clean --platform android --no-install
-          npm install
+          npm install --legacy-peer-deps
 
       - name: Configurar keystore de assinatura
         script: |
@@ -89,12 +89,13 @@ workflows:
         script: npm install -g pnpm --force
 
       - name: Instalar dependências do workspace
-        script: pnpm install --frozen-lockfile
+        script: pnpm install --no-frozen-lockfile
+        working_directory: .
 
       - name: Instalar dependências do app mobile
         script: |
           cd artifacts/mobile
-          npm install
+          npm install --legacy-peer-deps
 
       - name: Configurar variáveis de ambiente do Expo
         script: |
@@ -107,7 +108,7 @@ workflows:
         script: |
           cd artifacts/mobile
           npx expo prebuild --clean --platform ios --no-install
-          npm install
+          npm install --legacy-peer-deps
 
       - name: Instalar pods
         script: |
