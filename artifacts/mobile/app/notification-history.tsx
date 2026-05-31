@@ -8,10 +8,12 @@ import {
   Text,
   View,
 } from "react-native";
+import { Image } from "expo-image";
 import { StatusBar } from "expo-status-bar";
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { LinearGradient } from "expo-linear-gradient";
 import { useColors } from "@/hooks/useColors";
 import {
   getNotificationHistory,
@@ -30,31 +32,51 @@ function formatDate(iso: string): string {
     const diffMin = Math.floor(diffMs / 60000);
     const diffH = Math.floor(diffMin / 60);
     const diffD = Math.floor(diffH / 24);
-
     if (diffMin < 1) return "Agora mesmo";
     if (diffMin < 60) return `Há ${diffMin} min`;
     if (diffH < 24) return `Há ${diffH}h`;
     if (diffD === 1) return "Ontem";
     if (diffD < 7) return `Há ${diffD} dias`;
-
-    return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" });
+    return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
   } catch {
     return "";
   }
 }
 
-function getNotifIcon(data?: Record<string, unknown>): string {
-  if (!data) return "bell";
-  if (data.type === "new_content") return "zap";
-  if (data.tmdbId) return "film";
-  return "bell";
-}
+type NotifMeta = {
+  icon: string;
+  accent: string;
+  label: string;
+  canNavigate: boolean;
+};
 
-function getNotifAccent(data?: Record<string, unknown>): string {
-  if (!data) return RED;
-  if (data.type === "new_content") return "#f59e0b";
-  if (data.tmdbId) return "#3b82f6";
-  return RED;
+function getNotifMeta(item: NotifHistoryItem): NotifMeta {
+  const data = item.data ?? {};
+  const notifType = String(data.type ?? "");
+  const contentType = String(data.contentType ?? "");
+  const tmdbId = data.tmdbId;
+
+  const hasContent =
+    !!tmdbId &&
+    (contentType === "movie" || contentType === "tv" ||
+      notifType === "movie" || notifType === "tv");
+
+  if (notifType === "continue_watching") {
+    return { icon: "play-circle", accent: "#f59e0b", label: "Continue assistindo", canNavigate: hasContent };
+  }
+  if (hasContent || notifType === "movie" || notifType === "tv") {
+    return { icon: "film", accent: "#3b82f6", label: notifType === "tv" || contentType === "tv" ? "Série" : "Filme", canNavigate: true };
+  }
+  if (notifType === "new_content" || notifType === "weekly_digest") {
+    return { icon: "zap", accent: "#10b981", label: "Novidades", canNavigate: true };
+  }
+  if (notifType === "plan_expiry") {
+    return { icon: "calendar", accent: "#ef4444", label: "Plano", canNavigate: true };
+  }
+  if (notifType === "guest_upgrade") {
+    return { icon: "star", accent: "#8b5cf6", label: "Plano", canNavigate: true };
+  }
+  return { icon: "bell", accent: RED, label: "NETPLAY", canNavigate: false };
 }
 
 export default function NotificationHistoryScreen() {
@@ -94,11 +116,48 @@ export default function NotificationHistoryScreen() {
     );
   };
 
+  const handleItemPress = (item: NotifHistoryItem) => {
+    const data = item.data ?? {};
+    const notifType = String(data.type ?? "");
+    const contentType = String(data.contentType ?? "");
+    const tmdbId = data.tmdbId ? Number(data.tmdbId) : null;
+    const title = String(data.title ?? item.title ?? "");
+
+    const resolvedContentType =
+      contentType === "movie" || contentType === "tv"
+        ? contentType
+        : notifType === "movie" || notifType === "tv"
+        ? notifType
+        : null;
+
+    if (tmdbId && resolvedContentType) {
+      router.push({
+        pathname: "/detail",
+        params: { type: resolvedContentType, id: String(tmdbId), title },
+      });
+      return;
+    }
+    if (notifType === "continue_watching" && tmdbId && resolvedContentType) {
+      router.push({
+        pathname: "/detail",
+        params: { type: resolvedContentType, id: String(tmdbId), title },
+      });
+      return;
+    }
+    if (notifType === "new_content" || notifType === "weekly_digest") {
+      router.push("/(tabs)/novidades");
+      return;
+    }
+    if (notifType === "plan_expiry" || notifType === "guest_upgrade") {
+      router.push("/(tabs)/profile");
+      return;
+    }
+  };
+
   return (
     <View style={[s.root, { backgroundColor: colors.background }]}>
       <StatusBar style="light" />
 
-      {/* Header */}
       <View style={[s.header, { paddingTop: topPad + 8, backgroundColor: colors.background, borderBottomColor: colors.border }]}>
         <Pressable onPress={() => router.back()} style={s.backBtn} hitSlop={12}>
           <Feather name="arrow-left" size={22} color={colors.foreground} />
@@ -115,7 +174,7 @@ export default function NotificationHistoryScreen() {
 
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ paddingBottom: insets.bottom + 32, paddingTop: 8 }}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 32, paddingTop: 12 }}
         showsVerticalScrollIndicator={false}
       >
         {loading ? (
@@ -136,36 +195,70 @@ export default function NotificationHistoryScreen() {
             </Text>
           </View>
         ) : (
-          <View style={[s.list, { borderColor: colors.border }]}>
+          <View style={s.listWrap}>
             {history.map((item, idx) => {
-              const accent = getNotifAccent(item.data);
-              const icon = getNotifIcon(item.data);
+              const meta = getNotifMeta(item);
               const isLast = idx === history.length - 1;
+              const posterUrl = item.imageUrl ?? (item.data?.posterUrl as string | undefined);
+
               return (
-                <View
+                <Pressable
                   key={item.id}
-                  style={[
-                    s.item,
-                    { backgroundColor: colors.card, borderBottomColor: isLast ? "transparent" : colors.border },
+                  onPress={() => handleItemPress(item)}
+                  style={({ pressed }) => [
+                    s.card,
+                    {
+                      backgroundColor: colors.card,
+                      borderColor: colors.border,
+                      marginBottom: isLast ? 0 : 10,
+                      opacity: pressed ? 0.85 : 1,
+                    },
                   ]}
                 >
-                  <View style={[s.iconWrap, { backgroundColor: accent + "18" }]}>
-                    <Feather name={icon as any} size={18} color={accent} />
-                  </View>
-                  <View style={s.itemBody}>
-                    <View style={s.itemTop}>
-                      <Text style={[s.itemTitle, { color: colors.foreground }]} numberOfLines={1}>
-                        {item.title}
-                      </Text>
-                      <Text style={[s.itemTime, { color: colors.mutedForeground }]}>
+                  {/* Poster / thumbnail */}
+                  {posterUrl ? (
+                    <View style={s.posterWrap}>
+                      <Image
+                        source={{ uri: posterUrl }}
+                        style={s.poster}
+                        contentFit="cover"
+                      />
+                      <LinearGradient
+                        colors={["transparent", "rgba(0,0,0,0.55)"]}
+                        style={StyleSheet.absoluteFillObject}
+                      />
+                    </View>
+                  ) : (
+                    <View style={[s.posterWrap, { backgroundColor: meta.accent + "18", alignItems: "center", justifyContent: "center" }]}>
+                      <Feather name={meta.icon as any} size={22} color={meta.accent} />
+                    </View>
+                  )}
+
+                  {/* Content */}
+                  <View style={s.cardBody}>
+                    <View style={s.cardTop}>
+                      <View style={[s.typeBadge, { backgroundColor: meta.accent + "20", borderColor: meta.accent + "40" }]}>
+                        <Text style={[s.typeTxt, { color: meta.accent }]}>{meta.label}</Text>
+                      </View>
+                      <Text style={[s.timeText, { color: colors.mutedForeground }]}>
                         {formatDate(item.receivedAt)}
                       </Text>
                     </View>
-                    <Text style={[s.itemBody2, { color: colors.mutedForeground }]} numberOfLines={2}>
+                    <Text style={[s.cardTitle, { color: colors.foreground }]} numberOfLines={1}>
+                      {item.title}
+                    </Text>
+                    <Text style={[s.cardBody2, { color: colors.mutedForeground }]} numberOfLines={2}>
                       {item.body}
                     </Text>
                   </View>
-                </View>
+
+                  {/* Arrow if navigable */}
+                  {meta.canNavigate && (
+                    <View style={s.arrowWrap}>
+                      <Feather name="chevron-right" size={16} color={colors.mutedForeground} />
+                    </View>
+                  )}
+                </Pressable>
               );
             })}
           </View>
@@ -197,19 +290,34 @@ const s = StyleSheet.create({
   emptyIcon: { width: 72, height: 72, borderRadius: 36, alignItems: "center", justifyContent: "center" },
   emptyTitle: { fontSize: 17, fontWeight: "600", marginTop: 4 },
   emptyTxt: { fontSize: 14, textAlign: "center", lineHeight: 20 },
-  list: { marginHorizontal: 16, borderRadius: 16, overflow: "hidden", borderWidth: StyleSheet.hairlineWidth },
-  item: {
+  listWrap: { paddingHorizontal: 16 },
+  card: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    padding: 14,
+    alignItems: "center",
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: "hidden",
     gap: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  iconWrap: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", flexShrink: 0 },
-  itemBody: { flex: 1, gap: 4 },
-  itemTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
-  itemTitle: { fontSize: 14, fontWeight: "600", flex: 1 },
-  itemTime: { fontSize: 11, flexShrink: 0 },
-  itemBody2: { fontSize: 13, lineHeight: 18 },
+  posterWrap: {
+    width: 72,
+    height: 90,
+    flexShrink: 0,
+    overflow: "hidden",
+  },
+  poster: {
+    width: "100%",
+    height: "100%",
+  },
+  cardBody: { flex: 1, paddingVertical: 12, paddingRight: 4, gap: 4 },
+  cardTop: { flexDirection: "row", alignItems: "center", gap: 8 },
+  typeBadge: {
+    borderRadius: 6, borderWidth: 1, paddingHorizontal: 7, paddingVertical: 2,
+  },
+  typeTxt: { fontSize: 10, fontWeight: "700", letterSpacing: 0.5 },
+  timeText: { fontSize: 11, marginLeft: "auto" },
+  cardTitle: { fontSize: 13, fontWeight: "700", lineHeight: 18 },
+  cardBody2: { fontSize: 12, lineHeight: 17 },
+  arrowWrap: { paddingRight: 12, paddingLeft: 4 },
   count: { textAlign: "center", fontSize: 12, marginTop: 16 },
 });

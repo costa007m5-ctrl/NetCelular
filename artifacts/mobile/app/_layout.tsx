@@ -32,6 +32,49 @@ const queryClient = new QueryClient();
 function NotificationHandler() {
   const router = useRouter();
 
+  /* Resolve the destination from notification data and navigate */
+  const handleNotificationData = React.useCallback((data: any) => {
+    if (!data) return;
+    try {
+      // Resolve the content type: may come as `contentType` (new) or `type` (legacy) when it's movie/tv
+      const contentType: string =
+        data.contentType ?? (data.type === "movie" || data.type === "tv" ? data.type : null);
+      const tmdbId: number | null = data.tmdbId ? Number(data.tmdbId) : null;
+      const title: string = data.title ?? "";
+      const notifCategory: string = data.type ?? "";
+
+      // 1. Content deep-link: any notification that carries a real tmdbId + content type
+      if (tmdbId && (contentType === "movie" || contentType === "tv")) {
+        router.push({
+          pathname: "/detail",
+          params: { type: contentType, id: String(tmdbId), title },
+        });
+        return;
+      }
+
+      // 2. Continue watching: has tmdbId/contentType embedded
+      if (notifCategory === "continue_watching" && tmdbId && contentType) {
+        router.push({
+          pathname: "/detail",
+          params: { type: contentType, id: String(tmdbId), title },
+        });
+        return;
+      }
+
+      // 3. New content / weekly digest → Novidades tab
+      if (notifCategory === "new_content" || notifCategory === "weekly_digest") {
+        router.push("/(tabs)/novidades");
+        return;
+      }
+
+      // 4. Plan / guest upgrade → Profile tab
+      if (notifCategory === "plan_expiry" || notifCategory === "guest_upgrade") {
+        router.push("/(tabs)/profile");
+        return;
+      }
+    } catch {}
+  }, [router]);
+
   useEffect(() => {
     if (Platform.OS === "web") return;
     let receivedSub: any;
@@ -39,7 +82,17 @@ function NotificationHandler() {
     try {
       const Notifications = require("expo-notifications");
 
-      // Save foreground notifications to history
+      // ── Cold-start: app was closed, opened via notification tap ──
+      Notifications.getLastNotificationResponseAsync().then((response: any) => {
+        if (response) {
+          // Small delay to ensure the navigator is mounted
+          setTimeout(() => {
+            handleNotificationData(response?.notification?.request?.content?.data);
+          }, 500);
+        }
+      }).catch(() => {});
+
+      // ── Foreground: save notification to history ──
       receivedSub = Notifications.addNotificationReceivedListener((notification: any) => {
         try {
           const content = notification?.request?.content;
@@ -47,6 +100,7 @@ function NotificationHandler() {
             saveNotificationToHistory({
               title: content.title,
               body: content.body ?? "",
+              imageUrl: content.attachments?.[0]?.url,
               receivedAt: new Date().toISOString(),
               data: content.data ?? {},
             }).catch(() => {});
@@ -54,23 +108,10 @@ function NotificationHandler() {
         } catch {}
       });
 
-      // Handle tap navigation
+      // ── Background/foreground tap: navigate to content ──
       responseSub = Notifications.addNotificationResponseReceivedListener((response: any) => {
         try {
-          const data = response?.notification?.request?.content?.data;
-          if (data?.type === "new_content") {
-            router.push("/(tabs)/novidades");
-            return;
-          }
-          const tmdbId = data?.tmdbId;
-          const type = data?.type;
-          const title = data?.title ?? "";
-          if (tmdbId && type) {
-            router.push({
-              pathname: "/detail",
-              params: { type, id: String(tmdbId), title },
-            });
-          }
+          handleNotificationData(response?.notification?.request?.content?.data);
         } catch {}
       });
     } catch {}
@@ -78,7 +119,7 @@ function NotificationHandler() {
       try { receivedSub?.remove?.(); } catch {}
       try { responseSub?.remove?.(); } catch {}
     };
-  }, [router]);
+  }, [router, handleNotificationData]);
 
   return null;
 }

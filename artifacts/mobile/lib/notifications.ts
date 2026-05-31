@@ -188,6 +188,8 @@ export async function sendContentAddedNotification(contentTitle: string, posterU
 
 export async function scheduleContinueWatchingReminder(
   contentTitle: string,
+  tmdbId?: number,
+  mediaType?: "movie" | "tv",
   posterUrl?: string
 ): Promise<void> {
   if (Platform.OS === "web") return;
@@ -198,7 +200,12 @@ export async function scheduleContinueWatchingReminder(
       title: "⏸ Conteúdo aguardando você",
       body: `"${contentTitle}" está pausado. Continue de onde parou!`,
       sound: true,
-      data: { type: "continue_watching", title: contentTitle },
+      data: {
+        type: "continue_watching",
+        tmdbId: tmdbId ?? null,
+        contentType: mediaType ?? null,
+        title: contentTitle,
+      },
     };
     if (posterUrl) {
       content.attachments = [{ url: posterUrl, identifier: "poster" }];

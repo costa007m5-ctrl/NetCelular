@@ -390,10 +390,12 @@ export default function PlayerScreen() {
   /* ── Continue-watching 15-min background reminder ── */
   useEffect(() => {
     if (Platform.OS === "web") return;
+    const mediaType = (type === "tv" ? "tv" : "movie") as "movie" | "tv";
+    const tmdbId = id > 0 ? id : undefined;
     const posterUrl = posterPath ? TMDB_IMG(posterPath, "w500") ?? undefined : undefined;
     const sub = AppState.addEventListener("change", (appState) => {
       if (appState === "background") {
-        scheduleContinueWatchingReminder(title || "Conteúdo", posterUrl).catch(() => {});
+        scheduleContinueWatchingReminder(title || "Conteúdo", tmdbId, mediaType, posterUrl).catch(() => {});
       } else if (appState === "active") {
         cancelContinueWatchingReminder().catch(() => {});
       }
@@ -402,7 +404,7 @@ export default function PlayerScreen() {
       sub.remove();
       cancelContinueWatchingReminder().catch(() => {});
     };
-  }, [title, posterPath]);
+  }, [title, posterPath, id, type]);
 
   const playerUrl = isLive && streamUrl ? streamUrl : api.redeflix.url(type as "movie" | "tv", id, season, episode);
   const topPad = Platform.OS === "web" ? 0 : insets.top;
