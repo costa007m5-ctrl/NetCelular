@@ -3,6 +3,61 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { db } from "@/lib/supabase";
 
 const NOTIF_KEY = "netplay_notif_enabled";
+const HISTORY_KEY = "netplay_notif_history";
+const UNREAD_KEY = "netplay_notif_unread";
+const MAX_HISTORY = 50;
+
+export type NotifHistoryItem = {
+  id: string;
+  title: string;
+  body: string;
+  receivedAt: string;
+  data?: Record<string, unknown>;
+};
+
+export async function saveNotificationToHistory(item: Omit<NotifHistoryItem, "id">): Promise<void> {
+  try {
+    const raw = await AsyncStorage.getItem(HISTORY_KEY);
+    const current: NotifHistoryItem[] = raw ? JSON.parse(raw) : [];
+    const newItem: NotifHistoryItem = { ...item, id: `${Date.now()}-${Math.random()}` };
+    const updated = [newItem, ...current].slice(0, MAX_HISTORY);
+    await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(updated));
+    const unreadRaw = await AsyncStorage.getItem(UNREAD_KEY);
+    const unread = parseInt(unreadRaw ?? "0", 10);
+    await AsyncStorage.setItem(UNREAD_KEY, String(unread + 1));
+  } catch {}
+}
+
+export async function getNotificationHistory(): Promise<NotifHistoryItem[]> {
+  try {
+    const raw = await AsyncStorage.getItem(HISTORY_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function clearNotificationHistory(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(HISTORY_KEY);
+    await AsyncStorage.setItem(UNREAD_KEY, "0");
+  } catch {}
+}
+
+export async function getUnreadCount(): Promise<number> {
+  try {
+    const raw = await AsyncStorage.getItem(UNREAD_KEY);
+    return parseInt(raw ?? "0", 10);
+  } catch {
+    return 0;
+  }
+}
+
+export async function markNotificationsRead(): Promise<void> {
+  try {
+    await AsyncStorage.setItem(UNREAD_KEY, "0");
+  } catch {}
+}
 
 export async function getNotificationsEnabled(): Promise<boolean> {
   try {

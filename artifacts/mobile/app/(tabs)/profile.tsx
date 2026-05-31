@@ -768,6 +768,10 @@ export default function ProfileScreen() {
             onToggle={handleNotifToggle}
           />
           <Row
+            icon="clock" label="Histórico de Notificações"
+            onPress={() => router.push("/notification-history")}
+          />
+          <Row
             icon="film" label="Novos Lançamentos"
             toggle toggleValue={settings.notifLancamentos}
             onToggle={(v) => updateLocalSetting("notifLancamentos", v)}

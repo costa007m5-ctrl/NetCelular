@@ -21,7 +21,7 @@ import NetplaySplash from "@/components/NetplaySplash";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { ThemeProvider } from "@/lib/theme-context";
 import { CatalogProvider } from "@/lib/catalog-context";
-import { requestPermissionsAndSetup, scheduleNewContentNotification } from "@/lib/notifications";
+import { requestPermissionsAndSetup, scheduleNewContentNotification, saveNotificationToHistory } from "@/lib/notifications";
 import { supabase } from "@/lib/supabase";
 
 SystemUI.setBackgroundColorAsync("#000000");
@@ -34,10 +34,28 @@ function NotificationHandler() {
 
   useEffect(() => {
     if (Platform.OS === "web") return;
-    let sub: any;
+    let receivedSub: any;
+    let responseSub: any;
     try {
       const Notifications = require("expo-notifications");
-      sub = Notifications.addNotificationResponseReceivedListener((response: any) => {
+
+      // Save foreground notifications to history
+      receivedSub = Notifications.addNotificationReceivedListener((notification: any) => {
+        try {
+          const content = notification?.request?.content;
+          if (content?.title) {
+            saveNotificationToHistory({
+              title: content.title,
+              body: content.body ?? "",
+              receivedAt: new Date().toISOString(),
+              data: content.data ?? {},
+            }).catch(() => {});
+          }
+        } catch {}
+      });
+
+      // Handle tap navigation
+      responseSub = Notifications.addNotificationResponseReceivedListener((response: any) => {
         try {
           const data = response?.notification?.request?.content?.data;
           if (data?.type === "new_content") {
@@ -56,7 +74,10 @@ function NotificationHandler() {
         } catch {}
       });
     } catch {}
-    return () => { try { sub?.remove?.(); } catch {} };
+    return () => {
+      try { receivedSub?.remove?.(); } catch {}
+      try { responseSub?.remove?.(); } catch {}
+    };
   }, [router]);
 
   return null;
@@ -86,6 +107,7 @@ function RootNavigator() {
         <Stack.Screen name="channel-detail" options={{ headerShown: false }} />
         <Stack.Screen name="player" options={{ headerShown: false, presentation: "fullScreenModal" }} />
         <Stack.Screen name="admin" options={{ headerShown: false }} />
+        <Stack.Screen name="notification-history" options={{ headerShown: false }} />
         <Stack.Screen name="+not-found" />
       </Stack>
     </>
