@@ -34,104 +34,102 @@ try {
   ScreenOrientation = null;
 }
 
+/* ── Injected BEFORE any page script runs ── */
 const BEFORE_LOAD_JS = `
 (function(){
-  window.open = function(){ return null; };
+  /* 1. Kill all popup / new-window mechanisms */
+  window.open = function(){ return {focus:function(){},close:function(){},document:{write:function(){}}}; };
   window.alert = function(){};
   window.confirm = function(){ return false; };
-  Object.defineProperty(window, 'onbeforeunload', { set: function(){} });
+  window.prompt  = function(){ return null; };
+  Object.defineProperty(window,'onbeforeunload',{set:function(){},get:function(){return null;}});
+
+  /* 2. Freeze location navigation APIs so page JS cannot redirect */
+  try { location.assign  = function(){}; } catch(e){}
+  try { location.replace = function(){}; } catch(e){}
+
+  /* 3. Intercept location.href setter — block cross-origin navigation */
+  try {
+    var __orig = location.origin || (location.protocol+'//'+location.host);
+    var __desc = Object.getOwnPropertyDescriptor(Location.prototype,'href');
+    if (__desc && __desc.set) {
+      Object.defineProperty(Location.prototype,'href',{
+        get: __desc.get,
+        set: function(v){
+          try{ if(new URL(v,location.href).origin !== __orig) return; }catch(e){}
+          __desc.set.call(this,v);
+        },
+        configurable:true,
+      });
+    }
+  } catch(e){}
+
+  /* 4. Kill meta-refresh tags */
+  var _origCreate = document.createElement.bind(document);
+  document.createElement = function(tag){
+    var el = _origCreate(tag);
+    if(tag && tag.toLowerCase()==='meta'){
+      var _set = Object.getOwnPropertyDescriptor(Element.prototype,'setAttribute');
+      if(_set){ el.setAttribute = function(k,v){ if(k.toLowerCase()==='http-equiv'&&String(v).toLowerCase()==='refresh') return; _set.value.call(this,k,v); }; }
+    }
+    return el;
+  };
 })(); true;
 `;
 
+/* ── Injected AFTER page loads ── */
 const AD_BLOCKER_JS = `
 (function() {
-  window.open = function() { return null; };
-  window.alert = function() {};
-  window.confirm = function() { return false; };
-  try { history.pushState = function() {}; } catch(e) {}
-  try { history.replaceState = function() {}; } catch(e) {}
+  window.open = function(){ return {focus:function(){},close:function(){}}; };
+  window.alert = function(){};
+  window.confirm = function(){ return false; };
+  try { location.assign  = function(){}; } catch(e){}
+  try { location.replace = function(){}; } catch(e){}
 
   var BLOCKED_DOMAINS = [
-    'googlesyndication','doubleclick','adservice.google',
-    'pagead2','adnxs','taboola','outbrain','popads',
-    'popcash','propellerads','adsterra','mgid','revcontent'
+    'googlesyndication','doubleclick','adservice.google','pagead2',
+    'adnxs','taboola','outbrain','popads','popcash','propellerads',
+    'adsterra','mgid','revcontent','exoclick','trafficjunky',
+    'juicyads','hilltopads','adcash','bidvertiser','clickadu',
   ];
+  function isBlocked(src){ return src && BLOCKED_DOMAINS.some(function(d){ return src.indexOf(d)!==-1; }); }
 
-  function isDomainBlocked(src) {
-    if (!src) return false;
-    return BLOCKED_DOMAINS.some(function(d){ return src.indexOf(d) !== -1; });
-  }
-
-  function isAllowedSrc(src) {
-    if (!src || src === 'about:blank') return true;
-    if (isDomainBlocked(src)) return false;
-    return true;
-  }
-
-  function removeAds() {
-    try {
-      document.querySelectorAll('iframe').forEach(function(el) {
-        if (!isAllowedSrc(el.src)) el.remove();
-      });
-    } catch(e) {}
-
-    try {
-      document.querySelectorAll('a[target="_blank"],a[onclick]').forEach(function(el) {
-        el.removeAttribute('href');
-        el.removeAttribute('onclick');
-        el.removeAttribute('target');
-        el.addEventListener('click', function(e) { e.preventDefault(); e.stopPropagation(); return false; }, true);
-      });
-    } catch(e) {}
-
-    var adSelectors = [
-      '[id*="google_ads"],[id*="aswift"],[class*="overlay-ad"]',
-      '[class*="ad-container"],[id*="ad-container"],[id*="ad_container"]',
-      'iframe[src*="googlesyndication"],iframe[src*="doubleclick"]',
-      '#preroll-ads,.preroll,[class*="preroll"]',
-      '[class*="popup"],[id*="popup"],[class*="modal-ad"]',
-      '[class*="interstitial"],[id*="interstitial"]',
-      'ins.adsbygoogle',
-    ];
-    adSelectors.forEach(function(sel) {
-      try { document.querySelectorAll(sel).forEach(function(el) { el.remove(); }); } catch(e) {}
-    });
-
-    try {
-      document.querySelectorAll('div,section,aside').forEach(function(el) {
-        var z = parseInt(window.getComputedStyle(el).zIndex) || 0;
-        if (z > 100) {
-          var hasVideo = el.querySelector('video');
-          if (!hasVideo) {
-            var r = el.getBoundingClientRect();
-            if (r.width > window.innerWidth * 0.45 && r.height > 60) {
-              el.style.display = 'none';
-            }
-          }
+  /* Remove known ad elements */
+  function removeAds(){
+    try{ document.querySelectorAll('iframe').forEach(function(el){ if(isBlocked(el.src)) el.remove(); }); }catch(e){}
+    try{ document.querySelectorAll('ins.adsbygoogle,[id*="google_ads"],[id*="aswift"],[class*="overlay-ad"],[class*="ad-container"],[id*="ad-container"],[id*="ad_container"],#preroll-ads,.preroll,[class*="preroll"],[class*="popup"],[id*="popup"],[class*="modal-ad"],[class*="interstitial"],[id*="interstitial"]').forEach(function(el){ el.remove(); }); }catch(e){}
+    /* Kill high-z-index overlays that are not video */
+    try{
+      document.querySelectorAll('div,section,aside,article').forEach(function(el){
+        var z=parseInt(window.getComputedStyle(el).zIndex)||0;
+        if(z>100 && !el.querySelector('video')){
+          var r=el.getBoundingClientRect();
+          if(r.width>window.innerWidth*0.4 && r.height>50){ el.style.display='none'; }
         }
       });
-    } catch(e) {}
+    }catch(e){}
+    /* Style video/iframe fullscreen */
+    try{ document.querySelectorAll('video').forEach(function(v){ v.style.cssText='width:100%!important;height:100%!important;object-fit:contain!important;'; }); }catch(e){}
+  }
 
-    try {
-      document.querySelectorAll('video').forEach(function(v) {
-        v.style.setProperty('width','100%','important');
-        v.style.setProperty('height','100%','important');
-        v.style.setProperty('object-fit','contain','important');
+  /* Neutralise all outbound links */
+  function killLinks(){
+    try{
+      document.querySelectorAll('a').forEach(function(el){
+        try{ var h=el.getAttribute('href')||''; if(h && h!=='#' && h.indexOf('javascript')===0) el.removeAttribute('href'); }catch(e){}
+        el.removeAttribute('target');
+        el.removeAttribute('onclick');
       });
-    } catch(e) {}
+    }catch(e){}
   }
 
   var style = document.createElement('style');
-  style.textContent = [
-    'html,body{margin:0!important;padding:0!important;overflow:hidden!important;background:#000!important;}',
-    'video{width:100%!important;height:100%!important;object-fit:contain!important;}',
-    'iframe{width:100%!important;height:100%!important;border:none!important;}',
-  ].join('');
-  try { document.head.appendChild(style); } catch(e) {}
+  style.textContent='html,body{margin:0!important;padding:0!important;overflow:hidden!important;background:#000!important;}video{width:100%!important;height:100%!important;object-fit:contain!important;}iframe{width:100%!important;height:100%!important;border:none!important;}';
+  try{ document.head.appendChild(style); }catch(e){}
 
-  removeAds();
-  setInterval(removeAds, 800);
-  try { new MutationObserver(removeAds).observe(document.documentElement, { childList: true, subtree: true }); } catch(e) {}
+  removeAds(); killLinks();
+  setInterval(function(){ removeAds(); killLinks(); }, 700);
+  try{ new MutationObserver(function(){ removeAds(); killLinks(); }).observe(document.documentElement,{childList:true,subtree:true}); }catch(e){}
 })();
 true;
 `;
@@ -199,6 +197,11 @@ export default function ChannelDetailScreen() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [favorited, setFavorited] = useState(false);
+
+  /* Track when initial page load completes so we can lock down top-frame navigation after that */
+  const initialLoadedRef = useRef(false);
+  /* Track resolved URL after redirects so same-domain check uses the final domain */
+  const resolvedUrlRef = useRef(channelUrl);
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const slideAnim = useRef(new Animated.Value(50)).current;
@@ -325,29 +328,38 @@ export default function ChannelDetailScreen() {
               scalesPageToFit={false}
               injectedJavaScriptBeforeContentLoaded={BEFORE_LOAD_JS}
               injectedJavaScript={AD_BLOCKER_JS}
+              onLoadStart={() => { initialLoadedRef.current = false; }}
+              onLoadEnd={() => { initialLoadedRef.current = true; }}
+              onNavigationStateChange={(state: any) => {
+                /* Track resolved URL after any initial redirects */
+                if (state.url && state.url !== "about:blank") {
+                  resolvedUrlRef.current = state.url;
+                }
+              }}
               onShouldStartLoadWithRequest={(req: any) => {
                 const url: string = req.url || "";
                 const isTopFrame: boolean = req.isTopFrame ?? true;
 
-                const BLOCKED = [
-                  "googlesyndication","doubleclick.net","adservice.google",
-                  "pagead2.googlesyndication","adnxs.com","taboola.com",
-                  "popads.net","popcash.net","propellerads.com","adsterra.com",
-                  "mgid.com","revcontent.com","outbrain.com","exoclick.com",
-                  "trafficjunky.com","juicyads.com","hilltopads.net",
-                ];
-                if (BLOCKED.some((d) => url.includes(d))) return false;
+                /* Sub-frames (iframes carrying the actual video) are always allowed */
+                if (!isTopFrame) return true;
 
-                /* Block top-frame redirects to different domains (ad popunders) */
-                if (isTopFrame && url !== channelUrl && url !== "about:blank") {
-                  try {
-                    const origHost = new URL(channelUrl).hostname;
-                    const navHost = new URL(url).hostname;
-                    /* Allow same origin and HLS/video CDN sub-paths */
-                    if (navHost !== origHost) return false;
-                  } catch {
-                    /* if URL parse fails, allow it */
-                  }
+                /* Always allow about:blank */
+                if (url === "about:blank") return true;
+
+                /* During initial load — allow everything (channel may redirect through CDN) */
+                if (!initialLoadedRef.current) return true;
+
+                /* ── After initial page loaded: block ALL top-frame cross-domain navigation ── */
+                try {
+                  const resolvedHost = new URL(resolvedUrlRef.current).hostname;
+                  const navHost = new URL(url).hostname;
+                  /* Allow same hostname and subdomains of the same root domain */
+                  const rootResolved = resolvedHost.split(".").slice(-2).join(".");
+                  const rootNav = navHost.split(".").slice(-2).join(".");
+                  if (rootNav !== rootResolved) return false;
+                } catch {
+                  /* If URL parsing fails, block to be safe */
+                  return false;
                 }
 
                 return true;
