@@ -553,7 +553,7 @@ export default function AdminScreen() {
                     const key = `${req.type}_${req.tmdb_id}`;
                     const isAdded = req.status === "added";
                     const isLoading = addingContent === key;
-                    const posterUri = req.poster_path ? TMDB_IMG(req.poster_path, "w185") : null;
+                    const posterUri = req.poster_path ? TMDB_IMG(req.poster_path, "w500") : null;
                     return (
                       <View key={key} style={[styles.requestCard, { backgroundColor: colors.card, borderColor: isAdded ? "#4caf5040" : colors.border }]}>
                         {posterUri ? (
