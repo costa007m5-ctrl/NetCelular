@@ -25,7 +25,8 @@
     },
     "android": {
       "package": "com.netplay.app",
-      "versionCode": 2,
+      "versionCode": 3,
+      "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#000000"
@@ -33,7 +34,9 @@
       "permissions": [
         "NOTIFICATIONS",
         "RECEIVE_BOOT_COMPLETED",
-        "VIBRATE"
+        "VIBRATE",
+        "INTERNET",
+        "ACCESS_NETWORK_STATE"
       ],
       "navigationBar": {
         "backgroundColor": "#000000",
