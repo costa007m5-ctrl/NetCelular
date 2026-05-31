@@ -291,12 +291,16 @@ function RelatedCard({ franchiseId, onPress }: { franchiseId: string; onPress: (
 export default function FranchiseScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const params = useLocalSearchParams<{ id: string }>();
-  const franchise = getFranchise(params.id ?? "");
+  const params = useLocalSearchParams<{ id: string; name?: string }>();
+  const rawId = params.id ?? "";
+  const isTmdbCollection = rawId.startsWith("tmdb_collection_");
+  const tmdbColId = isTmdbCollection ? Number(rawId.replace("tmdb_collection_", "")) : null;
+  const franchise = isTmdbCollection ? null : getFranchise(rawId);
   const isWeb = Platform.OS === "web";
   const topPad = isWeb ? 0 : insets.top;
   const { isFavorite, toggle } = useFavorites();
 
+  const [dynamicName, setDynamicName] = useState<string>(params.name ?? "");
   const [backdropUrl, setBackdropUrl] = useState<string | null>(null);
   const [movies, setMovies] = useState<ContentItem[]>([]);
   const [series, setSeries] = useState<ContentItem[]>([]);
@@ -312,31 +316,36 @@ export default function FranchiseScreen() {
 
   // ── Fetch backdrop image ──────────────────────────────────────
   useEffect(() => {
-    if (!franchise) return;
     const load = async () => {
       try {
         let path: string | null = null;
-        if (franchise.fetchType === "collection" && franchise.tmdbCollectionId) {
-          const d = await api.tmdb.collection(franchise.tmdbCollectionId);
+        if (isTmdbCollection && tmdbColId) {
+          const d = await api.tmdb.collection(tmdbColId);
           path = d.backdrop_path;
-        } else if (franchise.tmdbTvId) {
-          const d = await (api.tmdb.tv(franchise.tmdbTvId) as Promise<any>);
-          path = d.backdrop_path ?? null;
-        } else {
-          const q = franchise.searchQuery ?? franchise.name;
-          const type = franchise.category === "anime" ? "tv" : "movie";
-          const d = await api.tmdb.search(q, type as any);
-          path = d.results[0]?.backdrop_path ?? null;
+          if (d.name && !dynamicName) setDynamicName(d.name);
+        } else if (franchise) {
+          if (franchise.fetchType === "collection" && franchise.tmdbCollectionId) {
+            const d = await api.tmdb.collection(franchise.tmdbCollectionId);
+            path = d.backdrop_path;
+          } else if (franchise.tmdbTvId) {
+            const d = await (api.tmdb.tv(franchise.tmdbTvId) as Promise<any>);
+            path = d.backdrop_path ?? null;
+          } else {
+            const q = franchise.searchQuery ?? franchise.name;
+            const type = franchise.category === "anime" ? "tv" : "movie";
+            const d = await api.tmdb.search(q, type as any);
+            path = d.results[0]?.backdrop_path ?? null;
+          }
         }
         if (path) setBackdropUrl(TMDB_IMG(path, "w1280") ?? null);
       } catch {}
     };
     load();
-  }, [franchise?.id]);
+  }, [rawId]);
 
   // ── Fetch content ─────────────────────────────────────────────
   useEffect(() => {
-    if (!franchise) return;
+    if (!franchise && !isTmdbCollection) return;
     setLoading(true);
     setMovies([]);
     setSeries([]);
@@ -344,6 +353,18 @@ export default function FranchiseScreen() {
     const load = async () => {
       try {
         let allItems: ContentItem[] = [];
+
+        // Dynamic TMDB collection (from search)
+        if (isTmdbCollection && tmdbColId) {
+          const d = await api.tmdb.collection(tmdbColId);
+          if (d.name) setDynamicName(d.name);
+          allItems = (d.parts ?? []).map((p: any) => tmdbItemToContent({ ...p, media_type: "movie" }));
+          allItems.sort((a, b) => b.rating - a.rating);
+          setMovies(allItems.filter((i) => i.type === "movie"));
+          setSeries(allItems.filter((i) => i.type === "series"));
+          setLoading(false);
+          return;
+        }
 
         // Helper: fetch a list of TMDB collection IDs and return movie ContentItems
         const fetchCollections = async (ids: number[]): Promise<ContentItem[]> => {
@@ -433,7 +454,7 @@ export default function FranchiseScreen() {
     });
   };
 
-  if (!franchise) {
+  if (!franchise && !isTmdbCollection) {
     return (
       <View style={{ flex: 1, backgroundColor: "#000", alignItems: "center", justifyContent: "center" }}>
         <Text style={{ color: "#666" }}>Franquia não encontrada</Text>
@@ -441,8 +462,27 @@ export default function FranchiseScreen() {
     );
   }
 
+  // For dynamic TMDB collections, create a minimal placeholder franchise object for rendering
+  const dynamicFranchise = isTmdbCollection ? {
+    id: rawId,
+    name: dynamicName || "Coleção TMDB",
+    shortName: dynamicName || "Coleção",
+    tagline: "Coleção do TMDB",
+    description: "",
+    color: "#01b4e4",
+    accentColor: "#01d4ff",
+    bgGradient: ["#001520", "#002030", "#001018"] as [string, string, string],
+    category: "filmes" as const,
+    genre: "acao" as const,
+    fetchType: "collection" as const,
+    yearRange: "",
+    contentCount: movies.length + series.length,
+    totalHours: 0,
+    related: [],
+  } : franchise!;
+
   const allItems = [...movies, ...series];
-  const hasCronologia = !!franchise.chronologicalContent;
+  const hasCronologia = !!franchise?.chronologicalContent;
 
   const TABS: { id: Tab; label: string }[] = [
     ...(loading || movies.length > 0 ? [{ id: "filmes" as Tab, label: `Filmes (${movies.length})` }] : []),
@@ -457,7 +497,7 @@ export default function FranchiseScreen() {
     if (activeTab === "series" && series.length === 0 && movies.length > 0) setActiveTab("filmes");
   }, [loading, movies.length, series.length]);
 
-  const fav = isFavorite(franchise.id);
+  const fav = isFavorite(dynamicFranchise.id);
 
   return (
     <View style={{ flex: 1, backgroundColor: "#000" }}>
@@ -477,23 +517,23 @@ export default function FranchiseScreen() {
           {backdropUrl ? (
             <Image source={{ uri: backdropUrl }} style={StyleSheet.absoluteFill} resizeMode="cover" />
           ) : (
-            <LinearGradient colors={franchise.bgGradient} style={StyleSheet.absoluteFill} />
+            <LinearGradient colors={dynamicFranchise.bgGradient} style={StyleSheet.absoluteFill} />
           )}
           <LinearGradient
             colors={["rgba(0,0,0,0.1)", "rgba(0,0,0,0.5)", "#000"]}
             locations={[0, 0.5, 1]}
             style={StyleSheet.absoluteFill}
           />
-          <View style={[styles.backdropAccent, { backgroundColor: franchise.color }]} />
+          <View style={[styles.backdropAccent, { backgroundColor: dynamicFranchise.color }]} />
           <View style={styles.backdropInfo}>
-            <View style={[styles.categoryBadge, { borderColor: franchise.color + "80" }]}>
-              <Text style={[styles.categoryBadgeText, { color: franchise.accentColor }]}>
-                {franchise.category.toUpperCase()}
+            <View style={[styles.categoryBadge, { borderColor: dynamicFranchise.color + "80" }]}>
+              <Text style={[styles.categoryBadgeText, { color: dynamicFranchise.accentColor }]}>
+                {isTmdbCollection ? "COLEÇÃO TMDB" : dynamicFranchise.category.toUpperCase()}
               </Text>
             </View>
-            <Text style={styles.franchiseName}>{franchise.name.toUpperCase()}</Text>
-            <Text style={[styles.franchiseTagline, { color: franchise.accentColor }]}>
-              {franchise.tagline}
+            <Text style={styles.franchiseName}>{dynamicFranchise.name.toUpperCase()}</Text>
+            <Text style={[styles.franchiseTagline, { color: dynamicFranchise.accentColor }]}>
+              {dynamicFranchise.tagline}
             </Text>
           </View>
         </View>
@@ -501,12 +541,12 @@ export default function FranchiseScreen() {
         {/* ── Stats ────────────────────────────────────── */}
         <View style={styles.statsRow}>
           {[
-            { icon: "film" as const,     value: String(franchise.contentCount), label: "Títulos" },
-            { icon: "clock" as const,    value: `${franchise.totalHours}h`,     label: "Total" },
-            { icon: "calendar" as const, value: franchise.yearRange,            label: "Período" },
+            { icon: "film" as const,     value: String(dynamicFranchise.contentCount || movies.length + series.length), label: "Títulos" },
+            { icon: "clock" as const,    value: dynamicFranchise.totalHours ? `${dynamicFranchise.totalHours}h` : "–", label: "Total" },
+            { icon: "calendar" as const, value: dynamicFranchise.yearRange || "–",            label: "Período" },
           ].map((s) => (
-            <View key={s.label} style={[styles.statItem, { borderColor: franchise.color + "33" }]}>
-              <Feather name={s.icon} size={14} color={franchise.accentColor} />
+            <View key={s.label} style={[styles.statItem, { borderColor: dynamicFranchise.color + "33" }]}>
+              <Feather name={s.icon} size={14} color={dynamicFranchise.accentColor} />
               <Text style={styles.statValue}>{s.value}</Text>
               <Text style={styles.statLabel}>{s.label}</Text>
             </View>
@@ -514,12 +554,14 @@ export default function FranchiseScreen() {
         </View>
 
         {/* ── Description ──────────────────────────────── */}
-        <Text style={styles.description}>{franchise.description}</Text>
+        {!!dynamicFranchise.description && (
+          <Text style={styles.description}>{dynamicFranchise.description}</Text>
+        )}
 
         {/* ── Action buttons ────────────────────────────── */}
         <View style={styles.actionsRow}>
           <TouchableOpacity
-            style={[styles.primaryBtn, { backgroundColor: franchise.color }]}
+            style={[styles.primaryBtn, { backgroundColor: dynamicFranchise.color }]}
             onPress={() => allItems[0] && goToDetail(allItems[0])}
           >
             <Feather name="play" size={14} color="#fff" />
@@ -528,12 +570,12 @@ export default function FranchiseScreen() {
           <TouchableOpacity
             style={[
               styles.secondaryBtn,
-              fav && { backgroundColor: franchise.color + "22", borderColor: franchise.color + "55" },
+              fav && { backgroundColor: dynamicFranchise.color + "22", borderColor: dynamicFranchise.color + "55" },
             ]}
-            onPress={() => toggle(franchise.id)}
+            onPress={() => toggle(dynamicFranchise.id)}
           >
-            <Feather name="heart" size={14} color={fav ? franchise.accentColor : "rgba(255,255,255,0.7)"} />
-            <Text style={[styles.secondaryBtnText, fav && { color: franchise.accentColor }]}>
+            <Feather name="heart" size={14} color={fav ? dynamicFranchise.accentColor : "rgba(255,255,255,0.7)"} />
+            <Text style={[styles.secondaryBtnText, fav && { color: dynamicFranchise.accentColor }]}>
               {fav ? "Favoritado" : "Favoritar"}
             </Text>
           </TouchableOpacity>
@@ -553,7 +595,7 @@ export default function FranchiseScreen() {
               style={[
                 styles.tab,
                 activeTab === tab.id
-                  ? { borderBottomColor: franchise.color, borderBottomWidth: 2 }
+                  ? { borderBottomColor: dynamicFranchise.color, borderBottomWidth: 2 }
                   : {},
               ]}
             >
@@ -576,7 +618,7 @@ export default function FranchiseScreen() {
           <>
             {loading && movies.length === 0 ? (
               <View style={styles.centered}>
-                <ActivityIndicator size="large" color={franchise.accentColor} />
+                <ActivityIndicator size="large" color={dynamicFranchise.accentColor} />
                 <Text style={styles.loadingText}>Carregando filmes...</Text>
               </View>
             ) : movies.length === 0 ? (
@@ -588,7 +630,7 @@ export default function FranchiseScreen() {
               <ContentCarousel
                 title="Filmes"
                 items={movies}
-                accentColor={franchise.accentColor}
+                accentColor={dynamicFranchise.accentColor}
                 onPressItem={goToDetail}
                 loading={false}
               />
@@ -601,7 +643,7 @@ export default function FranchiseScreen() {
           <>
             {loading && series.length === 0 ? (
               <View style={styles.centered}>
-                <ActivityIndicator size="large" color={franchise.accentColor} />
+                <ActivityIndicator size="large" color={dynamicFranchise.accentColor} />
                 <Text style={styles.loadingText}>Carregando séries...</Text>
               </View>
             ) : series.length === 0 ? (
@@ -613,7 +655,7 @@ export default function FranchiseScreen() {
               <ContentCarousel
                 title="Séries"
                 items={series}
-                accentColor={franchise.accentColor}
+                accentColor={dynamicFranchise.accentColor}
                 onPressItem={goToDetail}
                 loading={false}
               />
@@ -622,18 +664,18 @@ export default function FranchiseScreen() {
         )}
 
         {/* ── Tab: Cronologia ───────────────────────────── */}
-        {activeTab === "cronologia" && hasCronologia && (
+        {activeTab === "cronologia" && hasCronologia && franchise && (
           <View>
             <View style={styles.chronoIntro}>
-              <Feather name="clock" size={16} color={franchise.accentColor} />
-              <Text style={[styles.chronoIntroText, { color: franchise.accentColor }]}>
+              <Feather name="clock" size={16} color={dynamicFranchise.accentColor} />
+              <Text style={[styles.chronoIntroText, { color: dynamicFranchise.accentColor }]}>
                 Ordem cronológica do universo
               </Text>
             </View>
             <ChronologyRow
               items={franchise.chronologicalContent!}
               contentItems={allItems}
-              accentColor={franchise.accentColor}
+              accentColor={dynamicFranchise.accentColor}
               onPressItem={goToDetail}
               loading={loading}
             />
@@ -641,18 +683,18 @@ export default function FranchiseScreen() {
         )}
 
         {/* ── Related franchises ────────────────────────── */}
-        {franchise.related.length > 0 && (
+        {dynamicFranchise.related.length > 0 && (
           <View style={styles.relatedSection}>
             <View style={styles.sectionHeader}>
-              <View style={[styles.accentBar, { backgroundColor: franchise.color }]} />
-              <Text style={styles.sectionTitle}>Se você gosta de {franchise.shortName}…</Text>
+              <View style={[styles.accentBar, { backgroundColor: dynamicFranchise.color }]} />
+              <Text style={styles.sectionTitle}>Se você gosta de {dynamicFranchise.shortName}…</Text>
             </View>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.relatedScroll}
             >
-              {franchise.related.map((rid) => (
+              {dynamicFranchise.related.map((rid) => (
                 <RelatedCard
                   key={rid}
                   franchiseId={rid}
@@ -672,10 +714,10 @@ export default function FranchiseScreen() {
             <Feather name="arrow-left" size={20} color="#fff" />
           </TouchableOpacity>
           <Animated.Text style={[styles.stickyTitle, { opacity: headerOpacity }]}>
-            {franchise.shortName.toUpperCase()}
+            {dynamicFranchise.shortName.toUpperCase()}
           </Animated.Text>
-          <TouchableOpacity style={styles.circleBtn} onPress={() => toggle(franchise.id)}>
-            <Feather name="heart" size={18} color={isFavorite(franchise.id) ? franchise.accentColor : "rgba(255,255,255,0.7)"} />
+          <TouchableOpacity style={styles.circleBtn} onPress={() => toggle(dynamicFranchise.id)}>
+            <Feather name="heart" size={18} color={isFavorite(dynamicFranchise.id) ? dynamicFranchise.accentColor : "rgba(255,255,255,0.7)"} />
           </TouchableOpacity>
         </View>
       </Animated.View>

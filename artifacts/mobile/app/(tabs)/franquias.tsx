@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from "react";
 import {
   Animated,
   Dimensions,
+  Image,
   Platform,
   Pressable,
   ScrollView,
@@ -10,7 +11,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { Image } from "expo-image";
+import { Image as ExpoImage } from "expo-image";
 import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
 import { Feather } from "@expo/vector-icons";
@@ -96,7 +97,7 @@ function HeroSlide({ franchise, onPress }: { franchise: Franchise; onPress: () =
   return (
     <Pressable onPress={onPress} style={{ width: W, height: 340 }}>
       {img ? (
-        <Image source={{ uri: img }} style={StyleSheet.absoluteFill} contentFit="cover" />
+        <ExpoImage source={{ uri: img }} style={StyleSheet.absoluteFill} contentFit="cover" />
       ) : (
         <LinearGradient colors={franchise.bgGradient} style={StyleSheet.absoluteFill} />
       )}
@@ -113,7 +114,7 @@ function HeroSlide({ franchise, onPress }: { franchise: Franchise; onPress: () =
           </Text>
         </View>
         {logo ? (
-          <Image source={{ uri: logo }} style={hero.logo} contentFit="contain" />
+          <ExpoImage source={{ uri: logo }} style={hero.logo} contentFit="contain" />
         ) : (
           <Text style={hero.name}>{franchise.name.toUpperCase()}</Text>
         )}
@@ -228,7 +229,7 @@ function FranchiseCard({
     >
       <Animated.View style={[s.card, { transform: [{ scale }] }]}>
         {img ? (
-          <Image source={{ uri: img }} style={StyleSheet.absoluteFill} contentFit="cover" />
+          <ExpoImage source={{ uri: img }} style={StyleSheet.absoluteFill} contentFit="cover" />
         ) : (
           <LinearGradient colors={franchise.bgGradient} style={StyleSheet.absoluteFill} />
         )}
@@ -253,7 +254,7 @@ function FranchiseCard({
 
         <View style={s.cardLogoArea}>
           {logo ? (
-            <Image source={{ uri: logo }} style={s.logoImg} contentFit="contain" />
+            <ExpoImage source={{ uri: logo }} style={s.logoImg} contentFit="contain" />
           ) : (
             <Text style={[s.cardName, { color: franchise.accentColor }]} numberOfLines={2}>
               {franchise.shortName}
@@ -360,7 +361,10 @@ export default function FranquiasScreen() {
 
   const [search, setSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState("all");
+  const [tmdbResults, setTmdbResults] = useState<any[]>([]);
+  const [tmdbLoading, setTmdbLoading] = useState(false);
   const scrollY = useRef(new Animated.Value(0)).current;
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const headerBg = scrollY.interpolate({
     inputRange: [270, 320],
@@ -378,6 +382,25 @@ export default function FranquiasScreen() {
           f.category.toLowerCase().includes(search.toLowerCase())
       )
     : [];
+
+  const handleSearchChange = useCallback((text: string) => {
+    setSearch(text);
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    if (!text.trim()) { setTmdbResults([]); setTmdbLoading(false); return; }
+    setTmdbLoading(true);
+    searchTimer.current = setTimeout(async () => {
+      try {
+        const data = await api.tmdb.searchCollections(text.trim());
+        const localIds = new Set(FRANCHISES.map((f) => f.tmdbCollectionId).filter(Boolean));
+        const fresh = (data.results ?? []).filter((r: any) => !localIds.has(r.id)).slice(0, 12);
+        setTmdbResults(fresh);
+      } catch {
+        setTmdbResults([]);
+      } finally {
+        setTmdbLoading(false);
+      }
+    }, 500);
+  }, []);
 
   const favoriteFranchises = FRANCHISES.filter((f) => isFavorite(f.id));
 
@@ -412,7 +435,7 @@ export default function FranquiasScreen() {
             <Feather name="search" size={16} color="rgba(255,255,255,0.4)" />
             <TextInput
               value={search}
-              onChangeText={setSearch}
+              onChangeText={handleSearchChange}
               placeholder="Buscar universos e franquias..."
               placeholderTextColor="rgba(255,255,255,0.28)"
               style={s.searchInput}
@@ -430,25 +453,78 @@ export default function FranquiasScreen() {
         {search.trim().length > 0 ? (
           <View style={{ paddingHorizontal: 16, marginBottom: 20 }}>
             <Text style={s.searchResultLabel}>
-              {searchResults.length} resultado{searchResults.length !== 1 ? "s" : ""} para "{search}"
+              {searchResults.length + tmdbResults.length} resultado{(searchResults.length + tmdbResults.length) !== 1 ? "s" : ""} para "{search}"
             </Text>
-            {searchResults.length === 0 ? (
+
+            {/* Local franchise results */}
+            {searchResults.length > 0 && (
+              <>
+                <Text style={s.searchSectionLabel}>📂 Franquias locais</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.hScroll}>
+                  {searchResults.map((f) => (
+                    <FranchiseCard
+                      key={f.id}
+                      franchise={f}
+                      onPress={() => goTo(f.id)}
+                      isFav={isFavorite(f.id)}
+                      onFavPress={() => toggle(f.id)}
+                    />
+                  ))}
+                </ScrollView>
+              </>
+            )}
+
+            {/* TMDB collection results */}
+            {(tmdbLoading || tmdbResults.length > 0) && (
+              <>
+                <Text style={[s.searchSectionLabel, { marginTop: searchResults.length > 0 ? 18 : 0 }]}>
+                  🎬 Coleções do TMDB
+                </Text>
+                {tmdbLoading ? (
+                  <View style={{ paddingVertical: 24, alignItems: "center" }}>
+                    <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 12 }}>Buscando no TMDB...</Text>
+                  </View>
+                ) : (
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.hScroll}>
+                    {tmdbResults.map((col: any) => (
+                      <Pressable
+                        key={col.id}
+                        onPress={() => router.push({ pathname: "/franchise", params: { id: `tmdb_collection_${col.id}`, name: col.name } })}
+                        style={s.tmdbColCard}
+                      >
+                        {col.backdrop_path || col.poster_path ? (
+                          <Image
+                            source={{ uri: `https://image.tmdb.org/t/p/w500${col.backdrop_path ?? col.poster_path}` }}
+                            style={[StyleSheet.absoluteFill, { borderRadius: 16 }]}
+                            resizeMode="cover"
+                          />
+                        ) : (
+                          <LinearGradient colors={["#1a1a2e", "#0a0a14"]} style={StyleSheet.absoluteFill} />
+                        )}
+                        <LinearGradient
+                          colors={["rgba(0,0,0,0.05)", "rgba(0,0,0,0.88)"]}
+                          locations={[0.2, 1]}
+                          style={[StyleSheet.absoluteFill, { borderRadius: 16 }]}
+                        />
+                        <View style={s.tmdbColBadge}>
+                          <Text style={s.tmdbColBadgeTxt}>TMDB</Text>
+                        </View>
+                        <View style={s.tmdbColBottom}>
+                          <Text style={s.tmdbColName} numberOfLines={2}>{col.name}</Text>
+                        </View>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                )}
+              </>
+            )}
+
+            {/* Empty state */}
+            {!tmdbLoading && searchResults.length === 0 && tmdbResults.length === 0 && (
               <View style={s.emptySearch}>
                 <Feather name="search" size={36} color="rgba(255,255,255,0.15)" />
                 <Text style={s.emptyTxt}>Nenhuma franquia encontrada</Text>
               </View>
-            ) : (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.hScroll}>
-                {searchResults.map((f) => (
-                  <FranchiseCard
-                    key={f.id}
-                    franchise={f}
-                    onPress={() => goTo(f.id)}
-                    isFav={isFavorite(f.id)}
-                    onFavPress={() => toggle(f.id)}
-                  />
-                ))}
-              </ScrollView>
             )}
           </View>
         ) : (
@@ -569,8 +645,25 @@ const s = StyleSheet.create({
   searchInput: { flex: 1, color: "#fff", fontSize: 14, fontWeight: "500" },
 
   searchResultLabel: { color: "rgba(255,255,255,0.4)", fontSize: 12, marginBottom: 14 },
+  searchSectionLabel: { color: "rgba(255,255,255,0.55)", fontSize: 12, fontWeight: "700", marginBottom: 10, letterSpacing: 0.5 },
   emptySearch: { alignItems: "center", paddingVertical: 50, gap: 14 },
   emptyTxt: { color: "rgba(255,255,255,0.35)", fontSize: 15 },
+
+  // TMDB collection card (search results)
+  tmdbColCard: {
+    width: CARD_W, height: CARD_H,
+    borderRadius: 16, overflow: "hidden",
+    marginRight: 12, backgroundColor: "#111",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.08)",
+  },
+  tmdbColBadge: {
+    position: "absolute", top: 10, right: 10, zIndex: 3,
+    backgroundColor: "#032541", paddingHorizontal: 6, paddingVertical: 2,
+    borderRadius: 5, borderWidth: 1, borderColor: "#01b4e4",
+  },
+  tmdbColBadgeTxt: { color: "#01b4e4", fontSize: 8, fontWeight: "800" },
+  tmdbColBottom: { position: "absolute", bottom: 10, left: 10, right: 10, zIndex: 2 },
+  tmdbColName: { color: "#fff", fontSize: 12, fontWeight: "700", lineHeight: 16 },
 
   // Filter pills
   filterRow: { paddingHorizontal: 16, gap: 8, paddingBottom: 20 },

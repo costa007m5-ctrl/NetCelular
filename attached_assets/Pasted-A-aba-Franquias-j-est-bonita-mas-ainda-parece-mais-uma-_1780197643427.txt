@@ -1,0 +1,129 @@
+A aba **Franquias** já está bonita, mas ainda parece mais uma lista de cards do que uma experiência de descoberta. Eu melhoraria estes pontos:
+
+### 1. Destaque mais o Universo Principal
+
+O banner do topo está bom, mas poderia ter:
+
+* Trailer automático (vídeo curto sem som).
+* Nota do universo (⭐ 9.2).
+* Quantidade de filmes, séries e animações.
+* Botão "Ver Ordem Cronológica".
+
+### 2. Melhorar os Cards
+
+Os cards estão muito simples.
+
+**Adicionar:**
+
+* Nota IMDb/TMDB.
+* Ano de início.
+* Barra de progresso (quantos títulos o usuário assistiu).
+* Badge "Completo", "Em andamento", "Novo".
+
+Exemplo:
+
+```
+Marvel
+⭐ 8.7
+35 títulos
+20/35 assistidos
+```
+
+### 3. Continuar Assistindo
+
+Criar uma seção logo abaixo do banner:
+
+▶ Continuar Assistindo
+
+* Loki S02E04
+* Homem de Ferro 2
+* The Boys S03E06
+
+Isso aumenta muito o engajamento.
+
+### 4. Ordem Cronológica
+
+Uma das funcionalidades mais procuradas.
+
+Exemplo:
+
+📅 Ordem Cronológica Marvel
+
+1. Capitão América
+2. Capitã Marvel
+3. Homem de Ferro
+4. Homem de Ferro 2
+
+### 5. Estatísticas do Usuário
+
+No topo:
+
+```
+🎬 124 títulos assistidos
+🏆 18 franquias completas
+⭐ Universo favorito: Marvel
+```
+
+### 6. Filtros Melhores
+
+Em vez de apenas:
+
+* Todos
+* Super-Heróis
+* Ação
+
+Adicionar:
+
+* Mais Populares
+* Em Alta
+* Cronológicas
+* Completas
+* Séries
+* Filmes
+* Anime
+* Favoritos ❤️
+
+### 7. Cards Horizontais
+
+O Top 10 poderia ser um carrossel maior:
+
+* Poster grande.
+* Fundo com blur.
+* Ranking animado (#1, #2, #3).
+
+### 8. Visual Premium
+
+Adicionar:
+
+* Efeito glassmorphism nos cards.
+* Gradientes mais suaves.
+* Animação ao tocar.
+* Sombra vermelha apenas no item selecionado.
+
+### 9. Busca Inteligente
+
+A busca poderia encontrar:
+
+```
+Homem de Ferro
+→ Marvel
+
+Batman
+→ DC
+
+Goku
+→ Dragon Ball
+```
+
+### 10. Minha Coleção
+
+Nova seção:
+
+❤️ Favoritos
+📌 Quero Assistir
+✅ Já Assisti
+🏆 Franquias Completadas
+
+Isso deixa a aba muito mais útil.
+
+O que mais faria diferença visualmente seria um layout parecido com Netflix + Disney+, com banner em vídeo, cards maiores e uma seção de "Ordem Cronológica" para cada franquia. Isso deixaria sua aba de franquias com aparência de aplicativo profissional.

@@ -45,7 +45,7 @@ export interface Franchise {
   chronologicalContent?: ChronologicalItem[];
 }
 
-export const FRANCHISES: Franchise[] = [
+const _FRANCHISES_RAW: Franchise[] = [
   // ════════════════════════════════════════
   //  SUPER-HERÓIS
   // ════════════════════════════════════════
@@ -362,7 +362,7 @@ export const FRANCHISES: Franchise[] = [
     category: "filmes",
     genre: "acao",
     fetchType: "collection",
-    tmdbCollectionId: 295130,
+    tmdbCollectionId: 336560,
     yearRange: "2014 - 2018",
     contentCount: 3,
     totalHours: 7,
@@ -2788,6 +2788,9 @@ export const FRANCHISES: Franchise[] = [
 ];
 
 // ── Helpers ───────────────────────────────────────────────────
+// Only expose franchises that have more than 1 content item (real multi-entry franchises)
+export const FRANCHISES: Franchise[] = _FRANCHISES_RAW.filter((f) => f.contentCount > 1);
+
 export const BANNER_FRANCHISES = FRANCHISES.filter((f) => f.bannerFeatured);
 export const TOP10_FRANCHISES = FRANCHISES.filter((f) => f.isTop10);
 export const FEATURED_FRANCHISE = FRANCHISES.find((f) => f.id === "marvel")!;
