@@ -84,6 +84,24 @@ export type RatingItem = {
   liked: boolean;
 };
 
+export type ContentRequest = {
+  id?: string;
+  user_id: string;
+  tmdb_id: number;
+  type: "movie" | "tv";
+  title: string;
+  poster_path?: string;
+  status: "pending" | "added";
+  created_at?: string;
+};
+
+export type PushToken = {
+  id?: string;
+  user_id: string;
+  token: string;
+  created_at?: string;
+};
+
 export type DbProfile = {
   id: string;
   user_id: string;
@@ -247,6 +265,84 @@ export const db = {
     countAll: async (): Promise<number> => {
       const { count } = await supabase.from("ratings").select("*", { count: "exact", head: true });
       return count ?? 0;
+    },
+  },
+
+  contentRequests: {
+    add: async (req: Omit<ContentRequest, "id" | "created_at" | "status">): Promise<{ error?: string }> => {
+      const { error } = await supabase
+        .from("content_requests")
+        .upsert(
+          { ...req, status: "pending", created_at: new Date().toISOString() },
+          { onConflict: "user_id,tmdb_id,type" }
+        );
+      return error ? { error: error.message } : {};
+    },
+
+    getAll: async (): Promise<ContentRequest[]> => {
+      const { data } = await supabase
+        .from("content_requests")
+        .select("*")
+        .order("created_at", { ascending: false });
+      return (data ?? []) as ContentRequest[];
+    },
+
+    getByUser: async (userId: string): Promise<ContentRequest[]> => {
+      const { data } = await supabase
+        .from("content_requests")
+        .select("*")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false });
+      return (data ?? []) as ContentRequest[];
+    },
+
+    getUserIdsForContent: async (tmdbId: number, type: "movie" | "tv"): Promise<string[]> => {
+      const { data } = await supabase
+        .from("content_requests")
+        .select("user_id")
+        .eq("tmdb_id", tmdbId)
+        .eq("type", type)
+        .eq("status", "pending");
+      return (data ?? []).map((r: any) => r.user_id);
+    },
+
+    markAdded: async (tmdbId: number, type: "movie" | "tv"): Promise<{ error?: string }> => {
+      const { error } = await supabase
+        .from("content_requests")
+        .update({ status: "added" })
+        .eq("tmdb_id", tmdbId)
+        .eq("type", type);
+      return error ? { error: error.message } : {};
+    },
+
+    countPending: async (): Promise<number> => {
+      const { count } = await supabase
+        .from("content_requests")
+        .select("*", { count: "exact", head: true })
+        .eq("status", "pending");
+      return count ?? 0;
+    },
+  },
+
+  pushTokens: {
+    upsert: async (userId: string, token: string): Promise<void> => {
+      await supabase
+        .from("push_tokens")
+        .upsert({ user_id: userId, token, created_at: new Date().toISOString() }, { onConflict: "user_id" });
+    },
+
+    getForUsers: async (userIds: string[]): Promise<string[]> => {
+      if (userIds.length === 0) return [];
+      const { data } = await supabase
+        .from("push_tokens")
+        .select("token")
+        .in("user_id", userIds);
+      return (data ?? []).map((r: any) => r.token).filter(Boolean);
+    },
+
+    getAll: async (): Promise<string[]> => {
+      const { data } = await supabase.from("push_tokens").select("token");
+      return (data ?? []).map((r: any) => r.token).filter(Boolean);
     },
   },
 };

@@ -214,7 +214,7 @@ export const api = {
             const timer = setTimeout(() => controller.abort(), 6000);
             const res = await fetch(url, { method: "HEAD", signal: controller.signal });
             clearTimeout(timer);
-            return { available: res.ok && res.status !== 404 };
+            return { available: res.status !== 404 && res.status < 500 };
           }
         );
       } catch {

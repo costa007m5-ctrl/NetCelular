@@ -385,12 +385,21 @@ export default function DetailScreen() {
     }
   };
 
-  const handleIndicate = () => {
+  const handleIndicate = async () => {
     setIndicated(true);
     setUnavailableVisible(false);
+    if (userId && details) {
+      await db.contentRequests.add({
+        user_id: userId,
+        tmdb_id: tmdbId,
+        type,
+        title: details.title ?? details.name ?? params.title ?? "",
+        poster_path: details.poster_path ?? undefined,
+      });
+    }
     Alert.alert(
       "Conteúdo indicado! 🎬",
-      "Obrigado pela indicação! Estamos trabalhando para disponibilizá-lo o mais rápido possível.",
+      "Obrigado pela indicação! Assim que for adicionado ao catálogo você receberá uma notificação.",
       [{ text: "OK" }]
     );
   };

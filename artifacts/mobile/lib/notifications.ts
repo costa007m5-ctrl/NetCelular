@@ -1,5 +1,6 @@
 import { Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { db } from "@/lib/supabase";
 
 const NOTIF_KEY = "netplay_notif_enabled";
 
@@ -40,6 +41,20 @@ export async function requestPermissionsAndSetup(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+export async function registerPushToken(userId: string): Promise<void> {
+  if (Platform.OS === "web" || !userId) return;
+  try {
+    const Notifications = require("expo-notifications");
+    const { status } = await Notifications.getPermissionsAsync();
+    if (status !== "granted") return;
+    const tokenData = await Notifications.getExpoPushTokenAsync();
+    const token: string = tokenData?.data;
+    if (token && token.startsWith("ExponentPushToken")) {
+      await db.pushTokens.upsert(userId, token);
+    }
+  } catch {}
 }
 
 export async function scheduleWelcomeNotification(): Promise<void> {
@@ -90,4 +105,46 @@ export async function sendTestNotification(): Promise<void> {
       trigger: null,
     });
   } catch {}
+}
+
+export async function sendContentAddedNotification(contentTitle: string): Promise<void> {
+  if (Platform.OS === "web") return;
+  try {
+    const Notifications = require("expo-notifications");
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: "🎬 Conteúdo disponível!",
+        body: `"${contentTitle}" foi adicionado ao NETPLAY. Assista agora!`,
+        sound: true,
+      },
+      trigger: null,
+    });
+  } catch {}
+}
+
+export async function sendPushNotificationsToTokens(
+  tokens: string[],
+  title: string,
+  body: string
+): Promise<{ sent: number; failed: number }> {
+  if (tokens.length === 0) return { sent: 0, failed: 0 };
+  try {
+    const messages = tokens.map((to) => ({ to, title, body, sound: "default" }));
+    const res = await fetch("https://exp.host/--/api/v2/push/send", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        "Accept-Encoding": "gzip, deflate",
+      },
+      body: JSON.stringify(messages),
+    });
+    if (!res.ok) return { sent: 0, failed: tokens.length };
+    const json = await res.json();
+    const data: any[] = Array.isArray(json?.data) ? json.data : [json?.data].filter(Boolean);
+    const sent = data.filter((d) => d?.status === "ok").length;
+    return { sent, failed: tokens.length - sent };
+  } catch {
+    return { sent: 0, failed: tokens.length };
+  }
 }

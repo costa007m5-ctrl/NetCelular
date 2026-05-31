@@ -2,11 +2,13 @@ import React, { useCallback, useEffect, useState } from "react";
 import {
   Alert,
   Clipboard,
+  Image,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
@@ -15,7 +17,10 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
+import type { ContentRequest } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
+import { sendPushNotificationsToTokens, sendContentAddedNotification } from "@/lib/notifications";
+import { TMDB_IMG } from "@/lib/api";
 
 const RED = "#e50914";
 const GOLD = "#fbbf24";
@@ -278,7 +283,57 @@ export default function AdminScreen() {
   const [userCount, setUserCount] = useState<number | null>(null);
   const [watchlistCount, setWatchlistCount] = useState<number | null>(null);
   const [ratingsCount, setRatingsCount] = useState<number | null>(null);
-  const [activeTab, setActiveTab] = useState<"sistema" | "emails">("sistema");
+  const [activeTab, setActiveTab] = useState<"sistema" | "emails" | "indicacoes">("sistema");
+
+  const [contentRequests, setContentRequests] = useState<ContentRequest[]>([]);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [addingContent, setAddingContent] = useState<string | null>(null);
+
+  const loadRequests = useCallback(async () => {
+    if (!isSupabaseConfigured) return;
+    try {
+      const all = await db.contentRequests.getAll();
+      setContentRequests(all);
+      setPendingCount(all.filter((r) => r.status === "pending").length);
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === "indicacoes") loadRequests();
+  }, [activeTab, loadRequests]);
+
+  const handleMarkAsAdded = async (tmdbId: number, type: "movie" | "tv", title: string) => {
+    const key = `${type}_${tmdbId}`;
+    setAddingContent(key);
+    try {
+      const userIds = await db.contentRequests.getUserIdsForContent(tmdbId, type);
+      const tokens = await db.pushTokens.getForUsers(userIds);
+      if (tokens.length > 0) {
+        await sendPushNotificationsToTokens(
+          tokens,
+          "🎬 Conteúdo disponível!",
+          `"${title}" foi adicionado ao NETPLAY. Assista agora!`
+        );
+      }
+      await db.contentRequests.markAdded(tmdbId, type);
+      await sendContentAddedNotification(title);
+      setContentRequests((prev) =>
+        prev.map((r) => r.tmdb_id === tmdbId && r.type === type ? { ...r, status: "added" } : r)
+      );
+      setPendingCount((n) => Math.max(0, n - userIds.length));
+      Alert.alert(
+        "✅ Conteúdo adicionado!",
+        tokens.length > 0
+          ? `Notificação enviada para ${tokens.length} usuário(s) que indicaram "${title}".`
+          : `"${title}" marcado como adicionado. Nenhum usuário com notificações ativas para notificar.`,
+        [{ text: "OK" }]
+      );
+    } catch (e: any) {
+      Alert.alert("Erro", "Não foi possível concluir a operação. Verifique se as tabelas foram criadas no Supabase.");
+    } finally {
+      setAddingContent(null);
+    }
+  };
 
   const loadStats = useCallback(async () => {
     if (!isSupabaseConfigured) return;
@@ -358,20 +413,25 @@ export default function AdminScreen() {
 
       {/* ── TABS ── */}
       <View style={[styles.tabsRow, { borderBottomColor: colors.border }]}>
-        {(["sistema", "emails"] as const).map((tab) => (
+        {(["sistema", "indicacoes", "emails"] as const).map((tab) => (
           <Pressable
             key={tab}
             onPress={() => setActiveTab(tab)}
             style={[styles.tab, activeTab === tab && { borderBottomColor: RED, borderBottomWidth: 2 }]}
           >
             <Feather
-              name={tab === "sistema" ? "activity" : "mail"}
+              name={tab === "sistema" ? "activity" : tab === "indicacoes" ? "bell" : "mail"}
               size={14}
               color={activeTab === tab ? RED : colors.mutedForeground}
             />
             <Text style={[styles.tabTxt, { color: activeTab === tab ? RED : colors.mutedForeground }]}>
-              {tab === "sistema" ? "Sistema" : "E-mails"}
+              {tab === "sistema" ? "Sistema" : tab === "indicacoes" ? "Indicações" : "E-mails"}
             </Text>
+            {tab === "indicacoes" && pendingCount > 0 && (
+              <View style={[styles.badge, { backgroundColor: RED }]}>
+                <Text style={styles.badgeTxt}>{pendingCount}</Text>
+              </View>
+            )}
           </Pressable>
         ))}
       </View>
@@ -426,6 +486,119 @@ export default function AdminScreen() {
           </>
         )}
 
+        {/* ── ABA INDICAÇÕES ── */}
+        {activeTab === "indicacoes" && (
+          <>
+            <View style={[styles.infoBox, { backgroundColor: "#e5091410", borderColor: "#e5091430", marginTop: 20 }]}>
+              <Feather name="info" size={16} color={RED} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.infoBoxTitle, { color: RED }]}>Como funciona</Text>
+                <Text style={[styles.infoBoxText, { color: colors.mutedForeground }]}>
+                  Quando um usuário tenta assistir um conteúdo indisponível e clica em "Indicar", a solicitação aparece aqui.{"\n"}
+                  Ao marcar como adicionado, todos os usuários que indicaram recebem uma notificação push em tempo real.
+                </Text>
+              </View>
+            </View>
+
+            <View style={[styles.infoBox, { backgroundColor: "#fbbf2410", borderColor: "#fbbf2430", marginTop: 12 }]}>
+              <Feather name="database" size={16} color={GOLD} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.infoBoxTitle, { color: GOLD }]}>Setup Supabase necessário</Text>
+                <Text style={[styles.infoBoxText, { color: colors.mutedForeground }]}>
+                  Execute este SQL no Supabase → SQL Editor para ativar as indicações e push tokens:
+                </Text>
+                <TouchableOpacity
+                  style={[styles.copyBtn, { backgroundColor: colors.card, borderColor: colors.border, marginTop: 8 }]}
+                  onPress={() => {
+                    const sql = `CREATE TABLE IF NOT EXISTS content_requests (\n  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,\n  user_id UUID NOT NULL,\n  tmdb_id INTEGER NOT NULL,\n  type TEXT NOT NULL,\n  title TEXT NOT NULL,\n  poster_path TEXT,\n  status TEXT NOT NULL DEFAULT 'pending',\n  created_at TIMESTAMPTZ DEFAULT NOW(),\n  UNIQUE(user_id, tmdb_id, type)\n);\nALTER TABLE content_requests ENABLE ROW LEVEL SECURITY;\nCREATE POLICY IF NOT EXISTS "public_content_requests" ON content_requests FOR ALL USING (true) WITH CHECK (true);\n\nCREATE TABLE IF NOT EXISTS push_tokens (\n  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,\n  user_id UUID NOT NULL,\n  token TEXT NOT NULL,\n  created_at TIMESTAMPTZ DEFAULT NOW(),\n  UNIQUE(user_id)\n);\nALTER TABLE push_tokens ENABLE ROW LEVEL SECURITY;\nCREATE POLICY IF NOT EXISTS "public_push_tokens" ON push_tokens FOR ALL USING (true) WITH CHECK (true);`;
+                    Clipboard.setString(sql);
+                    Alert.alert("Copiado!", "Cole o SQL no Supabase → SQL Editor e clique em Run.");
+                  }}
+                >
+                  <Feather name="copy" size={13} color={GOLD} />
+                  <Text style={[styles.copyBtnTxt, { color: GOLD }]}>Copiar SQL de setup</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <View style={styles.sectionHeader}>
+              <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginTop: 16 }]}>
+                CONTEÚDOS INDICADOS
+              </Text>
+              <Pressable onPress={loadRequests} style={[styles.refreshBtn, { backgroundColor: colors.card }]}>
+                <Feather name="refresh-cw" size={14} color={RED} />
+                <Text style={[styles.refreshText, { color: RED }]}>Atualizar</Text>
+              </Pressable>
+            </View>
+
+            {contentRequests.length === 0 ? (
+              <View style={[styles.emptyBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <Feather name="inbox" size={32} color={colors.mutedForeground} />
+                <Text style={[styles.emptyTxt, { color: colors.mutedForeground }]}>
+                  Nenhuma indicação ainda
+                </Text>
+              </View>
+            ) : (
+              (() => {
+                const grouped = contentRequests.reduce<Record<string, { req: ContentRequest; count: number; userIds: string[] }>>((acc, r) => {
+                  const key = `${r.type}_${r.tmdb_id}`;
+                  if (!acc[key]) acc[key] = { req: r, count: 0, userIds: [] };
+                  acc[key].count += 1;
+                  acc[key].userIds.push(r.user_id);
+                  return acc;
+                }, {});
+                return Object.values(grouped)
+                  .sort((a, b) => b.count - a.count)
+                  .map(({ req, count }) => {
+                    const key = `${req.type}_${req.tmdb_id}`;
+                    const isAdded = req.status === "added";
+                    const isLoading = addingContent === key;
+                    const posterUri = req.poster_path ? TMDB_IMG(req.poster_path, "w185") : null;
+                    return (
+                      <View key={key} style={[styles.requestCard, { backgroundColor: colors.card, borderColor: isAdded ? "#4caf5040" : colors.border }]}>
+                        {posterUri ? (
+                          <Image source={{ uri: posterUri }} style={styles.requestPoster} resizeMode="cover" />
+                        ) : (
+                          <View style={[styles.requestPoster, { backgroundColor: colors.border, alignItems: "center", justifyContent: "center" }]}>
+                            <Feather name="film" size={20} color={colors.mutedForeground} />
+                          </View>
+                        )}
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.requestTitle, { color: colors.foreground }]} numberOfLines={2}>{req.title}</Text>
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 }}>
+                            <View style={[styles.typeBadge, { backgroundColor: req.type === "movie" ? "#3b82f620" : "#8b5cf620", borderColor: req.type === "movie" ? "#3b82f640" : "#8b5cf640" }]}>
+                              <Text style={[styles.typeTxt, { color: req.type === "movie" ? "#3b82f6" : "#8b5cf6" }]}>
+                                {req.type === "movie" ? "Filme" : "Série"}
+                              </Text>
+                            </View>
+                            <Text style={[styles.requestCount, { color: colors.mutedForeground }]}>
+                              {count} indicação{count !== 1 ? "ões" : ""}
+                            </Text>
+                          </View>
+                          {isAdded ? (
+                            <View style={styles.addedBadge}>
+                              <Feather name="check-circle" size={13} color="#4caf50" />
+                              <Text style={[styles.addedTxt, { color: "#4caf50" }]}>Adicionado ao catálogo</Text>
+                            </View>
+                          ) : (
+                            <TouchableOpacity
+                              style={[styles.addBtn, { backgroundColor: isLoading ? colors.border : RED, opacity: isLoading ? 0.7 : 1 }]}
+                              onPress={() => handleMarkAsAdded(req.tmdb_id, req.type, req.title)}
+                              disabled={isLoading}
+                            >
+                              <Feather name={isLoading ? "loader" : "plus-circle"} size={13} color="#fff" />
+                              <Text style={styles.addBtnTxt}>{isLoading ? "Notificando..." : "Marcar como adicionado"}</Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      </View>
+                    );
+                  });
+              })()
+            )}
+          </>
+        )}
+
         {/* ── ABA E-MAILS ── */}
         {activeTab === "emails" && (
           <>
@@ -470,9 +643,25 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 18, fontWeight: "700" },
   backBtn: { position: "absolute", left: 16, zIndex: 10, width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center" },
   backBtn2: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
-  tabsRow: { flexDirection: "row", borderBottomWidth: 1, paddingHorizontal: 16 },
-  tab: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 12, paddingHorizontal: 20, borderBottomWidth: 2, borderBottomColor: "transparent" },
-  tabTxt: { fontSize: 14, fontWeight: "600" },
+  tabsRow: { flexDirection: "row", borderBottomWidth: 1, paddingHorizontal: 8 },
+  tab: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 12, paddingHorizontal: 12, borderBottomWidth: 2, borderBottomColor: "transparent" },
+  tabTxt: { fontSize: 13, fontWeight: "600" },
+  badge: { borderRadius: 10, paddingHorizontal: 5, paddingVertical: 1, minWidth: 18, alignItems: "center" },
+  badgeTxt: { fontSize: 10, fontWeight: "700", color: "#fff" },
+  requestCard: { flexDirection: "row", gap: 12, borderRadius: 14, borderWidth: 1, padding: 12, marginBottom: 12 },
+  requestPoster: { width: 56, height: 80, borderRadius: 8, overflow: "hidden" },
+  requestTitle: { fontSize: 14, fontWeight: "700", lineHeight: 19, flex: 1 },
+  requestCount: { fontSize: 12 },
+  typeBadge: { borderRadius: 8, borderWidth: 1, paddingHorizontal: 6, paddingVertical: 2 },
+  typeTxt: { fontSize: 10, fontWeight: "700" },
+  addedBadge: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 8 },
+  addedTxt: { fontSize: 12, fontWeight: "600" },
+  addBtn: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7, marginTop: 8, alignSelf: "flex-start" },
+  addBtnTxt: { fontSize: 12, fontWeight: "700", color: "#fff" },
+  emptyBox: { borderRadius: 16, borderWidth: 1, padding: 32, alignItems: "center", gap: 12, marginTop: 8 },
+  emptyTxt: { fontSize: 14 },
+  copyBtn: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 8, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 7 },
+  copyBtnTxt: { fontSize: 12, fontWeight: "700" },
   sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10, marginTop: 24 },
   sectionLabel: { fontSize: 11, fontWeight: "700", letterSpacing: 0.8 },
   statsGrid: { flexDirection: "row", gap: 10, marginBottom: 4, marginTop: 12 },
