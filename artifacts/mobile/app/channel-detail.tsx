@@ -340,13 +340,10 @@ export default function ChannelDetailScreen() {
                 const url: string = req.url || "";
                 const isTopFrame: boolean = req.isTopFrame ?? true;
 
-                /* Sub-frames (iframes carrying the actual video) are always allowed */
-                if (!isTopFrame) return true;
-
-                /* Always allow about:blank */
+                /* Always allow about:blank / srcdoc */
                 if (url === "about:blank" || url === "about:srcdoc") return true;
 
-                /* Block known ad/tracker domains at native level — even in sub-frames */
+                /* Block known ad/tracker domains in ALL frames (top + sub-frames) */
                 const AD_DOMAINS = [
                   "googlesyndication","doubleclick.net","adservice.google",
                   "pagead2","adnxs.com","taboola.com","outbrain.com",
@@ -354,12 +351,38 @@ export default function ChannelDetailScreen() {
                   "mgid.com","revcontent.com","exoclick.com","trafficjunky.com",
                   "juicyads.com","hilltopads.net","clickadu.com","adcash.com",
                   "bidvertiser.com","ero-advertising.com","plugrush.com",
+                  "popunder","pornhub","xvideos","xnxx","adclick","adskeeper",
+                  "push.express","onesignal.com/push","notix.io","datapush",
+                  "sendpulse","pushwoosh","freeconvert","adf.ly","linkbucks",
+                  "shorte.st","bc.vc","ouo.io","clk.sh",
                 ];
                 if (AD_DOMAINS.some((d) => url.includes(d))) return false;
 
-                /* Top-frame navigation: ALWAYS block cross-root-domain redirects,
-                   including during initial load — this is when most ad redirects fire */
+                /* Sub-frames: allow only known video/player domains */
+                if (!isTopFrame) {
+                  const ALLOWED_SUB = [
+                    "embedtv","redeflix","redeflixapi","jwplatform",
+                    "jwpcdn","cloudfront","akamaized","cdn","player",
+                    "stream","m3u8","hls","mp4","video","iframe",
+                  ];
+                  try {
+                    const hostname = new URL(url).hostname.toLowerCase();
+                    const allowed = ALLOWED_SUB.some((k) => hostname.includes(k) || url.includes(k));
+                    if (!allowed) {
+                      /* block cross-domain sub-frame navigations that aren't media */
+                      const origRoot = channelUrl
+                        ? new URL(channelUrl).hostname.split(".").slice(-2).join(".")
+                        : "";
+                      const navRoot = hostname.split(".").slice(-2).join(".");
+                      if (origRoot && navRoot !== origRoot) return false;
+                    }
+                  } catch {}
+                  return true;
+                }
+
+                /* Top-frame navigation: ALWAYS block cross-root-domain redirects */
                 try {
+                  if (!channelUrl) return false;
                   const origRoot = new URL(channelUrl).hostname.split(".").slice(-2).join(".");
                   const navRoot  = new URL(url).hostname.split(".").slice(-2).join(".");
                   if (navRoot !== origRoot) return false;

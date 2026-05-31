@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { supabase, db } from "@/lib/supabase";
-import { registerPushToken } from "@/lib/notifications";
+import { registerPushToken, requestPermissionsAndSetup } from "@/lib/notifications";
 
 export interface AuthUser {
   id: string;
@@ -66,6 +66,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (session?.user) {
         const u = await buildAuthUser(session.user.id, session.user.email ?? "");
         setUserState(u);
+        if (u) {
+          requestPermissionsAndSetup()
+            .then((granted) => { if (granted) registerPushToken(u.id).catch(() => {}); })
+            .catch(() => {});
+        }
       }
       setLoading(false);
     });
@@ -74,7 +79,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (session?.user) {
         const u = await buildAuthUser(session.user.id, session.user.email ?? "");
         setUserState(u);
-        if (u) registerPushToken(u.id).catch(() => {});
+        if (u) {
+          requestPermissionsAndSetup()
+            .then((granted) => { if (granted) registerPushToken(u.id).catch(() => {}); })
+            .catch(() => {});
+        }
       } else {
         setUserState(null);
       }

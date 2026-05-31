@@ -203,14 +203,16 @@ export default function HomeScreen() {
       discoverPersonalized("movie", genres, yearRange),
       discoverPersonalized("tv", genres, yearRange),
     ]).then(([primaryResults, secondaryResults, movieResults, tvResults]) => {
+      const TMDB_P = "https://image.tmdb.org/t/p/w500";
+      const TMDB_B = "https://image.tmdb.org/t/p/w1280";
       const toContent = (item: any, type: "movie" | "tv"): ContentItem => ({
         id: String(item.id),
         tmdbId: item.id,
         title: item.title ?? item.name ?? "",
         year: parseInt((item.release_date ?? item.first_air_date ?? "2024").slice(0, 4)) || 2024,
         rating: item.vote_average ?? 0,
-        posterPath: item.poster_path ?? "",
-        backdropPath: item.backdrop_path ?? "",
+        posterPath: item.poster_path ? `${TMDB_P}${item.poster_path}` : "",
+        backdropPath: item.backdrop_path ? `${TMDB_B}${item.backdrop_path}` : "",
         description: item.overview ?? "",
         genres: item.genre_ids ?? [],
         type: type === "movie" ? "movie" : "series",

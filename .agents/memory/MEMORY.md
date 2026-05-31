@@ -8,3 +8,5 @@
 - [TMDB collection data](tmdb-collection-data.md) — franchise.tsx TMDB collections now populate overview/yearRange/totalHours from API; dynamicFranchise references these state vars.
 - [Search pagination](search-pagination.md) — api.tmdb.search() accepts optional page param; franchise search fallback fetches 3 pages to avoid early truncation.
 - [Novidades tab + redeflixapi lists](novidades-tab.md) — Novidades is a visible tab (2nd position); fetches real content from redeflixapi.store list TXT endpoints; channels tab is now hidden.
+- [Notifications push token fix](notifications-push-fix.md) — requestPermissionsAndSetup() must be called BEFORE registerPushToken() on both session load and auth state change; token only saves if permissions are granted.
+- [Home posters TMDB URL fix](home-poster-urls.md) — local toContent() in index.tsx must prefix poster_path/backdrop_path with TMDB base URLs; tmdbItemToContent() handles this but local variants do not automatically.

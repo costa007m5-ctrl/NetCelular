@@ -8,6 +8,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -292,6 +293,13 @@ export default function AdminScreen() {
   const [tokenCount, setTokenCount] = useState<number | null>(null);
   const [sendingTest, setSendingTest] = useState(false);
   const [lastTestResult, setLastTestResult] = useState<{ sent: number; failed: number } | null>(null);
+
+  const [massTitle, setMassTitle] = useState("🎬 NETPLAY");
+  const [massBody, setMassBody] = useState("");
+  const [massImage, setMassImage] = useState("");
+  const [targetGroup, setTargetGroup] = useState<"all" | "active" | "guest">("all");
+  const [sendingMass, setSendingMass] = useState(false);
+  const [lastMassResult, setLastMassResult] = useState<{ sent: number; failed: number } | null>(null);
 
   const loadRequests = useCallback(async () => {
     if (!isSupabaseConfigured) return;
@@ -597,6 +605,142 @@ export default function AdminScreen() {
                   {sendingTest ? "Enviando..." : `Enviar para todos (${tokenCount ?? "?"} dispositivos)`}
                 </Text>
               </TouchableOpacity>
+            </View>
+
+            {/* ── NOTIFICAÇÃO PERSONALIZADA (MASSA) ── */}
+            <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginBottom: 10, marginTop: 4 }]}>NOTIFICAÇÃO PERSONALIZADA</Text>
+            <View style={[{ backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1, borderRadius: 16, padding: 16, marginBottom: 20 }]}>
+
+              {/* Target group */}
+              <Text style={[{ fontSize: 11, fontWeight: "700", letterSpacing: 0.8, marginBottom: 8 }, { color: colors.mutedForeground }]}>DESTINATÁRIOS</Text>
+              <View style={{ flexDirection: "row", gap: 8, marginBottom: 14 }}>
+                {(["all", "active", "guest"] as const).map((g) => (
+                  <Pressable
+                    key={g}
+                    onPress={() => setTargetGroup(g)}
+                    style={[{
+                      flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: "center",
+                      borderWidth: 1,
+                      borderColor: targetGroup === g ? RED : colors.border,
+                      backgroundColor: targetGroup === g ? `${RED}18` : colors.background,
+                    }]}
+                  >
+                    <Text style={{ fontSize: 11, fontWeight: "700", color: targetGroup === g ? RED : colors.mutedForeground }}>
+                      {g === "all" ? "Todos" : g === "active" ? "Ativos" : "Convidados"}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              {/* Title */}
+              <Text style={[{ fontSize: 11, fontWeight: "700", letterSpacing: 0.8, marginBottom: 6 }, { color: colors.mutedForeground }]}>TÍTULO</Text>
+              <TextInput
+                value={massTitle}
+                onChangeText={setMassTitle}
+                placeholder="Ex: 🎬 Novidade no NETPLAY"
+                placeholderTextColor={colors.border}
+                style={[{
+                  borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10,
+                  fontSize: 14, marginBottom: 12,
+                }, { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.background }]}
+              />
+
+              {/* Body */}
+              <Text style={[{ fontSize: 11, fontWeight: "700", letterSpacing: 0.8, marginBottom: 6 }, { color: colors.mutedForeground }]}>MENSAGEM</Text>
+              <TextInput
+                value={massBody}
+                onChangeText={setMassBody}
+                placeholder="Digite o conteúdo da notificação..."
+                placeholderTextColor={colors.border}
+                multiline
+                numberOfLines={3}
+                style={[{
+                  borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10,
+                  fontSize: 14, marginBottom: 12, textAlignVertical: "top", minHeight: 70,
+                }, { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.background }]}
+              />
+
+              {/* Image URL */}
+              <Text style={[{ fontSize: 11, fontWeight: "700", letterSpacing: 0.8, marginBottom: 6 }, { color: colors.mutedForeground }]}>URL DA IMAGEM (opcional)</Text>
+              <TextInput
+                value={massImage}
+                onChangeText={setMassImage}
+                placeholder="https://image.tmdb.org/t/p/w500/..."
+                placeholderTextColor={colors.border}
+                style={[{
+                  borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10,
+                  fontSize: 13, marginBottom: 14,
+                }, { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.background }]}
+              />
+
+              {lastMassResult && (
+                <View style={[{ borderRadius: 10, padding: 10, marginBottom: 12, flexDirection: "row", gap: 16 }, { backgroundColor: lastMassResult.sent > 0 ? "#4caf5015" : "#e5091415", borderWidth: 1, borderColor: lastMassResult.sent > 0 ? "#4caf5040" : "#e5091440" }]}>
+                  <View style={{ alignItems: "center" }}>
+                    <Text style={[{ fontSize: 18, fontWeight: "800" }, { color: "#4caf50" }]}>{lastMassResult.sent}</Text>
+                    <Text style={[{ fontSize: 10 }, { color: colors.mutedForeground }]}>Enviados</Text>
+                  </View>
+                  <View style={{ width: 1, backgroundColor: colors.border }} />
+                  <View style={{ alignItems: "center" }}>
+                    <Text style={[{ fontSize: 18, fontWeight: "800" }, { color: lastMassResult.failed > 0 ? RED : colors.mutedForeground }]}>{lastMassResult.failed}</Text>
+                    <Text style={[{ fontSize: 10 }, { color: colors.mutedForeground }]}>Falharam</Text>
+                  </View>
+                </View>
+              )}
+
+              <TouchableOpacity
+                style={[{ borderRadius: 12, paddingVertical: 14, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8 }, { backgroundColor: (sendingMass || !massBody.trim()) ? colors.border : "#8b5cf6", opacity: (sendingMass || !massBody.trim()) ? 0.7 : 1 }]}
+                onPress={async () => {
+                  if (!massBody.trim()) { Alert.alert("Mensagem vazia", "Digite o conteúdo da notificação."); return; }
+                  setSendingMass(true);
+                  setLastMassResult(null);
+                  try {
+                    const allTokens = await db.pushTokens.getAll();
+                    if (allTokens.length === 0) { Alert.alert("Sem tokens", "Nenhum dispositivo registrado."); return; }
+                    const result = await sendPushNotificationsToTokens(
+                      allTokens,
+                      massTitle || "🎬 NETPLAY",
+                      massBody,
+                      { type: "mass_push", target: targetGroup },
+                      massImage || undefined
+                    );
+                    setLastMassResult(result);
+                    Alert.alert(result.sent > 0 ? "✅ Enviado!" : "⚠️ Aviso", `Enviado: ${result.sent} | Falhou: ${result.failed}`);
+                  } catch (e: any) {
+                    Alert.alert("Erro", e?.message ?? "Não foi possível enviar.");
+                  } finally {
+                    setSendingMass(false);
+                  }
+                }}
+                disabled={sendingMass || !massBody.trim()}
+              >
+                <Feather name={sendingMass ? "loader" : "send"} size={16} color="#fff" />
+                <Text style={{ fontSize: 14, fontWeight: "700", color: "#fff" }}>
+                  {sendingMass ? "Enviando..." : `Enviar personalizado (${tokenCount ?? "?"} dispositivos)`}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* ── NOTIFICAÇÕES AUTOMÁTICAS ── */}
+            <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginBottom: 10 }]}>NOTIFICAÇÕES AUTOMÁTICAS</Text>
+            <View style={[{ backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1, borderRadius: 16, overflow: "hidden", marginBottom: 20 }]}>
+              {[
+                { icon: "🔥", title: "Novidades diárias", sub: "Todo dia às 20h — novos títulos no catálogo", color: "#e50914" },
+                { icon: "⏸", title: "Continue assistindo", sub: "15 min sem assistir — conteúdo aguardando você", color: "#f59e0b" },
+                { icon: "📅", title: "Plano expirando", sub: "Quando restam 3 dias do plano do usuário", color: "#3b82f6" },
+                { icon: "⭐", title: "Upgrade de convidado", sub: "Após 2 dias como convidado, convite para assinar", color: "#8b5cf6" },
+                { icon: "📺", title: "Resumo semanal", sub: "Sábados às 19h — destaques da semana", color: "#10b981" },
+              ].map((item, i) => (
+                <View key={i} style={[{ flexDirection: "row", alignItems: "center", gap: 12, padding: 14 }, i > 0 && { borderTopWidth: 1, borderTopColor: colors.border }]}>
+                  <View style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: `${item.color}18`, alignItems: "center", justifyContent: "center" }}>
+                    <Text style={{ fontSize: 18 }}>{item.icon}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[{ fontSize: 13, fontWeight: "700" }, { color: colors.foreground }]}>{item.title}</Text>
+                    <Text style={[{ fontSize: 11, marginTop: 2 }, { color: colors.mutedForeground }]}>{item.sub}</Text>
+                  </View>
+                  <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: "#4caf50" }} />
+                </View>
+              ))}
             </View>
 
             {/* Como funciona */}

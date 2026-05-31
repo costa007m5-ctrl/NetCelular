@@ -25,6 +25,7 @@ import { api, TMDB_IMG } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
 import { getSettings } from "@/lib/user-settings";
+import { scheduleContinueWatchingReminder, cancelContinueWatchingReminder } from "@/lib/notifications";
 import type { TmdbEpisode, TmdbSeason } from "@/lib/api";
 
 const { width: W, height: H } = Dimensions.get("window");
@@ -385,6 +386,23 @@ export default function PlayerScreen() {
     });
     return () => sub.remove();
   }, [pipEnabled, pipActive]);
+
+  /* ── Continue-watching 15-min background reminder ── */
+  useEffect(() => {
+    if (Platform.OS === "web") return;
+    const posterUrl = posterPath ? TMDB_IMG(posterPath, "w500") ?? undefined : undefined;
+    const sub = AppState.addEventListener("change", (appState) => {
+      if (appState === "background") {
+        scheduleContinueWatchingReminder(title || "Conteúdo", posterUrl).catch(() => {});
+      } else if (appState === "active") {
+        cancelContinueWatchingReminder().catch(() => {});
+      }
+    });
+    return () => {
+      sub.remove();
+      cancelContinueWatchingReminder().catch(() => {});
+    };
+  }, [title, posterPath]);
 
   const playerUrl = isLive && streamUrl ? streamUrl : api.redeflix.url(type as "movie" | "tv", id, season, episode);
   const topPad = Platform.OS === "web" ? 0 : insets.top;
