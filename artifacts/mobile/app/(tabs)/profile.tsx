@@ -353,6 +353,11 @@ export default function ProfileScreen() {
       Alert.alert("Erro", error);
     } else {
       await setUser({ ...user, name: editName.trim(), avatarLetter: editName[0].toUpperCase() });
+      if (activeProfile) {
+        const updated = { ...activeProfile, name: editName.trim() };
+        setActiveProfile(updated);
+        await AsyncStorage.setItem(ACTIVE_PROFILE_KEY, JSON.stringify(updated));
+      }
       setShowInfoModal(false);
     }
     setSavingInfo(false);
