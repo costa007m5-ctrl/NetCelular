@@ -1,10 +1,14 @@
--- NETPLAY — Supabase Schema (COMPLETO)
--- Cole e execute no Supabase SQL Editor:
--- supabase.com → seu projeto → SQL Editor → New Query → cole e execute
+-- ============================================================
+-- NETPLAY — Schema Supabase (IDEMPOTENTE)
+-- Pode rodar quantas vezes quiser sem dar erro.
+-- Supabase → SQL Editor → New Query → Cole tudo → Run
+-- ============================================================
 
--- ─────────────────────────────────────────────
--- USERS
--- ─────────────────────────────────────────────
+
+-- ────────────────────────────────────────────────────────────
+-- 1. TABELAS
+-- ────────────────────────────────────────────────────────────
+
 CREATE TABLE IF NOT EXISTS public.users (
   id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
   email           TEXT        UNIQUE NOT NULL,
@@ -17,38 +21,30 @@ CREATE TABLE IF NOT EXISTS public.users (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- ─────────────────────────────────────────────
--- USER SETTINGS (qualidade, idioma, controlo parental, etc.)
--- ─────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.user_settings (
   id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id          UUID        NOT NULL REFERENCES public.users(id) ON DELETE CASCADE UNIQUE,
+  user_id          UUID        NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
   parental_control BOOLEAN     NOT NULL DEFAULT false,
   content_rating   TEXT        NOT NULL DEFAULT 'Livre',
   stream_quality   TEXT        NOT NULL DEFAULT 'Auto',
-  audio_lang       TEXT        NOT NULL DEFAULT 'Português',
-  subtitle_lang    TEXT        NOT NULL DEFAULT 'Português',
-  updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  audio_lang       TEXT        NOT NULL DEFAULT 'Portugues',
+  subtitle_lang    TEXT        NOT NULL DEFAULT 'Portugues',
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT user_settings_user_id_unique UNIQUE (user_id)
 );
 
--- ─────────────────────────────────────────────
--- WATCHLIST (minha lista)
--- ─────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.watchlist (
-  id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id      UUID        NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
-  tmdb_id      INTEGER     NOT NULL,
-  type         TEXT        NOT NULL CHECK (type IN ('movie', 'tv')),
-  title        TEXT        NOT NULL,
-  poster_path  TEXT,
+  id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id       UUID        NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  tmdb_id       INTEGER     NOT NULL,
+  type          TEXT        NOT NULL CHECK (type IN ('movie', 'tv')),
+  title         TEXT        NOT NULL,
+  poster_path   TEXT,
   backdrop_path TEXT,
-  added_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE (user_id, tmdb_id, type)
+  added_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT watchlist_unique UNIQUE (user_id, tmdb_id, type)
 );
 
--- ─────────────────────────────────────────────
--- WATCH PROGRESS (continuar assistindo)
--- ─────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.watch_progress (
   id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id       UUID        NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
@@ -61,33 +57,76 @@ CREATE TABLE IF NOT EXISTS public.watch_progress (
   season        INTEGER,
   episode       INTEGER,
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE (user_id, tmdb_id, type)
+  CONSTRAINT watch_progress_unique UNIQUE (user_id, tmdb_id, type)
 );
 
--- ─────────────────────────────────────────────
--- RATINGS (gostei / não gostei)
--- ─────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.ratings (
   id      UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID    NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
   tmdb_id INTEGER NOT NULL,
   type    TEXT    NOT NULL CHECK (type IN ('movie', 'tv')),
   liked   BOOLEAN NOT NULL,
-  UNIQUE (user_id, tmdb_id, type)
+  CONSTRAINT ratings_unique UNIQUE (user_id, tmdb_id, type)
 );
 
--- ─────────────────────────────────────────────
--- ROW LEVEL SECURITY
--- ─────────────────────────────────────────────
+
+-- ────────────────────────────────────────────────────────────
+-- 2. COLUNAS OPCIONAIS (adiciona só se ainda nao existirem)
+-- ────────────────────────────────────────────────────────────
+
+DO $$ BEGIN
+  ALTER TABLE public.users ADD COLUMN avatar_url TEXT;
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE public.users ADD COLUMN profile_banner TEXT;
+EXCEPTION WHEN duplicate_column THEN NULL;
+END $$;
+
+
+-- ────────────────────────────────────────────────────────────
+-- 3. ROW LEVEL SECURITY
+-- ────────────────────────────────────────────────────────────
+
 ALTER TABLE public.users          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_settings  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.watchlist      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.watch_progress ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ratings        ENABLE ROW LEVEL SECURITY;
 
--- Políticas: anon key pode fazer tudo (auth é feita via user_id no app)
-CREATE POLICY "anon_all_users"          ON public.users          FOR ALL TO anon USING (true) WITH CHECK (true);
-CREATE POLICY "anon_all_user_settings"  ON public.user_settings  FOR ALL TO anon USING (true) WITH CHECK (true);
-CREATE POLICY "anon_all_watchlist"      ON public.watchlist      FOR ALL TO anon USING (true) WITH CHECK (true);
-CREATE POLICY "anon_all_progress"       ON public.watch_progress FOR ALL TO anon USING (true) WITH CHECK (true);
-CREATE POLICY "anon_all_ratings"        ON public.ratings        FOR ALL TO anon USING (true) WITH CHECK (true);
+
+-- ────────────────────────────────────────────────────────────
+-- 4. POLICIES (remove a antiga antes de criar, sem erro)
+-- ────────────────────────────────────────────────────────────
+
+DROP POLICY IF EXISTS "anon_all_users"         ON public.users;
+DROP POLICY IF EXISTS "anon_all_user_settings" ON public.user_settings;
+DROP POLICY IF EXISTS "anon_all_watchlist"     ON public.watchlist;
+DROP POLICY IF EXISTS "anon_all_progress"      ON public.watch_progress;
+DROP POLICY IF EXISTS "anon_all_ratings"       ON public.ratings;
+
+CREATE POLICY "anon_all_users"
+  ON public.users FOR ALL TO anon
+  USING (true) WITH CHECK (true);
+
+CREATE POLICY "anon_all_user_settings"
+  ON public.user_settings FOR ALL TO anon
+  USING (true) WITH CHECK (true);
+
+CREATE POLICY "anon_all_watchlist"
+  ON public.watchlist FOR ALL TO anon
+  USING (true) WITH CHECK (true);
+
+CREATE POLICY "anon_all_progress"
+  ON public.watch_progress FOR ALL TO anon
+  USING (true) WITH CHECK (true);
+
+CREATE POLICY "anon_all_ratings"
+  ON public.ratings FOR ALL TO anon
+  USING (true) WITH CHECK (true);
+
+
+-- ────────────────────────────────────────────────────────────
+-- FIM — todas as tabelas e permissoes prontas
+-- ────────────────────────────────────────────────────────────
