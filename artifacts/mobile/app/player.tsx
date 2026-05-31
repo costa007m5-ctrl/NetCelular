@@ -202,14 +202,11 @@ export default function PlayerScreen() {
   const [pipEnabled, setPipEnabled] = useState(false);
   const [pipActive, setPipActive] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [isLandscape, setIsLandscape] = useState(false);
   const webviewRef = useRef<any>(null);
 
   const [controlsVisible, setControlsVisible] = useState(true);
   const controlsOpacity = useRef(new Animated.Value(1)).current;
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const spinAnim = useRef(new Animated.Value(0)).current;
-  const spin = spinAnim.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] });
 
   const [showPicker, setShowPicker] = useState(false);
   const [pickerSeason, setPickerSeason] = useState(season);
@@ -222,11 +219,19 @@ export default function PlayerScreen() {
   useEffect(() => {
     if (Platform.OS === "web" || !ScreenOrientation) return;
     navigatingToEpisodeRef.current = false;
+    /* Lock to landscape immediately on entering the player */
     try {
-      ScreenOrientation.unlockAsync();
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE_LEFT);
     } catch {}
+    if (Platform.OS === "android" && NavBar) {
+      try {
+        NavBar.setVisibilityAsync("hidden");
+        NavBar.setBehaviorAsync("overlay-swipe");
+      } catch {}
+    }
 
     return () => {
+      /* Restore portrait only when actually leaving the player (not navigating to another episode) */
       if (!navigatingToEpisodeRef.current) {
         try { ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP); } catch {}
       }
@@ -235,28 +240,6 @@ export default function PlayerScreen() {
       }
     };
   }, []);
-
-  const toggleOrientation = useCallback(async () => {
-    if (!ScreenOrientation) return;
-    const next = !isLandscape;
-    setIsLandscape(next);
-    spinAnim.setValue(0);
-    Animated.timing(spinAnim, { toValue: 1, duration: 480, useNativeDriver: true }).start();
-    try {
-      if (next) {
-        await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE_LEFT);
-        if (Platform.OS === "android" && NavBar) {
-          NavBar.setVisibilityAsync("hidden");
-          NavBar.setBehaviorAsync("overlay-swipe");
-        }
-      } else {
-        await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
-        if (Platform.OS === "android" && NavBar) {
-          NavBar.setVisibilityAsync("visible");
-        }
-      }
-    } catch {}
-  }, [isLandscape, spinAnim]);
 
   const toggleFullscreen = useCallback(() => {
     const next = !isFullscreen;
@@ -589,13 +572,6 @@ export default function PlayerScreen() {
               <Text style={styles.playerTitle} numberOfLines={1}>{title}</Text>
             ) : null}
             <View style={{ flexDirection: "row", gap: 8 }}>
-              {Platform.OS !== "web" && ScreenOrientation && (
-                <Pressable onPress={toggleOrientation} style={[styles.iconBtn, isLandscape && styles.iconBtnActive]}>
-                  <Animated.View style={{ transform: [{ rotate: spin }] }}>
-                    <Feather name="rotate-cw" size={18} color={isLandscape ? "#e50914" : "rgba(255,255,255,0.9)"} />
-                  </Animated.View>
-                </Pressable>
-              )}
               {pipEnabled ? (
                 <Pressable onPress={triggerPiP} style={[styles.iconBtn, pipActive && styles.iconBtnActive]}>
                   <Feather name="minimize-2" size={19} color={pipActive ? "#e50914" : "rgba(255,255,255,0.9)"} />
