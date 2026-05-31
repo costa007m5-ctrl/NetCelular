@@ -27,15 +27,15 @@ const IMG = (p: string | null, s = "w500") =>
   p ? `https://image.tmdb.org/t/p/${s}${p}` : null;
 
 const MOODS = [
-  { label: "Ação", color: "#ef4444", genre: "28", type: "movie" },
-  { label: "Comédia", color: "#f59e0b", genre: "35", type: "movie" },
-  { label: "Terror", color: "#7c3aed", genre: "27", type: "movie" },
-  { label: "Romance", color: "#ec4899", genre: "10749", type: "movie" },
-  { label: "Sci-Fi", color: "#06b6d4", genre: "878", type: "movie" },
-  { label: "Drama", color: "#64748b", genre: "18", type: "movie" },
-  { label: "Anime", color: "#f97316", genre: "16", type: "tv" },
-  { label: "Documentários", color: "#a78bfa", genre: "99", type: "movie" },
-  { label: "Família", color: "#34d399", genre: "10751", type: "movie" },
+  { label: "Ação", color: "#ef4444", genre: "28", type: "movie", tmdbId: 361743 },
+  { label: "Comédia", color: "#f59e0b", genre: "35", type: "movie", tmdbId: 585083 },
+  { label: "Terror", color: "#7c3aed", genre: "27", type: "movie", tmdbId: 346364 },
+  { label: "Romance", color: "#ec4899", genre: "10749", type: "movie", tmdbId: 597 },
+  { label: "Sci-Fi", color: "#06b6d4", genre: "878", type: "movie", tmdbId: 438631 },
+  { label: "Drama", color: "#64748b", genre: "18", type: "movie", tmdbId: 238 },
+  { label: "Anime", color: "#f97316", genre: "16", type: "tv", tmdbId: 85937 },
+  { label: "Documentários", color: "#a78bfa", genre: "99", type: "movie", tmdbId: 459300 },
+  { label: "Família", color: "#34d399", genre: "10751", type: "movie", tmdbId: 568124 },
 ];
 
 const UNIVERSES = [
@@ -76,19 +76,38 @@ function SectionTitle({ title, subtitle }: { title: string; subtitle?: string })
   );
 }
 
-function MoodPill({ label, color, onPress }: { label: string; color: string; onPress: () => void }) {
+function MoodBannerCard({ label, color, genre, type, tmdbId, onPress }: typeof MOODS[0] & { onPress: () => void }) {
+  const [backdrop, setBackdrop] = useState<string | null>(null);
+
+  useEffect(() => {
+    const endpoint = type === "tv"
+      ? `https://api.themoviedb.org/3/tv/${tmdbId}?api_key=${TMDB_KEY}`
+      : `https://api.themoviedb.org/3/movie/${tmdbId}?api_key=${TMDB_KEY}`;
+    fetch(endpoint)
+      .then((r) => r.json())
+      .then((d) => setBackdrop(d.backdrop_path || d.poster_path))
+      .catch(() => {});
+  }, [tmdbId, type]);
+
+  const imgUrl = backdrop ? IMG(backdrop, "w780") : null;
+
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [s.moodPill, { borderColor: color + "55", opacity: pressed ? 0.75 : 1 }]}
+      style={({ pressed }) => [s.moodCard, { borderColor: color + "55", opacity: pressed ? 0.82 : 1 }]}
     >
+      {imgUrl ? (
+        <Image source={{ uri: imgUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
+      ) : (
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: color + "18" }]} />
+      )}
       <LinearGradient
-        colors={[color + "20", color + "08"]}
+        colors={["rgba(0,0,0,0.05)", "rgba(0,0,0,0.45)", "rgba(0,0,0,0.88)"]}
+        locations={[0, 0.45, 1]}
         style={StyleSheet.absoluteFill}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
       />
-      <Text style={[s.moodLabel, { color }]}>{label}</Text>
+      <View style={[s.moodAccent, { backgroundColor: color }]} />
+      <Text style={[s.moodCardLabel, { color: "#fff" }]}>{label}</Text>
     </Pressable>
   );
 }
@@ -233,7 +252,7 @@ function HeroBanner({ items }: { items: any[] }) {
           setActiveIdx(idx);
         }}
       >
-        {items.map((item, i) => {
+        {items.map((item) => {
           const isMovie = item.media_type === "movie" || !!item.title;
           const title = item.title ?? item.name ?? "";
           const backdrop = IMG(item.backdrop_path, "w1280") ?? IMG(item.poster_path, "w780");
@@ -279,7 +298,10 @@ function HeroBanner({ items }: { items: any[] }) {
                     <Feather name="play" size={14} color="#fff" />
                     <Text style={s.heroPlayTxt}>Assistir</Text>
                   </Pressable>
-                  <Pressable style={s.heroInfoBtn}>
+                  <Pressable
+                    style={s.heroInfoBtn}
+                    onPress={() => router.push({ pathname: "/detail", params: { type: isMovie ? "movie" : "tv", id: String(item.id), title } })}
+                  >
                     <Feather name="info" size={14} color="rgba(255,255,255,0.8)" />
                     <Text style={s.heroInfoTxt}>Detalhes</Text>
                   </Pressable>
@@ -336,50 +358,41 @@ export default function DescobrirScreen() {
   return (
     <View style={s.container}>
       <StatusBar style="light" />
+
+      {/* ── HEADER — above the banner, not overlapping ── */}
+      <View style={[s.header, { paddingTop: topPad + 10 }]}>
+        <LinearGradient
+          colors={[BG, "transparent"]}
+          style={StyleSheet.absoluteFill}
+          locations={[0.6, 1]}
+        />
+        <View style={{ zIndex: 1 }}>
+          <Text style={s.headerTitle}>Descobrir</Text>
+          <Text style={s.headerSub}>Explore por humor, gênero e universo</Text>
+        </View>
+        <Pressable style={[s.headerSearch, { zIndex: 1 }]} onPress={() => router.push("/(tabs)/search")}>
+          <Feather name="search" size={20} color="rgba(255,255,255,0.7)" />
+        </Pressable>
+      </View>
+
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 130 }}>
 
-        {/* ── HERO BANNER + HEADER OVERLAY ────────────── */}
-        {heroBanners.length > 0 ? (
-          <View style={{ position: "relative" }}>
-            <HeroBanner items={heroBanners} />
-            {/* Header overlaid at top of banner */}
-            <View style={[s.header, { position: "absolute", top: 0, left: 0, right: 0, paddingTop: topPad + 10 }]}>
-              <LinearGradient
-                colors={["rgba(5,5,5,0.72)", "transparent"]}
-                style={StyleSheet.absoluteFill}
-                locations={[0, 1]}
-              />
-              <View style={{ zIndex: 1 }}>
-                <Text style={s.headerTitle}>Descobrir</Text>
-                <Text style={s.headerSub}>Explore por humor, gênero e universo</Text>
-              </View>
-              <Pressable style={[s.headerSearch, { zIndex: 1 }]} onPress={() => router.push("/(tabs)/search")}>
-                <Feather name="search" size={20} color="rgba(255,255,255,0.7)" />
-              </Pressable>
-            </View>
-          </View>
-        ) : (
-          /* Fallback: no banner yet — show header with top padding */
-          <View style={[s.header, { paddingTop: topPad + 10 }]}>
-            <View>
-              <Text style={s.headerTitle}>Descobrir</Text>
-              <Text style={s.headerSub}>Explore por humor, gênero e universo</Text>
-            </View>
-            <Pressable style={s.headerSearch} onPress={() => router.push("/(tabs)/search")}>
-              <Feather name="search" size={20} color="rgba(255,255,255,0.7)" />
-            </Pressable>
-          </View>
-        )}
+        {/* ── HERO BANNER ─────────────────────────────── */}
+        <HeroBanner items={heroBanners} />
 
-        {/* ── POR HUMOR ──────────────────────────── */}
+        {/* ── POR HUMOR ──────────────────────────────── */}
         <SectionTitle title="Por Humor" subtitle="Escolha como você está se sentindo" />
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.moodRow}>
           {MOODS.map((m) => (
-            <MoodPill key={m.label} label={m.label} color={m.color} onPress={() => handleMood(m.genre, m.type)} />
+            <MoodBannerCard
+              key={m.label}
+              {...m}
+              onPress={() => handleMood(m.genre, m.type)}
+            />
           ))}
         </ScrollView>
 
-        {/* ── UNIVERSOS & FRANQUIAS ───────────────── */}
+        {/* ── UNIVERSOS & FRANQUIAS ────────────────────── */}
         <SectionTitle title="Universos & Franquias" subtitle="Mergulhe nos seus universos favoritos" />
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.universeRow}>
           {UNIVERSES.map((u) => (
@@ -387,7 +400,7 @@ export default function DescobrirScreen() {
           ))}
         </ScrollView>
 
-        {/* ── COLEÇÕES EM DESTAQUE ────────────────── */}
+        {/* ── COLEÇÕES EM DESTAQUE ─────────────────────── */}
         <SectionTitle title="Coleções em Destaque" subtitle="Seleções especiais para você" />
         <View style={s.curatedList}>
           {CURATED.map((item) => (
@@ -395,7 +408,7 @@ export default function DescobrirScreen() {
           ))}
         </View>
 
-        {/* ── EM ALTA ESSA SEMANA ─────────────────── */}
+        {/* ── EM ALTA ESSA SEMANA ──────────────────────── */}
         <SectionTitle title="Em Alta essa Semana" subtitle="O que o mundo está assistindo" />
         {loading ? (
           <ActivityIndicator color={RED} style={{ marginVertical: 20 }} />
@@ -407,7 +420,7 @@ export default function DescobrirScreen() {
           </ScrollView>
         )}
 
-        {/* ── CANAIS AO VIVO ──────────────────────── */}
+        {/* ── CANAIS AO VIVO ───────────────────────────── */}
         <SectionTitle title="Canais ao Vivo" subtitle="Transmissões em tempo real" />
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.liveRow}>
           {LIVE_CHANNELS.map((ch) => (
@@ -438,6 +451,9 @@ export default function DescobrirScreen() {
   );
 }
 
+const MOOD_W = (SW - 60) / 2.1;
+const MOOD_H = MOOD_W * 0.62;
+
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: BG },
 
@@ -446,7 +462,8 @@ const s = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 20,
-    marginBottom: 16,
+    paddingBottom: 14,
+    backgroundColor: BG,
   },
   headerTitle: { color: "#fff", fontSize: 28, fontWeight: "800" },
   headerSub: { color: "rgba(255,255,255,0.4)", fontSize: 13, marginTop: 2 },
@@ -456,7 +473,6 @@ const s = StyleSheet.create({
     alignItems: "center", justifyContent: "center",
   },
 
-  // Hero Banner
   heroContainer: { marginBottom: 28, position: "relative" },
   heroImage: { width: SW, height: SW * 0.58 },
   heroContent: {
@@ -465,9 +481,7 @@ const s = StyleSheet.create({
     padding: 20, paddingBottom: 30,
   },
   heroMeta: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
-  heroBadge: {
-    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6,
-  },
+  heroBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
   heroBadgeTxt: { fontSize: 9, fontWeight: "800", color: "#fff", letterSpacing: 1 },
   heroRating: {
     backgroundColor: "rgba(0,0,0,0.5)",
@@ -501,15 +515,26 @@ const s = StyleSheet.create({
   sectionTitle: { color: "#fff", fontSize: 17, fontWeight: "800" },
   sectionSub: { color: "rgba(255,255,255,0.4)", fontSize: 12, marginTop: 2 },
 
-  // Mood Pills
-  moodRow: { paddingHorizontal: 20, gap: 10, paddingBottom: 20 },
-  moodPill: {
-    paddingHorizontal: 14, paddingVertical: 10, borderRadius: 24,
-    borderWidth: 1, overflow: "hidden",
+  moodRow: { paddingHorizontal: 20, gap: 12, paddingBottom: 20 },
+  moodCard: {
+    width: MOOD_W,
+    height: MOOD_H,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    overflow: "hidden",
+    justifyContent: "flex-end",
+    backgroundColor: "#1a1a1a",
   },
-  moodLabel: { fontSize: 13, fontWeight: "700" },
+  moodAccent: {
+    position: "absolute", top: 0, left: 0, right: 0, height: 3,
+  },
+  moodCardLabel: {
+    fontSize: 14, fontWeight: "800", padding: 10,
+    textShadowColor: "rgba(0,0,0,0.9)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
 
-  // Universe Cards — with real images
   universeRow: { paddingHorizontal: 20, gap: 12, paddingBottom: 20 },
   universeCard: {
     width: 130, height: 90, borderRadius: 16,
@@ -517,12 +542,9 @@ const s = StyleSheet.create({
     justifyContent: "flex-end",
     backgroundColor: "#1a1a1a",
   },
-  universeAccent: {
-    position: "absolute", top: 0, left: 0, right: 0, height: 3,
-  },
+  universeAccent: { position: "absolute", top: 0, left: 0, right: 0, height: 3 },
   universeLabel: { fontSize: 12, fontWeight: "800", padding: 8, textShadowColor: "rgba(0,0,0,0.9)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
 
-  // Curated Cards — with real images
   curatedList: { paddingHorizontal: 20, gap: 10, marginBottom: 20 },
   curatedCard: {
     height: 80, borderRadius: 16, overflow: "hidden",
@@ -538,7 +560,6 @@ const s = StyleSheet.create({
   curatedBadgeTxt: { fontSize: 9, fontWeight: "800", letterSpacing: 0.5 },
   curatedLabel: { flex: 1, color: "#fff", fontSize: 14, fontWeight: "700", textShadowColor: "rgba(0,0,0,0.9)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
 
-  // Trending Cards
   trendingRow: { paddingHorizontal: 20, gap: 12, paddingBottom: 20 },
   trendingCard: {
     width: (SW - 60) / 2.5,
@@ -554,32 +575,28 @@ const s = StyleSheet.create({
     borderRadius: 5, paddingHorizontal: 6, paddingVertical: 3,
     borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
   },
-  trendingBadgeTxt: { fontSize: 8, fontWeight: "800", color: "rgba(255,255,255,0.7)", letterSpacing: 0.6 },
+  trendingBadgeTxt: { fontSize: 8, fontWeight: "800", color: "#fff", letterSpacing: 0.8 },
   trendingInfo: { padding: 10 },
-  trendingTitle: { color: "#fff", fontSize: 12, fontWeight: "700", lineHeight: 15, marginBottom: 4 },
-  trendingMeta: { flexDirection: "row", alignItems: "center", gap: 4 },
-  trendingYear: { fontSize: 10, color: "rgba(255,255,255,0.45)" },
-  trendingDot: { fontSize: 10, color: "rgba(255,255,255,0.25)" },
-  trendingRating: { fontSize: 10, color: "#fbbf24", fontWeight: "600" },
+  trendingTitle: { fontSize: 12, fontWeight: "700", color: "#fff", lineHeight: 16 },
+  trendingMeta: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 },
+  trendingYear: { fontSize: 10, color: "rgba(255,255,255,0.5)" },
+  trendingDot: { fontSize: 10, color: "rgba(255,255,255,0.3)" },
+  trendingRating: { fontSize: 10, color: "rgba(255,255,255,0.5)" },
 
-  // Live Channels
   liveRow: { paddingHorizontal: 20, gap: 12, paddingBottom: 20 },
   liveCard: {
-    width: 130, padding: 14, borderRadius: 18,
-    borderWidth: 1, overflow: "hidden",
-    backgroundColor: GLASS, alignItems: "center", gap: 8,
+    width: 120, height: 160, borderRadius: 16, overflow: "hidden",
+    backgroundColor: "#0f0f0f", borderWidth: 1,
+    alignItems: "center", justifyContent: "center", gap: 6,
   },
   livePulse: { position: "absolute", top: 10, right: 10 },
   liveDot: { width: 7, height: 7, borderRadius: 4 },
-  liveIconWrap: {
-    width: 46, height: 46, borderRadius: 23,
-    alignItems: "center", justifyContent: "center",
-  },
-  liveName: { color: "#fff", fontSize: 13, fontWeight: "700", textAlign: "center" },
-  liveSub: { color: "rgba(255,255,255,0.45)", fontSize: 10, textAlign: "center" },
+  liveIconWrap: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
+  liveName: { fontSize: 13, fontWeight: "800", color: "#fff" },
+  liveSub: { fontSize: 10, color: "rgba(255,255,255,0.45)", textAlign: "center", paddingHorizontal: 8 },
   liveBtn: {
     flexDirection: "row", alignItems: "center", gap: 4,
-    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20,
+    borderRadius: 10, paddingHorizontal: 10, paddingVertical: 5, marginTop: 4,
   },
   liveBtnTxt: { fontSize: 10, fontWeight: "700", color: "#fff" },
 });
