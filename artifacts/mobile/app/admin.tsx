@@ -540,26 +540,75 @@ export default function AdminScreen() {
           <>
             {/* Contagem de tokens */}
             <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginTop: 20 }]}>TOKENS REGISTRADOS</Text>
-            <View style={[styles.statsGrid, { marginBottom: 20 }]}>
-              <View style={[styles.statCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                <Feather name="smartphone" size={20} color={RED} />
-                <Text style={[styles.statValue, { color: colors.foreground }]}>{tokenCount ?? "..."}</Text>
-                <Text style={[styles.statLabel, { color: colors.mutedForeground }]}>Dispositivos</Text>
-              </View>
-              <View style={[styles.statCard, { backgroundColor: colors.card, borderColor: colors.border, flex: 2 }]}>
-                <Feather name="bell" size={20} color="#4caf50" />
-                <Text style={[styles.statValue, { color: colors.foreground, fontSize: 14, textAlign: "center" }]}>
-                  {tokenCount === null ? "..." : tokenCount === 0 ? "Nenhum token ainda" : "Pronto para enviar"}
-                </Text>
+
+            {/* Card principal: tokens vs total de usuários */}
+            <View style={[{ backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1, borderRadius: 16, padding: 16, marginBottom: 12 }]}>
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                  <View style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: `${RED}18`, alignItems: "center", justifyContent: "center" }}>
+                    <Feather name="smartphone" size={18} color={RED} />
+                  </View>
+                  <View>
+                    <Text style={[{ fontSize: 22, fontWeight: "800" }, { color: colors.foreground }]}>
+                      {tokenCount ?? "..."}{" "}
+                      <Text style={[{ fontSize: 14, fontWeight: "400" }, { color: colors.mutedForeground }]}>
+                        de {userCount ?? "..."} usuários
+                      </Text>
+                    </Text>
+                    <Text style={[{ fontSize: 12, marginTop: 2 }, { color: colors.mutedForeground }]}>
+                      {tokenCount !== null && userCount !== null
+                        ? tokenCount === userCount
+                          ? "✅ Todos os usuários com push ativo"
+                          : `⚠️ ${userCount - tokenCount} usuário${userCount - tokenCount !== 1 ? "s" : ""} ainda não abriram o app atualizado`
+                        : "Carregando..."}
+                    </Text>
+                  </View>
+                </View>
                 <TouchableOpacity
                   onPress={loadTokenCount}
-                  style={[styles.refreshBtn, { backgroundColor: colors.cardElevated ?? colors.border, alignSelf: "center", marginTop: 4 }]}
+                  style={[styles.refreshBtn, { backgroundColor: colors.cardElevated ?? colors.border }]}
                 >
                   <Feather name="refresh-cw" size={12} color={colors.mutedForeground} />
                   <Text style={[styles.refreshText, { color: colors.mutedForeground }]}>Atualizar</Text>
                 </TouchableOpacity>
               </View>
+
+              {/* Barra de progresso */}
+              {tokenCount !== null && userCount !== null && userCount > 0 && (
+                <View style={{ gap: 6 }}>
+                  <View style={{ height: 6, borderRadius: 3, backgroundColor: colors.border, overflow: "hidden" }}>
+                    <View style={{ height: "100%", width: `${Math.min(100, (tokenCount / userCount) * 100)}%`, backgroundColor: tokenCount === userCount ? "#4caf50" : RED, borderRadius: 3 }} />
+                  </View>
+                  <Text style={[{ fontSize: 11 }, { color: colors.mutedForeground }]}>
+                    {Math.round((tokenCount / userCount) * 100)}% de cobertura push
+                  </Text>
+                </View>
+              )}
             </View>
+
+            {/* Aviso explicativo se tokens < usuários */}
+            {tokenCount !== null && userCount !== null && tokenCount < userCount && (
+              <View style={[{ borderRadius: 12, padding: 14, marginBottom: 20, flexDirection: "row", gap: 10, alignItems: "flex-start" }, { backgroundColor: "#f59e0b15", borderWidth: 1, borderColor: "#f59e0b40" }]}>
+                <Feather name="info" size={16} color="#f59e0b" style={{ marginTop: 1 }} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[{ fontSize: 13, fontWeight: "700", marginBottom: 4 }, { color: "#f59e0b" }]}>
+                    Por que faltam dispositivos?
+                  </Text>
+                  <Text style={[{ fontSize: 12, lineHeight: 18 }, { color: colors.mutedForeground }]}>
+                    O token push é registrado automaticamente quando o usuário <Text style={{ fontWeight: "700", color: colors.foreground }}>abre o app</Text>. Os {userCount - tokenCount} usuários restantes precisam abrir o app atualizado ao menos uma vez para aparecerem aqui.
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            {tokenCount !== null && tokenCount === 0 && (
+              <View style={[{ borderRadius: 12, padding: 14, marginBottom: 20 }, { backgroundColor: "#e5091415", borderWidth: 1, borderColor: "#e5091440" }]}>
+                <Text style={[{ fontSize: 13, fontWeight: "700", marginBottom: 4 }, { color: RED }]}>Tabela push_tokens vazia</Text>
+                <Text style={[{ fontSize: 12, lineHeight: 18 }, { color: colors.mutedForeground }]}>
+                  Execute o SQL da aba Sistema no Supabase e peça aos usuários para abrirem o app.
+                </Text>
+              </View>
+            )}
 
             {/* Botão de teste */}
             <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginBottom: 10 }]}>TESTAR NOTIFICAÇÃO</Text>
