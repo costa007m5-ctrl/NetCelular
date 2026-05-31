@@ -37,7 +37,8 @@ const itemTitle = (item: TmdbItem) => item.title ?? item.name ?? "Sem título";
 const itemYear  = (item: TmdbItem) => (item.release_date ?? item.first_air_date ?? "2024").slice(0, 4);
 const isMovie   = (item: TmdbItem) => item.media_type === "movie" || (!!item.title && !item.name);
 
-const RECENT_SEARCHES = ["The Boys", "UFC", "Naruto", "ESPN", "Harry Potter"];
+const RECENT_SEARCHES_KEY = "netplay_recent_searches";
+const MAX_RECENTS = 10;
 
 const QUICK_CARDS = [
   { label: "Em Alta",          icon: "trending-up", color: RED,       accent: "rgba(255,26,26,0.18)" },
@@ -341,8 +342,10 @@ export default function SearchScreen() {
   const [searchTab, setSearchTab] = useState<"media" | "collections" | "channels">("media");
   const [trending, setTrending] = useState<TmdbItem[]>([]);
   const [popular, setPopular] = useState<TmdbItem[]>([]);
-  const [recents, setRecents] = useState<string[]>(RECENT_SEARCHES);
+  const [recents, setRecents] = useState<string[]>([]);
   const [activeProfile, setActiveProfile] = useState<any>(null);
+  const [showIARecs, setShowIARecs] = useState(false);
+  const [iaRecs, setIaRecs] = useState<TmdbItem[]>([]);
   const glowAnim = useRef(new Animated.Value(0)).current;
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<TextInput>(null);
@@ -351,7 +354,24 @@ export default function SearchScreen() {
     AsyncStorage.getItem("netplay_active_profile_v2")
       .then(raw => { if (raw) setActiveProfile(JSON.parse(raw)); })
       .catch(() => {});
+    AsyncStorage.getItem(RECENT_SEARCHES_KEY)
+      .then(raw => { if (raw) setRecents(JSON.parse(raw)); })
+      .catch(() => {});
   }, [user?.id]);
+
+  const saveRecent = useCallback(async (term: string) => {
+    if (!term.trim()) return;
+    setRecents(prev => {
+      const next = [term, ...prev.filter(r => r.toLowerCase() !== term.toLowerCase())].slice(0, MAX_RECENTS);
+      AsyncStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(next)).catch(() => {});
+      return next;
+    });
+  }, []);
+
+  const clearRecents = useCallback(async () => {
+    setRecents([]);
+    await AsyncStorage.removeItem(RECENT_SEARCHES_KEY).catch(() => {});
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -369,6 +389,7 @@ export default function SearchScreen() {
 
   const searchTmdb = useCallback(async (q: string) => {
     if (!q.trim()) { setResults([]); setCollectionResults([]); setSearchTab("media"); return; }
+    saveRecent(q.trim());
     setSearchLoading(true);
     try {
       const data = await api.tmdb.search(q, "multi");
@@ -598,11 +619,22 @@ export default function SearchScreen() {
             {/* ── QUICK ACCESS CARDS ── */}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.quickScroll}>
               {QUICK_CARDS.map((q) => {
-                const handleQuick = () => {
+                const handleQuick = async () => {
                   if (q.label === "Ao Vivo") router.push("/(tabs)/channels");
                   else if (q.label === "Novidades") router.push("/(tabs)/novidades");
                   else if (q.label === "Continue") router.push("/(tabs)/list");
-                  else if (q.label === "Recomendados IA") { inputRef.current?.focus(); }
+                  else if (q.label === "Recomendados IA") {
+                    setShowIARecs((v) => !v);
+                    if (iaRecs.length === 0) {
+                      try {
+                        const r = await fetch(
+                          `https://api.themoviedb.org/3/movie/top_rated?api_key=${TMDB_API_KEY}&language=pt-BR&page=1`
+                        );
+                        const d = await r.json();
+                        setIaRecs((d.results ?? []).slice(0, 10));
+                      } catch {}
+                    }
+                  }
                   else router.push({ pathname: "/genre-browse", params: { genre_id: "0", type: "movie", title: q.label } });
                 };
                 return (
@@ -616,6 +648,40 @@ export default function SearchScreen() {
               })}
             </ScrollView>
 
+            {/* ── RECOMENDADOS IA ── */}
+            {showIARecs && (
+              <View style={s.section}>
+                <View style={s.sectionRow}>
+                  <View style={s.sectionLeft}>
+                    <View style={[s.sectionIcon, { backgroundColor: "rgba(52,211,153,0.15)" }]}>
+                      <Feather name="cpu" size={12} color="#34d399" />
+                    </View>
+                    <Text style={s.sectionTitle}>Recomendados IA</Text>
+                    <View style={{ backgroundColor: "rgba(52,211,153,0.15)", borderWidth: 1, borderColor: "rgba(52,211,153,0.3)", borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2 }}>
+                      <Text style={{ fontSize: 9, color: "#34d399", fontWeight: "700", letterSpacing: 0.5 }}>AI PICKS</Text>
+                    </View>
+                  </View>
+                  <Pressable onPress={() => setShowIARecs(false)}>
+                    <Feather name="x" size={16} color="rgba(255,255,255,0.3)" />
+                  </Pressable>
+                </View>
+                {iaRecs.length === 0 ? (
+                  <ActivityIndicator color="#34d399" style={{ marginVertical: 20 }} />
+                ) : (
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.hScroll}>
+                    {iaRecs.map((item) => (
+                      <RankCard
+                        key={item.id}
+                        item={item}
+                        rank={iaRecs.indexOf(item) + 1}
+                        onPress={() => navigateTmdb(item)}
+                      />
+                    ))}
+                  </ScrollView>
+                )}
+              </View>
+            )}
+
             {/* ── RECENT SEARCHES ── */}
             {recents.length > 0 && (
               <View style={s.section}>
@@ -624,7 +690,7 @@ export default function SearchScreen() {
                     <Feather name="clock" size={13} color="rgba(255,255,255,0.35)" />
                     <Text style={s.sectionTitle}>Pesquisas recentes</Text>
                   </View>
-                  <Pressable onPress={() => setRecents([])}>
+                  <Pressable onPress={clearRecents}>
                     <Text style={s.clearAll}>Limpar tudo</Text>
                   </Pressable>
                 </View>
@@ -637,7 +703,11 @@ export default function SearchScreen() {
                     >
                       <Text style={s.recentTxt}>{r}</Text>
                       <Pressable
-                        onPress={() => setRecents((p) => p.filter((x) => x !== r))}
+                        onPress={() => {
+                          const next = recents.filter((x) => x !== r);
+                          setRecents(next);
+                          AsyncStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(next)).catch(() => {});
+                        }}
                         hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                       >
                         <Feather name="x" size={11} color="rgba(255,255,255,0.4)" />

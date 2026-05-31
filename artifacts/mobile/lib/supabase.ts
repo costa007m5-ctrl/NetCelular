@@ -27,6 +27,7 @@ export type DbUser = {
   role: "user" | "admin";
   avatar_letter: string;
   avatar_url?: string;
+  profile_banner?: string;
   created_at?: string;
 };
 
@@ -103,7 +104,14 @@ export const db = {
         }
       }
       if (error || !data) return { error: "Email ou senha incorretos" };
-      return { id: data.id, email: data.email, name: data.name, role: data.role, avatarLetter: data.avatar_letter };
+      return {
+        id: data.id,
+        email: data.email,
+        name: data.name,
+        role: data.role,
+        avatarLetter: data.avatar_letter,
+        profileBanner: data.profile_banner ?? null,
+      };
     },
 
     getById: async (id: string): Promise<DbUser | null> => {
@@ -122,6 +130,14 @@ export const db = {
 
     updatePassword: async (id: string, passwordHash: string): Promise<{ error?: string }> => {
       const { error } = await supabase.from("users").update({ password_hash: passwordHash }).eq("id", id);
+      return error ? { error: error.message } : {};
+    },
+
+    updateBanner: async (id: string, bannerUrl: string | null): Promise<{ error?: string }> => {
+      const { error } = await supabase
+        .from("users")
+        .update({ profile_banner: bannerUrl })
+        .eq("id", id);
       return error ? { error: error.message } : {};
     },
 

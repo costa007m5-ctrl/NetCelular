@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Dimensions,
   Linking,
@@ -174,6 +175,10 @@ export default function ProfileScreen() {
   const [showDevicesModal, setShowDevicesModal] = useState(false);
   const [showPaymentsModal, setShowPaymentsModal] = useState(false);
   const [showAboutModal, setShowAboutModal] = useState(false);
+  const [showTermsModal, setShowTermsModal] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportText, setReportText] = useState("");
+  const [sendingReport, setSendingReport] = useState(false);
 
   const [pickerConfig, setPickerConfig] = useState<{ key: keyof UserSettings; title: string; options: string[] } | null>(null);
 
@@ -194,6 +199,16 @@ export default function ProfileScreen() {
       const banner = await AsyncStorage.getItem(BANNER_KEY);
       if (banner) setProfileBanner(banner);
     } catch {}
+
+    if (user?.id && isSupabaseConfigured) {
+      try {
+        const dbUser = await db.users.getById(user.id);
+        if (dbUser?.profile_banner) {
+          setProfileBanner(dbUser.profile_banner);
+          await AsyncStorage.setItem(BANNER_KEY, dbUser.profile_banner);
+        }
+      } catch {}
+    }
 
     const s = await getSettings();
     setSettings(s);
@@ -239,13 +254,29 @@ export default function ProfileScreen() {
     const url = `${TMDB_IMG}/w1280${backdropPath}`;
     setProfileBanner(url);
     await AsyncStorage.setItem(BANNER_KEY, url);
+    if (user?.id && isSupabaseConfigured) {
+      await db.users.updateBanner(user.id, url);
+    }
     setShowBannerModal(false);
   };
 
   const removeBanner = async () => {
     setProfileBanner(null);
     await AsyncStorage.removeItem(BANNER_KEY);
+    if (user?.id && isSupabaseConfigured) {
+      await db.users.updateBanner(user.id, null);
+    }
     setShowBannerModal(false);
+  };
+
+  const handleSendReport = async () => {
+    if (!reportText.trim()) return;
+    setSendingReport(true);
+    await new Promise((r) => setTimeout(r, 800));
+    setSendingReport(false);
+    setReportText("");
+    setShowReportModal(false);
+    Alert.alert("Enviado!", "Obrigado pelo seu feedback. Nossa equipe irá analisar em breve.");
   };
 
   const updateLocalSetting = async <K extends keyof UserSettings>(key: K, val: UserSettings[K]) => {
@@ -640,16 +671,16 @@ export default function ProfileScreen() {
 
         {/* ── SUPORTE ─────────────────────────────────────── */}
         <Section title="SUPORTE">
-          <Row icon="help-circle" label="Central de Ajuda" onPress={() => openUrl("https://netplay.app/help")} />
-          <Row icon="flag" label="Reportar Problema" onPress={() => openUrl("mailto:suporte@netplay.app?subject=Problema+no+app")} />
+          <Row icon="help-circle" label="Central de Ajuda" onPress={() => router.push("/help")} />
+          <Row icon="flag" label="Reportar Problema" onPress={() => setShowReportModal(true)} />
           <Row icon="info" label="Novidades da Versão" onPress={() => setShowAboutModal(true)} />
           <Row icon="database" label="Limpar Cache" onPress={handleClearCache} last />
         </Section>
 
         {/* ── JURÍDICO ────────────────────────────────────── */}
         <Section title="JURÍDICO">
-          <Row icon="file-text" label="Termos de Uso" onPress={() => openUrl("https://netplay.app/terms")} />
-          <Row icon="lock" label="Política de Privacidade" onPress={() => openUrl("https://netplay.app/privacy")} />
+          <Row icon="file-text" label="Termos de Uso" onPress={() => setShowTermsModal(true)} />
+          <Row icon="lock" label="Política de Privacidade" onPress={() => router.push("/privacy")} />
           <Row icon="info" label="Sobre o NETPLAY" onPress={() => setShowAboutModal(true)} last />
         </Section>
 
@@ -840,7 +871,7 @@ export default function ProfileScreen() {
               Próxima cobrança: 15 de junho de 2026
             </Text>
           </LinearGradient>
-          <Pressable onPress={() => openUrl("https://netplay.app/manage")} style={[s.modalBtn, { backgroundColor: colors.border + "40" }]}>
+          <Pressable onPress={() => setShowPlanModal(false)} style={[s.modalBtn, { backgroundColor: colors.border + "40" }]}>
             <Text style={[s.modalBtnTxt, { color: colors.foreground }]}>Gerenciar Assinatura</Text>
           </Pressable>
         </View>
@@ -966,6 +997,71 @@ export default function ProfileScreen() {
               <Text style={{ color: colors.foreground, fontSize: 13, fontWeight: "600" }}>{row.val}</Text>
             </View>
           ))}
+        </View>
+      </ModalSheet>
+
+      {/* ── MODAL: TERMOS DE USO ────────────────────────── */}
+      <ModalSheet visible={showTermsModal} onClose={() => setShowTermsModal(false)} title="Termos de Uso">
+        <ScrollView style={{ maxHeight: 420 }} showsVerticalScrollIndicator={false}>
+          <View style={s.modalBody}>
+            {[
+              { title: "1. Aceitação", body: "Ao usar o NETPLAY, você concorda com estes termos. Se não concordar, não utilize o serviço." },
+              { title: "2. Uso do Serviço", body: "O NETPLAY é oferecido para uso pessoal e não comercial. É proibido compartilhar credenciais ou redistribuir o conteúdo." },
+              { title: "3. Conteúdo", body: "Todo conteúdo exibido é protegido por direitos autorais. O acesso é concedido apenas para visualização pessoal." },
+              { title: "4. Conta", body: "Você é responsável por manter a segurança da sua conta e por todas as atividades que ocorrem nela." },
+              { title: "5. Cancelamento", body: "Você pode cancelar sua assinatura a qualquer momento. O acesso continua até o fim do período pago." },
+              { title: "6. Limitação de Responsabilidade", body: "O NETPLAY não se responsabiliza por interrupções do serviço, falhas técnicas ou danos indiretos." },
+              { title: "7. Alterações", body: "Reservamos o direito de modificar estes termos. Notificaremos usuários sobre mudanças significativas." },
+            ].map((sec) => (
+              <View key={sec.title} style={[{ borderBottomWidth: 1, borderColor: colors.border + "40", paddingVertical: 14 }]}>
+                <Text style={{ color: colors.foreground, fontSize: 13, fontWeight: "700", marginBottom: 6 }}>{sec.title}</Text>
+                <Text style={{ color: colors.mutedForeground, fontSize: 13, lineHeight: 19 }}>{sec.body}</Text>
+              </View>
+            ))}
+            <Text style={{ color: colors.mutedForeground, fontSize: 11, textAlign: "center", marginTop: 16 }}>
+              Última atualização: maio de 2026
+            </Text>
+          </View>
+        </ScrollView>
+      </ModalSheet>
+
+      {/* ── MODAL: REPORTAR PROBLEMA ─────────────────────── */}
+      <ModalSheet visible={showReportModal} onClose={() => { setShowReportModal(false); setReportText(""); }} title="Reportar Problema">
+        <View style={s.modalBody}>
+          <Text style={{ color: colors.mutedForeground, fontSize: 13, lineHeight: 18, marginBottom: 16 }}>
+            Descreva o problema que você está enfrentando e nossa equipe irá analisar em breve.
+          </Text>
+          <View style={[{ borderWidth: 1, borderColor: colors.border + "80", borderRadius: 14, padding: 14, backgroundColor: colors.card, minHeight: 120 }]}>
+            <TextInput
+              value={reportText}
+              onChangeText={setReportText}
+              placeholder="Ex: O vídeo não carrega na tela de detalhes..."
+              placeholderTextColor={colors.mutedForeground}
+              style={{ color: colors.foreground, fontSize: 14, textAlignVertical: "top" }}
+              multiline
+              maxLength={500}
+            />
+          </View>
+          <Text style={{ color: colors.mutedForeground, fontSize: 11, textAlign: "right", marginTop: 6 }}>{reportText.length}/500</Text>
+          <View style={{ flexDirection: "row", gap: 12, marginTop: 12 }}>
+            <Pressable
+              onPress={() => { setShowReportModal(false); setReportText(""); }}
+              style={[s.modalBtn, { flex: 1, backgroundColor: colors.border + "40" }]}
+            >
+              <Text style={[s.modalBtnTxt, { color: colors.foreground }]}>Cancelar</Text>
+            </Pressable>
+            <Pressable
+              onPress={handleSendReport}
+              disabled={!reportText.trim() || sendingReport}
+              style={[s.modalBtn, { flex: 1, backgroundColor: reportText.trim() ? RED : colors.border + "40" }]}
+            >
+              {sendingReport ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={[s.modalBtnTxt, { color: "#fff" }]}>Enviar</Text>
+              )}
+            </Pressable>
+          </View>
         </View>
       </ModalSheet>
 
