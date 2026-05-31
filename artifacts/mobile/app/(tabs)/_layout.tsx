@@ -68,25 +68,30 @@ function ClassicTabLayout() {
           shadowOpacity: 0,
         },
         tabBarBackground: () => (
-          <View style={[styles.tabBg, { borderRadius: 32 }]}>
-            {isIOS ? (
-              <BlurView
-                intensity={95}
-                tint="dark"
-                style={[StyleSheet.absoluteFill, { borderRadius: 32, overflow: "hidden" }]}
-              />
-            ) : (
-              <View style={[StyleSheet.absoluteFill, { borderRadius: 32, backgroundColor: "rgba(10,10,10,0.97)" }]} />
-            )}
-            <View style={[styles.tabBorder, { borderRadius: 32 }]} />
+          <View style={StyleSheet.absoluteFill}>
+            {/* Pill background — overflow:hidden only wraps the rounded pill */}
+            <View style={[StyleSheet.absoluteFill, styles.tabBg, { borderRadius: 32 }]}>
+              {isIOS ? (
+                <BlurView
+                  intensity={95}
+                  tint="dark"
+                  style={[StyleSheet.absoluteFill, { borderRadius: 32, overflow: "hidden" }]}
+                />
+              ) : (
+                <View style={[StyleSheet.absoluteFill, { borderRadius: 32, backgroundColor: "rgba(10,10,10,0.97)" }]} />
+              )}
+              <View style={[styles.tabBorder, { borderRadius: 32 }]} />
+            </View>
+            {/* Android: black fill below tab bar covering the system nav bar area.
+                Lives OUTSIDE overflow:hidden so it is never clipped. */}
             {isAndroid && (
               <View
                 style={{
                   position: "absolute",
-                  bottom: -(bottomInset),
+                  top: tabBarHeight,
                   left: -18,
                   right: -18,
-                  height: bottomInset + 4,
+                  bottom: -220,
                   backgroundColor: "#000",
                 }}
               />
