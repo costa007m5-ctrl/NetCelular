@@ -570,11 +570,13 @@ export default function PlayerScreen() {
 
       {!error && (
         <>
-          {/* Full-screen tap area — sits above WebView, below controls */}
-          <Pressable
-            style={StyleSheet.absoluteFillObject}
-            onPress={showControls}
-          />
+          {/* Full-screen tap area — only active when controls are hidden so WebView stays interactive when controls visible */}
+          {!controlsVisible && (
+            <Pressable
+              style={StyleSheet.absoluteFillObject}
+              onPress={showControls}
+            />
+          )}
 
           <Animated.View
             style={[styles.playerHeader, { paddingTop: topPad + 4, opacity: controlsOpacity }]}
