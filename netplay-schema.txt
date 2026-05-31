@@ -1,0 +1,82 @@
+-- NETPLAY Schema - Execute no Supabase SQL Editor
+
+CREATE TABLE IF NOT EXISTS public.users (
+  id             UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  email          TEXT        UNIQUE NOT NULL,
+  name           TEXT        NOT NULL,
+  password_hash  TEXT        NOT NULL,
+  role           TEXT        NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
+  avatar_letter  TEXT        NOT NULL DEFAULT 'U',
+  avatar_url     TEXT,
+  profile_banner TEXT,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS profile_banner TEXT;
+
+CREATE TABLE IF NOT EXISTS public.user_settings (
+  id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id          UUID        NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  parental_control BOOLEAN     NOT NULL DEFAULT false,
+  content_rating   TEXT        NOT NULL DEFAULT 'Livre',
+  stream_quality   TEXT        NOT NULL DEFAULT 'Auto',
+  audio_lang       TEXT        NOT NULL DEFAULT 'Portugues',
+  subtitle_lang    TEXT        NOT NULL DEFAULT 'Portugues',
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (user_id)
+);
+
+CREATE TABLE IF NOT EXISTS public.watchlist (
+  id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id       UUID        NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  tmdb_id       INTEGER     NOT NULL,
+  title         TEXT        NOT NULL,
+  type          TEXT        NOT NULL,
+  poster_path   TEXT,
+  backdrop_path TEXT,
+  added_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (user_id, tmdb_id, type)
+);
+
+CREATE TABLE IF NOT EXISTS public.watch_progress (
+  id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id       UUID        NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  tmdb_id       INTEGER     NOT NULL,
+  title         TEXT        NOT NULL,
+  type          TEXT        NOT NULL,
+  poster_path   TEXT,
+  backdrop_path TEXT,
+  progress      FLOAT       NOT NULL DEFAULT 0,
+  season        INTEGER,
+  episode       INTEGER,
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (user_id, tmdb_id, type)
+);
+
+CREATE TABLE IF NOT EXISTS public.ratings (
+  id      UUID    PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID    NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  tmdb_id INTEGER NOT NULL,
+  type    TEXT    NOT NULL,
+  liked   BOOLEAN NOT NULL,
+  UNIQUE (user_id, tmdb_id, type)
+);
+
+ALTER TABLE public.users          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_settings  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.watchlist      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.watch_progress ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ratings        ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "anon_all_users"         ON public.users;
+DROP POLICY IF EXISTS "anon_all_user_settings" ON public.user_settings;
+DROP POLICY IF EXISTS "anon_all_watchlist"     ON public.watchlist;
+DROP POLICY IF EXISTS "anon_all_progress"      ON public.watch_progress;
+DROP POLICY IF EXISTS "anon_all_ratings"       ON public.ratings;
+
+CREATE POLICY "anon_all_users"         ON public.users          FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "anon_all_user_settings" ON public.user_settings  FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "anon_all_watchlist"     ON public.watchlist      FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "anon_all_progress"      ON public.watch_progress FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "anon_all_ratings"       ON public.ratings        FOR ALL TO anon USING (true) WITH CHECK (true);

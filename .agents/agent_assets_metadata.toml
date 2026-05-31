@@ -1,5 +1,4 @@
 uploads = []
-outputs = []
 
 [[generated]]
 id = "Jr2zmEMlsPyOZs6X3DMuH"
@@ -30,3 +29,9 @@ id = "MVMUBpU8YVH8E8q-cKG-_"
 uri = "file://artifacts/mobile/assets/images/category_anime.png"
 type = "image"
 title = "generated_image"
+
+[[outputs]]
+id = "fp0VeEmZ9ba-TPKs0t-i_"
+uri = "file://netplay-schema.txt"
+type = "text"
+title = "NETPLAY — Schema SQL (copiar e colar no Supabase)"
