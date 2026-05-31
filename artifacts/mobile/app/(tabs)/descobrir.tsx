@@ -330,7 +330,7 @@ export default function DescobrirScreen() {
   const [heroBanners, setHeroBanners] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const isWeb = Platform.OS === "web";
-  const topPad = isWeb ? 67 : insets.top;
+  const topPad = isWeb ? 0 : insets.top;
 
   useEffect(() => {
     Promise.all([
@@ -351,8 +351,8 @@ export default function DescobrirScreen() {
       .finally(() => setLoading(false));
   }, []);
 
-  const handleMood = (genre: string, type: string) => {
-    router.push({ pathname: "/(tabs)/search", params: { genre, type } });
+  const handleMood = (genre: string, type: string, label: string) => {
+    router.push({ pathname: "/genre-browse", params: { genre_id: genre, type, title: label } });
   };
 
   return (
@@ -387,7 +387,7 @@ export default function DescobrirScreen() {
             <MoodBannerCard
               key={m.label}
               {...m}
-              onPress={() => handleMood(m.genre, m.type)}
+              onPress={() => handleMood(m.genre, m.type, m.label)}
             />
           ))}
         </ScrollView>
