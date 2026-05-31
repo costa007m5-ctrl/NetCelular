@@ -19,7 +19,8 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.netplay.app",
       "infoPlist": {
-        "NSUserNotificationsUsageDescription": "Receba novidades e lançamentos do NETPLAY em primeira mão."
+        "NSUserNotificationsUsageDescription": "Receba novidades e lançamentos do NETPLAY em primeira mão.",
+        "UIBackgroundModes": ["audio", "fetch"]
       }
     },
     "android": {
@@ -61,6 +62,7 @@
       ],
       "expo-font",
       "expo-web-browser",
+      "./plugins/withPictureInPicture",
       [
         "expo-notifications",
         {

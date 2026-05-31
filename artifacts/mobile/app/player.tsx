@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
+  AppState,
   Dimensions,
   FlatList,
   Modal,
@@ -10,6 +11,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  ToastAndroid,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -22,6 +24,7 @@ import { useColors } from "@/hooks/useColors";
 import { api, TMDB_IMG } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
+import { getSettings } from "@/lib/user-settings";
 import type { TmdbEpisode, TmdbSeason } from "@/lib/api";
 
 const { width: W, height: H } = Dimensions.get("window");
@@ -39,6 +42,33 @@ try {
 } catch {
   ScreenOrientation = null;
 }
+
+const PIP_JS = `
+(function(){
+  function tryPip(el) {
+    if (!el) return false;
+    if (typeof el.requestPictureInPicture === 'function') {
+      el.requestPictureInPicture().catch(function(){});
+      return true;
+    }
+    if (typeof el.webkitSetPresentationMode === 'function') {
+      el.webkitSetPresentationMode('picture-in-picture');
+      return true;
+    }
+    return false;
+  }
+  var vid = document.querySelector('video');
+  if (tryPip(vid)) return;
+  var iframes = document.querySelectorAll('iframe');
+  for (var i = 0; i < iframes.length; i++) {
+    try {
+      var v = iframes[i].contentDocument && iframes[i].contentDocument.querySelector('video');
+      if (tryPip(v)) return;
+    } catch(e){}
+  }
+  window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({type:'pip_unavailable'}));
+})(); true;
+`;
 
 const AD_BLOCKER_JS = `
 (function() {
@@ -133,6 +163,9 @@ export default function PlayerScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [progressSaved, setProgressSaved] = useState(false);
+  const [pipEnabled, setPipEnabled] = useState(false);
+  const [pipActive, setPipActive] = useState(false);
+  const webviewRef = useRef<any>(null);
 
   const [controlsVisible, setControlsVisible] = useState(true);
   const controlsOpacity = useRef(new Animated.Value(1)).current;
@@ -236,6 +269,53 @@ export default function PlayerScreen() {
     }
   }, [id, type]);
 
+  useEffect(() => {
+    getSettings().then((s) => setPipEnabled(s.pip));
+  }, []);
+
+  const triggerPiP = useCallback(() => {
+    if (Platform.OS === "web") {
+      const iframe = document.querySelector("iframe") as HTMLIFrameElement | null;
+      try {
+        const vid = (iframe?.contentDocument ?? document).querySelector("video") as HTMLVideoElement | null;
+        if (vid && document.pictureInPictureEnabled) {
+          vid.requestPictureInPicture().catch(() => {});
+        }
+      } catch {}
+      return;
+    }
+    if (webviewRef.current) {
+      webviewRef.current.injectJavaScript(PIP_JS);
+      setPipActive(true);
+      if (Platform.OS === "android") {
+        try { ToastAndroid.show("PiP ativado", ToastAndroid.SHORT); } catch {}
+      }
+    }
+  }, []);
+
+  const handleWebViewMessage = useCallback((e: { nativeEvent: { data: string } }) => {
+    try {
+      const msg = JSON.parse(e.nativeEvent.data);
+      if (msg.type === "pip_unavailable") {
+        setPipActive(false);
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS === "web" || !pipEnabled) return;
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "background" && webviewRef.current && !pipActive) {
+        webviewRef.current.injectJavaScript(PIP_JS);
+        setPipActive(true);
+      }
+      if (state === "active") {
+        setPipActive(false);
+      }
+    });
+    return () => sub.remove();
+  }, [pipEnabled, pipActive]);
+
   const playerUrl = isLive && streamUrl ? streamUrl : api.redeflix.url(type as "movie" | "tv", id, season, episode);
   const topPad = Platform.OS === "web" ? 0 : insets.top;
 
@@ -325,13 +405,16 @@ export default function PlayerScreen() {
       <StatusBar style="light" hidden />
 
       <WebView
+        ref={webviewRef}
         source={{ uri: playerUrl }}
         style={styles.webview}
         onLoadStart={() => { setLoading(true); setError(false); }}
         onLoadEnd={() => { setLoading(false); saveProgress(); showControls(); }}
         onError={() => { setError(true); setLoading(false); }}
+        onMessage={handleWebViewMessage}
         allowsFullscreenVideo
         allowsInlineMediaPlayback
+        allowsPictureInPictureMediaPlayback={Platform.OS === "ios"}
         mediaPlaybackRequiresUserAction={false}
         javaScriptEnabled
         domStorageEnabled
@@ -388,7 +471,13 @@ export default function PlayerScreen() {
             {title ? (
               <Text style={styles.playerTitle} numberOfLines={1}>{title}</Text>
             ) : null}
-            <View style={{ width: 40 }} />
+            {pipEnabled ? (
+              <Pressable onPress={triggerPiP} style={[styles.iconBtn, pipActive && styles.iconBtnActive]}>
+                <Feather name="minimize-2" size={19} color={pipActive ? "#e50914" : "rgba(255,255,255,0.9)"} />
+              </Pressable>
+            ) : (
+              <View style={{ width: 40 }} />
+            )}
           </Animated.View>
 
           {type === "tv" && !isLive && (
@@ -590,6 +679,11 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.55)",
     alignItems: "center",
     justifyContent: "center",
+  },
+  iconBtnActive: {
+    backgroundColor: "rgba(229,9,20,0.25)",
+    borderWidth: 1,
+    borderColor: "rgba(229,9,20,0.6)",
   },
   playerTitle: {
     flex: 1,
