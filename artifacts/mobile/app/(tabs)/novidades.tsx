@@ -398,7 +398,7 @@ export default function NovidadesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
-  const { byType } = useCatalog();
+  const { byType, loading: catalogLoading } = useCatalog();
   const isWeb = Platform.OS === "web";
   const topPad = isWeb ? 0 : insets.top;
 
@@ -477,7 +477,9 @@ export default function NovidadesScreen() {
     }
   }, [byType]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (!catalogLoading) load();
+  }, [load, catalogLoading]);
 
   const navigate = (it: TmdbItem) => {
     router.push({

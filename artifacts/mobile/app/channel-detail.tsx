@@ -344,21 +344,26 @@ export default function ChannelDetailScreen() {
                 if (!isTopFrame) return true;
 
                 /* Always allow about:blank */
-                if (url === "about:blank") return true;
+                if (url === "about:blank" || url === "about:srcdoc") return true;
 
-                /* During initial load — allow everything (channel may redirect through CDN) */
-                if (!initialLoadedRef.current) return true;
+                /* Block known ad/tracker domains at native level — even in sub-frames */
+                const AD_DOMAINS = [
+                  "googlesyndication","doubleclick.net","adservice.google",
+                  "pagead2","adnxs.com","taboola.com","outbrain.com",
+                  "popads.net","popcash.net","propellerads.com","adsterra.com",
+                  "mgid.com","revcontent.com","exoclick.com","trafficjunky.com",
+                  "juicyads.com","hilltopads.net","clickadu.com","adcash.com",
+                  "bidvertiser.com","ero-advertising.com","plugrush.com",
+                ];
+                if (AD_DOMAINS.some((d) => url.includes(d))) return false;
 
-                /* ── After initial page loaded: block ALL top-frame cross-domain navigation ── */
+                /* Top-frame navigation: ALWAYS block cross-root-domain redirects,
+                   including during initial load — this is when most ad redirects fire */
                 try {
-                  const resolvedHost = new URL(resolvedUrlRef.current).hostname;
-                  const navHost = new URL(url).hostname;
-                  /* Allow same hostname and subdomains of the same root domain */
-                  const rootResolved = resolvedHost.split(".").slice(-2).join(".");
-                  const rootNav = navHost.split(".").slice(-2).join(".");
-                  if (rootNav !== rootResolved) return false;
+                  const origRoot = new URL(channelUrl).hostname.split(".").slice(-2).join(".");
+                  const navRoot  = new URL(url).hostname.split(".").slice(-2).join(".");
+                  if (navRoot !== origRoot) return false;
                 } catch {
-                  /* If URL parsing fails, block to be safe */
                   return false;
                 }
 
