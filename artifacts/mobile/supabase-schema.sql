@@ -75,8 +75,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   name        TEXT        NOT NULL,
   avatar_url  TEXT,
   is_kids     BOOLEAN     NOT NULL DEFAULT false,
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT profiles_user_name_unique UNIQUE (user_id, name)
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 

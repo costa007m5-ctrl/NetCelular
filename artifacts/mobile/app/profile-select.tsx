@@ -85,14 +85,22 @@ async function cacheProfiles(profiles: NetplayProfile[]): Promise<void> {
 }
 
 export async function getProfiles(userId: string): Promise<NetplayProfile[]> {
+  let dbProfiles: NetplayProfile[] = [];
+  let dbError: string | null = null;
+
   try {
     const remote = await db.profiles.getAll(userId);
-    if (remote.length > 0) {
-      const profiles = remote.map(dbToProfile);
-      await cacheProfiles(profiles);
-      return profiles;
-    }
-  } catch {}
+    dbProfiles = remote.map(dbToProfile);
+  } catch (e: any) {
+    dbError = String(e?.message ?? e);
+    console.error("[profiles] getAll error:", dbError);
+  }
+
+  if (dbProfiles.length > 0) {
+    await cacheProfiles(dbProfiles);
+    return dbProfiles;
+  }
+
   try {
     const raw = await AsyncStorage.getItem(PROFILES_KEY);
     if (!raw) return [];
@@ -103,16 +111,26 @@ export async function getProfiles(userId: string): Promise<NetplayProfile[]> {
   }
 }
 
-export async function saveProfile(profile: NetplayProfile): Promise<void> {
+export async function saveProfile(profile: NetplayProfile): Promise<{ dbError?: string }> {
+  let dbError: string | undefined;
+
   try {
-    await db.profiles.upsert({
+    const result = await db.profiles.upsert({
       id: profile.id,
       user_id: profile.userId,
       name: profile.name,
       avatar_url: profile.avatarUrl ?? null,
       is_kids: profile.isKids ?? false,
     });
-  } catch {}
+    if (result.error) {
+      dbError = result.error;
+      console.error("[profiles] upsert error:", dbError);
+    }
+  } catch (e: any) {
+    dbError = String(e?.message ?? e);
+    console.error("[profiles] upsert exception:", dbError);
+  }
+
   try {
     const raw = await AsyncStorage.getItem(PROFILES_KEY);
     const all: NetplayProfile[] = raw ? JSON.parse(raw) : [];
@@ -120,13 +138,19 @@ export async function saveProfile(profile: NetplayProfile): Promise<void> {
     if (idx >= 0) all[idx] = profile;
     else all.push(profile);
     await AsyncStorage.setItem(PROFILES_KEY, JSON.stringify(all));
-  } catch {}
+  } catch (e) {
+    console.error("[profiles] AsyncStorage save error:", e);
+  }
+
+  return dbError ? { dbError } : {};
 }
 
 export async function deleteProfile(profileId: string): Promise<void> {
   try {
     await db.profiles.delete(profileId);
-  } catch {}
+  } catch (e) {
+    console.error("[profiles] delete error:", e);
+  }
   try {
     const raw = await AsyncStorage.getItem(PROFILES_KEY);
     const all: NetplayProfile[] = raw ? JSON.parse(raw) : [];
@@ -439,10 +463,18 @@ export default function ProfileSelectScreen() {
   const [editTarget, setEditTarget] = useState<NetplayProfile | null>(null);
 
   const load = useCallback(async () => {
-    if (!user?.id) return;
-    const list = await getProfiles(user.id);
-    setProfiles(list);
-    setLoading(false);
+    if (!user?.id) {
+      setLoading(false);
+      return;
+    }
+    try {
+      const list = await getProfiles(user.id);
+      setProfiles(list);
+    } catch (e) {
+      console.error("[profile-select] load error:", e);
+    } finally {
+      setLoading(false);
+    }
   }, [user?.id]);
 
   useEffect(() => { load(); }, [load]);
@@ -456,16 +488,29 @@ export default function ProfileSelectScreen() {
   const handleEdit = (profile: NetplayProfile) => { setEditTarget(profile); setEditModal(true); };
 
   const handleSave = async (name: string, avatarUrl: string, isKids: boolean) => {
-    if (!user?.id) return;
+    if (!user?.id) {
+      Alert.alert("Erro", "Usuário não autenticado. Faça login novamente.");
+      return;
+    }
     const profile: NetplayProfile = {
       id: editTarget?.id ?? generateUUID(),
       name, avatarUrl,
       avatarIndex: editTarget?.avatarIndex ?? 0,
       userId: user.id, isKids,
     };
-    await saveProfile(profile);
+    const result = await saveProfile(profile);
+    if (result.dbError) {
+      console.warn("[profile-select] Salvo localmente, falha no banco:", result.dbError);
+      if (result.dbError.includes("does not exist")) {
+        Alert.alert(
+          "Configure o banco de dados",
+          "A tabela de perfis ainda não foi criada no Supabase. Execute o supabase-schema.sql no Supabase → SQL Editor.",
+          [{ text: "OK" }]
+        );
+      }
+    }
     setEditModal(false);
-    load();
+    await load();
   };
 
   const handleDelete = (profile: NetplayProfile) => {
