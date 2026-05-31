@@ -178,6 +178,10 @@ export default function DetailScreen() {
   const [loadingCollection, setLoadingCollection] = useState(false);
   const [trailerKey, setTrailerKey] = useState<string | null>(null);
   const [showTrailerModal, setShowTrailerModal] = useState(false);
+  const [trailerPlaying, setTrailerPlaying] = useState(true);
+  const [trailerControlsVisible, setTrailerControlsVisible] = useState(true);
+  const trailerWebViewRef = useRef<any>(null);
+  const trailerHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const userId = user?.id ?? "";
   const [inList, setInList] = useState(false);
@@ -509,61 +513,88 @@ export default function DetailScreen() {
         visible={showTrailerModal}
         animationType="slide"
         transparent={false}
-        onRequestClose={() => setShowTrailerModal(false)}
+        onRequestClose={() => {
+          setShowTrailerModal(false);
+          setTrailerPlaying(true);
+          setTrailerControlsVisible(true);
+        }}
         statusBarTranslucent
       >
         <View style={styles.trailerModalContainer}>
-          <StatusBar style="light" />
-          {/* Header */}
-          <View style={[styles.trailerModalHeader, { paddingTop: insets.top + 12 }]}>
-            <TouchableOpacity
-              onPress={() => setShowTrailerModal(false)}
-              style={styles.trailerModalClose}
-            >
-              <Feather name="x" size={22} color="#fff" />
-            </TouchableOpacity>
-            <Text style={styles.trailerModalTitle} numberOfLines={1}>
-              TRAILER
-            </Text>
-            <View style={{ width: 40 }} />
-          </View>
+          <StatusBar style="light" hidden />
 
-          {/* Player area */}
+          {/* ── Video area ── */}
           <View style={styles.trailerPlayerWrap}>
             {Platform.OS === "web" ? (
               <iframe
-                src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&rel=0&modestbranding=1&controls=1&showinfo=0&iv_load_policy=3`}
+                src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&rel=0&modestbranding=1&controls=0&showinfo=0&iv_load_policy=3&enablejsapi=1&playsinline=1`}
                 style={{ width: "100%", height: "100%", border: "none" } as any}
                 allow="autoplay; fullscreen"
                 allowFullScreen
               />
             ) : WebView ? (
               <WebView
+                ref={trailerWebViewRef}
                 source={{
-                  uri: `https://www.youtube.com/embed/${trailerKey}?autoplay=1&rel=0&modestbranding=1&controls=1&showinfo=0&iv_load_policy=3`,
+                  uri: `https://www.youtube.com/embed/${trailerKey}?autoplay=1&rel=0&modestbranding=1&controls=0&showinfo=0&iv_load_policy=3&enablejsapi=1&playsinline=1`,
                 }}
                 allowsFullscreenVideo
                 mediaPlaybackRequiresUserAction={false}
                 javaScriptEnabled
                 style={{ flex: 1, backgroundColor: "#000" }}
+                onMessage={(e: { nativeEvent: { data: string } }) => {
+                  try {
+                    const msg = JSON.parse(e.nativeEvent.data);
+                    if (msg.type === "state") setTrailerPlaying(msg.playing);
+                  } catch {}
+                }}
                 injectedJavaScript={`
                   (function() {
-                    var style = document.createElement('style');
-                    style.textContent = [
-                      '.ytp-youtube-button { display: none !important; }',
-                      '.ytp-watermark { display: none !important; }',
-                      '.ytp-share-button { display: none !important; }',
-                      '.ytp-watch-later-button { display: none !important; }',
-                      'a[href*="youtube.com"] { pointer-events: none !important; }',
-                      '.branding-img { display: none !important; }',
+                    var css = document.createElement('style');
+                    css.textContent = [
+                      '.ytp-youtube-button{display:none!important}',
+                      '.ytp-watermark{display:none!important}',
+                      '.ytp-share-button{display:none!important}',
+                      '.ytp-watch-later-button{display:none!important}',
+                      '.ytp-title{display:none!important}',
+                      '.ytp-title-channel-logo{display:none!important}',
+                      '.ytp-channel-name{display:none!important}',
+                      '.ytp-gradient-top{display:none!important}',
+                      '.ytp-gradient-bottom{background:none!important}',
+                      '.ytp-cards-button{display:none!important}',
+                      '.ytp-chrome-top{display:none!important}',
+                      'a[href*="youtube"]{pointer-events:none!important}',
                     ].join('');
-                    document.head.appendChild(style);
-                    setInterval(function() {
-                      var ytBtn = document.querySelector('.ytp-youtube-button');
-                      if (ytBtn) ytBtn.style.display = 'none';
-                      var wm = document.querySelector('.ytp-watermark');
-                      if (wm) wm.style.display = 'none';
-                    }, 500);
+                    document.head.appendChild(css);
+
+                    function notifyState(playing) {
+                      window.ReactNativeWebView && window.ReactNativeWebView.postMessage(
+                        JSON.stringify({ type: 'state', playing: playing })
+                      );
+                    }
+
+                    var bound = false;
+                    var poll = setInterval(function() {
+                      var vid = document.querySelector('video');
+                      if (vid && !bound) {
+                        bound = true;
+                        vid.addEventListener('play', function(){ notifyState(true); });
+                        vid.addEventListener('pause', function(){ notifyState(false); });
+                        clearInterval(poll);
+                      }
+                      var els = document.querySelectorAll('.ytp-youtube-button,.ytp-watermark,.ytp-chrome-top,.ytp-title');
+                      els.forEach(function(el){ el.style.display='none'; });
+                    }, 400);
+
+                    window._trailerToggle = function() {
+                      var vid = document.querySelector('video');
+                      if (!vid) return;
+                      if (vid.paused) { vid.play(); } else { vid.pause(); }
+                    };
+                    window._trailerSeek = function(delta) {
+                      var vid = document.querySelector('video');
+                      if (vid) vid.currentTime = Math.max(0, vid.currentTime + delta);
+                    };
                   })(); true;
                 `}
               />
@@ -573,10 +604,83 @@ export default function DetailScreen() {
                 <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700", marginBottom: 8, textAlign: "center" }}>
                   Player indisponível
                 </Text>
-                <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 13, marginBottom: 24, textAlign: "center" }}>
-                  O player não está disponível neste dispositivo.
-                </Text>
               </View>
+            )}
+
+            {/* ── Custom controls overlay ── */}
+            {WebView && Platform.OS !== "web" && (
+              <Pressable
+                style={styles.trailerOverlay}
+                onPress={() => {
+                  setTrailerControlsVisible((v) => {
+                    if (!v) {
+                      if (trailerHideTimer.current) clearTimeout(trailerHideTimer.current);
+                      trailerHideTimer.current = setTimeout(() => setTrailerControlsVisible(false), 3500);
+                    }
+                    return !v;
+                  });
+                }}
+              >
+                {trailerControlsVisible && (
+                  <>
+                    {/* Top bar */}
+                    <View style={styles.trailerCtrlTop}>
+                      <TouchableOpacity
+                        onPress={() => {
+                          setShowTrailerModal(false);
+                          setTrailerPlaying(true);
+                          setTrailerControlsVisible(true);
+                        }}
+                        style={styles.trailerCtrlClose}
+                      >
+                        <Feather name="x" size={22} color="#fff" />
+                      </TouchableOpacity>
+                      <Text style={styles.trailerCtrlTitle} numberOfLines={1}>TRAILER</Text>
+                      <View style={{ width: 44 }} />
+                    </View>
+
+                    {/* Center controls */}
+                    <View style={styles.trailerCtrlCenter}>
+                      <TouchableOpacity
+                        style={styles.trailerSeekBtn}
+                        onPress={() => trailerWebViewRef.current?.injectJavaScript("window._trailerSeek(-10); true;")}
+                      >
+                        <Feather name="rotate-ccw" size={26} color="#fff" />
+                        <Text style={styles.trailerSeekLabel}>10</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={styles.trailerPlayBtn}
+                        onPress={() => {
+                          trailerWebViewRef.current?.injectJavaScript("window._trailerToggle(); true;");
+                          if (trailerHideTimer.current) clearTimeout(trailerHideTimer.current);
+                          trailerHideTimer.current = setTimeout(() => setTrailerControlsVisible(false), 3500);
+                        }}
+                      >
+                        <Feather name={trailerPlaying ? "pause" : "play"} size={32} color="#fff" />
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={styles.trailerSeekBtn}
+                        onPress={() => trailerWebViewRef.current?.injectJavaScript("window._trailerSeek(10); true;")}
+                      >
+                        <Feather name="rotate-cw" size={26} color="#fff" />
+                        <Text style={styles.trailerSeekLabel}>10</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </>
+                )}
+              </Pressable>
+            )}
+
+            {/* Close button for web / no-WebView */}
+            {(Platform.OS === "web" || !WebView) && (
+              <TouchableOpacity
+                style={styles.trailerWebClose}
+                onPress={() => setShowTrailerModal(false)}
+              >
+                <Feather name="x" size={22} color="#fff" />
+              </TouchableOpacity>
             )}
           </View>
         </View>
@@ -1199,49 +1303,88 @@ const styles = StyleSheet.create({
   trailerModalContainer: {
     flex: 1,
     backgroundColor: "#000",
+    justifyContent: "center",
   },
-  trailerModalHeader: {
+  trailerPlayerWrap: {
+    width: "100%",
+    aspectRatio: 16 / 9,
+    backgroundColor: "#000",
+    position: "relative",
+  },
+  trailerOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: "space-between",
+  },
+  trailerCtrlTop: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingBottom: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(255,255,255,0.1)",
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 10,
+    backgroundColor: "rgba(0,0,0,0.45)",
   },
-  trailerModalClose: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "rgba(255,255,255,0.1)",
+  trailerCtrlClose: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
   },
-  trailerModalTitle: {
+  trailerCtrlTitle: {
     flex: 1,
     color: "#fff",
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "700",
-    letterSpacing: 1,
+    letterSpacing: 1.5,
     textAlign: "center",
-    marginHorizontal: 8,
   },
-  trailerPlayerWrap: {
+  trailerCtrlCenter: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 36,
     flex: 1,
-    backgroundColor: "#000",
-    maxHeight: 280,
-    marginTop: 24,
+  },
+  trailerSeekBtn: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 2,
+  },
+  trailerSeekLabel: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "700",
+    position: "absolute",
+    bottom: -2,
+    alignSelf: "center",
+  },
+  trailerPlayBtn: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: "rgba(255,255,255,0.15)",
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.4)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  trailerWebClose: {
+    position: "absolute",
+    top: 12,
+    left: 12,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 10,
   },
   trailerFallback: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
     padding: 32,
-  },
-  trailerOpenYt: {
-    backgroundColor: "#ff0000",
-    borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 28,
   },
 });

@@ -27,35 +27,35 @@ const IMG = (p: string | null, s = "w500") =>
   p ? `https://image.tmdb.org/t/p/${s}${p}` : null;
 
 const MOODS = [
-  { label: "🔥 Ação", color: "#ef4444", genre: "28", type: "movie" },
-  { label: "😂 Comédia", color: "#f59e0b", genre: "35", type: "movie" },
-  { label: "👻 Terror", color: "#7c3aed", genre: "27", type: "movie" },
-  { label: "💞 Romance", color: "#ec4899", genre: "10749", type: "movie" },
-  { label: "🚀 Sci-Fi", color: "#06b6d4", genre: "878", type: "movie" },
-  { label: "🎭 Drama", color: "#64748b", genre: "18", type: "movie" },
-  { label: "🎌 Anime", color: "#f97316", genre: "16", type: "tv" },
-  { label: "📺 Docs", color: "#a78bfa", genre: "99", type: "movie" },
-  { label: "🧒 Kids", color: "#34d399", genre: "10751", type: "movie" },
+  { label: "Ação", color: "#ef4444", genre: "28", type: "movie" },
+  { label: "Comédia", color: "#f59e0b", genre: "35", type: "movie" },
+  { label: "Terror", color: "#7c3aed", genre: "27", type: "movie" },
+  { label: "Romance", color: "#ec4899", genre: "10749", type: "movie" },
+  { label: "Sci-Fi", color: "#06b6d4", genre: "878", type: "movie" },
+  { label: "Drama", color: "#64748b", genre: "18", type: "movie" },
+  { label: "Anime", color: "#f97316", genre: "16", type: "tv" },
+  { label: "Documentários", color: "#a78bfa", genre: "99", type: "movie" },
+  { label: "Família", color: "#34d399", genre: "10751", type: "movie" },
 ];
 
 const UNIVERSES = [
-  { label: "Marvel", emoji: "⚡", color: "#e50914", collectionId: 131292, tmdbType: "collection" as const },
-  { label: "DC", emoji: "🦇", color: "#1a56db", collectionId: 263, tmdbType: "collection" as const },
-  { label: "Star Wars", emoji: "⚔️", color: "#22d3ee", collectionId: 10, tmdbType: "collection" as const },
-  { label: "Harry Potter", emoji: "🧙", color: "#d97706", collectionId: 1241, tmdbType: "collection" as const },
-  { label: "Fast & Furious", emoji: "🏎️", color: "#f97316", collectionId: 9485, tmdbType: "collection" as const },
-  { label: "James Bond", emoji: "🔫", color: "#64748b", collectionId: 645, tmdbType: "collection" as const },
-  { label: "Jurassic Park", emoji: "🦕", color: "#22c55e", collectionId: 328, tmdbType: "collection" as const },
-  { label: "Batman", emoji: "🦇", color: "#a78bfa", collectionId: 263, tmdbType: "collection" as const },
+  { label: "Marvel", color: "#e50914", collectionId: 131292, tmdbType: "collection" as const },
+  { label: "DC", color: "#1a56db", collectionId: 263, tmdbType: "collection" as const },
+  { label: "Star Wars", color: "#22d3ee", collectionId: 10, tmdbType: "collection" as const },
+  { label: "Harry Potter", color: "#d97706", collectionId: 1241, tmdbType: "collection" as const },
+  { label: "Fast & Furious", color: "#f97316", collectionId: 9485, tmdbType: "collection" as const },
+  { label: "James Bond", color: "#64748b", collectionId: 645, tmdbType: "collection" as const },
+  { label: "Jurassic Park", color: "#22c55e", collectionId: 328, tmdbType: "collection" as const },
+  { label: "Batman", color: "#a78bfa", collectionId: 263, tmdbType: "collection" as const },
 ];
 
 const CURATED = [
-  { label: "Oscar 2025 🏆", color: "#f59e0b", tmdbId: 278, type: "movie" as const, badge: "Premiado" },
-  { label: "Netflix Originais 🎬", color: "#e50914", tmdbId: 496243, type: "movie" as const, badge: "Original" },
-  { label: "Série do Momento 📺", color: "#7c3aed", tmdbId: 1396, type: "tv" as const, badge: "Top 1" },
-  { label: "Clássicos Eternos 🎞️", color: "#06b6d4", tmdbId: 238, type: "movie" as const, badge: "Clássico" },
-  { label: "Mais Populares 🌟", color: "#22c55e", tmdbId: 550, type: "movie" as const, badge: "Popular" },
-  { label: "Crítica Premiada 🎖️", color: "#ec4899", tmdbId: 389, type: "movie" as const, badge: "Aclamado" },
+  { label: "Oscar 2025", color: "#f59e0b", tmdbId: 278, type: "movie" as const, badge: "Premiado" },
+  { label: "Netflix Originais", color: "#e50914", tmdbId: 496243, type: "movie" as const, badge: "Original" },
+  { label: "Série do Momento", color: "#7c3aed", tmdbId: 1396, type: "tv" as const, badge: "Top 1" },
+  { label: "Clássicos Eternos", color: "#06b6d4", tmdbId: 238, type: "movie" as const, badge: "Clássico" },
+  { label: "Mais Populares", color: "#22c55e", tmdbId: 550, type: "movie" as const, badge: "Popular" },
+  { label: "Crítica Premiada", color: "#ec4899", tmdbId: 389, type: "movie" as const, badge: "Aclamado" },
 ];
 
 const LIVE_CHANNELS = [
@@ -93,7 +93,7 @@ function MoodPill({ label, color, onPress }: { label: string; color: string; onP
   );
 }
 
-function UniverseCard({ label, emoji, color, collectionId, tmdbType }: typeof UNIVERSES[0]) {
+function UniverseCard({ label, color, collectionId, tmdbType }: typeof UNIVERSES[0]) {
   const router = useRouter();
   const [backdrop, setBackdrop] = useState<string | null>(null);
 
@@ -122,9 +122,7 @@ function UniverseCard({ label, emoji, color, collectionId, tmdbType }: typeof UN
         locations={[0, 0.4, 1]}
         style={StyleSheet.absoluteFill}
       />
-      <View style={s.universeBadge}>
-        <Text style={s.universeEmoji}>{emoji}</Text>
-      </View>
+      <View style={[s.universeAccent, { backgroundColor: color }]} />
       <Text style={[s.universeLabel, { color: "#fff" }]}>{label}</Text>
     </Pressable>
   );
@@ -340,8 +338,15 @@ export default function DescobrirScreen() {
       <StatusBar style="light" />
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 130 }}>
         
+        {/* ── HERO BANNER CAROUSEL ────────────────── */}
+        {heroBanners.length > 0 && (
+          <View style={{ marginTop: topPad }}>
+            <HeroBanner items={heroBanners} />
+          </View>
+        )}
+
         {/* ── HEADER ─────────────────────────────────── */}
-        <View style={[s.header, { paddingTop: topPad + 10 }]}>
+        <View style={[s.header, { paddingTop: 16 }]}>
           <View>
             <Text style={s.headerTitle}>Descobrir</Text>
             <Text style={s.headerSub}>Explore por humor, gênero e universo</Text>
@@ -351,11 +356,8 @@ export default function DescobrirScreen() {
           </Pressable>
         </View>
 
-        {/* ── HERO BANNER CAROUSEL ────────────────── */}
-        {heroBanners.length > 0 && <HeroBanner items={heroBanners} />}
-
         {/* ── POR HUMOR ──────────────────────────── */}
-        <SectionTitle title="🎭 Por Humor" subtitle="Escolha como você está se sentindo" />
+        <SectionTitle title="Por Humor" subtitle="Escolha como você está se sentindo" />
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.moodRow}>
           {MOODS.map((m) => (
             <MoodPill key={m.label} label={m.label} color={m.color} onPress={() => handleMood(m.genre, m.type)} />
@@ -363,7 +365,7 @@ export default function DescobrirScreen() {
         </ScrollView>
 
         {/* ── UNIVERSOS & FRANQUIAS ───────────────── */}
-        <SectionTitle title="🌌 Universos & Franquias" subtitle="Mergulhe nos seus universos favoritos" />
+        <SectionTitle title="Universos & Franquias" subtitle="Mergulhe nos seus universos favoritos" />
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.universeRow}>
           {UNIVERSES.map((u) => (
             <UniverseCard key={u.label + u.collectionId} {...u} />
@@ -371,7 +373,7 @@ export default function DescobrirScreen() {
         </ScrollView>
 
         {/* ── COLEÇÕES EM DESTAQUE ────────────────── */}
-        <SectionTitle title="⚡ Coleções em Destaque" subtitle="Seleções especiais para você" />
+        <SectionTitle title="Coleções em Destaque" subtitle="Seleções especiais para você" />
         <View style={s.curatedList}>
           {CURATED.map((item) => (
             <CuratedCard key={item.label} item={item} />
@@ -379,7 +381,7 @@ export default function DescobrirScreen() {
         </View>
 
         {/* ── EM ALTA ESSA SEMANA ─────────────────── */}
-        <SectionTitle title="📈 Em Alta essa Semana" subtitle="O que o mundo está assistindo" />
+        <SectionTitle title="Em Alta essa Semana" subtitle="O que o mundo está assistindo" />
         {loading ? (
           <ActivityIndicator color={RED} style={{ marginVertical: 20 }} />
         ) : (
@@ -391,7 +393,7 @@ export default function DescobrirScreen() {
         )}
 
         {/* ── CANAIS AO VIVO ──────────────────────── */}
-        <SectionTitle title="📡 Canais ao Vivo" subtitle="Transmissões em tempo real" />
+        <SectionTitle title="Canais ao Vivo" subtitle="Transmissões em tempo real" />
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.liveRow}>
           {LIVE_CHANNELS.map((ch) => (
             <Pressable
@@ -500,13 +502,9 @@ const s = StyleSheet.create({
     justifyContent: "flex-end",
     backgroundColor: "#1a1a1a",
   },
-  universeBadge: {
-    position: "absolute", top: 6, left: 8,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    borderRadius: 8, width: 28, height: 28,
-    alignItems: "center", justifyContent: "center",
+  universeAccent: {
+    position: "absolute", top: 0, left: 0, right: 0, height: 3,
   },
-  universeEmoji: { fontSize: 16 },
   universeLabel: { fontSize: 12, fontWeight: "800", padding: 8, textShadowColor: "rgba(0,0,0,0.9)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
 
   // Curated Cards — with real images

@@ -514,7 +514,7 @@ export default function FranquiasScreen() {
             {/* Local franchise results */}
             {searchResults.length > 0 && (
               <>
-                <Text style={s.searchSectionLabel}>📂 Franquias locais</Text>
+                <Text style={s.searchSectionLabel}>Franquias locais</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.hScroll}>
                   {searchResults.map((f) => (
                     <FranchiseCard
@@ -533,7 +533,7 @@ export default function FranquiasScreen() {
             {(tmdbLoading || tmdbResults.length > 0) && (
               <>
                 <Text style={[s.searchSectionLabel, { marginTop: searchResults.length > 0 ? 18 : 0 }]}>
-                  🎬 Coleções do TMDB
+                  Coleções do TMDB
                 </Text>
                 {tmdbLoading ? (
                   <View style={{ paddingVertical: 24, alignItems: "center" }}>
@@ -618,7 +618,7 @@ export default function FranquiasScreen() {
             {/* ── FAVORITOS ─────────────────────────── */}
             {favoriteFranchises.length > 0 && (
               <SectionRow
-                title="❤️ Meus Favoritos"
+                title="Meus Favoritos"
                 accentColor="#ff4c4c"
                 franchises={favoriteFranchises}
                 onPress={goTo}
@@ -630,7 +630,7 @@ export default function FranquiasScreen() {
             {/* ── TOP 10 ────────────────────────────── */}
             {(activeFilter === "all") && (
               <SectionRow
-                title="🏆 Top 10 Universos"
+                title="Top 10 Universos"
                 accentColor="#FFD700"
                 franchises={TOP10_FRANCHISES}
                 onPress={goTo}
@@ -669,7 +669,7 @@ export default function FranquiasScreen() {
       >
         <View style={s.stickyContent}>
           <View>
-            <Text style={s.stickyTitle}>🌌 UNIVERSOS</Text>
+            <Text style={s.stickyTitle}>UNIVERSOS</Text>
           </View>
           <View style={s.stickyRight}>
             <Pressable
