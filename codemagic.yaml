@@ -9,6 +9,7 @@ workflows:
   android-release:
     name: NETPLAY — Android Release
     max_build_duration: 60
+    clone_depth: 1
     environment:
       node: 20.18.0
 
@@ -76,6 +77,7 @@ workflows:
   ios-release:
     name: NETPLAY — iOS Release
     max_build_duration: 90
+    clone_depth: 1
     instance_type: mac_mini_m2
     environment:
       node: 20.18.0
@@ -149,6 +151,7 @@ workflows:
   eas-build:
     name: NETPLAY — EAS Build
     max_build_duration: 60
+    clone_depth: 1
     environment:
       node: 20.18.0
       vars:
