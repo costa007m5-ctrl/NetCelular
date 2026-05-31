@@ -8,6 +8,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
@@ -33,13 +34,38 @@ try {
   ScreenOrientation = null;
 }
 
+const BEFORE_LOAD_JS = `
+(function(){
+  window.open = function(){ return null; };
+  window.alert = function(){};
+  window.confirm = function(){ return false; };
+  Object.defineProperty(window, 'onbeforeunload', { set: function(){} });
+})(); true;
+`;
+
 const AD_BLOCKER_JS = `
 (function() {
   window.open = function() { return null; };
-  history.pushState = function() { return null; };
+  window.alert = function() {};
+  window.confirm = function() { return false; };
+  try { history.pushState = function() {}; } catch(e) {}
+  try { history.replaceState = function() {}; } catch(e) {}
+
+  var BLOCKED_DOMAINS = [
+    'googlesyndication','doubleclick','adservice.google',
+    'pagead2','adnxs','taboola','outbrain','popads',
+    'popcash','propellerads','adsterra','mgid','revcontent'
+  ];
+
+  function isDomainBlocked(src) {
+    if (!src) return false;
+    return BLOCKED_DOMAINS.some(function(d){ return src.indexOf(d) !== -1; });
+  }
 
   function isAllowedSrc(src) {
-    return !src || src.includes('embedtv') || src.includes('faz-o-eli');
+    if (!src || src === 'about:blank') return true;
+    if (isDomainBlocked(src)) return false;
+    return true;
   }
 
   function removeAds() {
@@ -50,20 +76,22 @@ const AD_BLOCKER_JS = `
     } catch(e) {}
 
     try {
-      document.querySelectorAll('a[target="_blank"],a[onclick*="open"]').forEach(function(el) {
+      document.querySelectorAll('a[target="_blank"],a[onclick]').forEach(function(el) {
         el.removeAttribute('href');
         el.removeAttribute('onclick');
         el.removeAttribute('target');
-        el.addEventListener('click', function(e) { e.preventDefault(); e.stopPropagation(); }, true);
+        el.addEventListener('click', function(e) { e.preventDefault(); e.stopPropagation(); return false; }, true);
       });
     } catch(e) {}
 
     var adSelectors = [
       '[id*="google_ads"],[id*="aswift"],[class*="overlay-ad"]',
-      '[class*="ad-container"],[id*="ad-container"]',
+      '[class*="ad-container"],[id*="ad-container"],[id*="ad_container"]',
       'iframe[src*="googlesyndication"],iframe[src*="doubleclick"]',
       '#preroll-ads,.preroll,[class*="preroll"]',
-      '[class*="popup"],[id*="popup"]',
+      '[class*="popup"],[id*="popup"],[class*="modal-ad"]',
+      '[class*="interstitial"],[id*="interstitial"]',
+      'ins.adsbygoogle',
     ];
     adSelectors.forEach(function(sel) {
       try { document.querySelectorAll(sel).forEach(function(el) { el.remove(); }); } catch(e) {}
@@ -74,8 +102,7 @@ const AD_BLOCKER_JS = `
         var z = parseInt(window.getComputedStyle(el).zIndex) || 0;
         if (z > 100) {
           var hasVideo = el.querySelector('video');
-          var hasPlayer = el.querySelector('iframe[src*="embedtv"],iframe[src*="faz-o-eli"]');
-          if (!hasVideo && !hasPlayer) {
+          if (!hasVideo) {
             var r = el.getBoundingClientRect();
             if (r.width > window.innerWidth * 0.45 && r.height > 60) {
               el.style.display = 'none';
@@ -84,11 +111,27 @@ const AD_BLOCKER_JS = `
         }
       });
     } catch(e) {}
+
+    try {
+      document.querySelectorAll('video').forEach(function(v) {
+        v.style.setProperty('width','100%','important');
+        v.style.setProperty('height','100%','important');
+        v.style.setProperty('object-fit','contain','important');
+      });
+    } catch(e) {}
   }
 
+  var style = document.createElement('style');
+  style.textContent = [
+    'html,body{margin:0!important;padding:0!important;overflow:hidden!important;background:#000!important;}',
+    'video{width:100%!important;height:100%!important;object-fit:contain!important;}',
+    'iframe{width:100%!important;height:100%!important;border:none!important;}',
+  ].join('');
+  try { document.head.appendChild(style); } catch(e) {}
+
   removeAds();
-  setInterval(removeAds, 1000);
-  try { new MutationObserver(removeAds).observe(document.body, { childList: true, subtree: true }); } catch(e) {}
+  setInterval(removeAds, 800);
+  try { new MutationObserver(removeAds).observe(document.documentElement, { childList: true, subtree: true }); } catch(e) {}
 })();
 true;
 `;
@@ -117,6 +160,7 @@ export default function ChannelDetailScreen() {
   const router = useRouter();
   const isWeb = Platform.OS === "web";
   const topPad = isWeb ? 16 : insets.top;
+  const { width: winW, height: winH } = useWindowDimensions();
 
   const params = useLocalSearchParams<{
     channelId: string;
@@ -184,7 +228,7 @@ export default function ChannelDetailScreen() {
     if (Platform.OS !== "web" && ScreenOrientation) {
       try {
         if (next) {
-          ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
+          ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE_LEFT);
         } else {
           ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
         }
@@ -193,13 +237,19 @@ export default function ChannelDetailScreen() {
   };
 
   const PLAYER_H = 230;
+  const fsW = Math.max(winW, winH);
+  const fsH = Math.min(winW, winH);
 
   return (
     <View style={styles.container}>
       <StatusBar style="light" hidden={fullscreen} />
 
       {/* ── INLINE PLAYER ──────────────────────── */}
-      <View style={[styles.playerWrap, { height: PLAYER_H }, fullscreen && styles.playerFullscreen]}>
+      <View style={[
+        styles.playerWrap,
+        { height: PLAYER_H },
+        fullscreen && { position: "absolute", top: 0, left: 0, width: fsW, height: fsH, zIndex: 999 } as any,
+      ]}>
         {!isPlaying ? (
           /* Thumbnail + big play button */
           <>
@@ -265,25 +315,27 @@ export default function ChannelDetailScreen() {
           <>
             <WebView
               source={{ uri: channelUrl }}
-              style={{ flex: 1, backgroundColor: "#000" }}
+              style={{ flex: 1, width: "100%", height: "100%", backgroundColor: "#000" }}
               allowsFullscreenVideo
               mediaPlaybackRequiresUserAction={false}
               allowsInlineMediaPlayback
               javaScriptEnabled
               domStorageEnabled
               mixedContentMode="always"
+              scalesPageToFit={false}
+              injectedJavaScriptBeforeContentLoaded={BEFORE_LOAD_JS}
               injectedJavaScript={AD_BLOCKER_JS}
               onShouldStartLoadWithRequest={(req: any) => {
                 const url: string = req.url || "";
-                const blocked =
-                  url.includes("googlesyndication") ||
-                  url.includes("doubleclick.net") ||
-                  url.includes("adservice.google") ||
-                  url.includes("pagead2.googlesyndication");
-                return !blocked;
+                const BLOCKED = [
+                  "googlesyndication","doubleclick.net","adservice.google",
+                  "pagead2.googlesyndication","adnxs.com","taboola.com",
+                  "popads.net","popcash.net","propellerads.com","adsterra.com",
+                ];
+                return !BLOCKED.some((d) => url.includes(d));
               }}
             />
-            {/* Fullscreen button */}
+            {/* Fullscreen toggle button */}
             <Pressable style={styles.fsBtn} onPress={toggleFullscreen}>
               <Feather name={fullscreen ? "minimize" : "maximize"} size={18} color="#fff" />
             </Pressable>
@@ -293,10 +345,10 @@ export default function ChannelDetailScreen() {
                 <Feather name="arrow-left" size={20} color="#fff" />
               </Pressable>
             )}
-            {/* Exit fullscreen button when fullscreen */}
+            {/* Exit fullscreen (top-left back button in fullscreen) */}
             {fullscreen && (
               <Pressable style={styles.fsExitBtn} onPress={toggleFullscreen}>
-                <Feather name="x" size={20} color="#fff" />
+                <Feather name="minimize" size={20} color="#fff" />
               </Pressable>
             )}
           </>

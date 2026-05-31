@@ -186,15 +186,7 @@ export default function PlayerScreen() {
       ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE_LEFT);
     } catch {}
 
-    let sub: any = null;
-    try {
-      sub = ScreenOrientation.addOrientationChangeListener(() => {
-        try { ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE_LEFT); } catch {}
-      });
-    } catch {}
-
     return () => {
-      if (sub) { try { ScreenOrientation.removeOrientationChangeListener(sub); } catch {} }
       if (!navigatingToEpisodeRef.current) {
         try { ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP); } catch {}
       }
