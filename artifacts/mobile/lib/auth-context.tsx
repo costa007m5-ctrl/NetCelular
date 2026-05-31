@@ -1,7 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-
-const AUTH_KEY = "netplay_user_v1";
+import { supabase, db } from "@/lib/supabase";
 
 export interface AuthUser {
   id: string;
@@ -14,42 +12,63 @@ export interface AuthUser {
 interface AuthContextValue {
   user: AuthUser | null;
   loading: boolean;
-  setUser: (u: AuthUser | null) => Promise<void>;
+  setUser: (u: AuthUser | null) => void;
   logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue>({
   user: null,
   loading: true,
-  setUser: async () => {},
+  setUser: () => {},
   logout: async () => {},
 });
+
+async function buildAuthUser(supabaseUserId: string, email: string): Promise<AuthUser | null> {
+  const profile = await db.users.getById(supabaseUserId);
+  if (!profile) return null;
+  return {
+    id: supabaseUserId,
+    email,
+    name: profile.name,
+    role: profile.role,
+    avatarLetter: profile.avatar_letter,
+  };
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUserState] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    AsyncStorage.getItem(AUTH_KEY)
-      .then((raw) => {
-        if (raw) setUserState(JSON.parse(raw));
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (session?.user) {
+        const u = await buildAuthUser(session.user.id, session.user.email ?? "");
+        setUserState(u);
+      }
+      setLoading(false);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session?.user) {
+        const u = await buildAuthUser(session.user.id, session.user.email ?? "");
+        setUserState(u);
+      } else {
+        setUserState(null);
+      }
+      setLoading(false);
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  const setUser = useCallback(async (u: AuthUser | null) => {
+  const setUser = useCallback((u: AuthUser | null) => {
     setUserState(u);
-    if (u) {
-      await AsyncStorage.setItem(AUTH_KEY, JSON.stringify(u));
-    } else {
-      await AsyncStorage.removeItem(AUTH_KEY);
-    }
   }, []);
 
   const logout = useCallback(async () => {
-    await setUser(null);
-  }, [setUser]);
+    await supabase.auth.signOut();
+    setUserState(null);
+  }, []);
 
   return (
     <AuthContext.Provider value={{ user, loading, setUser, logout }}>
@@ -61,39 +80,3 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 export function useAuth() {
   return useContext(AuthContext);
 }
-
-export function simpleHashPassword(password: string): string {
-  const salt = "netplay_salt_2024_v1";
-  const msg = password.trim() + salt;
-  let hash = 0;
-  for (let i = 0; i < msg.length; i++) {
-    hash = (hash << 5) - hash + msg.charCodeAt(i);
-    hash |= 0;
-  }
-  return Math.abs(hash).toString(16).padStart(8, "0");
-}
-
-export async function hashPassword(password: string): Promise<string> {
-  const salt = "netplay_salt_2024_v1";
-  const msg = password.trim() + salt;
-  try {
-    const hasCrypto =
-      typeof crypto !== "undefined" &&
-      crypto != null &&
-      typeof crypto.subtle !== "undefined" &&
-      crypto.subtle != null;
-    const hasTextEncoder =
-      typeof TextEncoder !== "undefined" && TextEncoder != null;
-
-    if (hasCrypto && hasTextEncoder) {
-      const encoder = new TextEncoder();
-      const data = encoder.encode(msg);
-      const buf = await crypto.subtle.digest("SHA-256", data);
-      return Array.from(new Uint8Array(buf))
-        .map((b) => b.toString(16).padStart(2, "0"))
-        .join("");
-    }
-  } catch {}
-  return simpleHashPassword(password);
-}
-
