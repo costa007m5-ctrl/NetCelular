@@ -306,6 +306,9 @@ export default function FranchiseScreen() {
   const [series, setSeries] = useState<ContentItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<Tab>("filmes");
+  const [collectionOverview, setCollectionOverview] = useState("");
+  const [collectionYearRange, setCollectionYearRange] = useState("");
+  const [collectionTotalHours, setCollectionTotalHours] = useState(0);
 
   const scrollY = useRef(new Animated.Value(0)).current;
   const headerOpacity = scrollY.interpolate({
@@ -358,7 +361,21 @@ export default function FranchiseScreen() {
         if (isTmdbCollection && tmdbColId) {
           const d = await api.tmdb.collection(tmdbColId);
           if (d.name) setDynamicName(d.name);
-          allItems = (d.parts ?? []).map((p: any) => tmdbItemToContent({ ...p, media_type: "movie" }));
+          if (d.overview) setCollectionOverview(d.overview);
+
+          const parts: any[] = d.parts ?? [];
+          const years = parts
+            .map((p: any) => Number((p.release_date ?? "").slice(0, 4)))
+            .filter((y: number) => y > 1900);
+          if (years.length > 0) {
+            const min = Math.min(...years);
+            const max = Math.max(...years);
+            setCollectionYearRange(min === max ? String(min) : `${min}–${max}`);
+          }
+          const avgMinPerTitle = 105;
+          setCollectionTotalHours(Math.round((parts.length * avgMinPerTitle) / 60));
+
+          allItems = parts.map((p: any) => tmdbItemToContent({ ...p, media_type: "movie" }));
           allItems.sort((a, b) => b.rating - a.rating);
           setMovies(allItems.filter((i) => i.type === "movie"));
           setSeries(allItems.filter((i) => i.type === "series"));
@@ -413,13 +430,19 @@ export default function FranchiseScreen() {
           allItems = [...tvItems, ...movieItems];
 
         } else {
-          // Search fallback
+          // Search fallback — fetch up to 3 pages for more results
           const q = franchise.searchQuery ?? franchise.name;
           const type = franchise.searchType ?? (franchise.category === "anime" ? "tv" : "movie");
-          const data = await api.tmdb.search(q, type as any);
-          allItems = data.results
-            .slice(0, 15)
-            .map((item) => tmdbItemToContent({ ...item, media_type: type as any }));
+          const pages = await Promise.allSettled([
+            api.tmdb.search(q, type as any, 1),
+            api.tmdb.search(q, type as any, 2),
+            api.tmdb.search(q, type as any, 3),
+          ]);
+          for (const p of pages) {
+            if (p.status === "fulfilled") {
+              allItems.push(...(p.value.results ?? []).map((item: any) => tmdbItemToContent({ ...item, media_type: type as any })));
+            }
+          }
           allItems.sort((a, b) => b.rating - a.rating);
         }
 
@@ -468,16 +491,16 @@ export default function FranchiseScreen() {
     name: dynamicName || "Coleção TMDB",
     shortName: dynamicName || "Coleção",
     tagline: "Coleção do TMDB",
-    description: "",
+    description: collectionOverview,
     color: "#01b4e4",
     accentColor: "#01d4ff",
     bgGradient: ["#001520", "#002030", "#001018"] as [string, string, string],
     category: "filmes" as const,
     genre: "acao" as const,
     fetchType: "collection" as const,
-    yearRange: "",
+    yearRange: collectionYearRange,
     contentCount: movies.length + series.length,
-    totalHours: 0,
+    totalHours: collectionTotalHours,
     related: [],
   } : franchise!;
 

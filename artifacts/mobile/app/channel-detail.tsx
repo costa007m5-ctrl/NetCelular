@@ -17,7 +17,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { calcProgress, calcRemaining, fakeViewers, getAccent, CATEGORY_LABELS } from "@/lib/live-tv-api";
 
-const { width: W, height: H } = Dimensions.get("window");
+const { width: W } = Dimensions.get("window");
 
 let WebView: any = null;
 try {
@@ -133,16 +133,11 @@ export default function ChannelDetailScreen() {
     ]).start();
   }, []);
 
-  const toggleFullscreen = async () => {
-    if (!fullscreen) {
-      try { await ScreenOrientation?.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE); } catch {}
-    } else {
-      try { await ScreenOrientation?.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP); } catch {}
-    }
+  const toggleFullscreen = () => {
     setFullscreen((v) => !v);
   };
 
-  const PLAYER_H = fullscreen ? H : 230;
+  const PLAYER_H = 230;
 
   return (
     <View style={styles.container}>

@@ -14,6 +14,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { downloadsManager } from "@/lib/downloads";
 import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
 import { Feather } from "@expo/vector-icons";
@@ -174,6 +175,8 @@ export default function DetailScreen() {
   const userId = user?.id ?? "";
   const [inList, setInList] = useState(false);
   const [liked, setLiked] = useState<boolean | undefined>(undefined);
+  const [isDownloaded, setIsDownloaded] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     if (!userId || !tmdbId || !isSupabaseConfigured) return;
@@ -183,6 +186,11 @@ export default function DetailScreen() {
       db.progress.getForShow(userId, tmdbId, "tv").then(setWatchProgress);
     }
   }, [userId, tmdbId, type]);
+
+  useEffect(() => {
+    if (!tmdbId) return;
+    downloadsManager.isDownloaded(type, tmdbId).then(setIsDownloaded);
+  }, [tmdbId, type]);
 
   // Load details
   useEffect(() => {
@@ -301,6 +309,47 @@ export default function DetailScreen() {
     try {
       await Share.share({ message: `Assista "${details.title ?? details.name}" no NETPLAY!` });
     } catch {}
+  };
+
+  const handleDownload = async () => {
+    if (isDownloaded) {
+      Alert.alert(
+        "Remover download",
+        `Remover "${details?.title ?? details?.name}" dos downloads?`,
+        [
+          { text: "Cancelar", style: "cancel" },
+          {
+            text: "Remover",
+            style: "destructive",
+            onPress: async () => {
+              await downloadsManager.remove(`${type}_${tmdbId}`);
+              setIsDownloaded(false);
+            },
+          },
+        ]
+      );
+      return;
+    }
+    setDownloading(true);
+    try {
+      await downloadsManager.download({
+        tmdb_id: tmdbId,
+        type,
+        title: details?.title ?? details?.name ?? "",
+        poster_path: TMDB_IMG(details?.poster_path ?? null, "w500") ?? "",
+        backdrop_path: TMDB_IMG(details?.backdrop_path ?? null, "w1280") ?? "",
+      });
+      setIsDownloaded(true);
+      Alert.alert(
+        "Download concluído!",
+        `"${details?.title ?? details?.name}" está disponível offline por 20 dias.`,
+        [{ text: "OK" }]
+      );
+    } catch {
+      Alert.alert("Erro", "Não foi possível realizar o download. Tente novamente.");
+    } finally {
+      setDownloading(false);
+    }
   };
 
   const handleIndicate = () => {
@@ -544,13 +593,19 @@ export default function DetailScreen() {
                     {inList ? "Na Lista" : "Minha Lista"}
                   </Text>
                 </Pressable>
+                <Pressable style={styles.actionBtn} onPress={handleDownload} disabled={downloading}>
+                  {downloading ? (
+                    <ActivityIndicator size="small" color="#4ade80" />
+                  ) : (
+                    <Feather name={isDownloaded ? "check-circle" : "download"} size={20} color={isDownloaded ? "#4ade80" : colors.foreground} />
+                  )}
+                  <Text style={[styles.actionLabel, { color: isDownloaded ? "#4ade80" : colors.mutedForeground }]}>
+                    {downloading ? "Baixando..." : isDownloaded ? "Baixado" : "Download"}
+                  </Text>
+                </Pressable>
                 <Pressable style={styles.actionBtn} onPress={() => handleLike(true)}>
                   <Feather name="thumbs-up" size={20} color={liked === true ? "#4caf50" : colors.foreground} />
                   <Text style={[styles.actionLabel, { color: colors.mutedForeground }]}>Gostei</Text>
-                </Pressable>
-                <Pressable style={styles.actionBtn} onPress={() => handleLike(false)}>
-                  <Feather name="thumbs-down" size={20} color={liked === false ? colors.primary : colors.foreground} />
-                  <Text style={[styles.actionLabel, { color: colors.mutedForeground }]}>Não gostei</Text>
                 </Pressable>
                 <Pressable style={styles.actionBtn} onPress={handleShare}>
                   <Feather name="share-2" size={20} color={colors.foreground} />

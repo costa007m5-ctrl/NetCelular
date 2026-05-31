@@ -1,5 +1,7 @@
 import { Platform } from "react-native";
 
+const EMBEDTV_DIRECT = "http://embedtv.lat/api";
+
 function getBase(): string {
   const domain = process.env.EXPO_PUBLIC_DOMAIN;
   if (Platform.OS === "web") return "/api";
@@ -37,16 +39,31 @@ export interface ChannelsResponse {
   channels: LiveChannel[];
 }
 
+async function fetchWithFallback(apiPath: string, directPath: string): Promise<any> {
+  try {
+    const res = await fetch(`${BASE}${apiPath}`, { signal: AbortSignal.timeout(5000) });
+    if (res.ok) {
+      const data = await res.json();
+      const valid = Array.isArray(data) ? data.length > 0 : data?.channels?.length > 0;
+      if (valid) return data;
+    }
+  } catch {}
+
+  if (Platform.OS !== "web") {
+    const res = await fetch(`${EMBEDTV_DIRECT}${directPath}`);
+    if (!res.ok) throw new Error(`embedtv error ${res.status}`);
+    return res.json();
+  }
+
+  throw new Error("Failed to fetch live TV data");
+}
+
 export const liveTvApi = {
   async getChannels(): Promise<ChannelsResponse> {
-    const res = await fetch(`${BASE}/live/channels`);
-    if (!res.ok) throw new Error(`Failed to fetch channels: ${res.status}`);
-    return res.json();
+    return fetchWithFallback("/live/channels", "/channels");
   },
   async getEpgs(): Promise<EpgEntry[]> {
-    const res = await fetch(`${BASE}/live/epgs`);
-    if (!res.ok) throw new Error(`Failed to fetch EPG: ${res.status}`);
-    return res.json();
+    return fetchWithFallback("/live/epgs", "/epgs_full");
   },
 };
 

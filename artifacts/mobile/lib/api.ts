@@ -119,10 +119,10 @@ export const api = {
       return tmdbFetch<{ results: TmdbItem[] }>("/tv/top_rated").then((r) => r.results);
     },
 
-    search: async (q: string, type: "multi" | "movie" | "tv" = "multi"): Promise<TmdbSearchResult> => {
-      if (API_BASE) return apiFetch(`/tmdb/search?q=${encodeURIComponent(q)}&type=${type}`);
+    search: async (q: string, type: "multi" | "movie" | "tv" = "multi", page = 1): Promise<TmdbSearchResult> => {
+      if (API_BASE) return apiFetch(`/tmdb/search?q=${encodeURIComponent(q)}&type=${type}&page=${page}`);
       const path = type === "multi" ? "/search/multi" : type === "movie" ? "/search/movie" : "/search/tv";
-      return tmdbFetch<TmdbSearchResult>(path, { query: q, include_adult: "false" });
+      return tmdbFetch<TmdbSearchResult>(path, { query: q, include_adult: "false", page: String(page) });
     },
 
     movie: async (id: number): Promise<TmdbItem> => {
