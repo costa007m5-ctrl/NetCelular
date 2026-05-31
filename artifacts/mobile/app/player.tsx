@@ -43,6 +43,15 @@ try {
   ScreenOrientation = null;
 }
 
+let NavBar: any = null;
+try {
+  NavBar = require("expo-navigation-bar");
+} catch {
+  NavBar = null;
+}
+
+const SCREEN = Dimensions.get("screen");
+
 const PIP_JS = `
 (function(){
   function tryPip(el) {
@@ -130,6 +139,31 @@ const AD_BLOCKER_JS = `
 true;
 `;
 
+const FULLSCREEN_JS = `
+(function() {
+  function tryFs(el) {
+    if (!el) return false;
+    if (el.requestFullscreen) { el.requestFullscreen().catch(function(){}); return true; }
+    if (el.webkitEnterFullscreen) { el.webkitEnterFullscreen(); return true; }
+    if (el.webkitRequestFullscreen) { el.webkitRequestFullscreen(); return true; }
+    if (el.mozRequestFullScreen) { el.mozRequestFullScreen(); return true; }
+    return false;
+  }
+  var vid = document.querySelector('video');
+  if (tryFs(vid)) return;
+  var frames = document.querySelectorAll('iframe');
+  for (var i = 0; i < frames.length; i++) {
+    try {
+      var doc = frames[i].contentDocument;
+      if (doc) { var v = doc.querySelector('video'); if (tryFs(v)) return; }
+    } catch(e) {}
+  }
+  try {
+    document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
+  } catch(e) {}
+})(); true;
+`;
+
 const AUTO_HIDE_MS = 5000;
 
 export default function PlayerScreen() {
@@ -161,10 +195,12 @@ export default function PlayerScreen() {
   const isLive = params.isLive === "true";
 
   const [loading, setLoading] = useState(true);
+  const [initialLoadDone, setInitialLoadDone] = useState(false);
   const [error, setError] = useState(false);
   const [progressSaved, setProgressSaved] = useState(false);
   const [pipEnabled, setPipEnabled] = useState(false);
   const [pipActive, setPipActive] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const webviewRef = useRef<any>(null);
 
   const [controlsVisible, setControlsVisible] = useState(true);
@@ -185,13 +221,40 @@ export default function PlayerScreen() {
     try {
       ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE_LEFT);
     } catch {}
+    if (Platform.OS === "android" && NavBar) {
+      try {
+        NavBar.setVisibilityAsync("hidden");
+        NavBar.setBehaviorAsync("overlay-swipe");
+      } catch {}
+    }
 
     return () => {
       if (!navigatingToEpisodeRef.current) {
         try { ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP); } catch {}
       }
+      if (Platform.OS === "android" && NavBar) {
+        try { NavBar.setVisibilityAsync("visible"); } catch {}
+      }
     };
   }, []);
+
+  const toggleFullscreen = useCallback(() => {
+    const next = !isFullscreen;
+    setIsFullscreen(next);
+    if (Platform.OS === "android" && NavBar) {
+      try {
+        if (next) {
+          NavBar.setVisibilityAsync("hidden");
+          NavBar.setBehaviorAsync("overlay-swipe");
+        } else {
+          NavBar.setVisibilityAsync("visible");
+        }
+      } catch {}
+    }
+    if (webviewRef.current) {
+      webviewRef.current.injectJavaScript(FULLSCREEN_JS);
+    }
+  }, [isFullscreen]);
 
   const startHideTimer = useCallback(() => {
     if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
@@ -413,9 +476,9 @@ export default function PlayerScreen() {
         ref={webviewRef}
         source={{ uri: playerUrl }}
         style={styles.webview}
-        onLoadStart={() => { setLoading(true); setError(false); }}
-        onLoadEnd={() => { setLoading(false); saveProgress(); showControls(); }}
-        onError={() => { setError(true); setLoading(false); }}
+        onLoadStart={() => { if (!initialLoadDone) { setLoading(true); setError(false); } }}
+        onLoadEnd={() => { setLoading(false); setInitialLoadDone(true); saveProgress(); showControls(); }}
+        onError={() => { if (!initialLoadDone) { setError(true); setLoading(false); } }}
         onMessage={handleWebViewMessage}
         allowsFullscreenVideo
         allowsInlineMediaPlayback
@@ -425,6 +488,7 @@ export default function PlayerScreen() {
         domStorageEnabled
         mixedContentMode="always"
         startInLoadingState={false}
+        scalesPageToFit={false}
         injectedJavaScript={AD_BLOCKER_JS}
         injectedJavaScriptBeforeContentLoaded={`(function(){ window.open = function(){ return null; }; })(); true;`}
         onShouldStartLoadWithRequest={(req) => {
@@ -525,10 +589,21 @@ export default function PlayerScreen() {
             </Animated.View>
           )}
 
+          {/* Fullscreen button — fills whole screen including nav bar */}
+          <Pressable
+            style={styles.fullscreenBtn}
+            onPress={toggleFullscreen}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <View style={[styles.fullscreenInner, isFullscreen && styles.fullscreenInnerActive]}>
+              <Feather name={isFullscreen ? "minimize" : "maximize"} size={16} color="#fff" />
+            </View>
+          </Pressable>
+
           <Pressable
             style={styles.showControlsBtn}
             onPress={showControls}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
             <View style={[styles.showControlsInner, { opacity: controlsVisible ? 0.5 : 0.9 }]}>
               <Feather name={controlsVisible ? "eye" : "eye-off"} size={14} color="#fff" />
@@ -668,8 +743,18 @@ function EpisodePicker({
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  webview: { flex: 1, backgroundColor: "#000" },
+  container: {
+    flex: 1,
+    backgroundColor: "#000",
+    width: SCREEN.width,
+    height: SCREEN.height,
+  },
+  webview: {
+    flex: 1,
+    backgroundColor: "#000",
+    width: SCREEN.width,
+    height: SCREEN.height,
+  },
   playerHeader: {
     position: "absolute",
     top: 0,
@@ -757,6 +842,26 @@ const styles = StyleSheet.create({
   },
   epBtnText: { fontSize: 13, fontWeight: "600" },
 
+  fullscreenBtn: {
+    position: "absolute",
+    bottom: 116,
+    right: 16,
+    zIndex: 20,
+  },
+  fullscreenInner: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "rgba(0,0,0,0.7)",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.35)",
+  },
+  fullscreenInnerActive: {
+    backgroundColor: "rgba(229,9,20,0.3)",
+    borderColor: "#e50914",
+  },
   showControlsBtn: {
     position: "absolute",
     bottom: 70,
