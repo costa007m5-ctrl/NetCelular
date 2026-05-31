@@ -9,6 +9,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import * as SystemUI from "expo-system-ui";
+import * as Linking from "expo-linking";
 import React, { useEffect, useState } from "react";
 import { Platform, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -20,6 +21,7 @@ import NetplaySplash from "@/components/NetplaySplash";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { ThemeProvider } from "@/lib/theme-context";
 import { requestPermissionsAndSetup, scheduleNewContentNotification } from "@/lib/notifications";
+import { supabase } from "@/lib/supabase";
 
 SystemUI.setBackgroundColorAsync("#000000");
 SplashScreen.preventAutoHideAsync();
@@ -34,16 +36,34 @@ function RootNavigator() {
   return (
     <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#000" } }}>
       <Stack.Screen name="login" options={{ headerShown: false }} />
+      <Stack.Screen name="register" options={{ headerShown: false }} />
+      <Stack.Screen name="forgot-password" options={{ headerShown: false }} />
+      <Stack.Screen name="reset-password" options={{ headerShown: false }} />
+      <Stack.Screen name="email-confirmed" options={{ headerShown: false }} />
       <Stack.Screen name="profile-select" options={{ headerShown: false }} />
+      <Stack.Screen name="onboarding/profile" options={{ headerShown: false }} />
+      <Stack.Screen name="onboarding/preferences" options={{ headerShown: false }} />
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="detail" options={{ headerShown: false }} />
       <Stack.Screen name="channel-detail" options={{ headerShown: false }} />
       <Stack.Screen name="player" options={{ headerShown: false, presentation: "fullScreenModal" }} />
       <Stack.Screen name="admin" options={{ headerShown: false }} />
-      <Stack.Screen name="reset-password" options={{ headerShown: false }} />
       <Stack.Screen name="+not-found" />
     </Stack>
   );
+}
+
+async function handleAuthUrl(url: string) {
+  try {
+    const fragment = url.split("#")[1] ?? "";
+    const query = url.includes("?") ? url.split("?")[1]?.split("#")[0] ?? "" : "";
+    const params = new URLSearchParams(fragment || query);
+    const accessToken = params.get("access_token");
+    const refreshToken = params.get("refresh_token");
+    if (accessToken && refreshToken) {
+      await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+    }
+  } catch {}
 }
 
 export default function RootLayout() {
@@ -70,6 +90,14 @@ export default function RootLayout() {
         await NavBar.setButtonStyleAsync("light");
       } catch {}
     })();
+  }, []);
+
+  useEffect(() => {
+    Linking.getInitialURL().then((url) => {
+      if (url) handleAuthUrl(url);
+    });
+    const sub = Linking.addEventListener("url", ({ url }) => handleAuthUrl(url));
+    return () => sub.remove();
   }, []);
 
   const ready = fontsLoaded || fontError || fontTimeout;
