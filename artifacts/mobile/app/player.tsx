@@ -177,15 +177,27 @@ export default function PlayerScreen() {
   const [pickerEpisodes, setPickerEpisodes] = useState<TmdbEpisode[]>([]);
   const [loadingEpisodes, setLoadingEpisodes] = useState(false);
 
+  const navigatingToEpisodeRef = useRef(false);
+
   useEffect(() => {
     if (Platform.OS === "web" || !ScreenOrientation) return;
+    navigatingToEpisodeRef.current = false;
     try {
-      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE_LEFT);
     } catch {}
+
+    let sub: any = null;
+    try {
+      sub = ScreenOrientation.addOrientationChangeListener(() => {
+        try { ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE_LEFT); } catch {}
+      });
+    } catch {}
+
     return () => {
-      try {
-        ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
-      } catch {}
+      if (sub) { try { ScreenOrientation.removeOrientationChangeListener(sub); } catch {} }
+      if (!navigatingToEpisodeRef.current) {
+        try { ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP); } catch {}
+      }
     };
   }, []);
 
@@ -321,6 +333,7 @@ export default function PlayerScreen() {
 
   const goToEpisode = (s: number, ep: number) => {
     setShowPicker(false);
+    navigatingToEpisodeRef.current = true;
     router.replace({
       pathname: "/player",
       params: { type, id: String(id), season: String(s), episode: String(ep), title, totalSeasons: String(totalSeasons) },

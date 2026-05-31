@@ -33,24 +33,64 @@ try {
   ScreenOrientation = null;
 }
 
-// Ad blocker JS (same as player.tsx)
 const AD_BLOCKER_JS = `
 (function() {
   window.open = function() { return null; };
   history.pushState = function() { return null; };
+
   function isAllowedSrc(src) {
     return !src || src.includes('embedtv') || src.includes('faz-o-eli');
   }
+
   function removeAds() {
-    try { document.querySelectorAll('iframe').forEach(function(el) { if (!isAllowedSrc(el.src)) el.remove(); }); } catch(e) {}
-    try { document.querySelectorAll('a[target="_blank"],a[onclick*="open"]').forEach(function(el) { el.removeAttribute('href'); el.removeAttribute('onclick'); el.removeAttribute('target'); el.addEventListener('click', function(e) { e.preventDefault(); e.stopPropagation(); }, true); }); } catch(e) {}
-    var adSelectors = ['[id*="google_ads"],[id*="aswift"],[class*="overlay-ad"]','[class*="ad-container"],[id*="ad-container"]','iframe[src*="googlesyndication"],iframe[src*="doubleclick"]','#preroll-ads,.preroll,[class*="preroll"]','[class*="popup"],[id*="popup"]'];
-    adSelectors.forEach(function(sel) { try { document.querySelectorAll(sel).forEach(function(el) { el.remove(); }); } catch(e) {} });
+    try {
+      document.querySelectorAll('iframe').forEach(function(el) {
+        if (!isAllowedSrc(el.src)) el.remove();
+      });
+    } catch(e) {}
+
+    try {
+      document.querySelectorAll('a[target="_blank"],a[onclick*="open"]').forEach(function(el) {
+        el.removeAttribute('href');
+        el.removeAttribute('onclick');
+        el.removeAttribute('target');
+        el.addEventListener('click', function(e) { e.preventDefault(); e.stopPropagation(); }, true);
+      });
+    } catch(e) {}
+
+    var adSelectors = [
+      '[id*="google_ads"],[id*="aswift"],[class*="overlay-ad"]',
+      '[class*="ad-container"],[id*="ad-container"]',
+      'iframe[src*="googlesyndication"],iframe[src*="doubleclick"]',
+      '#preroll-ads,.preroll,[class*="preroll"]',
+      '[class*="popup"],[id*="popup"]',
+    ];
+    adSelectors.forEach(function(sel) {
+      try { document.querySelectorAll(sel).forEach(function(el) { el.remove(); }); } catch(e) {}
+    });
+
+    try {
+      document.querySelectorAll('div,section,aside').forEach(function(el) {
+        var z = parseInt(window.getComputedStyle(el).zIndex) || 0;
+        if (z > 100) {
+          var hasVideo = el.querySelector('video');
+          var hasPlayer = el.querySelector('iframe[src*="embedtv"],iframe[src*="faz-o-eli"]');
+          if (!hasVideo && !hasPlayer) {
+            var r = el.getBoundingClientRect();
+            if (r.width > window.innerWidth * 0.45 && r.height > 60) {
+              el.style.display = 'none';
+            }
+          }
+        }
+      });
+    } catch(e) {}
   }
+
   removeAds();
-  setInterval(removeAds, 1500);
-  true;
+  setInterval(removeAds, 1000);
+  try { new MutationObserver(removeAds).observe(document.body, { childList: true, subtree: true }); } catch(e) {}
 })();
+true;
 `;
 
 function getNextSlots(startDateStr: string): { time: string; title: string; duration: string }[] {
