@@ -83,15 +83,22 @@ CREATE TABLE IF NOT EXISTS public.profiles (
 -- 2. COLUNAS OPCIONAIS (adiciona só se ainda nao existirem)
 -- ────────────────────────────────────────────────────────────
 
-DO $$ BEGIN
-  ALTER TABLE public.users ADD COLUMN avatar_url TEXT;
-EXCEPTION WHEN duplicate_column THEN NULL;
-END $$;
+DO $$ BEGIN ALTER TABLE public.users ADD COLUMN avatar_url TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE public.users ADD COLUMN profile_banner TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
 
-DO $$ BEGIN
-  ALTER TABLE public.users ADD COLUMN profile_banner TEXT;
-EXCEPTION WHEN duplicate_column THEN NULL;
-END $$;
+DO $$ BEGIN ALTER TABLE public.user_settings ADD COLUMN stream_quality TEXT NOT NULL DEFAULT 'Auto'; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE public.user_settings ADD COLUMN audio_lang TEXT NOT NULL DEFAULT 'Português (BR)'; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE public.user_settings ADD COLUMN subtitle_lang TEXT NOT NULL DEFAULT 'Desativado'; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE public.user_settings ADD COLUMN auto_play BOOLEAN NOT NULL DEFAULT true; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE public.user_settings ADD COLUMN pip BOOLEAN NOT NULL DEFAULT false; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE public.user_settings ADD COLUMN notif_push BOOLEAN NOT NULL DEFAULT true; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE public.user_settings ADD COLUMN notif_lancamentos BOOLEAN NOT NULL DEFAULT true; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE public.user_settings ADD COLUMN notif_continue BOOLEAN NOT NULL DEFAULT false; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE public.user_settings ADD COLUMN notif_promo BOOLEAN NOT NULL DEFAULT false; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE public.user_settings ADD COLUMN wifi_only BOOLEAN NOT NULL DEFAULT true; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE public.user_settings ADD COLUMN smart_download BOOLEAN NOT NULL DEFAULT true; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE public.user_settings ADD COLUMN download_quality TEXT NOT NULL DEFAULT 'Boa (720p)'; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE public.user_settings ADD COLUMN theme TEXT NOT NULL DEFAULT 'dark'; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
 
 
 -- ────────────────────────────────────────────────────────────

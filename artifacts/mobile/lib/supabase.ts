@@ -39,6 +39,16 @@ export type DbUserSettings = {
   stream_quality?: string;
   audio_lang?: string;
   subtitle_lang?: string;
+  auto_play?: boolean;
+  pip?: boolean;
+  notif_push?: boolean;
+  notif_lancamentos?: boolean;
+  notif_continue?: boolean;
+  notif_promo?: boolean;
+  wifi_only?: boolean;
+  smart_download?: boolean;
+  download_quality?: string;
+  theme?: string;
   updated_at?: string;
 };
 

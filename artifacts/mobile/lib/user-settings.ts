@@ -17,13 +17,14 @@ export interface UserSettings {
   parentalControl: boolean;
   contentRating: string;
   downloadQuality: string;
+  theme: "dark" | "light";
 }
 
 export const DEFAULT_SETTINGS: UserSettings = {
   autoPlay: true,
   streamQuality: "Auto",
   audioLang: "Português (BR)",
-  subtitleLang: "Português (BR)",
+  subtitleLang: "Desativado",
   pip: false,
   wifiOnly: true,
   smartDownload: true,
@@ -34,6 +35,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   parentalControl: false,
   contentRating: "16+",
   downloadQuality: "Boa (720p)",
+  theme: "dark",
 };
 
 export async function getSettings(): Promise<UserSettings> {

@@ -26,9 +26,11 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/lib/auth-context";
 import { hashPassword } from "@/lib/auth-context";
-import { db, isSupabaseConfigured } from "@/lib/supabase";
+import { db, isSupabaseConfigured, type DbUserSettings } from "@/lib/supabase";
+import { useTheme } from "@/lib/theme-context";
 import {
   getSettings,
+  saveSettings,
   updateSetting,
   type UserSettings,
   DEFAULT_SETTINGS,
@@ -44,6 +46,24 @@ const { width: SW } = Dimensions.get("window");
 const ACTIVE_PROFILE_KEY = "netplay_active_profile_v2";
 const BANNER_KEY = "netplay_profile_banner";
 const RED = "#e50914";
+
+const SETTING_TO_DB: Partial<Record<keyof UserSettings, keyof DbUserSettings>> = {
+  parentalControl: "parental_control",
+  contentRating: "content_rating",
+  streamQuality: "stream_quality",
+  audioLang: "audio_lang",
+  subtitleLang: "subtitle_lang",
+  autoPlay: "auto_play",
+  pip: "pip",
+  notifPush: "notif_push",
+  notifLancamentos: "notif_lancamentos",
+  notifContinue: "notif_continue",
+  notifPromo: "notif_promo",
+  wifiOnly: "wifi_only",
+  smartDownload: "smart_download",
+  downloadQuality: "download_quality",
+  theme: "theme",
+};
 const TMDB_KEY = "8f0beb08cf016ec8de49e454e09879ec";
 const TMDB_IMG = "https://image.tmdb.org/t/p";
 const QUALITY_OPTIONS = ["Auto", "Baixa (360p)", "Média (480p)", "Boa (720p)", "Alta (1080p)", "Ultra (4K)"];
@@ -154,6 +174,7 @@ export default function ProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user, setUser, logout } = useAuth();
+  const { theme, setTheme } = useTheme();
 
   const [activeProfile, setActiveProfile] = useState<any>(null);
   const [settings, setSettings] = useState<UserSettings>(DEFAULT_SETTINGS);
@@ -210,18 +231,44 @@ export default function ProfileScreen() {
       } catch {}
     }
 
-    const s = await getSettings();
-    setSettings(s);
+    const localSettings = await getSettings();
+    setSettings(localSettings);
 
     if (user?.id && isSupabaseConfigured) {
-      const [progress, watchlistData] = await Promise.all([
+      const [progress, watchlistData, dbSettings] = await Promise.all([
         db.progress.getAll(user.id),
         db.watchlist.getAll(user.id),
+        db.userSettings.get(user.id),
       ]);
       setWatchedCount(progress.length);
       setListCount(watchlistData.length);
       setWatchHistory(progress.slice(0, 20));
       setWatchlist(watchlistData);
+
+      if (dbSettings) {
+        const merged: Partial<UserSettings> = {};
+        if (dbSettings.stream_quality) merged.streamQuality = dbSettings.stream_quality;
+        if (dbSettings.audio_lang) merged.audioLang = dbSettings.audio_lang;
+        if (dbSettings.subtitle_lang) merged.subtitleLang = dbSettings.subtitle_lang;
+        if (dbSettings.auto_play !== undefined) merged.autoPlay = dbSettings.auto_play;
+        if (dbSettings.pip !== undefined) merged.pip = dbSettings.pip;
+        if (dbSettings.notif_push !== undefined) merged.notifPush = dbSettings.notif_push;
+        if (dbSettings.notif_lancamentos !== undefined) merged.notifLancamentos = dbSettings.notif_lancamentos;
+        if (dbSettings.notif_continue !== undefined) merged.notifContinue = dbSettings.notif_continue;
+        if (dbSettings.notif_promo !== undefined) merged.notifPromo = dbSettings.notif_promo;
+        if (dbSettings.parental_control !== undefined) merged.parentalControl = dbSettings.parental_control;
+        if (dbSettings.content_rating) merged.contentRating = dbSettings.content_rating;
+        if (dbSettings.wifi_only !== undefined) merged.wifiOnly = dbSettings.wifi_only;
+        if (dbSettings.smart_download !== undefined) merged.smartDownload = dbSettings.smart_download;
+        if (dbSettings.download_quality) merged.downloadQuality = dbSettings.download_quality;
+        if (dbSettings.theme === "dark" || dbSettings.theme === "light") {
+          merged.theme = dbSettings.theme;
+          setTheme(dbSettings.theme);
+        }
+        const updated = { ...localSettings, ...merged };
+        await saveSettings(updated);
+        setSettings(updated);
+      }
     }
   }, [user?.id]);
 
@@ -282,8 +329,10 @@ export default function ProfileScreen() {
   const updateLocalSetting = async <K extends keyof UserSettings>(key: K, val: UserSettings[K]) => {
     setSettings((prev) => ({ ...prev, [key]: val }));
     await updateSetting(key, val);
-    if ((key === "parentalControl" || key === "contentRating") && user?.id && isSupabaseConfigured) {
-      await db.userSettings.upsert(user.id, { [key === "parentalControl" ? "parental_control" : "content_rating"]: val });
+    if (key === "theme") setTheme(val as "dark" | "light");
+    const dbKey = SETTING_TO_DB[key];
+    if (dbKey && user?.id && isSupabaseConfigured) {
+      await db.userSettings.upsert(user.id, { [dbKey]: val } as Partial<DbUserSettings>);
     }
   };
 
@@ -557,6 +606,21 @@ export default function ProfileScreen() {
             </View>
           </View>
         )}
+
+        {/* ── APARÊNCIA ───────────────────────────────────── */}
+        <Section title="APARÊNCIA">
+          <Row
+            icon={theme === "dark" ? "moon" : "sun"}
+            label="Tema do Aplicativo"
+            value={theme === "dark" ? "Escuro" : "Claro"}
+            toggle
+            toggleValue={theme === "light"}
+            onToggle={(v) => updateLocalSetting("theme", v ? "light" : "dark")}
+            iconBg={theme === "dark" ? "#4f46e522" : "#f59e0b22"}
+            iconColor={theme === "dark" ? "#818cf8" : "#f59e0b"}
+            last
+          />
+        </Section>
 
         {/* ── MINHA CONTA ─────────────────────────────────── */}
         <Section title="MINHA CONTA">

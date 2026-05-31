@@ -2,6 +2,8 @@
 - [Auth guard placement](auth-guard.md) — auth guard is in (tabs)/_layout.tsx (not root layout); uses Redirect from expo-router to /login when user is null.
 - [Supabase migration](supabase-migration.md) — Convex fully replaced by Supabase; custom user auth with hashed passwords in public.users table; anon key with RLS policies.
 - [EAS Build lockfile config](eas-build-lockfile.md) — mobile uses package-lock.json (npm) for EAS builds; pnpm workspace root keeps pnpm-lock.yaml for local dev only.
-- [Downloads feature](downloads-feature.md) — offline downloads managed by lib/downloads.ts (AsyncStorage, 20-day expiry); real data shown in (tabs)/downloads.tsx; download button in detail.tsx action row.
+- [Downloads feature](downloads-feature.md) — downloads.ts has real progress system (activeDownloads Map, subscribeDownloads, cancelDownload, 10GB limit); progress animated over 3-12s based on quality.
+- [Theme system](theme-system.md) — ThemeProvider in lib/theme-context.tsx wraps app in _layout.tsx; useColors() reads palette.dark/light from constants/colors.ts; toggle in profile APARÊNCIA section syncs to Supabase + AsyncStorage.
+- [Settings Supabase sync](settings-supabase-sync.md) — ALL UserSettings now sync to Supabase via SETTING_TO_DB map in profile.tsx; DB columns added to user_settings via ALTER TABLE in supabase-schema.sql.
 - [TMDB collection data](tmdb-collection-data.md) — franchise.tsx TMDB collections now populate overview/yearRange/totalHours from API; dynamicFranchise references these state vars.
 - [Search pagination](search-pagination.md) — api.tmdb.search() accepts optional page param; franchise search fallback fetches 3 pages to avoid early truncation.
