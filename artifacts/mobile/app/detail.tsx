@@ -307,13 +307,12 @@ export default function DetailScreen() {
   const handleShare = async () => {
     if (!details) return;
     const contentTitle = details.title ?? details.name ?? title;
-    const tmdbType = type === "tv" ? "tv" : "movie";
-    const tmdbUrl = `https://www.themoviedb.org/${tmdbType}/${tmdbId}`;
-    const year = (details.release_date ?? details.first_air_date ?? "").slice(0, 4);
-    const yearStr = year ? ` (${year})` : "";
-    const msg = `🎬 ${contentTitle}${yearStr}\n\nAssista no NETPLAY!\n${tmdbUrl}`;
+    const deepLink = `mobile://detail?type=${type}&id=${tmdbId}&title=${encodeURIComponent(contentTitle)}`;
+    const yearVal = (details.release_date ?? details.first_air_date ?? "").slice(0, 4);
+    const yearStr = yearVal ? ` (${yearVal})` : "";
+    const msg = `🎬 ${contentTitle}${yearStr}\n\nAssista no NETPLAY!\n${deepLink}`;
     try {
-      await Share.share({ message: msg, url: tmdbUrl, title: contentTitle });
+      await Share.share({ message: msg, url: deepLink, title: contentTitle });
     } catch {}
   };
 
@@ -438,6 +437,7 @@ export default function DetailScreen() {
   const runtime = (details as any)?.runtime;
   const numSeasons = (details as any)?.number_of_seasons;
   const overview = details?.overview ?? "";
+  const castList: any[] = ((details as any)?.credits?.cast ?? []).slice(0, 15);
   const topPad = Platform.OS === "web" ? 0 : insets.top;
 
   return (
@@ -647,6 +647,35 @@ export default function DetailScreen() {
                     <Text style={[styles.description, { color: colors.foreground }]}>{overview}</Text>
                   ) : (
                     <Text style={{ color: colors.mutedForeground }}>Sem descrição disponível.</Text>
+                  )}
+
+                  {castList.length > 0 && (
+                    <View style={{ marginTop: 20 }}>
+                      <Text style={[styles.castHeading, { color: colors.foreground }]}>Elenco</Text>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 10 }}>
+                        <View style={{ flexDirection: "row", gap: 12, paddingRight: 20 }}>
+                          {castList.map((person: any) => (
+                            <View key={person.id} style={styles.castItem}>
+                              {person.profile_path ? (
+                                <Image
+                                  source={{ uri: `https://image.tmdb.org/t/p/w185${person.profile_path}` }}
+                                  style={styles.castPhoto}
+                                  resizeMode="cover"
+                                />
+                              ) : (
+                                <View style={[styles.castPhoto, { backgroundColor: colors.card, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: colors.border }]}>
+                                  <Feather name="user" size={26} color={colors.mutedForeground} />
+                                </View>
+                              )}
+                              <Text style={[styles.castName, { color: colors.foreground }]} numberOfLines={2}>{person.name}</Text>
+                              {person.character ? (
+                                <Text style={[styles.castCharacter, { color: colors.mutedForeground }]} numberOfLines={1}>{person.character}</Text>
+                              ) : null}
+                            </View>
+                          ))}
+                        </View>
+                      </ScrollView>
+                    </View>
                   )}
                 </View>
               )}
@@ -903,6 +932,11 @@ const styles = StyleSheet.create({
     height: 40,
     borderRadius: 8,
   },
+  castHeading: { fontSize: 16, fontWeight: "700", marginBottom: 2 },
+  castItem: { width: 80, alignItems: "center" },
+  castPhoto: { width: 72, height: 72, borderRadius: 36 },
+  castName: { fontSize: 11, fontWeight: "600", textAlign: "center", marginTop: 7, lineHeight: 14 },
+  castCharacter: { fontSize: 10, textAlign: "center", marginTop: 2, lineHeight: 13 },
   title: { fontSize: 26, fontWeight: "900", letterSpacing: -0.5, marginBottom: 8, lineHeight: 32 },
   titleLogo: { width: "80%", height: 72, marginBottom: 10, alignSelf: "flex-start" },
   metaRow: { flexDirection: "row", flexWrap: "wrap", gap: 4, marginBottom: 8 },
