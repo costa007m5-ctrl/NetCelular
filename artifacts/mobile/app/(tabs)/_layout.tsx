@@ -3,10 +3,14 @@ import { Redirect, Tabs } from "expo-router";
 import { Icon, Label, NativeTabs } from "expo-router/unstable-native-tabs";
 import { SymbolView } from "expo-symbols";
 import { Feather } from "@expo/vector-icons";
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { ActivityIndicator, Platform, StyleSheet, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/lib/auth-context";
+
+const ACTIVE_PROFILE_KEY = "netplay_active_profile_v2";
 
 function NativeTabLayout() {
   return (
@@ -41,10 +45,11 @@ function NativeTabLayout() {
 
 function ClassicTabLayout() {
   const colors = useColors();
+  const insets = useSafeAreaInsets();
   const isIOS = Platform.OS === "ios";
   const isWeb = Platform.OS === "web";
 
-  const tabBarBottom = isWeb ? 34 : 20;
+  const bottomInset = isWeb ? 34 : Math.max(insets.bottom, 4) + 8;
   const tabBarHeight = 62;
 
   return (
@@ -55,7 +60,7 @@ function ClassicTabLayout() {
         headerShown: false,
         tabBarStyle: {
           position: "absolute",
-          bottom: tabBarBottom,
+          bottom: bottomInset,
           left: 20,
           right: 20,
           height: tabBarHeight,
@@ -167,7 +172,6 @@ function ClassicTabLayout() {
             ),
         }}
       />
-      {/* Search still accessible via header icon but hidden from tab bar */}
       <Tabs.Screen
         name="search"
         options={{
@@ -182,8 +186,28 @@ function ClassicTabLayout() {
 
 export default function TabLayout() {
   const { user, loading } = useAuth();
+  const [profileChecking, setProfileChecking] = useState(true);
+  const [hasProfile, setHasProfile] = useState(false);
 
-  if (loading) {
+  useEffect(() => {
+    if (!user) {
+      setProfileChecking(false);
+      return;
+    }
+    AsyncStorage.getItem(ACTIVE_PROFILE_KEY)
+      .then((raw) => {
+        if (raw) {
+          const profile = JSON.parse(raw);
+          setHasProfile(profile?.userId === user.id);
+        } else {
+          setHasProfile(false);
+        }
+      })
+      .catch(() => setHasProfile(false))
+      .finally(() => setProfileChecking(false));
+  }, [user]);
+
+  if (loading || profileChecking) {
     return (
       <View style={{ flex: 1, backgroundColor: "#000", alignItems: "center", justifyContent: "center" }}>
         <ActivityIndicator color="#e50914" size="large" />
@@ -193,6 +217,10 @@ export default function TabLayout() {
 
   if (!user) {
     return <Redirect href="/login" />;
+  }
+
+  if (!hasProfile) {
+    return <Redirect href="/profile-select" />;
   }
 
   if (Platform.OS === "ios") {

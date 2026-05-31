@@ -433,14 +433,23 @@ export default function SearchScreen() {
           <>
             {/* ── QUICK ACCESS CARDS ── */}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.quickScroll}>
-              {QUICK_CARDS.map((q) => (
-                <Pressable key={q.label} style={[s.quickCard, { backgroundColor: q.accent, borderColor: `${q.color}30` }]}>
-                  <View style={[s.quickIcon, { backgroundColor: `${q.color}22` }]}>
-                    <Feather name={q.icon as any} size={18} color={q.color} />
-                  </View>
-                  <Text style={[s.quickLabel, { color: q.color }]}>{q.label}</Text>
-                </Pressable>
-              ))}
+              {QUICK_CARDS.map((q) => {
+                const handleQuick = () => {
+                  if (q.label === "Ao Vivo") router.push("/(tabs)/channels");
+                  else if (q.label === "Novidades") router.push("/(tabs)/novidades");
+                  else if (q.label === "Continue") router.push("/(tabs)/list");
+                  else if (q.label === "Recomendados IA") { inputRef.current?.focus(); }
+                  else router.push({ pathname: "/genre-browse", params: { genre_id: "0", type: "movie", title: q.label } });
+                };
+                return (
+                  <Pressable key={q.label} onPress={handleQuick} style={[s.quickCard, { backgroundColor: q.accent, borderColor: `${q.color}30` }]}>
+                    <View style={[s.quickIcon, { backgroundColor: `${q.color}22` }]}>
+                      <Feather name={q.icon as any} size={18} color={q.color} />
+                    </View>
+                    <Text style={[s.quickLabel, { color: q.color }]}>{q.label}</Text>
+                  </Pressable>
+                );
+              })}
             </ScrollView>
 
             {/* ── RECENT SEARCHES ── */}
@@ -506,12 +515,27 @@ export default function SearchScreen() {
                 </View>
               </View>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.hScroll}>
-                {GENRE_CARDS.map((g) => (
-                  <Pressable key={g.label} style={[s.genreCard, { backgroundColor: `${g.color}18`, borderColor: `${g.color}33` }]}>
-                    <Text style={s.genreEmoji}>{g.emoji}</Text>
-                    <Text style={[s.genreLabel, { color: g.color }]}>{g.label}</Text>
-                  </Pressable>
-                ))}
+                {GENRE_CARDS.map((g) => {
+                  const GENRE_IDS: Record<string, { id: string; type: string }> = {
+                    "Ação":    { id: "28",  type: "movie" },
+                    "Terror":  { id: "27",  type: "movie" },
+                    "Anime":   { id: "16",  type: "movie" },
+                    "Futebol": { id: "1",   type: "live"  },
+                    "Drama":   { id: "18",  type: "tv"    },
+                    "Ficção":  { id: "878", type: "movie" },
+                  };
+                  const info = GENRE_IDS[g.label];
+                  const handleGenre = () => {
+                    if (info?.type === "live") router.push("/(tabs)/channels");
+                    else if (info) router.push({ pathname: "/genre-browse", params: { genre_id: info.id, type: info.type, title: g.label } });
+                  };
+                  return (
+                    <Pressable key={g.label} onPress={handleGenre} style={[s.genreCard, { backgroundColor: `${g.color}18`, borderColor: `${g.color}33` }]}>
+                      <Text style={s.genreEmoji}>{g.emoji}</Text>
+                      <Text style={[s.genreLabel, { color: g.color }]}>{g.label}</Text>
+                    </Pressable>
+                  );
+                })}
               </ScrollView>
             </View>
 
@@ -526,12 +550,26 @@ export default function SearchScreen() {
                 </View>
               </View>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.hScroll}>
-                {MOOD_CARDS.map((m) => (
-                  <Pressable key={m.label} style={[s.moodCard, { backgroundColor: `${m.color}15`, borderColor: `${m.color}30` }]}>
-                    <Text style={s.moodEmoji}>{m.emoji}</Text>
-                    <Text style={[s.moodLabel, { color: m.color }]}>{m.label}</Text>
-                  </Pressable>
-                ))}
+                {MOOD_CARDS.map((m) => {
+                  const MOOD_ROUTES: Record<string, { id: string; type: string }> = {
+                    "Algo épico":     { id: "12",  type: "movie" },
+                    "Quero rir":      { id: "35",  type: "movie" },
+                    "Quero suspense": { id: "53",  type: "movie" },
+                    "Ao vivo agora":  { id: "live", type: "live" },
+                    "Algo leve":      { id: "10751", type: "movie" },
+                  };
+                  const info = MOOD_ROUTES[m.label];
+                  const handleMood = () => {
+                    if (info?.type === "live") router.push("/(tabs)/channels");
+                    else if (info) router.push({ pathname: "/genre-browse", params: { genre_id: info.id, type: info.type, title: m.label } });
+                  };
+                  return (
+                    <Pressable key={m.label} onPress={handleMood} style={[s.moodCard, { backgroundColor: `${m.color}15`, borderColor: `${m.color}30` }]}>
+                      <Text style={s.moodEmoji}>{m.emoji}</Text>
+                      <Text style={[s.moodLabel, { color: m.color }]}>{m.label}</Text>
+                    </Pressable>
+                  );
+                })}
               </ScrollView>
             </View>
 

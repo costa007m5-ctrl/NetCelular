@@ -75,26 +75,11 @@ function StreamingChip({
 }
 
 const GENRE_SECTIONS = [
-  { id: 28,    type: "movie" as const, label: "Filmes de Ação" },
-  { id: 18,    type: "tv"    as const, label: "Séries Drama" },
-  { id: 16,    type: "movie" as const, label: "Animação" },
-  { id: 35,    type: "movie" as const, label: "Comédia" },
-  { id: 27,    type: "movie" as const, label: "Terror" },
-  { id: 878,   type: "movie" as const, label: "Ficção Científica" },
-  { id: 10766, type: "tv"    as const, label: "Novelas" },
-  { id: 80,    type: "movie" as const, label: "Crime" },
-  { id: 10749, type: "movie" as const, label: "Romance" },
-  { id: 99,    type: "movie" as const, label: "Documentários" },
-  { id: 12,    type: "movie" as const, label: "Aventura" },
-  { id: 14,    type: "movie" as const, label: "Fantasia" },
-  { id: 9648,  type: "tv"    as const, label: "Séries Mistério" },
-  { id: 10751, type: "movie" as const, label: "Família" },
-  { id: 36,    type: "movie" as const, label: "História" },
-  { id: 10759, type: "tv"    as const, label: "Ação & Aventura (Séries)" },
-  { id: 10764, type: "tv"    as const, label: "Reality Shows" },
-  { id: 10752, type: "movie" as const, label: "Guerra" },
-  { id: 37,    type: "movie" as const, label: "Faroeste" },
-  { id: 10402, type: "movie" as const, label: "Musical" },
+  { id: 28,  type: "movie" as const, label: "Filmes de Ação" },
+  { id: 18,  type: "tv"    as const, label: "Séries Drama" },
+  { id: 16,  type: "movie" as const, label: "Animação" },
+  { id: 35,  type: "movie" as const, label: "Comédia" },
+  { id: 27,  type: "movie" as const, label: "Terror" },
 ];
 
 export default function HomeScreen() {

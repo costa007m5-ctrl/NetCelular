@@ -50,7 +50,7 @@ export default function LoginScreen() {
         await setUser(result as any);
       }
 
-      router.replace("/(tabs)");
+      router.replace("/profile-select");
     } catch (e: any) {
       setError(e?.message ?? "Erro ao conectar");
     } finally {

@@ -160,6 +160,18 @@ export default function ProfileScreen() {
         )}
 
         <View style={styles.section}>
+          <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>Perfis</Text>
+          <View style={[styles.sectionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <SettingRow
+              icon="users"
+              label="Trocar Perfil"
+              accent
+              onPress={() => router.push("/profile-select")}
+            />
+          </View>
+        </View>
+
+        <View style={styles.section}>
           <View style={[styles.sectionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <SettingRow icon="log-out" label="Sair da conta" danger onPress={handleLogout} />
           </View>

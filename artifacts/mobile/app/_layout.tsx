@@ -37,6 +37,7 @@ function RootNavigator() {
   return (
     <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#000" } }}>
       <Stack.Screen name="login" options={{ headerShown: false }} />
+      <Stack.Screen name="profile-select" options={{ headerShown: false }} />
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="detail" options={{ headerShown: false }} />
       <Stack.Screen name="channel-detail" options={{ headerShown: false }} />

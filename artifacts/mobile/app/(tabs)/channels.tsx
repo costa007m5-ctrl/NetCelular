@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Animated,
   Dimensions,
-  Image,
   Platform,
   Pressable,
   ScrollView,
@@ -11,6 +10,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { Image } from "expo-image";
 import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
@@ -18,7 +18,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   liveTvApi,
   calcProgress,
-  calcRemaining,
   fakeViewers,
   getAccent,
   CATEGORY_LABELS,
@@ -30,6 +29,36 @@ import {
 const { width: W } = Dimensions.get("window");
 const CARD_W = 160;
 
+const MOCK_CHANNELS: LiveChannel[] = [
+  { id: "globo", name: "Globo", categories: [6], image: "https://upload.wikimedia.org/wikipedia/commons/thumb/7/7a/Rede_Globo_logo_2021.svg/240px-Rede_Globo_logo_2021.svg.png", preview: "https://upload.wikimedia.org/wikipedia/commons/thumb/7/7a/Rede_Globo_logo_2021.svg/240px-Rede_Globo_logo_2021.svg.png", url: "" },
+  { id: "sbt", name: "SBT", categories: [6], image: "https://upload.wikimedia.org/wikipedia/commons/thumb/3/38/SBT_logo_2020.svg/240px-SBT_logo_2020.svg.png", preview: "https://upload.wikimedia.org/wikipedia/commons/thumb/3/38/SBT_logo_2020.svg/240px-SBT_logo_2020.svg.png", url: "" },
+  { id: "record", name: "Record TV", categories: [6], image: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8a/RecordTV_logo.svg/240px-RecordTV_logo.svg.png", preview: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8a/RecordTV_logo.svg/240px-RecordTV_logo.svg.png", url: "" },
+  { id: "band", name: "Band", categories: [6, 1], image: "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ea/Rede_Bandeirantes_logo.svg/240px-Rede_Bandeirantes_logo.svg.png", preview: "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ea/Rede_Bandeirantes_logo.svg/240px-Rede_Bandeirantes_logo.svg.png", url: "" },
+  { id: "espn", name: "ESPN", categories: [1], image: "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/ESPN_wordmark.svg/240px-ESPN_wordmark.svg.png", preview: "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/ESPN_wordmark.svg/240px-ESPN_wordmark.svg.png", url: "" },
+  { id: "espn2", name: "ESPN 2", categories: [1], image: "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/ESPN_wordmark.svg/240px-ESPN_wordmark.svg.png", preview: "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/ESPN_wordmark.svg/240px-ESPN_wordmark.svg.png", url: "" },
+  { id: "sportv", name: "SporTV", categories: [1], image: "https://upload.wikimedia.org/wikipedia/commons/thumb/9/97/SporTV_logo.png/240px-SporTV_logo.png", preview: "https://upload.wikimedia.org/wikipedia/commons/thumb/9/97/SporTV_logo.png/240px-SporTV_logo.png", url: "" },
+  { id: "combate", name: "Combate", categories: [1], image: "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5f/Canal_combate.png/240px-Canal_combate.png", preview: "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5f/Canal_combate.png/240px-Canal_combate.png", url: "" },
+  { id: "cnn_br", name: "CNN Brasil", categories: [5], image: "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b4/CNN_Brasil_logo.svg/240px-CNN_Brasil_logo.svg.png", preview: "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b4/CNN_Brasil_logo.svg/240px-CNN_Brasil_logo.svg.png", url: "" },
+  { id: "globonews", name: "GloboNews", categories: [5], image: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/GloboNews_2019.svg/240px-GloboNews_2019.svg.png", preview: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/GloboNews_2019.svg/240px-GloboNews_2019.svg.png", url: "" },
+  { id: "tnt", name: "TNT", categories: [4], image: "https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/TNT_Logo_2016.svg/240px-TNT_Logo_2016.svg.png", preview: "https://upload.wikimedia.org/wikipedia/commons/thumb/3/30/TNT_Logo_2016.svg/240px-TNT_Logo_2016.svg.png", url: "" },
+  { id: "tbs", name: "TBS", categories: [4], image: "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c6/TBS_network_logo.svg/240px-TBS_network_logo.svg.png", preview: "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c6/TBS_network_logo.svg/240px-TBS_network_logo.svg.png", url: "" },
+  { id: "discovery", name: "Discovery", categories: [3], image: "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b5/Discovery_Channel_2019_logo.svg/240px-Discovery_Channel_2019_logo.svg.png", preview: "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b5/Discovery_Channel_2019_logo.svg/240px-Discovery_Channel_2019_logo.svg.png", url: "" },
+  { id: "national", name: "Nat Geo", categories: [3], image: "https://upload.wikimedia.org/wikipedia/commons/thumb/6/69/National_Geographic_Logo.svg/240px-National_Geographic_Logo.svg.png", preview: "https://upload.wikimedia.org/wikipedia/commons/thumb/6/69/National_Geographic_Logo.svg/240px-National_Geographic_Logo.svg.png", url: "" },
+  { id: "disney", name: "Disney Channel", categories: [2], image: "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3e/Disney_Channel_2019.svg/240px-Disney_Channel_2019.svg.png", preview: "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3e/Disney_Channel_2019.svg/240px-Disney_Channel_2019.svg.png", url: "" },
+  { id: "cartoon", name: "Cartoon Network", categories: [2], image: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/80/Cartoon_Network_2010_logo.svg/240px-Cartoon_Network_2010_logo.svg.png", preview: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/80/Cartoon_Network_2010_logo.svg/240px-Cartoon_Network_2010_logo.svg.png", url: "" },
+  { id: "multishow", name: "Multishow", categories: [7], image: "https://upload.wikimedia.org/wikipedia/commons/thumb/0/01/Multishow_2014.png/240px-Multishow_2014.png", preview: "https://upload.wikimedia.org/wikipedia/commons/thumb/0/01/Multishow_2014.png/240px-Multishow_2014.png", url: "" },
+];
+
+const MOCK_EPGS: Record<string, { title: string; desc: string; start_date: string }> = {
+  globo: { title: "Jornal Nacional", desc: "Principal telejornal da Globo", start_date: new Date(Date.now() - 30 * 60000).toISOString() },
+  sbt: { title: "SBT Brasil", desc: "Telejornal do SBT", start_date: new Date(Date.now() - 20 * 60000).toISOString() },
+  espn: { title: "ESPN SportsCenter", desc: "Principais notícias do esporte", start_date: new Date(Date.now() - 45 * 60000).toISOString() },
+  sportv: { title: "Futebol ao Vivo", desc: "Transmissão ao vivo", start_date: new Date(Date.now() - 60 * 60000).toISOString() },
+  cnn_br: { title: "CNN Brasil Prime Time", desc: "Notícias ao vivo", start_date: new Date(Date.now() - 15 * 60000).toISOString() },
+  tnt: { title: "Cinema em Cartaz", desc: "O melhor do cinema na TNT", start_date: new Date(Date.now() - 90 * 60000).toISOString() },
+  discovery: { title: "Descobertas Incríveis", desc: "Documentários sobre ciência e natureza", start_date: new Date(Date.now() - 25 * 60000).toISOString() },
+};
+
 export default function ChannelsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -40,6 +69,7 @@ export default function ChannelsScreen() {
   const [epgMap, setEpgMap] = useState<Record<string, EpgEntry["epg"]>>({});
   const [loading, setLoading] = useState(true);
   const [heroIndex, setHeroIndex] = useState(0);
+  const [isOffline, setIsOffline] = useState(false);
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const heroFade = useRef(new Animated.Value(1)).current;
@@ -58,12 +88,22 @@ export default function ChannelsScreen() {
   useEffect(() => {
     Promise.all([liveTvApi.getChannels(), liveTvApi.getEpgs()])
       .then(([chData, epgs]) => {
-        setChannels(chData.channels);
-        const map: Record<string, EpgEntry["epg"]> = {};
-        epgs.forEach((e) => { map[e.id] = e.epg; });
-        setEpgMap(map);
+        if (chData.channels.length > 0) {
+          setChannels(chData.channels);
+          const map: Record<string, EpgEntry["epg"]> = {};
+          epgs.forEach((e) => { map[e.id] = e.epg; });
+          setEpgMap(map);
+        } else {
+          setChannels(MOCK_CHANNELS);
+          setEpgMap(MOCK_EPGS);
+          setIsOffline(true);
+        }
       })
-      .catch(() => {})
+      .catch(() => {
+        setChannels(MOCK_CHANNELS);
+        setEpgMap(MOCK_EPGS);
+        setIsOffline(true);
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -82,6 +122,7 @@ export default function ChannelsScreen() {
   }, [heroChannels.length]);
 
   const goToDetail = (ch: LiveChannel) => {
+    if (!ch.url && isOffline) return;
     const epg = epgMap[ch.id];
     router.push({
       pathname: "/channel-detail",
@@ -99,7 +140,6 @@ export default function ChannelsScreen() {
     });
   };
 
-  // Build carousels: one per category
   const carousels = MAIN_CATEGORIES.filter((id) => id !== 0).map((catId) => ({
     catId,
     label: CATEGORY_LABELS[catId] ?? String(catId),
@@ -112,7 +152,12 @@ export default function ChannelsScreen() {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
         <View style={{ height: topPad }} />
 
-        {/* ── HERO ─────────────────────────────────── */}
+        {isOffline && (
+          <View style={styles.offlineBanner}>
+            <Text style={styles.offlineTxt}>⚠️ Canais ao vivo indisponíveis — exibindo grade de referência</Text>
+          </View>
+        )}
+
         {loading ? (
           <View style={styles.heroSkeleton}>
             <ActivityIndicator color="#e50914" size="large" />
@@ -123,7 +168,7 @@ export default function ChannelsScreen() {
               <Image
                 source={{ uri: hero.preview || hero.image }}
                 style={styles.heroImg}
-                resizeMode="cover"
+                contentFit="cover"
               />
               <LinearGradient
                 colors={["transparent", "rgba(10,10,10,0.7)", "#0a0a0a"]}
@@ -134,7 +179,6 @@ export default function ChannelsScreen() {
                 style={[StyleSheet.absoluteFillObject, { height: 100 }]}
               />
 
-              {/* Content */}
               <View style={styles.heroContent}>
                 <View style={styles.heroTopRow}>
                   <View style={styles.liveBadge}>
@@ -156,7 +200,6 @@ export default function ChannelsScreen() {
                 </View>
               </View>
 
-              {/* Side dots */}
               <View style={styles.heroDots}>
                 {heroChannels.map((_, i) => (
                   <View key={i} style={[styles.heroDot, i === heroIndex && styles.heroDotActive]} />
@@ -166,7 +209,6 @@ export default function ChannelsScreen() {
           </Animated.View>
         ) : null}
 
-        {/* ── CAROUSELS BY GENRE ─────────────────── */}
         {loading ? (
           <View style={styles.skeletonSection}>
             <View style={styles.skeletonTitle} />
@@ -177,7 +219,6 @@ export default function ChannelsScreen() {
         ) : (
           carousels.map(({ catId, label, channels: catChannels }) => (
             <View key={catId} style={styles.carouselSection}>
-              {/* Section header */}
               <View style={styles.sectionHeader}>
                 <View style={styles.sectionHeaderLeft}>
                   <Animated.View style={[styles.liveIndicator, { opacity: pulseAnim }]} />
@@ -186,7 +227,6 @@ export default function ChannelsScreen() {
                 <Text style={styles.seeAll}>{catChannels.length} canais</Text>
               </View>
 
-              {/* Horizontal scroll */}
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
@@ -202,10 +242,9 @@ export default function ChannelsScreen() {
                       style={({ pressed }) => [styles.card, { opacity: pressed ? 0.85 : 1 }]}
                       onPress={() => goToDetail(ch)}
                     >
-                      {/* Logo + badge */}
                       <View style={styles.cardTop}>
                         <View style={[styles.cardLogo, { backgroundColor: accent + "22", borderColor: accent + "55" }]}>
-                          <Image source={{ uri: ch.image }} style={styles.cardLogoImg} resizeMode="contain" />
+                          <Image source={{ uri: ch.image }} style={styles.cardLogoImg} contentFit="contain" />
                         </View>
                         <View style={styles.cardBadgeCol}>
                           <View style={[styles.cardLiveBadge, { backgroundColor: accent + "25", borderColor: accent + "55" }]}>
@@ -219,7 +258,6 @@ export default function ChannelsScreen() {
                         </View>
                       </View>
 
-                      {/* Program info */}
                       <View style={styles.cardMid}>
                         <Text style={styles.cardProgram} numberOfLines={2}>
                           {epg?.title ?? ch.name}
@@ -227,7 +265,6 @@ export default function ChannelsScreen() {
                         <Text style={styles.cardName} numberOfLines={1}>{ch.name}</Text>
                       </View>
 
-                      {/* Progress + play */}
                       <View style={styles.cardBottom}>
                         <View style={styles.progressBg}>
                           <View style={[styles.progressFill, { width: `${progress}%` as any, backgroundColor: accent }]} />
@@ -253,6 +290,18 @@ export default function ChannelsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#0a0a0a" },
+
+  offlineBanner: {
+    marginHorizontal: 16,
+    marginBottom: 12,
+    backgroundColor: "rgba(255,190,0,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(255,190,0,0.3)",
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  offlineTxt: { color: "#fbbf24", fontSize: 11, fontWeight: "600", textAlign: "center" },
 
   heroSkeleton: { height: 300, alignItems: "center", justifyContent: "center", backgroundColor: "#111" },
   heroWrap: { width: "100%", height: 300 },
