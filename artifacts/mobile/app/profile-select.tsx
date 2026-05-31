@@ -127,66 +127,139 @@ function ProfileAvatar({ profile, size = 72 }: { profile: NetplayProfile; size?:
 
 const TMDB_KEY = "8f0beb08cf016ec8de49e454e09879ec";
 
+type PickerTab = "atores" | "filmes" | "series";
+
 function TmdbAvatarPicker({ selectedUrl, onSelect }: { selectedUrl: string; onSelect: (url: string) => void }) {
-  const [people, setPeople] = useState<any[]>([]);
+  const [tab, setTab] = useState<PickerTab>("atores");
+  const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQ, setSearchQ] = useState("");
   const debRef = useRef<any>(null);
 
-  const loadPeople = (q: string) => {
+  const loadItems = (q: string, currentTab: PickerTab) => {
     setLoading(true);
-    const url = q.trim()
-      ? `https://api.themoviedb.org/3/search/person?api_key=${TMDB_KEY}&query=${encodeURIComponent(q)}&include_adult=false`
-      : `https://api.themoviedb.org/3/person/popular?api_key=${TMDB_KEY}`;
+    let url = "";
+    if (currentTab === "atores") {
+      url = q.trim()
+        ? `https://api.themoviedb.org/3/search/person?api_key=${TMDB_KEY}&query=${encodeURIComponent(q)}&include_adult=false&language=pt-BR`
+        : `https://api.themoviedb.org/3/person/popular?api_key=${TMDB_KEY}&language=pt-BR`;
+    } else if (currentTab === "filmes") {
+      url = q.trim()
+        ? `https://api.themoviedb.org/3/search/movie?api_key=${TMDB_KEY}&query=${encodeURIComponent(q)}&include_adult=false&language=pt-BR`
+        : `https://api.themoviedb.org/3/movie/popular?api_key=${TMDB_KEY}&language=pt-BR`;
+    } else {
+      url = q.trim()
+        ? `https://api.themoviedb.org/3/search/tv?api_key=${TMDB_KEY}&query=${encodeURIComponent(q)}&include_adult=false&language=pt-BR`
+        : `https://api.themoviedb.org/3/tv/popular?api_key=${TMDB_KEY}&language=pt-BR`;
+    }
+
     fetch(url)
       .then(r => r.json())
-      .then(d => setPeople((d.results ?? []).filter((p: any) => p.profile_path).slice(0, 20)))
-      .catch(() => {})
+      .then(d => {
+        const results = d.results ?? [];
+        if (currentTab === "atores") {
+          setItems(results.filter((p: any) => p.profile_path).slice(0, 24));
+        } else if (currentTab === "filmes") {
+          setItems(results.filter((m: any) => m.poster_path).slice(0, 24));
+        } else {
+          setItems(results.filter((s: any) => s.poster_path).slice(0, 24));
+        }
+      })
+      .catch(() => setItems([]))
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { loadPeople(""); }, []);
+  useEffect(() => {
+    setSearchQ("");
+    loadItems("", tab);
+  }, [tab]);
 
   const handleSearch = (q: string) => {
     setSearchQ(q);
     if (debRef.current) clearTimeout(debRef.current);
-    debRef.current = setTimeout(() => loadPeople(q), 450);
+    debRef.current = setTimeout(() => loadItems(q, tab), 450);
   };
+
+  const getImageUrl = (item: any, currentTab: PickerTab) => {
+    if (currentTab === "atores") return `https://image.tmdb.org/t/p/w185${item.profile_path}`;
+    return `https://image.tmdb.org/t/p/w185${item.poster_path}`;
+  };
+
+  const getLabel = (item: any, currentTab: PickerTab) => {
+    if (currentTab === "atores") return item.name;
+    return item.title ?? item.name ?? "";
+  };
+
+  const TAB_DATA: { key: PickerTab; label: string; icon: string }[] = [
+    { key: "atores", label: "Atores", icon: "user" },
+    { key: "filmes", label: "Filmes", icon: "film" },
+    { key: "series", label: "Séries", icon: "tv" },
+  ];
 
   return (
     <View>
+      <View style={ap.tabRow}>
+        {TAB_DATA.map(t => (
+          <Pressable
+            key={t.key}
+            onPress={() => setTab(t.key)}
+            style={[ap.tabBtn, tab === t.key && ap.tabBtnActive]}
+          >
+            <Feather name={t.icon as any} size={12} color={tab === t.key ? "#fff" : "rgba(255,255,255,0.4)"} />
+            <Text style={[ap.tabLabel, tab === t.key && ap.tabLabelActive]}>{t.label}</Text>
+          </Pressable>
+        ))}
+      </View>
+
       <View style={ap.searchRow}>
         <Feather name="search" size={14} color="#555" />
         <TextInput
           value={searchQ}
           onChangeText={handleSearch}
-          placeholder="Buscar ator ou personagem..."
+          placeholder={
+            tab === "atores"
+              ? "Buscar ator ou personagem..."
+              : tab === "filmes"
+              ? "Buscar filme..."
+              : "Buscar série..."
+          }
           placeholderTextColor="#555"
           style={ap.searchInput}
           autoCorrect={false}
         />
         {searchQ.length > 0 && (
-          <Pressable onPress={() => { setSearchQ(""); loadPeople(""); }}>
+          <Pressable onPress={() => { setSearchQ(""); loadItems("", tab); }}>
             <Feather name="x" size={14} color="#555" />
           </Pressable>
         )}
       </View>
+
       {loading ? (
-        <ActivityIndicator color="#e50914" style={{ marginVertical: 12 }} />
+        <ActivityIndicator color="#e50914" style={{ marginVertical: 16 }} />
+      ) : items.length === 0 ? (
+        <View style={ap.emptyWrap}>
+          <Feather name="search" size={28} color="rgba(255,255,255,0.15)" />
+          <Text style={ap.emptyText}>Nenhum resultado encontrado</Text>
+        </View>
       ) : (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={ap.grid}>
-          {people.map((person) => {
-            const url = `https://image.tmdb.org/t/p/w185${person.profile_path}`;
+          {items.map((item) => {
+            const url = getImageUrl(item, tab);
+            const label = getLabel(item, tab);
             const selected = selectedUrl === url;
             return (
-              <Pressable key={person.id} onPress={() => onSelect(url)} style={[ap.item, selected && ap.itemSelected]}>
+              <Pressable
+                key={item.id}
+                onPress={() => onSelect(url)}
+                style={[ap.item, selected && ap.itemSelected]}
+              >
                 <Image source={{ uri: url }} style={ap.photo} contentFit="cover" />
                 {selected && (
                   <View style={ap.checkBadge}>
                     <Feather name="check" size={10} color="#fff" />
                   </View>
                 )}
-                <Text style={ap.name} numberOfLines={1}>{person.name}</Text>
+                <Text style={ap.name} numberOfLines={2}>{label}</Text>
               </Pressable>
             );
           })}
@@ -197,6 +270,21 @@ function TmdbAvatarPicker({ selectedUrl, onSelect }: { selectedUrl: string; onSe
 }
 
 const ap = StyleSheet.create({
+  tabRow: {
+    flexDirection: "row",
+    backgroundColor: "#0d0d0d",
+    borderRadius: 12,
+    padding: 3,
+    marginBottom: 12,
+    gap: 2,
+  },
+  tabBtn: {
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5,
+    paddingVertical: 8, borderRadius: 10,
+  },
+  tabBtnActive: { backgroundColor: "#e50914" },
+  tabLabel: { fontSize: 12, fontWeight: "700", color: "rgba(255,255,255,0.4)" },
+  tabLabelActive: { color: "#fff" },
   searchRow: {
     flexDirection: "row", alignItems: "center", gap: 8,
     backgroundColor: "#1a1a1a", borderRadius: 10, borderWidth: 1, borderColor: "#2a2a2a",
@@ -204,15 +292,20 @@ const ap = StyleSheet.create({
   },
   searchInput: { flex: 1, color: "#fff", fontSize: 13 },
   grid: { gap: 10, paddingVertical: 4 },
-  item: { alignItems: "center", gap: 4, width: 60, borderRadius: 8, borderWidth: 2, borderColor: "transparent", padding: 2 },
+  item: {
+    alignItems: "center", gap: 4, width: 68,
+    borderRadius: 10, borderWidth: 2, borderColor: "transparent", padding: 2,
+  },
   itemSelected: { borderColor: "#e50914" },
-  photo: { width: 52, height: 52, borderRadius: 26 },
+  photo: { width: 60, height: 60, borderRadius: 10 },
   checkBadge: {
     position: "absolute", top: 2, right: 2,
     width: 18, height: 18, borderRadius: 9,
     backgroundColor: "#e50914", alignItems: "center", justifyContent: "center",
   },
-  name: { fontSize: 9, color: "rgba(255,255,255,0.55)", textAlign: "center", width: 56 },
+  name: { fontSize: 9, color: "rgba(255,255,255,0.55)", textAlign: "center", width: 64, lineHeight: 12 },
+  emptyWrap: { alignItems: "center", paddingVertical: 24, gap: 8 },
+  emptyText: { color: "rgba(255,255,255,0.25)", fontSize: 13 },
 });
 
 interface EditModalProps {
@@ -255,6 +348,7 @@ function EditProfileModal({ visible, initial, onSave, onClose }: EditModalProps)
           </View>
 
           <Text style={styles.fieldLabel}>FOTO DO PERFIL</Text>
+          <Text style={styles.fieldSubLabel}>Escolha entre atores, filmes ou séries</Text>
           <TmdbAvatarPicker selectedUrl={avatarUrl} onSelect={setAvatarUrl} />
 
           <Text style={[styles.fieldLabel, { marginTop: 16 }]}>NOME</Text>
@@ -268,10 +362,7 @@ function EditProfileModal({ visible, initial, onSave, onClose }: EditModalProps)
             autoCorrect={false}
           />
 
-          <Pressable
-            style={styles.kidsRow}
-            onPress={() => setIsKids((v) => !v)}
-          >
+          <Pressable style={styles.kidsRow} onPress={() => setIsKids((v) => !v)}>
             <View style={[styles.kidsCheck, isKids && styles.kidsCheckOn]}>
               {isKids && <Feather name="check" size={14} color="#fff" />}
             </View>
@@ -286,7 +377,8 @@ function EditProfileModal({ visible, initial, onSave, onClose }: EditModalProps)
             onPress={() => { if (name.trim()) onSave(name.trim(), avatarUrl, isKids); }}
             disabled={!name.trim()}
           >
-            <Text style={styles.saveBtnText}>SALVAR</Text>
+            <LinearGradient colors={["#e50914", "#8b0000"]} style={StyleSheet.absoluteFill} />
+            <Text style={styles.saveBtnText}>SALVAR PERFIL</Text>
           </Pressable>
         </View>
       </KeyboardAvoidingView>
@@ -316,25 +408,16 @@ export default function ProfileSelectScreen() {
     router.replace("/(tabs)");
   };
 
-  const handleAdd = () => {
-    setEditTarget(null);
-    setEditModal(true);
-  };
-
-  const handleEdit = (profile: NetplayProfile) => {
-    setEditTarget(profile);
-    setEditModal(true);
-  };
+  const handleAdd = () => { setEditTarget(null); setEditModal(true); };
+  const handleEdit = (profile: NetplayProfile) => { setEditTarget(profile); setEditModal(true); };
 
   const handleSave = async (name: string, avatarUrl: string, isKids: boolean) => {
     if (!user?.id) return;
     const profile: NetplayProfile = {
       id: editTarget?.id ?? `${user.id}_${Date.now()}`,
-      name,
-      avatarUrl,
+      name, avatarUrl,
       avatarIndex: editTarget?.avatarIndex ?? 0,
-      userId: user.id,
-      isKids,
+      userId: user.id, isKids,
     };
     await saveProfile(profile);
     setEditModal(false);
@@ -347,14 +430,7 @@ export default function ProfileSelectScreen() {
       `Deseja excluir o perfil "${profile.name}"?`,
       [
         { text: "Cancelar", style: "cancel" },
-        {
-          text: "Excluir",
-          style: "destructive",
-          onPress: async () => {
-            await deleteProfile(profile.id);
-            load();
-          },
-        },
+        { text: "Excluir", style: "destructive", onPress: async () => { await deleteProfile(profile.id); load(); } },
       ]
     );
   };
@@ -373,7 +449,12 @@ export default function ProfileSelectScreen() {
       <LinearGradient colors={["#0a0000", "#000000"]} style={StyleSheet.absoluteFill} />
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <Text style={styles.logo}><Text style={styles.logoRed}>NET</Text>PLAY</Text>
+        <View style={styles.logoWrap}>
+          <Text style={styles.logo}><Text style={styles.logoRed}>NET</Text>PLAY</Text>
+          <View style={styles.logoBadge}>
+            <Text style={styles.logoBadgeTxt}>PREMIUM</Text>
+          </View>
+        </View>
         <Text style={styles.heading}>Quem vai assistir?</Text>
         <Text style={styles.sub}>Escolha ou crie um perfil para continuar</Text>
 
@@ -411,12 +492,11 @@ export default function ProfileSelectScreen() {
         {profiles.length > 0 && (
           <View style={styles.deleteTip}>
             <Feather name="info" size={12} color="rgba(255,255,255,0.25)" />
-            <Text style={styles.deleteTipTxt}>Pressione o ✏️ para editar ou excluir um perfil</Text>
+            <Text style={styles.deleteTipTxt}>Toque longo para editar · ✏️ para editar · 🗑 para excluir</Text>
           </View>
         )}
 
-        {profiles.map((p) => null)}
-        {profiles.length > 0 && profiles.some((p) => true) && (
+        {profiles.length > 0 && (
           <View style={styles.deleteRow}>
             {profiles.map((p) => (
               <Pressable key={`del-${p.id}`} style={styles.deleteBtn} onPress={() => handleDelete(p)}>
@@ -442,173 +522,94 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#000" },
   scroll: { flexGrow: 1, alignItems: "center", paddingHorizontal: 24, paddingTop: 80, paddingBottom: 48 },
 
-  logo: { fontSize: 28, fontWeight: "900", color: "#fff", letterSpacing: 5, marginBottom: 36 },
+  logoWrap: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 36 },
+  logo: { fontSize: 32, fontWeight: "900", color: "#fff", letterSpacing: 6 },
   logoRed: { color: "#e50914" },
+  logoBadge: {
+    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6,
+    backgroundColor: "rgba(229,9,20,0.2)", borderWidth: 1, borderColor: "rgba(229,9,20,0.4)",
+  },
+  logoBadgeTxt: { color: "#e50914", fontSize: 9, fontWeight: "800", letterSpacing: 1.5 },
+
   heading: { fontSize: 26, fontWeight: "800", color: "#fff", textAlign: "center", marginBottom: 8 },
   sub: { fontSize: 13, color: "rgba(255,255,255,0.45)", textAlign: "center", marginBottom: 44 },
 
-  grid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "center",
-    gap: 20,
-    marginBottom: 32,
-  },
-  profileCard: {
-    alignItems: "center",
-    gap: 10,
-    width: 100,
-    position: "relative",
-  },
-  avatarCircle: {
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "transparent",
-  },
-  profileName: {
-    color: "#fff",
-    fontSize: 13,
-    fontWeight: "600",
-    textAlign: "center",
-    maxWidth: 96,
-  },
+  grid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 20, marginBottom: 32 },
+  profileCard: { alignItems: "center", gap: 10, width: 100, position: "relative" },
+  avatarCircle: { alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "transparent" },
+  profileName: { color: "#fff", fontSize: 13, fontWeight: "600", textAlign: "center", maxWidth: 96 },
   editIconBtn: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    position: "absolute", top: 0, right: 0,
+    width: 26, height: 26, borderRadius: 13,
     backgroundColor: "rgba(255,255,255,0.08)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
-    alignItems: "center",
-    justifyContent: "center",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.12)",
+    alignItems: "center", justifyContent: "center",
   },
   kidsBadge: {
-    position: "absolute",
-    top: 54,
-    backgroundColor: "#e50914",
-    borderRadius: 4,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
+    position: "absolute", top: 54, backgroundColor: "#e50914",
+    borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1,
   },
   kidsBadgeTxt: { color: "#fff", fontSize: 8, fontWeight: "800", letterSpacing: 0.5 },
-
   addCard: { alignItems: "center", gap: 10, width: 100 },
   addCircle: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
+    width: 76, height: 76, borderRadius: 38,
     backgroundColor: "rgba(255,255,255,0.06)",
-    borderWidth: 2,
-    borderColor: "rgba(255,255,255,0.12)",
-    borderStyle: "dashed",
-    alignItems: "center",
-    justifyContent: "center",
+    borderWidth: 2, borderColor: "rgba(255,255,255,0.12)",
+    borderStyle: "dashed", alignItems: "center", justifyContent: "center",
   },
   addLabel: { color: "rgba(255,255,255,0.45)", fontSize: 13, fontWeight: "600" },
-
-  deleteTip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginBottom: 16,
-  },
+  deleteTip: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 16 },
   deleteTipTxt: { color: "rgba(255,255,255,0.25)", fontSize: 11 },
   deleteRow: { gap: 8, width: "100%", alignItems: "center" },
   deleteBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 10,
+    flexDirection: "row", alignItems: "center", gap: 6,
+    paddingHorizontal: 16, paddingVertical: 8, borderRadius: 10,
     backgroundColor: "rgba(255,50,50,0.07)",
-    borderWidth: 1,
-    borderColor: "rgba(255,50,50,0.12)",
+    borderWidth: 1, borderColor: "rgba(255,50,50,0.12)",
   },
   deleteTxt: { color: "rgba(255,80,80,0.6)", fontSize: 12, fontWeight: "600" },
 
   modalBg: { flex: 1, justifyContent: "flex-end" },
   editSheet: {
-    backgroundColor: "#111",
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 24,
-    paddingBottom: 48,
-    borderTopWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "#111", borderTopLeftRadius: 28, borderTopRightRadius: 28,
+    paddingHorizontal: 24, paddingBottom: 48,
+    borderTopWidth: 1, borderColor: "rgba(255,255,255,0.08)",
+    maxHeight: "90%",
   },
   sheetHandle: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
+    width: 40, height: 4, borderRadius: 2,
     backgroundColor: "rgba(255,255,255,0.18)",
-    alignSelf: "center",
-    marginTop: 12,
-    marginBottom: 20,
+    alignSelf: "center", marginTop: 12, marginBottom: 20,
   },
-  sheetTitle: { color: "#fff", fontSize: 18, fontWeight: "800", marginBottom: 24, textAlign: "center" },
-
-  editAvatarRow: { alignItems: "center", marginBottom: 24 },
-  avatarPicker: { paddingVertical: 8, gap: 10, paddingHorizontal: 4, marginBottom: 16 },
-  avatarOption: { borderRadius: 30, borderWidth: 2, borderColor: "transparent" },
-  avatarOptionActive: { borderColor: "#e50914" },
-  avatarOptionInner: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
+  sheetTitle: { color: "#fff", fontSize: 18, fontWeight: "800", marginBottom: 20, textAlign: "center" },
+  editAvatarRow: { alignItems: "center", marginBottom: 20 },
   fieldLabel: {
-    color: "rgba(255,255,255,0.35)",
-    fontSize: 10,
-    fontWeight: "700",
-    letterSpacing: 1.5,
-    marginBottom: 8,
+    color: "rgba(255,255,255,0.35)", fontSize: 10, fontWeight: "700",
+    letterSpacing: 1.5, marginBottom: 4,
+  },
+  fieldSubLabel: {
+    color: "rgba(255,255,255,0.25)", fontSize: 11,
+    marginBottom: 10,
   },
   nameInput: {
-    backgroundColor: "#1a1a1a",
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#2a2a2a",
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    color: "#fff",
-    fontSize: 16,
-    marginBottom: 20,
+    backgroundColor: "#1a1a1a", borderRadius: 12, borderWidth: 1, borderColor: "#2a2a2a",
+    paddingHorizontal: 16, paddingVertical: 14,
+    color: "#fff", fontSize: 16, marginBottom: 20,
   },
   kidsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-    paddingVertical: 14,
-    borderTopWidth: 1,
-    borderColor: "rgba(255,255,255,0.06)",
-    marginBottom: 24,
+    flexDirection: "row", alignItems: "center", gap: 14,
+    paddingVertical: 14, borderTopWidth: 1, borderColor: "rgba(255,255,255,0.06)", marginBottom: 24,
   },
   kidsCheck: {
-    width: 24,
-    height: 24,
-    borderRadius: 6,
-    borderWidth: 2,
-    borderColor: "rgba(255,255,255,0.25)",
-    alignItems: "center",
-    justifyContent: "center",
+    width: 24, height: 24, borderRadius: 6, borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.25)", alignItems: "center", justifyContent: "center",
   },
   kidsCheckOn: { backgroundColor: "#e50914", borderColor: "#e50914" },
   kidsLabel: { color: "#fff", fontSize: 14, fontWeight: "600" },
   kidsSub: { color: "rgba(255,255,255,0.4)", fontSize: 11, marginTop: 2 },
-
   saveBtn: {
-    backgroundColor: "#e50914",
-    borderRadius: 14,
-    paddingVertical: 16,
-    alignItems: "center",
+    borderRadius: 14, paddingVertical: 16, alignItems: "center",
+    overflow: "hidden", flexDirection: "row", justifyContent: "center", gap: 8,
   },
   saveBtnText: { color: "#fff", fontSize: 15, fontWeight: "800", letterSpacing: 1 },
 });

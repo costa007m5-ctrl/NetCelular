@@ -10,13 +10,15 @@ import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import * as SystemUI from "expo-system-ui";
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, View } from "react-native";
+import { View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import NetplaySplash from "@/components/NetplaySplash";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
+import { requestPermissionsAndSetup, scheduleNewContentNotification } from "@/lib/notifications";
 
 SystemUI.setBackgroundColorAsync("#000000");
 SplashScreen.preventAutoHideAsync();
@@ -26,13 +28,7 @@ const queryClient = new QueryClient();
 function RootNavigator() {
   const { loading } = useAuth();
 
-  if (loading) {
-    return (
-      <View style={{ flex: 1, backgroundColor: "#000", alignItems: "center", justifyContent: "center" }}>
-        <ActivityIndicator color="#e50914" size="large" />
-      </View>
-    );
-  }
+  if (loading) return null;
 
   return (
     <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#000" } }}>
@@ -56,6 +52,7 @@ export default function RootLayout() {
     Inter_700Bold,
   });
   const [fontTimeout, setFontTimeout] = useState(false);
+  const [showSplash, setShowSplash] = useState(true);
 
   useEffect(() => {
     const timer = setTimeout(() => setFontTimeout(true), 4000);
@@ -68,6 +65,14 @@ export default function RootLayout() {
     if (ready) SplashScreen.hideAsync();
   }, [ready]);
 
+  useEffect(() => {
+    requestPermissionsAndSetup().then((granted) => {
+      if (granted) scheduleNewContentNotification().catch(() => {});
+    });
+  }, []);
+
+  const handleSplashFinish = () => setShowSplash(false);
+
   if (!ready) return null;
 
   return (
@@ -77,7 +82,10 @@ export default function RootLayout() {
           <QueryClientProvider client={queryClient}>
             <GestureHandlerRootView style={{ flex: 1, backgroundColor: "#000" }}>
               <KeyboardProvider>
-                <RootNavigator />
+                <View style={{ flex: 1 }}>
+                  <RootNavigator />
+                  {showSplash && <NetplaySplash onFinish={handleSplashFinish} />}
+                </View>
               </KeyboardProvider>
             </GestureHandlerRootView>
           </QueryClientProvider>
