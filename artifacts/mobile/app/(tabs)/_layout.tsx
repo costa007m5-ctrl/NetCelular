@@ -46,11 +46,12 @@ function ClassicTabLayout() {
   const isWeb = Platform.OS === "web";
   const isAndroid = Platform.OS === "android";
 
-  const bottomInset = isWeb ? 34 : isAndroid ? Math.max(insets.bottom, 24) + 12 : Math.max(insets.bottom, 4) + 8;
+  const bottomInset = isWeb ? 34 : isAndroid ? Math.max(insets.bottom, 48) + 24 : Math.max(insets.bottom, 4) + 8;
   const tabBarHeight = 64;
 
   return (
     <Tabs
+      safeAreaInsets={{ top: 0, bottom: 0 }}
       screenOptions={{
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: "rgba(255,255,255,0.35)",
