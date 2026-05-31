@@ -200,5 +200,11 @@ export const tmdb = {
       fetch("https://redeflixapi.store/list-movie-ids.txt").then((r) => r.text()),
     listTvIds: () =>
       fetch("https://redeflixapi.store/list-tv-ids.txt").then((r) => r.text()),
+    listAnimeIds: () =>
+      fetch("https://redeflixapi.store/list-anime-ids.txt").then((r) => r.text()),
+    listDoramaIds: () =>
+      fetch("https://redeflixapi.store/list-dorama-ids.txt").then((r) => r.text()),
+    parseIds: (txt: string) =>
+      txt.split("\n").map((l) => l.trim()).filter(Boolean).map(Number).filter(Boolean),
   },
 };

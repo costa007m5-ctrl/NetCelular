@@ -233,13 +233,21 @@ router.get("/redeflix/ids", handle(async () => {
     tmdb.redeflix.listMovieIds(),
     tmdb.redeflix.listTvIds(),
   ]);
-  const parseIds = (txt: string) =>
-    txt.split("\n").map((l) => l.trim()).filter(Boolean).map(Number).filter(Boolean);
-
   return {
-    movieIds: parseIds(movieIds).slice(0, 100),
-    tvIds: parseIds(tvIds).slice(0, 100),
+    movieIds: tmdb.redeflix.parseIds(movieIds).slice(0, 100),
+    tvIds: tmdb.redeflix.parseIds(tvIds).slice(0, 100),
   };
+}));
+
+router.get("/redeflix/list-ids", handle(async (req) => {
+  const type = String(req.query.type ?? "movie");
+  let txt = "";
+  if (type === "movie") txt = await tmdb.redeflix.listMovieIds();
+  else if (type === "tv") txt = await tmdb.redeflix.listTvIds();
+  else if (type === "anime") txt = await tmdb.redeflix.listAnimeIds();
+  else if (type === "dorama") txt = await tmdb.redeflix.listDoramaIds();
+  else { return []; }
+  return tmdb.redeflix.parseIds(txt);
 }));
 
 router.get("/redeflix/url", (req, res) => {

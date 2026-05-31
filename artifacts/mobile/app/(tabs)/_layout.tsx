@@ -31,6 +31,10 @@ function NativeTabLayout() {
         <Icon sf={{ default: "film.stack", selected: "film.stack.fill" }} />
         <Label>Franquias</Label>
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="channels">
+        <Icon sf={{ default: "tv", selected: "tv.fill" }} />
+        <Label>Canais</Label>
+      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="profile">
         <Icon sf={{ default: "person", selected: "person.fill" }} />
         <Label>Perfil</Label>
@@ -141,6 +145,14 @@ function ClassicTabLayout() {
         }}
       />
       <Tabs.Screen
+        name="channels"
+        options={{
+          title: "Canais",
+          tabBarIcon: ({ color }) =>
+            isIOS ? <SymbolView name="tv" tintColor={color} size={22} /> : <Feather name="tv" size={22} color={color} />,
+        }}
+      />
+      <Tabs.Screen
         name="profile"
         options={{
           title: "Perfil",
@@ -149,7 +161,6 @@ function ClassicTabLayout() {
         }}
       />
       {/* Hidden screens — accessible via router.push */}
-      <Tabs.Screen name="channels" options={{ href: null }} />
       <Tabs.Screen name="search" options={{ href: null }} />
       <Tabs.Screen name="downloads" options={{ href: null }} />
       <Tabs.Screen name="list" options={{ href: null }} />

@@ -336,23 +336,11 @@ export const api = {
     },
 
     listIds: async (type: "movie" | "tv" | "anime" | "dorama"): Promise<number[]> => {
-      const map: Record<string, string> = {
-        movie: "list-movie-ids",
-        tv: "list-tv-ids",
-        anime: "list-anime-ids",
-        dorama: "list-dorama-ids",
-      };
       try {
-        const res = await fetch(`https://redeflixapi.store/${map[type]}.txt`, {
-          headers: { Accept: "text/plain" },
-        });
+        const base = getApiBase();
+        const res = await fetch(`${base}/tmdb/redeflix/list-ids?type=${type}`);
         if (!res.ok) return [];
-        const text = await res.text();
-        return text
-          .trim()
-          .split("\n")
-          .map((l) => parseInt(l.trim(), 10))
-          .filter((n) => !isNaN(n) && n > 0);
+        return res.json();
       } catch {
         return [];
       }
