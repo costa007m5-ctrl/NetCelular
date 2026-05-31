@@ -179,7 +179,7 @@ export default function TabLayout() {
     );
   }
 
-  if (!user) return <Redirect href="/login" />;
+  if (!user) return <Redirect href="/welcome" />;
   if (!hasProfile) return <Redirect href="/profile-select" />;
 
   if (Platform.OS === "ios") return <NativeTabLayout />;

@@ -4,6 +4,7 @@ import {
   Alert,
   Dimensions,
   Image,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -14,6 +15,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+
 import { downloadsManager } from "@/lib/downloads";
 import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
@@ -28,6 +30,9 @@ import { useAuth } from "@/lib/auth-context";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
 import type { WatchProgress } from "@/lib/supabase";
 import type { ContentItem } from "@/constants/content";
+
+let WebView: any = null;
+try { WebView = require("react-native-webview").WebView; } catch {}
 
 const { width: W } = Dimensions.get("window");
 const BACKDROP_H = Math.round(W * 0.58);
@@ -171,6 +176,8 @@ export default function DetailScreen() {
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [collectionData, setCollectionData] = useState<{ id: number; name: string; parts: any[] } | null>(null);
   const [loadingCollection, setLoadingCollection] = useState(false);
+  const [trailerKey, setTrailerKey] = useState<string | null>(null);
+  const [showTrailerModal, setShowTrailerModal] = useState(false);
 
   const userId = user?.id ?? "";
   const [inList, setInList] = useState(false);
@@ -213,11 +220,27 @@ export default function DetailScreen() {
           })
           .catch(() => {});
 
+        const videosPromise = fetch(
+          `https://api.themoviedb.org/3/${type}/${tmdbId}/videos?api_key=${TMDB_KEY}&language=pt-BR`
+        )
+          .then((r) => r.json())
+          .then((vd) => {
+            const results: any[] = vd.results ?? [];
+            const trailer =
+              results.find((v) => v.site === "YouTube" && v.type === "Trailer" && v.official) ??
+              results.find((v) => v.site === "YouTube" && v.type === "Trailer") ??
+              results.find((v) => v.site === "YouTube" && v.type === "Teaser") ??
+              results.find((v) => v.site === "YouTube");
+            if (trailer?.key) setTrailerKey(trailer.key);
+          })
+          .catch(() => {});
+
         if (type === "movie") {
           const [det, sim, prov] = await Promise.all([
             tmdbApi.tmdb.movie(tmdbId),
             tmdbApi.tmdb.movieSimilar(tmdbId),
             tmdbApi.tmdb.providers("movie", tmdbId),
+            videosPromise,
           ]);
           setDetails(det);
           setSimilar(sim.map(tmdbItemToContent));
@@ -243,6 +266,7 @@ export default function DetailScreen() {
             tmdbApi.tmdb.tv(tmdbId),
             tmdbApi.tmdb.tvSimilar(tmdbId),
             tmdbApi.tmdb.providers("tv", tmdbId),
+            videosPromise,
           ]);
           setDetails(det);
           setSimilar(sim.map(tmdbItemToContent));
@@ -480,6 +504,78 @@ export default function DetailScreen() {
         </View>
       </Modal>
 
+      {/* ── TRAILER MODAL ─────────────────────────────── */}
+      <Modal
+        visible={showTrailerModal}
+        animationType="slide"
+        transparent={false}
+        onRequestClose={() => setShowTrailerModal(false)}
+        statusBarTranslucent
+      >
+        <View style={styles.trailerModalContainer}>
+          <StatusBar style="light" />
+          {/* Header */}
+          <View style={styles.trailerModalHeader}>
+            <TouchableOpacity
+              onPress={() => setShowTrailerModal(false)}
+              style={styles.trailerModalClose}
+            >
+              <Feather name="x" size={22} color="#fff" />
+            </TouchableOpacity>
+            <Text style={styles.trailerModalTitle} numberOfLines={1}>
+              TRAILER
+            </Text>
+            <TouchableOpacity
+              onPress={() => {
+                const url = `https://www.youtube.com/watch?v=${trailerKey}`;
+                Linking.openURL(url).catch(() => {});
+              }}
+              style={styles.trailerModalClose}
+            >
+              <Feather name="external-link" size={18} color="#fff" />
+            </TouchableOpacity>
+          </View>
+
+          {/* Player area */}
+          <View style={styles.trailerPlayerWrap}>
+            {Platform.OS === "web" ? (
+              <iframe
+                src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&rel=0&modestbranding=1`}
+                style={{ width: "100%", height: "100%", border: "none" } as any}
+                allow="autoplay; fullscreen"
+                allowFullScreen
+              />
+            ) : WebView ? (
+              <WebView
+                source={{
+                  uri: `https://www.youtube.com/embed/${trailerKey}?autoplay=1&rel=0&modestbranding=1`,
+                }}
+                allowsFullscreenVideo
+                mediaPlaybackRequiresUserAction={false}
+                javaScriptEnabled
+                style={{ flex: 1, backgroundColor: "#000" }}
+              />
+            ) : (
+              <View style={styles.trailerFallback}>
+                <Feather name="youtube" size={56} color="#ff0000" style={{ marginBottom: 18 }} />
+                <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700", marginBottom: 8, textAlign: "center" }}>
+                  Abrir no YouTube
+                </Text>
+                <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 13, marginBottom: 24, textAlign: "center" }}>
+                  O player não está disponível neste dispositivo.
+                </Text>
+                <TouchableOpacity
+                  style={styles.trailerOpenYt}
+                  onPress={() => Linking.openURL(`https://www.youtube.com/watch?v=${trailerKey}`)}
+                >
+                  <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15 }}>ABRIR NO YOUTUBE</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
+
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
         {/* Backdrop */}
         <View style={{ height: BACKDROP_H + topPad }}>
@@ -590,6 +686,17 @@ export default function DetailScreen() {
                   {checking ? "Verificando..." : "ASSISTIR AGORA"}
                 </Text>
               </Pressable>
+
+              {/* Trailer button */}
+              {trailerKey ? (
+                <Pressable
+                  style={({ pressed }) => [styles.trailerBtn, pressed && { opacity: 0.75 }]}
+                  onPress={() => setShowTrailerModal(true)}
+                >
+                  <Feather name="play-circle" size={17} color="#fff" />
+                  <Text style={styles.trailerBtnText}>ASSISTIR TRAILER</Text>
+                </Pressable>
+              ) : null}
 
               {/* Action row */}
               <View style={styles.actionRow}>
@@ -1061,4 +1168,72 @@ const styles = StyleSheet.create({
     borderRadius: 8, borderWidth: 1,
   },
   collectionWatchTxt: { fontSize: 11, fontWeight: "600" },
+
+  trailerBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 9,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.35)",
+    borderRadius: 12,
+    paddingVertical: 13,
+    marginTop: 10,
+    backgroundColor: "rgba(255,255,255,0.07)",
+  },
+  trailerBtnText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "700",
+    letterSpacing: 0.4,
+  },
+  trailerModalContainer: {
+    flex: 1,
+    backgroundColor: "#000",
+  },
+  trailerModalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingTop: 52,
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.1)",
+  },
+  trailerModalClose: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  trailerModalTitle: {
+    flex: 1,
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "700",
+    letterSpacing: 1,
+    textAlign: "center",
+    marginHorizontal: 8,
+  },
+  trailerPlayerWrap: {
+    flex: 1,
+    backgroundColor: "#000",
+    maxHeight: 280,
+    marginTop: 24,
+  },
+  trailerFallback: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 32,
+  },
+  trailerOpenYt: {
+    backgroundColor: "#ff0000",
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 28,
+  },
 });
