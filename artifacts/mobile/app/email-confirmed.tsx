@@ -101,7 +101,7 @@ export default function EmailConfirmedScreen() {
             <Animated.View style={[styles.btnWrap, { opacity: btnOpacity }]}>
               <Pressable
                 style={styles.btn}
-                onPress={() => router.replace("/onboarding/preferences")}
+                onPress={() => router.replace("/onboarding/profile")}
               >
                 <Text style={styles.btnText}>Configurar meu perfil</Text>
                 <Feather name="arrow-right" size={18} color="#fff" style={{ marginLeft: 8 }} />

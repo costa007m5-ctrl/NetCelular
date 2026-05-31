@@ -34,6 +34,58 @@ import type { StreamingPlatform } from "@/constants/streamings";
 
 const TAB_BAR_CLEARANCE = 110;
 
+const TMDB_KEY_HOME = "8f0beb08cf016ec8de49e454e09879ec";
+
+function decadeToYearRange(decades: string[]): { gte: string; lte: string } | null {
+  if (!decades?.length) return null;
+  const MAP: Record<string, [number, number]> = {
+    "Anos 80": [1980, 1989],
+    "Anos 90": [1990, 1999],
+    "Anos 2000": [2000, 2009],
+    "Anos 2010": [2010, 2019],
+    "Anos 2020": [2020, 2024],
+    "2025": [2025, 2025],
+    "2026": [2026, 2026],
+  };
+  let minYear = Infinity, maxYear = -Infinity;
+  for (const d of decades) {
+    const r = MAP[d];
+    if (r) { if (r[0] < minYear) minYear = r[0]; if (r[1] > maxYear) maxYear = r[1]; }
+  }
+  if (minYear === Infinity) return null;
+  return { gte: `${minYear}-01-01`, lte: `${maxYear}-12-31` };
+}
+
+async function discoverPersonalized(
+  type: "movie" | "tv",
+  genres: number[],
+  yearRange: { gte: string; lte: string } | null
+): Promise<any[]> {
+  try {
+    const path = type === "movie" ? "/discover/movie" : "/discover/tv";
+    const url = new URL(`https://api.themoviedb.org/3${path}`);
+    url.searchParams.set("api_key", TMDB_KEY_HOME);
+    url.searchParams.set("language", "pt-BR");
+    if (genres.length) url.searchParams.set("with_genres", genres.slice(0, 3).join(","));
+    url.searchParams.set("sort_by", "popularity.desc");
+    url.searchParams.set("include_adult", "false");
+    if (yearRange) {
+      if (type === "movie") {
+        url.searchParams.set("primary_release_date.gte", yearRange.gte);
+        url.searchParams.set("primary_release_date.lte", yearRange.lte);
+      } else {
+        url.searchParams.set("first_air_date.gte", yearRange.gte);
+        url.searchParams.set("first_air_date.lte", yearRange.lte);
+      }
+    }
+    const res = await fetch(url.toString());
+    const data = await res.json();
+    return (data.results ?? []) as any[];
+  } catch {
+    return [];
+  }
+}
+
 // Streaming chips shown in the home row (first 6 main + "Ver todos")
 const HOME_STREAMING = MAIN_PLATFORMS.slice(0, 6);
 
@@ -134,57 +186,72 @@ export default function HomeScreen() {
 
   useEffect(() => {
     if (!preferences?.genres?.length) return;
-    const topGenre = preferences.genres[0];
-    const preferSeries =
-      preferences.contentTypes?.includes("Séries") &&
-      !preferences.contentTypes?.includes("Filmes");
-    const mediaType = preferSeries ? "tv" : "movie";
-    api.tmdb
-      .discover(mediaType, topGenre)
-      .then((data) =>
-        setPersonalizedItems(data.results.slice(0, 10).map(tmdbItemToContent))
-      )
-      .catch(() => {});
+
+    const genres = preferences.genres;
+    const yearRange = decadeToYearRange(preferences.decades ?? []);
+    const wantsMovies = !preferences.contentTypes?.length || preferences.contentTypes.includes("Filmes");
+    const wantsSeries = !preferences.contentTypes?.length || preferences.contentTypes.includes("Séries");
+    const primaryType: "movie" | "tv" = wantsSeries && !wantsMovies ? "tv" : "movie";
+    const secondaryType: "movie" | "tv" = primaryType === "movie" ? "tv" : "movie";
+
+    Promise.all([
+      discoverPersonalized(primaryType, genres, yearRange),
+      discoverPersonalized(secondaryType, genres.slice(0, 2), yearRange),
+      discoverPersonalized("movie", genres, yearRange),
+      discoverPersonalized("tv", genres, yearRange),
+    ]).then(([primaryResults, secondaryResults, movieResults, tvResults]) => {
+      const toContent = (item: any, type: "movie" | "tv"): ContentItem => ({
+        id: String(item.id),
+        tmdbId: item.id,
+        title: item.title ?? item.name ?? "",
+        year: parseInt((item.release_date ?? item.first_air_date ?? "2024").slice(0, 4)) || 2024,
+        rating: item.vote_average ?? 0,
+        posterPath: item.poster_path ?? "",
+        backdropPath: item.backdrop_path ?? "",
+        description: item.overview ?? "",
+        genres: item.genre_ids ?? [],
+        type: type === "movie" ? "movie" : "series",
+        mediaType: type,
+      });
+
+      const heroPool = [
+        ...primaryResults.filter((i: any) => i.backdrop_path).slice(0, 4),
+        ...secondaryResults.filter((i: any) => i.backdrop_path).slice(0, 2),
+      ];
+      if (heroPool.length >= 2) {
+        setHeroItems(heroPool.slice(0, 3).map((i: any) =>
+          toContent(i, primaryType === "movie" && i.title ? "movie" : "tv")
+        ));
+      }
+
+      const trendingPool = [
+        ...primaryResults.slice(0, 5).map((i: any) => toContent(i, primaryType)),
+        ...secondaryResults.slice(0, 3).map((i: any) => toContent(i, secondaryType)),
+      ];
+      if (trendingPool.length >= 4) setTrendingItems(trendingPool.slice(0, 8));
+
+      const top10Pool = [
+        ...movieResults.slice(0, 5).map((i: any) => toContent(i, "movie")),
+        ...tvResults.slice(0, 5).map((i: any) => toContent(i, "tv")),
+      ];
+      if (top10Pool.length >= 3) setTop10(top10Pool.slice(0, 8));
+
+      const paraVoce = primaryResults.slice(0, 10).map((i: any) => toContent(i, primaryType));
+      if (paraVoce.length) setPersonalizedItems(paraVoce);
+    }).catch(() => {});
   }, [preferences]);
 
   const genreSections = useMemo(() => {
     if (!preferences?.genres?.length) return DEFAULT_GENRE_SECTIONS;
-    return preferences.genres.slice(0, 6).map((genreId, i) => ({
+    return preferences.genres.slice(0, 8).map((genreId, i) => ({
       id: genreId,
       type: (i % 2 === 0 ? "movie" : "tv") as "movie" | "tv",
       label: `${GENRE_NAMES[genreId] ?? "Para Você"}`,
     }));
   }, [preferences]);
 
-  const displayTrending = useMemo(() => {
-    if (!preferences?.contentTypes?.length) return trendingItems;
-    const wantsMovies = preferences.contentTypes.includes("Filmes");
-    const wantsSeries = preferences.contentTypes.includes("Séries");
-    if (wantsMovies && !wantsSeries)
-      return trendingItems.filter(
-        (i) => i.type === "movie" || i.mediaType === "movie"
-      );
-    if (wantsSeries && !wantsMovies)
-      return trendingItems.filter(
-        (i) => i.type === "series" || i.mediaType === "tv"
-      );
-    return trendingItems;
-  }, [trendingItems, preferences]);
-
-  const displayHero = useMemo(() => {
-    if (!preferences?.contentTypes?.length) return heroItems;
-    const wantsMovies = preferences.contentTypes.includes("Filmes");
-    const wantsSeries = preferences.contentTypes.includes("Séries");
-    if (wantsMovies && !wantsSeries)
-      return heroItems.filter(
-        (i) => i.type === "movie" || i.mediaType === "movie"
-      );
-    if (wantsSeries && !wantsMovies)
-      return heroItems.filter(
-        (i) => i.type === "series" || i.mediaType === "tv"
-      );
-    return heroItems;
-  }, [heroItems, preferences]);
+  const displayTrending = trendingItems;
+  const displayHero = heroItems;
 
   useEffect(() => {
     if (!userId || !isSupabaseConfigured) return;

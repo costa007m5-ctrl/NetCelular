@@ -20,7 +20,7 @@ const TMDB_IMG = (path: string) => `https://image.tmdb.org/t/p/w342${path}`;
 
 const CONTENT_TYPES = ["Filmes", "Séries", "Anime", "Documentários"];
 
-const DECADES = ["Anos 80", "Anos 90", "Anos 2000", "Anos 2010", "Anos 2020", "2025+"];
+const DECADES = ["Anos 80", "Anos 90", "Anos 2000", "Anos 2010", "Anos 2020", "2025", "2026"];
 
 const GENRES = [
   { id: 28, name: "Ação" }, { id: 12, name: "Aventura" }, { id: 16, name: "Animação" },
