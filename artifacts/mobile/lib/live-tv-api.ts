@@ -41,7 +41,7 @@ export interface ChannelsResponse {
 
 async function fetchWithFallback(apiPath: string, directPath: string): Promise<any> {
   try {
-    const res = await fetch(`${BASE}${apiPath}`, { signal: AbortSignal.timeout(5000) });
+    const res = await fetch(`${BASE}${apiPath}`, { signal: AbortSignal.timeout(12000) });
     if (res.ok) {
       const data = await res.json();
       const valid = Array.isArray(data) ? data.length > 0 : data?.channels?.length > 0;

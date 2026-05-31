@@ -86,25 +86,38 @@ export default function ChannelsScreen() {
   }, []);
 
   useEffect(() => {
-    Promise.all([liveTvApi.getChannels(), liveTvApi.getEpgs()])
-      .then(([chData, epgs]) => {
+    let cancelled = false;
+
+    liveTvApi.getChannels()
+      .then((chData) => {
+        if (cancelled) return;
         if (chData.channels.length > 0) {
           setChannels(chData.channels);
-          const map: Record<string, EpgEntry["epg"]> = {};
-          epgs.forEach((e) => { map[e.id] = e.epg; });
-          setEpgMap(map);
         } else {
           setChannels(MOCK_CHANNELS);
-          setEpgMap(MOCK_EPGS);
           setIsOffline(true);
         }
       })
       .catch(() => {
-        setChannels(MOCK_CHANNELS);
-        setEpgMap(MOCK_EPGS);
-        setIsOffline(true);
+        if (!cancelled) {
+          setChannels(MOCK_CHANNELS);
+          setIsOffline(true);
+        }
       })
-      .finally(() => setLoading(false));
+      .finally(() => { if (!cancelled) setLoading(false); });
+
+    liveTvApi.getEpgs()
+      .then((epgs) => {
+        if (cancelled) return;
+        const map: Record<string, EpgEntry["epg"]> = {};
+        epgs.forEach((e) => { map[e.id] = e.epg; });
+        setEpgMap(map);
+      })
+      .catch(() => {
+        if (!cancelled) setEpgMap(MOCK_EPGS);
+      });
+
+    return () => { cancelled = true; };
   }, []);
 
   const heroChannels = channels.filter((c) => c.categories.includes(1) || c.categories.includes(6)).slice(0, 6);

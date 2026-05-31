@@ -237,7 +237,7 @@ export default function HomeScreen() {
         ...movieResults.slice(0, 5).map((i: any) => toContent(i, "movie")),
         ...tvResults.slice(0, 5).map((i: any) => toContent(i, "tv")),
       ];
-      if (top10Pool.length >= 3) setTop10(top10Pool.slice(0, 8));
+      if (top10Pool.length >= 3) setTop10(top10Pool.slice(0, 10));
 
       const paraVoce = primaryResults.slice(0, 10).map((i: any) => toContent(i, primaryType));
       if (paraVoce.length) setPersonalizedItems(paraVoce);
@@ -296,7 +296,7 @@ export default function HomeScreen() {
           setHeroItems(all.slice(0, 3));
           setTrendingItems(all.slice(0, 8));
           if (movies.length > 0 || tv.length > 0)
-            setTop10([...movies.slice(0, 3), ...tv.slice(0, 2)]);
+            setTop10([...movies.slice(0, 5), ...tv.slice(0, 5)].slice(0, 10));
           return;
         }
       } catch {}
@@ -334,7 +334,7 @@ export default function HomeScreen() {
         const heroPool = combined.filter((c) => c.backdropPath);
         setHeroItems(heroPool.slice(0, 3).length > 0 ? heroPool.slice(0, 3) : combined.slice(0, 3));
         setTrendingItems(combined.slice(0, 10));
-        setTop10([...validMovies.slice(0, 3), ...validTv.slice(0, 2)]);
+        setTop10([...validMovies.slice(0, 5), ...validTv.slice(0, 5)].slice(0, 10));
       }
     } catch (err) {
       console.log("loadData error:", err);
@@ -492,9 +492,9 @@ export default function HomeScreen() {
                 <View style={styles.sectionHeader}>
                   <View style={[styles.redBar, { backgroundColor: colors.primary }]} />
                   <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
-                    Top 10 Séries
+                    Top 10
                   </Text>
-                  <TouchableOpacity style={styles.seeAllBtn} onPress={() => router.push({ pathname: "/genre-browse", params: { genre_id: "18", type: "tv", title: "Top 10 Séries" } })}>
+                  <TouchableOpacity style={styles.seeAllBtn} onPress={() => router.push({ pathname: "/genre-browse", params: { genre_id: "0", type: "movie", title: "Top 10" } })}>
                     <Text style={[styles.seeAllText, { color: colors.mutedForeground }]}>
                       Ver mais
                     </Text>
