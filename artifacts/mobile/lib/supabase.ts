@@ -75,6 +75,15 @@ export type RatingItem = {
   liked: boolean;
 };
 
+export type DbProfile = {
+  id: string;
+  user_id: string;
+  name: string;
+  avatar_url?: string | null;
+  is_kids: boolean;
+  created_at?: string;
+};
+
 export const db = {
   users: {
     register: async (email: string, name: string, passwordHash: string) => {
@@ -211,6 +220,35 @@ export const db = {
 
     deleteAll: async (userId: string): Promise<boolean> => {
       const { error } = await supabase.from("watch_progress").delete().eq("user_id", userId);
+      return !error;
+    },
+  },
+
+  profiles: {
+    getAll: async (userId: string): Promise<DbProfile[]> => {
+      const { data } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: true });
+      return (data ?? []) as DbProfile[];
+    },
+
+    upsert: async (profile: Omit<DbProfile, "created_at">): Promise<{ data?: DbProfile; error?: string }> => {
+      const { data, error } = await supabase
+        .from("profiles")
+        .upsert(
+          { id: profile.id, user_id: profile.user_id, name: profile.name, avatar_url: profile.avatar_url ?? null, is_kids: profile.is_kids },
+          { onConflict: "id" }
+        )
+        .select()
+        .single();
+      if (error) return { error: error.message };
+      return { data: data as DbProfile };
+    },
+
+    delete: async (profileId: string): Promise<boolean> => {
+      const { error } = await supabase.from("profiles").delete().eq("id", profileId);
       return !error;
     },
   },

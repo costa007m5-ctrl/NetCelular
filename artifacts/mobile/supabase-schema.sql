@@ -69,6 +69,16 @@ CREATE TABLE IF NOT EXISTS public.ratings (
   CONSTRAINT ratings_unique UNIQUE (user_id, tmdb_id, type)
 );
 
+CREATE TABLE IF NOT EXISTS public.profiles (
+  id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     UUID        NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  name        TEXT        NOT NULL,
+  avatar_url  TEXT,
+  is_kids     BOOLEAN     NOT NULL DEFAULT false,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT profiles_user_name_unique UNIQUE (user_id, name)
+);
+
 
 -- ────────────────────────────────────────────────────────────
 -- 2. COLUNAS OPCIONAIS (adiciona só se ainda nao existirem)
@@ -94,6 +104,7 @@ ALTER TABLE public.user_settings  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.watchlist      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.watch_progress ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ratings        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.profiles       ENABLE ROW LEVEL SECURITY;
 
 
 -- ────────────────────────────────────────────────────────────
@@ -105,6 +116,7 @@ DROP POLICY IF EXISTS "anon_all_user_settings" ON public.user_settings;
 DROP POLICY IF EXISTS "anon_all_watchlist"     ON public.watchlist;
 DROP POLICY IF EXISTS "anon_all_progress"      ON public.watch_progress;
 DROP POLICY IF EXISTS "anon_all_ratings"       ON public.ratings;
+DROP POLICY IF EXISTS "anon_all_profiles"      ON public.profiles;
 
 CREATE POLICY "anon_all_users"
   ON public.users FOR ALL TO anon
@@ -124,6 +136,10 @@ CREATE POLICY "anon_all_progress"
 
 CREATE POLICY "anon_all_ratings"
   ON public.ratings FOR ALL TO anon
+  USING (true) WITH CHECK (true);
+
+CREATE POLICY "anon_all_profiles"
+  ON public.profiles FOR ALL TO anon
   USING (true) WITH CHECK (true);
 
 

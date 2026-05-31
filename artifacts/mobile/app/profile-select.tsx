@@ -19,10 +19,21 @@ import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "@/lib/auth-context";
+import { db } from "@/lib/supabase";
 
 const PROFILES_KEY = "netplay_profiles_v2";
 const ACTIVE_PROFILE_KEY = "netplay_active_profile_v2";
 const MAX_PROFILES = 4;
+
+function generateUUID(): string {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
 
 export interface NetplayProfile {
   id: string;
@@ -60,7 +71,28 @@ export const AVATARS = [
   { emoji: "🧙", bg: "#7c3aed" },
 ];
 
+function dbToProfile(p: { id: string; user_id: string; name: string; avatar_url?: string | null; is_kids: boolean }): NetplayProfile {
+  return { id: p.id, name: p.name, avatarUrl: p.avatar_url ?? undefined, userId: p.user_id, isKids: p.is_kids };
+}
+
+async function cacheProfiles(profiles: NetplayProfile[]): Promise<void> {
+  try {
+    const raw = await AsyncStorage.getItem(PROFILES_KEY);
+    const all: NetplayProfile[] = raw ? JSON.parse(raw) : [];
+    const otherUsers = all.filter((p) => p.userId !== profiles[0]?.userId);
+    await AsyncStorage.setItem(PROFILES_KEY, JSON.stringify([...otherUsers, ...profiles]));
+  } catch {}
+}
+
 export async function getProfiles(userId: string): Promise<NetplayProfile[]> {
+  try {
+    const remote = await db.profiles.getAll(userId);
+    if (remote.length > 0) {
+      const profiles = remote.map(dbToProfile);
+      await cacheProfiles(profiles);
+      return profiles;
+    }
+  } catch {}
   try {
     const raw = await AsyncStorage.getItem(PROFILES_KEY);
     if (!raw) return [];
@@ -73,6 +105,15 @@ export async function getProfiles(userId: string): Promise<NetplayProfile[]> {
 
 export async function saveProfile(profile: NetplayProfile): Promise<void> {
   try {
+    await db.profiles.upsert({
+      id: profile.id,
+      user_id: profile.userId,
+      name: profile.name,
+      avatar_url: profile.avatarUrl ?? null,
+      is_kids: profile.isKids ?? false,
+    });
+  } catch {}
+  try {
     const raw = await AsyncStorage.getItem(PROFILES_KEY);
     const all: NetplayProfile[] = raw ? JSON.parse(raw) : [];
     const idx = all.findIndex((p) => p.id === profile.id);
@@ -83,6 +124,9 @@ export async function saveProfile(profile: NetplayProfile): Promise<void> {
 }
 
 export async function deleteProfile(profileId: string): Promise<void> {
+  try {
+    await db.profiles.delete(profileId);
+  } catch {}
   try {
     const raw = await AsyncStorage.getItem(PROFILES_KEY);
     const all: NetplayProfile[] = raw ? JSON.parse(raw) : [];
@@ -414,7 +458,7 @@ export default function ProfileSelectScreen() {
   const handleSave = async (name: string, avatarUrl: string, isKids: boolean) => {
     if (!user?.id) return;
     const profile: NetplayProfile = {
-      id: editTarget?.id ?? `${user.id}_${Date.now()}`,
+      id: editTarget?.id ?? generateUUID(),
       name, avatarUrl,
       avatarIndex: editTarget?.avatarIndex ?? 0,
       userId: user.id, isKids,
