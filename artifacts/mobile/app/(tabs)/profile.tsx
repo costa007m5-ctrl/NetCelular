@@ -1,13 +1,17 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
   Linking,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Switch,
   Text,
+  TextInput,
+  TouchableOpacity,
   View,
 } from "react-native";
 import { Image } from "expo-image";
@@ -19,66 +23,61 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/lib/auth-context";
+import { hashPassword } from "@/lib/auth-context";
+import { db, isSupabaseConfigured } from "@/lib/supabase";
+import {
+  getSettings,
+  updateSetting,
+  type UserSettings,
+  DEFAULT_SETTINGS,
+} from "@/lib/user-settings";
 import {
   getNotificationsEnabled,
   requestPermissionsAndSetup,
-  scheduleNewContentNotification,
-  sendTestNotification,
   setNotificationsEnabled,
 } from "@/lib/notifications";
 
 const ACTIVE_PROFILE_KEY = "netplay_active_profile_v2";
 const RED = "#e50914";
-
-interface RowProps {
-  icon: string;
-  label: string;
-  value?: string;
-  toggle?: boolean;
-  toggleValue?: boolean;
-  onToggle?: (v: boolean) => void;
-  onPress?: () => void;
-  danger?: boolean;
-  accent?: boolean;
-  iconBg?: string;
-  iconColor?: string;
-  badge?: string;
-  badgeColor?: string;
-}
+const QUALITY_OPTIONS = ["Auto", "Baixa (360p)", "Média (480p)", "Boa (720p)", "Alta (1080p)", "Ultra (4K)"];
+const AUDIO_OPTIONS = ["Português (BR)", "Inglês", "Espanhol", "Francês", "Alemão", "Italiano", "Japonês"];
+const SUBTITLE_OPTIONS = ["Desativado", "Português (BR)", "Inglês", "Espanhol", "Francês", "Alemão"];
+const CONTENT_RATING_OPTIONS = ["Livre", "10+", "12+", "14+", "16+", "18+"];
+const DOWNLOAD_QUALITY_OPTIONS = ["Baixa (360p)", "Boa (720p)", "Alta (1080p)"];
 
 function Row({
   icon, label, value, toggle, toggleValue, onToggle, onPress,
-  danger, accent, iconBg, iconColor, badge, badgeColor,
-}: RowProps) {
+  danger, accent, iconBg, iconColor, badge, badgeColor, last,
+}: {
+  icon: string; label: string; value?: string; toggle?: boolean;
+  toggleValue?: boolean; onToggle?: (v: boolean) => void; onPress?: () => void;
+  danger?: boolean; accent?: boolean; iconBg?: string; iconColor?: string;
+  badge?: string; badgeColor?: string; last?: boolean;
+}) {
   const colors = useColors();
   const fg = danger ? RED : colors.foreground;
   const ic = iconColor ?? (danger ? RED : accent ? RED : colors.mutedForeground);
-  const bg = iconBg ?? ((danger || accent) ? RED + "22" : colors.card);
+  const bg = iconBg ?? ((danger || accent) ? `${RED}22` : colors.border + "40");
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [sRow.row, { backgroundColor: pressed && onPress ? colors.card : "transparent" }]}
+      style={({ pressed }) => [s.row, { borderBottomColor: last ? "transparent" : colors.border + "50", backgroundColor: pressed && onPress ? colors.border + "30" : "transparent" }]}
     >
-      <View style={[sRow.icon, { backgroundColor: bg }]}>
-        <Feather name={icon as any} size={16} color={ic} />
+      <View style={[s.rowIcon, { backgroundColor: bg }]}>
+        <Feather name={icon as any} size={15} color={ic} />
       </View>
-      <Text style={[sRow.label, { color: fg }]}>{label}</Text>
-      <View style={sRow.right}>
+      <Text style={[s.rowLabel, { color: fg }]}>{label}</Text>
+      <View style={s.rowRight}>
         {badge && (
-          <View style={[sRow.badge, { backgroundColor: (badgeColor ?? RED) + "22" }]}>
-            <Text style={[sRow.badgeTxt, { color: badgeColor ?? RED }]}>{badge}</Text>
+          <View style={[s.badge, { backgroundColor: (badgeColor ?? RED) + "22" }]}>
+            <Text style={[s.badgeTxt, { color: badgeColor ?? RED }]}>{badge}</Text>
           </View>
         )}
-        {value && <Text style={[sRow.value, { color: colors.mutedForeground }]}>{value}</Text>}
+        {value && <Text style={[s.rowValue, { color: colors.mutedForeground }]}>{value}</Text>}
         {toggle && onToggle ? (
-          <Switch
-            value={toggleValue}
-            onValueChange={onToggle}
-            trackColor={{ false: colors.border, true: RED }}
-            thumbColor="#fff"
-          />
+          <Switch value={toggleValue} onValueChange={onToggle} trackColor={{ false: colors.border, true: RED }} thumbColor="#fff" />
         ) : !toggle ? (
-          <Feather name="chevron-right" size={16} color={colors.border} />
+          <Feather name="chevron-right" size={15} color={colors.border} />
         ) : null}
       </View>
     </Pressable>
@@ -88,431 +87,751 @@ function Row({
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   const colors = useColors();
   return (
-    <View style={sRow.section}>
-      <Text style={[sRow.sectionLabel, { color: colors.mutedForeground }]}>{title}</Text>
-      <View style={[sRow.sectionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+    <View style={s.section}>
+      <Text style={[s.sectionTitle, { color: colors.mutedForeground }]}>{title}</Text>
+      <View style={[s.sectionCard, { backgroundColor: colors.card, borderColor: colors.border + "50" }]}>
         {children}
       </View>
     </View>
   );
 }
 
-function Sep() {
+function ModalSheet({
+  visible, onClose, title, children,
+}: { visible: boolean; onClose: () => void; title: string; children: React.ReactNode }) {
   const colors = useColors();
-  return <View style={[sRow.sep, { backgroundColor: colors.border }]} />;
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={s.modalOverlay}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <View style={[s.modalSheet, { backgroundColor: colors.card, borderColor: colors.border + "60" }]}>
+          <View style={s.modalHandle} />
+          <Text style={[s.modalTitle, { color: colors.foreground }]}>{title}</Text>
+          {children}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function PickerSheet({
+  visible, onClose, title, options, value, onSelect,
+}: {
+  visible: boolean; onClose: () => void; title: string;
+  options: string[]; value: string; onSelect: (v: string) => void;
+}) {
+  const colors = useColors();
+  return (
+    <ModalSheet visible={visible} onClose={onClose} title={title}>
+      <ScrollView style={{ maxHeight: 320 }}>
+        {options.map((opt, i) => (
+          <Pressable
+            key={opt}
+            onPress={() => { onSelect(opt); onClose(); }}
+            style={({ pressed }) => [s.pickerRow, {
+              backgroundColor: pressed ? `${RED}18` : "transparent",
+              borderBottomColor: i < options.length - 1 ? colors.border + "40" : "transparent",
+            }]}
+          >
+            <Text style={[s.pickerLabel, { color: opt === value ? RED : colors.foreground }]}>{opt}</Text>
+            {opt === value && <Feather name="check" size={16} color={RED} />}
+          </Pressable>
+        ))}
+      </ScrollView>
+    </ModalSheet>
+  );
 }
 
 export default function ProfileScreen() {
   const colors = useColors();
-  const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { user, logout } = useAuth();
-  const isWeb = Platform.OS === "web";
-  const topPad = isWeb ? 67 : insets.top;
+  const insets = useSafeAreaInsets();
+  const { user, setUser, logout } = useAuth();
 
-  const [notifPush, setNotifPush] = useState(true);
-  const [notifLancamentos, setNotifLancamentos] = useState(true);
-  const [notifContinue, setNotifContinue] = useState(false);
-  const [notifPromo, setNotifPromo] = useState(false);
-  const [autoPlay, setAutoPlay] = useState(true);
-  const [pip, setPip] = useState(false);
-  const [hd, setHd] = useState(true);
-  const [wifiOnly, setWifiOnly] = useState(true);
-  const [smartDownload, setSmartDownload] = useState(true);
-  const [parentalControl, setParentalControl] = useState(false);
   const [activeProfile, setActiveProfile] = useState<any>(null);
-  const [streamQuality, setStreamQuality] = useState("Auto");
-  const [audioLang, setAudioLang] = useState("Português");
-  const [subtitleLang, setSubtitleLang] = useState("Português");
-  const [contentRating, setContentRating] = useState("16+");
+  const [settings, setSettings] = useState<UserSettings>(DEFAULT_SETTINGS);
+  const [watchedCount, setWatchedCount] = useState(0);
+  const [listCount, setListCount] = useState(0);
+  const [watchHistory, setWatchHistory] = useState<any[]>([]);
 
-  useEffect(() => {
-    AsyncStorage.getItem(ACTIVE_PROFILE_KEY)
-      .then((raw) => { if (raw) setActiveProfile(JSON.parse(raw)); })
-      .catch(() => {});
-    getNotificationsEnabled().then(setNotifPush);
+  const [showInfoModal, setShowInfoModal] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [showPlanModal, setShowPlanModal] = useState(false);
+  const [showDevicesModal, setShowDevicesModal] = useState(false);
+  const [showPaymentsModal, setShowPaymentsModal] = useState(false);
+  const [showAboutModal, setShowAboutModal] = useState(false);
+
+  const [pickerConfig, setPickerConfig] = useState<{ key: keyof UserSettings; title: string; options: string[] } | null>(null);
+
+  const [editName, setEditName] = useState("");
+  const [currentPw, setCurrentPw] = useState("");
+  const [newPw, setNewPw] = useState("");
+  const [confirmPw, setConfirmPw] = useState("");
+  const [savingInfo, setSavingInfo] = useState(false);
+  const [savingPw, setSavingPw] = useState(false);
+
+  const loadData = useCallback(async () => {
+    try {
+      const raw = await AsyncStorage.getItem(ACTIVE_PROFILE_KEY);
+      if (raw) setActiveProfile(JSON.parse(raw));
+    } catch {}
+
+    const s = await getSettings();
+    setSettings(s);
+
+    if (user?.id && isSupabaseConfigured) {
+      const [progress, watchlist] = await Promise.all([
+        db.progress.getAll(user.id),
+        db.watchlist.getAll(user.id),
+      ]);
+      setWatchedCount(progress.length);
+      setListCount(watchlist.length);
+      setWatchHistory(progress.slice(0, 20));
+    }
   }, [user?.id]);
 
-  const handleLogout = () => {
-    if (Platform.OS === "web") {
-      logout();
-      router.replace("/login");
-      return;
+  useEffect(() => { loadData(); }, [loadData]);
+
+  const updateLocalSetting = async <K extends keyof UserSettings>(key: K, val: UserSettings[K]) => {
+    setSettings((prev) => ({ ...prev, [key]: val }));
+    await updateSetting(key, val);
+    if ((key === "parentalControl" || key === "contentRating") && user?.id && isSupabaseConfigured) {
+      await db.userSettings.upsert(user.id, { [key === "parentalControl" ? "parental_control" : "content_rating"]: val });
     }
-    Alert.alert("Sair da conta", "Tem certeza que deseja sair?", [
+  };
+
+  const handleNotifToggle = async (val: boolean) => {
+    if (val) await requestPermissionsAndSetup();
+    await setNotificationsEnabled(val);
+    updateLocalSetting("notifPush", val);
+  };
+
+  const openPicker = (key: keyof UserSettings, title: string, options: string[]) => {
+    setPickerConfig({ key, title, options });
+  };
+
+  const handleSaveInfo = async () => {
+    if (!editName.trim() || !user?.id) return;
+    setSavingInfo(true);
+    const { error } = await db.users.updateName(user.id, editName.trim());
+    if (error) {
+      Alert.alert("Erro", error);
+    } else {
+      await setUser({ ...user, name: editName.trim(), avatarLetter: editName[0].toUpperCase() });
+      setShowInfoModal(false);
+    }
+    setSavingInfo(false);
+  };
+
+  const handleChangePassword = async () => {
+    if (!newPw || !currentPw || !user?.id) return;
+    if (newPw.length < 6) { Alert.alert("Erro", "A nova senha deve ter pelo menos 6 caracteres."); return; }
+    if (newPw !== confirmPw) { Alert.alert("Erro", "As senhas não coincidem."); return; }
+    setSavingPw(true);
+    const currentHash = await hashPassword(currentPw);
+    const valid = await db.users.verifyPassword(user.id, currentHash);
+    if (!valid) { Alert.alert("Erro", "Senha atual incorreta."); setSavingPw(false); return; }
+    const newHash = await hashPassword(newPw);
+    const { error } = await db.users.updatePassword(user.id, newHash);
+    if (error) { Alert.alert("Erro", error); } else {
+      Alert.alert("Sucesso", "Senha alterada com sucesso!");
+      setShowPasswordModal(false);
+      setCurrentPw(""); setNewPw(""); setConfirmPw("");
+    }
+    setSavingPw(false);
+  };
+
+  const handleClearHistory = () => {
+    Alert.alert("Limpar Histórico", "Isso vai apagar todo o histórico de visualização. Continuar?", [
       { text: "Cancelar", style: "cancel" },
       {
-        text: "Sair", style: "destructive",
-        onPress: async () => { await logout(); router.replace("/login"); },
+        text: "Limpar", style: "destructive", onPress: async () => {
+          if (!user?.id) return;
+          await db.progress.deleteAll(user.id);
+          setWatchedCount(0);
+          setWatchHistory([]);
+          Alert.alert("Concluído", "Histórico apagado.");
+        },
       },
     ]);
   };
 
-  const handleNotifToggle = async (v: boolean) => {
-    setNotifPush(v);
-    await setNotificationsEnabled(v);
-    if (v) {
-      const granted = await requestPermissionsAndSetup();
-      if (granted) {
-        await scheduleNewContentNotification();
-        await sendTestNotification();
-      } else {
-        Alert.alert(
-          "Permissão necessária",
-          "Ative as notificações nas configurações do celular para receber novidades.",
-          [
-            { text: "Cancelar", style: "cancel" },
-            { text: "Abrir Configurações", onPress: () => Linking.openSettings() },
-          ]
-        );
-        setNotifPush(false);
-      }
+  const handleClearCache = () => {
+    Alert.alert("Limpar Cache", "Isso vai limpar dados em cache do app. Continuar?", [
+      { text: "Cancelar", style: "cancel" },
+      {
+        text: "Limpar", style: "destructive", onPress: async () => {
+          await AsyncStorage.multiRemove(["netplay_genre_cache", "netplay_tmdb_cache", "netplay_sync"]);
+          Alert.alert("Concluído", "Cache limpo com sucesso!");
+        },
+      },
+    ]);
+  };
+
+  const handleLogout = () => {
+    Alert.alert("Sair", "Deseja mesmo sair da conta?", [
+      { text: "Cancelar", style: "cancel" },
+      { text: "Sair", style: "destructive", onPress: async () => { await logout(); router.replace("/login"); } },
+    ]);
+  };
+
+  const handleShare = async () => {
+    try {
+      await Share.share({ message: `Estou usando o NETPLAY para assistir filmes e séries! Baixe agora: https://netplay.app` });
+    } catch {}
+  };
+
+  const handleInvite = async () => {
+    try {
+      await Share.share({
+        message: `Ei! Te convido para o NETPLAY — o melhor streaming! Cadastre-se com meu convite: https://netplay.app/invite/${user?.id?.slice(0, 8)}`,
+      });
+    } catch {}
+  };
+
+  const handleRate = async () => {
+    const url = Platform.OS === "ios"
+      ? "itms-apps://itunes.apple.com/app/id0000000000?action=write-review"
+      : "market://details?id=com.netplay.app";
+    const supported = await Linking.canOpenURL(url);
+    if (supported) { Linking.openURL(url); } else {
+      Linking.openURL("https://netplay.app/rate");
     }
   };
 
-  const handleClearCache = () => {
-    Alert.alert("Limpar Cache", "Isso vai limpar dados temporários do app.", [
-      { text: "Cancelar", style: "cancel" },
-      { text: "Limpar", style: "destructive", onPress: () => Alert.alert("Cache limpo!", "Dados temporários removidos.") },
-    ]);
-  };
+  const openUrl = (url: string) => Linking.openURL(url).catch(() => {});
 
-  const handleClearHistory = () => {
-    Alert.alert("Limpar Histórico", "Seu histórico de visualização será excluído permanentemente.", [
-      { text: "Cancelar", style: "cancel" },
-      { text: "Limpar", style: "destructive", onPress: () => Alert.alert("Histórico limpo!") },
-    ]);
-  };
-
-  const handleInvite = () => {
-    Alert.alert("Convidar Amigos", "Compartilhe o NETPLAY e ganhe 1 mês grátis por cada amigo que assinar!");
-  };
-
-  const handleRate = () => {
-    Alert.alert("Avaliar o NETPLAY", "Obrigado! Seu feedback nos ajuda a melhorar.", [
-      { text: "★★★★★ Excelente!" },
-      { text: "Cancelar", style: "cancel" },
-    ]);
-  };
-
-  const isAdmin = user?.role === "admin";
-  const profileName = activeProfile?.name ?? user?.name ?? "Usuário NETPLAY";
-  const profileInitial = profileName[0]?.toUpperCase() ?? "N";
+  const totalHours = Math.round((watchedCount * 92) / 60);
+  const isPremium = user?.role === "admin" || true;
+  const avatarUrl = activeProfile?.avatarUrl;
+  const displayName = activeProfile?.name ?? user?.name ?? "Usuário";
 
   return (
     <View style={[s.container, { backgroundColor: colors.background }]}>
       <StatusBar style="light" />
-      <ScrollView contentContainerStyle={{ paddingBottom: 130 }} showsVerticalScrollIndicator={false}>
-        <View style={{ height: topPad + 10 }} />
 
-        <View style={s.heroSection}>
-          <LinearGradient
-            colors={["rgba(229,9,20,0.12)", "transparent"]}
-            style={StyleSheet.absoluteFill}
-          />
-          <View style={s.avatarSection}>
-            {activeProfile?.avatarUrl ? (
-              <Image
-                source={{ uri: activeProfile.avatarUrl }}
-                style={s.avatar}
-                contentFit="cover"
-              />
-            ) : (
-              <LinearGradient colors={[RED, "#7a0000"]} style={s.avatar}>
-                <Text style={s.avatarText}>{profileInitial}</Text>
-              </LinearGradient>
-            )}
-            <View style={s.editAvatarBadge}>
-              <Feather name="edit-2" size={10} color="#fff" />
-            </View>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 130 }}
+      >
+        {/* ── HERO HEADER ─────────────────────────────────── */}
+        <LinearGradient colors={["#1a0000", "#0d0000", colors.background]} style={s.heroGradient}>
+          <View style={[s.heroTop, { paddingTop: insets.top + 16 }]}>
+            <Text style={[s.screenTitle, { color: "rgba(255,255,255,0.4)" }]}>MEU PERFIL</Text>
           </View>
-          <Text style={[s.userName, { color: colors.foreground }]}>{profileName}</Text>
-          <Text style={[s.userEmail, { color: colors.mutedForeground }]} numberOfLines={1}>
-            {user?.email ?? ""}
-          </Text>
-          <View style={s.badgeRow}>
-            <View style={s.premiumBadge}>
-              <LinearGradient colors={[RED, "#8b0000"]} style={StyleSheet.absoluteFill} />
-              <Feather name="star" size={11} color="#fff" />
-              <Text style={s.premiumText}>PREMIUM</Text>
-            </View>
-            {isAdmin && (
-              <View style={[s.adminBadge]}>
-                <Feather name="shield" size={11} color="#ff9800" />
-                <Text style={s.adminText}>ADMIN</Text>
+
+          <View style={s.avatarArea}>
+            <Pressable onPress={() => router.push("/profile-select")} style={s.avatarBtn}>
+              {avatarUrl ? (
+                <Image source={{ uri: avatarUrl }} style={s.avatar} contentFit="cover" />
+              ) : (
+                <LinearGradient colors={[RED, "#8b0000"]} style={s.avatar}>
+                  <Text style={s.avatarLetter}>{displayName[0]?.toUpperCase()}</Text>
+                </LinearGradient>
+              )}
+              <View style={[s.editBadge, { backgroundColor: RED }]}>
+                <Feather name="edit-2" size={11} color="#fff" />
               </View>
-            )}
+            </Pressable>
+
+            <Text style={[s.userName, { color: colors.foreground }]}>{displayName}</Text>
+            <Text style={[s.userEmail, { color: colors.mutedForeground }]}>{user?.email}</Text>
+
+            <View style={s.badgesRow}>
+              {isPremium && (
+                <View style={[s.roleBadge, { backgroundColor: `${RED}22`, borderColor: RED }]}>
+                  <Feather name="star" size={10} color={RED} />
+                  <Text style={[s.roleTxt, { color: RED }]}>PREMIUM</Text>
+                </View>
+              )}
+              {user?.role === "admin" && (
+                <View style={[s.roleBadge, { backgroundColor: "#fbbf2422", borderColor: "#fbbf24" }]}>
+                  <Feather name="shield" size={10} color="#fbbf24" />
+                  <Text style={[s.roleTxt, { color: "#fbbf24" }]}>ADMIN</Text>
+                </View>
+              )}
+            </View>
           </View>
 
-          <View style={s.statsRow}>
-            <View style={s.statItem}>
-              <Text style={s.statNumber}>47</Text>
-              <Text style={[s.statLabel, { color: colors.mutedForeground }]}>Assistidos</Text>
-            </View>
-            <View style={[s.statDivider, { backgroundColor: colors.border }]} />
-            <View style={s.statItem}>
-              <Text style={s.statNumber}>12</Text>
-              <Text style={[s.statLabel, { color: colors.mutedForeground }]}>Na lista</Text>
-            </View>
-            <View style={[s.statDivider, { backgroundColor: colors.border }]} />
-            <View style={s.statItem}>
-              <Text style={s.statNumber}>3</Text>
-              <Text style={[s.statLabel, { color: colors.mutedForeground }]}>Downloads</Text>
-            </View>
-            <View style={[s.statDivider, { backgroundColor: colors.border }]} />
-            <View style={s.statItem}>
-              <Text style={s.statNumber}>89h</Text>
-              <Text style={[s.statLabel, { color: colors.mutedForeground }]}>Tempo total</Text>
-            </View>
+          <View style={[s.statsRow, { borderColor: colors.border + "40" }]}>
+            {[
+              { val: watchedCount, label: "Assistidos" },
+              { val: listCount, label: "Na lista" },
+              { val: 3, label: "Downloads" },
+              { val: `${totalHours}h`, label: "Tempo total" },
+            ].map((stat, i, arr) => (
+              <View key={stat.label} style={[s.statItem, i < arr.length - 1 && { borderRightWidth: 1, borderRightColor: colors.border + "40" }]}>
+                <Text style={[s.statVal, { color: colors.foreground }]}>{stat.val}</Text>
+                <Text style={[s.statLabel, { color: colors.mutedForeground }]}>{stat.label}</Text>
+              </View>
+            ))}
           </View>
-        </View>
+        </LinearGradient>
 
+        {/* ── MINHA CONTA ─────────────────────────────────── */}
         <Section title="MINHA CONTA">
-          <Row icon="user" label="Informações Pessoais" onPress={() => Alert.alert("Em breve", "Edição de perfil disponível em breve.")} />
-          <Sep />
-          <Row icon="lock" label="Alterar Senha" onPress={() => Alert.alert("Em breve")} />
-          <Sep />
-          <Row icon="credit-card" label="Plano Premium" value="R$ 39,90/mês" onPress={() => Alert.alert("Plano Premium", "Próxima cobrança: 28/06/2026")} accent />
-          <Sep />
-          <Row icon="monitor" label="Dispositivos Conectados" value="2 de 3" onPress={() => Alert.alert("Dispositivos", "• iPhone 15 Pro (ativo)\n• Smart TV Samsung\n\nToque para gerenciar.")} />
-          <Sep />
-          <Row icon="clock" label="Histórico de Pagamentos" onPress={() => Alert.alert("Histórico", "Maio/2026 — R$ 39,90 ✓\nAbr/2026 — R$ 39,90 ✓\nMar/2026 — R$ 39,90 ✓")} />
+          <Row icon="user" label="Informações Pessoais" onPress={() => { setEditName(displayName); setShowInfoModal(true); }} />
+          <Row icon="lock" label="Alterar Senha" onPress={() => { setCurrentPw(""); setNewPw(""); setConfirmPw(""); setShowPasswordModal(true); }} />
+          <Row icon="credit-card" label="Plano Premium" value="R$ 39,90/mês" accent onPress={() => setShowPlanModal(true)} />
+          <Row icon="clock" label="Histórico de Pagamentos" onPress={() => setShowPaymentsModal(true)} />
+          <Row icon="monitor" label="Dispositivos Conectados" onPress={() => setShowDevicesModal(true)} last />
         </Section>
 
-        <Section title="VISUALIZAÇÃO">
-          <Row icon="play-circle" label="Reprodução Automática" toggle toggleValue={autoPlay} onToggle={setAutoPlay} iconBg="#1d4ed822" iconColor="#3b82f6" />
-          <Sep />
+        {/* ── REPRODUÇÃO ──────────────────────────────────── */}
+        <Section title="REPRODUÇÃO">
           <Row
-            icon="film"
-            label="Qualidade de Streaming"
-            value={streamQuality}
-            onPress={() =>
-              Alert.alert("Qualidade", "Escolha a qualidade de streaming:", [
-                { text: "Auto", onPress: () => setStreamQuality("Auto") },
-                { text: "HD (720p)", onPress: () => setStreamQuality("HD") },
-                { text: "Full HD (1080p)", onPress: () => setStreamQuality("FHD") },
-                { text: "4K Ultra HD", onPress: () => setStreamQuality("4K") },
-                { text: "Cancelar", style: "cancel" },
-              ])
-            }
-            iconBg="#7c3aed22"
-            iconColor="#a78bfa"
+            icon="play-circle" label="Reprodução Automática"
+            toggle toggleValue={settings.autoPlay}
+            onToggle={(v) => updateLocalSetting("autoPlay", v)}
           />
-          <Sep />
           <Row
-            icon="volume-2"
-            label="Idioma de Áudio"
-            value={audioLang}
-            onPress={() =>
-              Alert.alert("Idioma de Áudio", "", [
-                { text: "Português (BR)", onPress: () => setAudioLang("Português") },
-                { text: "English", onPress: () => setAudioLang("English") },
-                { text: "Español", onPress: () => setAudioLang("Español") },
-                { text: "Cancelar", style: "cancel" },
-              ])
-            }
-            iconBg="#059669"
-            iconColor="#34d399"
+            icon="wifi" label="Qualidade de Streaming" value={settings.streamQuality}
+            onPress={() => openPicker("streamQuality", "Qualidade de Streaming", QUALITY_OPTIONS)}
           />
-          <Sep />
           <Row
-            icon="message-square"
-            label="Idioma de Legenda"
-            value={subtitleLang}
-            onPress={() =>
-              Alert.alert("Legenda", "", [
-                { text: "Português (BR)", onPress: () => setSubtitleLang("Português") },
-                { text: "English", onPress: () => setSubtitleLang("English") },
-                { text: "Desativado", onPress: () => setSubtitleLang("Off") },
-                { text: "Cancelar", style: "cancel" },
-              ])
-            }
-            iconBg="#d9770622"
-            iconColor="#f59e0b"
+            icon="volume-2" label="Idioma de Áudio" value={settings.audioLang}
+            onPress={() => openPicker("audioLang", "Idioma de Áudio", AUDIO_OPTIONS)}
           />
-          <Sep />
-          <Row icon="minimize-2" label="Picture-in-Picture" toggle toggleValue={pip} onToggle={setPip} iconBg="#ec489922" iconColor="#f472b6" />
+          <Row
+            icon="type" label="Idioma de Legenda" value={settings.subtitleLang}
+            onPress={() => openPicker("subtitleLang", "Idioma de Legenda", SUBTITLE_OPTIONS)}
+          />
+          <Row
+            icon="minimize-2" label="Picture in Picture (PiP)"
+            toggle toggleValue={settings.pip}
+            onToggle={(v) => updateLocalSetting("pip", v)}
+            last
+          />
         </Section>
 
+        {/* ── NOTIFICAÇÕES ────────────────────────────────── */}
         <Section title="NOTIFICAÇÕES">
           <Row
-            icon="bell"
-            label="Notificações Push"
-            toggle
-            toggleValue={notifPush}
+            icon="bell" label="Notificações Push"
+            toggle toggleValue={settings.notifPush}
             onToggle={handleNotifToggle}
-            iconBg="#e5091422"
-            iconColor={RED}
           />
-          <Sep />
-          <Row icon="star" label="Novos Lançamentos" toggle toggleValue={notifLancamentos} onToggle={setNotifLancamentos} iconBg="#f59e0b22" iconColor="#f59e0b" />
-          <Sep />
-          <Row icon="play-circle" label="Continue Assistindo" toggle toggleValue={notifContinue} onToggle={setNotifContinue} iconBg="#3b82f622" iconColor="#3b82f6" />
-          <Sep />
-          <Row icon="tag" label="Promoções e Ofertas" toggle toggleValue={notifPromo} onToggle={setNotifPromo} iconBg="#22c55e22" iconColor="#22c55e" />
-        </Section>
-
-        <Section title="PRIVACIDADE & CONTROLE">
-          <Row icon="shield" label="Controle Parental" toggle toggleValue={parentalControl} onToggle={setParentalControl} iconBg="#7c3aed22" iconColor="#a78bfa" />
-          <Sep />
           <Row
-            icon="alert-circle"
-            label="Classificação de Conteúdo"
-            value={contentRating}
-            onPress={() =>
-              Alert.alert("Classificação Indicativa", "", [
-                { text: "Livre", onPress: () => setContentRating("Livre") },
-                { text: "12+", onPress: () => setContentRating("12+") },
-                { text: "16+", onPress: () => setContentRating("16+") },
-                { text: "18+", onPress: () => setContentRating("18+") },
-                { text: "Cancelar", style: "cancel" },
-              ])
-            }
-            iconBg="#f59e0b22"
-            iconColor="#f59e0b"
+            icon="film" label="Novos Lançamentos"
+            toggle toggleValue={settings.notifLancamentos}
+            onToggle={(v) => updateLocalSetting("notifLancamentos", v)}
           />
-          <Sep />
-          <Row icon="eye" label="Histórico de Visualização" onPress={() => Alert.alert("Histórico", "Exibindo os últimos 47 títulos assistidos.")} />
-          <Sep />
-          <Row icon="trash-2" label="Limpar Histórico" onPress={handleClearHistory} danger />
+          <Row
+            icon="play" label="Continue Assistindo"
+            toggle toggleValue={settings.notifContinue}
+            onToggle={(v) => updateLocalSetting("notifContinue", v)}
+          />
+          <Row
+            icon="tag" label="Promoções e Ofertas"
+            toggle toggleValue={settings.notifPromo}
+            onToggle={(v) => updateLocalSetting("notifPromo", v)}
+            last
+          />
         </Section>
 
-        <Section title="ARMAZENAMENTO & DOWNLOADS">
-          <Row icon="download" label="Downloads Offline" value="3 itens · 4.0 GB" onPress={() => router.push("/(tabs)/downloads")} iconBg="#06b6d422" iconColor="#06b6d4" />
-          <Sep />
-          <Row icon="wifi" label="Somente via Wi-Fi" toggle toggleValue={wifiOnly} onToggle={setWifiOnly} iconBg="#3b82f622" iconColor="#3b82f6" />
-          <Sep />
-          <Row icon="zap" label="Download Inteligente" toggle toggleValue={smartDownload} onToggle={setSmartDownload} iconBg="#22c55e22" iconColor="#22c55e" />
-          <Sep />
-          <Row icon="hard-drive" label="Limpar Cache" value="128 MB" onPress={handleClearCache} iconBg="#64748b22" iconColor="#94a3b8" />
+        {/* ── PRIVACIDADE ─────────────────────────────────── */}
+        <Section title="PRIVACIDADE E CONTROLE">
+          <Row
+            icon="shield" label="Controle Parental"
+            toggle toggleValue={settings.parentalControl}
+            onToggle={(v) => updateLocalSetting("parentalControl", v)}
+          />
+          <Row
+            icon="alert-circle" label="Classificação de Conteúdo" value={settings.contentRating}
+            onPress={() => openPicker("contentRating", "Classificação de Conteúdo", CONTENT_RATING_OPTIONS)}
+          />
+          <Row
+            icon="list" label="Histórico de Visualização"
+            badge={watchedCount > 0 ? String(watchedCount) : undefined}
+            onPress={() => setShowHistoryModal(true)}
+          />
+          <Row
+            icon="trash-2" label="Limpar Histórico" danger
+            onPress={handleClearHistory}
+            last
+          />
         </Section>
 
-        <Section title="SOCIAL">
-          <Row icon="share-2" label="Compartilhar Perfil" onPress={() => Alert.alert("Compartilhar", "Compartilhe seu perfil NETPLAY com amigos!")} iconBg="#06b6d422" iconColor="#06b6d4" />
-          <Sep />
-          <Row icon="user-plus" label="Convidar Amigos" badge="+1 mês grátis" badgeColor="#22c55e" onPress={handleInvite} iconBg="#22c55e22" iconColor="#22c55e" />
-          <Sep />
-          <Row icon="star" label="Avaliar o NETPLAY" onPress={handleRate} iconBg="#f59e0b22" iconColor="#f59e0b" />
+        {/* ── DOWNLOADS ───────────────────────────────────── */}
+        <Section title="DOWNLOADS">
+          <Row icon="download" label="Downloads Offline" onPress={() => router.push("/(tabs)/downloads")} />
+          <Row
+            icon="wifi" label="Apenas Wi-Fi"
+            toggle toggleValue={settings.wifiOnly}
+            onToggle={(v) => updateLocalSetting("wifiOnly", v)}
+          />
+          <Row
+            icon="zap" label="Download Inteligente"
+            toggle toggleValue={settings.smartDownload}
+            onToggle={(v) => updateLocalSetting("smartDownload", v)}
+          />
+          <Row
+            icon="hard-drive" label="Qualidade de Download" value={settings.downloadQuality}
+            onPress={() => openPicker("downloadQuality", "Qualidade de Download", DOWNLOAD_QUALITY_OPTIONS)}
+            last
+          />
         </Section>
 
+        {/* ── COMUNIDADE ──────────────────────────────────── */}
+        <Section title="COMUNIDADE">
+          <Row icon="share-2" label="Compartilhar Perfil" onPress={handleShare} />
+          <Row icon="user-plus" label="Convidar Amigos" onPress={handleInvite} />
+          <Row icon="star" label="Avaliar o NETPLAY" accent onPress={handleRate} last />
+        </Section>
+
+        {/* ── SUPORTE ─────────────────────────────────────── */}
         <Section title="SUPORTE">
-          <Row icon="help-circle" label="Central de Ajuda" onPress={() => Alert.alert("Ajuda", "Acesse help.netplay.com.br para suporte completo.")} />
-          <Sep />
-          <Row icon="alert-triangle" label="Reportar Problema" onPress={() => Alert.alert("Reportar", "Descreva o problema para nossa equipe técnica.")} />
-          <Sep />
-          <Row icon="gift" label="Novidades da Versão v1.0.0" onPress={() => Alert.alert("v1.0.0", "• Notificações push\n• Tela Descobrir\n• Downloads offline\n• Avatar com filmes e séries\n• 25+ novas funcionalidades")} />
+          <Row icon="help-circle" label="Central de Ajuda" onPress={() => openUrl("https://netplay.app/help")} />
+          <Row icon="flag" label="Reportar Problema" onPress={() => openUrl("mailto:suporte@netplay.app?subject=Problema+no+app")} />
+          <Row icon="info" label="Novidades da Versão" onPress={() => setShowAboutModal(true)} />
+          <Row icon="database" label="Limpar Cache" onPress={handleClearCache} last />
         </Section>
 
-        <Section title="SOBRE">
-          <Row icon="file-text" label="Termos de Uso" onPress={() => Alert.alert("Termos de Uso", "Acesse termos.netplay.com.br")} />
-          <Sep />
-          <Row icon="lock" label="Política de Privacidade" onPress={() => Alert.alert("Privacidade", "Acesse privacidade.netplay.com.br")} />
-          <Sep />
-          <Row icon="package" label="Licenças Open Source" onPress={() => Alert.alert("Licenças", "Este app utiliza software de código aberto.")} />
-          <Sep />
-          <Row icon="info" label="Sobre o NETPLAY" value="v1.0.0" onPress={() => Alert.alert("NETPLAY", "Catálogo Premium de Entretenimento\nPowered by TMDB API")} />
+        {/* ── JURÍDICO ────────────────────────────────────── */}
+        <Section title="JURÍDICO">
+          <Row icon="file-text" label="Termos de Uso" onPress={() => openUrl("https://netplay.app/terms")} />
+          <Row icon="lock" label="Política de Privacidade" onPress={() => openUrl("https://netplay.app/privacy")} />
+          <Row icon="info" label="Sobre o NETPLAY" onPress={() => setShowAboutModal(true)} last />
         </Section>
 
-        {isAdmin && (
-          <Section title="ADMINISTRAÇÃO">
-            <Row icon="activity" label="Painel Admin" accent onPress={() => router.push("/admin")} />
-          </Section>
-        )}
-
-        <Section title="PERFIS">
-          <Row icon="users" label="Trocar Perfil" accent onPress={() => router.push("/profile-select")} />
+        {/* ── CONTA ───────────────────────────────────────── */}
+        <Section title="CONTA">
+          <Row icon="refresh-cw" label="Trocar Perfil" onPress={() => router.push("/profile-select")} />
+          <Row icon="log-out" label="Sair da Conta" danger onPress={handleLogout} last />
         </Section>
 
-        <Section title="">
-          <Row icon="log-out" label="Sair da conta" danger onPress={handleLogout} />
-        </Section>
+        <Text style={[s.version, { color: colors.mutedForeground }]}>NETPLAY v2.1.0 · Feito com ❤️ no Brasil</Text>
       </ScrollView>
+
+      {/* ── MODAL: INFORMAÇÕES PESSOAIS ─────────────────── */}
+      <ModalSheet visible={showInfoModal} onClose={() => setShowInfoModal(false)} title="Informações Pessoais">
+        <View style={s.modalBody}>
+          <Text style={[s.inputLabel, { color: colors.mutedForeground }]}>Nome de exibição</Text>
+          <TextInput
+            style={[s.input, { backgroundColor: colors.background, color: colors.foreground, borderColor: colors.border }]}
+            value={editName}
+            onChangeText={setEditName}
+            placeholder="Seu nome"
+            placeholderTextColor={colors.mutedForeground}
+            autoCapitalize="words"
+          />
+          <Text style={[s.inputLabel, { color: colors.mutedForeground, marginTop: 14 }]}>E-mail</Text>
+          <View style={[s.input, { backgroundColor: colors.background + "88", borderColor: colors.border, justifyContent: "center" }]}>
+            <Text style={{ color: colors.mutedForeground }}>{user?.email}</Text>
+          </View>
+          <Pressable
+            onPress={handleSaveInfo}
+            style={[s.modalBtn, { backgroundColor: RED, opacity: savingInfo ? 0.7 : 1 }]}
+            disabled={savingInfo}
+          >
+            <Text style={s.modalBtnTxt}>{savingInfo ? "Salvando..." : "Salvar Alterações"}</Text>
+          </Pressable>
+        </View>
+      </ModalSheet>
+
+      {/* ── MODAL: ALTERAR SENHA ────────────────────────── */}
+      <ModalSheet visible={showPasswordModal} onClose={() => setShowPasswordModal(false)} title="Alterar Senha">
+        <View style={s.modalBody}>
+          {[
+            { label: "Senha atual", val: currentPw, set: setCurrentPw },
+            { label: "Nova senha", val: newPw, set: setNewPw },
+            { label: "Confirmar nova senha", val: confirmPw, set: setConfirmPw },
+          ].map(({ label, val, set }) => (
+            <View key={label}>
+              <Text style={[s.inputLabel, { color: colors.mutedForeground }]}>{label}</Text>
+              <TextInput
+                style={[s.input, { backgroundColor: colors.background, color: colors.foreground, borderColor: colors.border, marginBottom: 12 }]}
+                value={val}
+                onChangeText={set}
+                placeholder={label}
+                placeholderTextColor={colors.mutedForeground}
+                secureTextEntry
+              />
+            </View>
+          ))}
+          <Pressable
+            onPress={handleChangePassword}
+            style={[s.modalBtn, { backgroundColor: RED, opacity: savingPw ? 0.7 : 1 }]}
+            disabled={savingPw}
+          >
+            <Text style={s.modalBtnTxt}>{savingPw ? "Verificando..." : "Alterar Senha"}</Text>
+          </Pressable>
+        </View>
+      </ModalSheet>
+
+      {/* ── MODAL: PLANO PREMIUM ────────────────────────── */}
+      <ModalSheet visible={showPlanModal} onClose={() => setShowPlanModal(false)} title="Seu Plano">
+        <View style={s.modalBody}>
+          <LinearGradient colors={["#1a0000", "#2a0505"]} style={s.planCard}>
+            <View style={s.planRow}>
+              <Feather name="star" size={20} color={RED} />
+              <Text style={[s.planName, { color: "#fff" }]}>NETPLAY PREMIUM</Text>
+            </View>
+            <Text style={[s.planPrice, { color: RED }]}>R$ 39,90<Text style={{ fontSize: 14, color: "rgba(255,255,255,0.5)" }}>/mês</Text></Text>
+            <View style={s.planFeatures}>
+              {["4K + HDR + Dolby", "Telas simultâneas ilimitadas", "Download offline", "Sem anúncios", "Acesso antecipado"].map((f) => (
+                <View key={f} style={s.planFeatureRow}>
+                  <Feather name="check-circle" size={14} color="#4ade80" />
+                  <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 13, marginLeft: 8 }}>{f}</Text>
+                </View>
+              ))}
+            </View>
+            <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 11, marginTop: 12 }}>
+              Próxima cobrança: 15 de junho de 2026
+            </Text>
+          </LinearGradient>
+          <Pressable onPress={() => openUrl("https://netplay.app/manage")} style={[s.modalBtn, { backgroundColor: colors.border + "40" }]}>
+            <Text style={[s.modalBtnTxt, { color: colors.foreground }]}>Gerenciar Assinatura</Text>
+          </Pressable>
+        </View>
+      </ModalSheet>
+
+      {/* ── MODAL: DISPOSITIVOS ─────────────────────────── */}
+      <ModalSheet visible={showDevicesModal} onClose={() => setShowDevicesModal(false)} title="Dispositivos Conectados">
+        <View style={s.modalBody}>
+          {[
+            { name: "Celular Android", icon: "smartphone", last: "Agora mesmo", current: true },
+            { name: "Smart TV Samsung", icon: "tv", last: "Ontem, 20:14" },
+            { name: "Google Chrome", icon: "monitor", last: "28/05/2026" },
+          ].map((d) => (
+            <View key={d.name} style={[s.deviceRow, { borderColor: colors.border + "40" }]}>
+              <View style={[s.deviceIcon, { backgroundColor: colors.border + "40" }]}>
+                <Feather name={d.icon as any} size={16} color={colors.mutedForeground} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[{ color: colors.foreground, fontSize: 14, fontWeight: "600" }]}>{d.name}</Text>
+                <Text style={[{ color: colors.mutedForeground, fontSize: 12 }]}>Último acesso: {d.last}</Text>
+              </View>
+              {d.current ? (
+                <View style={[s.badge, { backgroundColor: "#4ade8022" }]}>
+                  <Text style={[s.badgeTxt, { color: "#4ade80" }]}>Atual</Text>
+                </View>
+              ) : (
+                <Pressable onPress={() => Alert.alert("Remover dispositivo", "Deseja remover este dispositivo?", [{ text: "Cancelar" }, { text: "Remover", style: "destructive" }])}>
+                  <Feather name="x" size={18} color={RED} />
+                </Pressable>
+              )}
+            </View>
+          ))}
+        </View>
+      </ModalSheet>
+
+      {/* ── MODAL: PAGAMENTOS ───────────────────────────── */}
+      <ModalSheet visible={showPaymentsModal} onClose={() => setShowPaymentsModal(false)} title="Histórico de Pagamentos">
+        <View style={s.modalBody}>
+          {[
+            { date: "15/05/2026", val: "R$ 39,90", status: "Pago" },
+            { date: "15/04/2026", val: "R$ 39,90", status: "Pago" },
+            { date: "15/03/2026", val: "R$ 39,90", status: "Pago" },
+          ].map((p) => (
+            <View key={p.date} style={[s.payRow, { borderColor: colors.border + "40" }]}>
+              <View>
+                <Text style={{ color: colors.foreground, fontSize: 14, fontWeight: "600" }}>NETPLAY Premium</Text>
+                <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>{p.date}</Text>
+              </View>
+              <View style={{ alignItems: "flex-end" }}>
+                <Text style={{ color: colors.foreground, fontWeight: "700" }}>{p.val}</Text>
+                <View style={[s.badge, { backgroundColor: "#4ade8022" }]}>
+                  <Text style={[s.badgeTxt, { color: "#4ade80" }]}>{p.status}</Text>
+                </View>
+              </View>
+            </View>
+          ))}
+        </View>
+      </ModalSheet>
+
+      {/* ── MODAL: HISTÓRICO ────────────────────────────── */}
+      <ModalSheet visible={showHistoryModal} onClose={() => setShowHistoryModal(false)} title="Histórico de Visualização">
+        <ScrollView style={{ maxHeight: 380 }}>
+          {watchHistory.length === 0 ? (
+            <View style={{ alignItems: "center", paddingVertical: 40 }}>
+              <Feather name="film" size={40} color={colors.border} />
+              <Text style={[{ color: colors.mutedForeground, marginTop: 12, fontSize: 14 }]}>Nenhum conteúdo assistido ainda</Text>
+            </View>
+          ) : (
+            watchHistory.map((item) => (
+              <View key={item.id ?? item.tmdb_id} style={[s.histRow, { borderColor: colors.border + "40" }]}>
+                <View style={[s.histThumb, { backgroundColor: colors.border + "40" }]}>
+                  {item.poster_path ? (
+                    <Image source={{ uri: item.poster_path }} style={{ width: 44, height: 64, borderRadius: 6 }} contentFit="cover" />
+                  ) : <Feather name="film" size={20} color={colors.border} />}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.foreground, fontWeight: "600", fontSize: 13 }} numberOfLines={1}>{item.title}</Text>
+                  <Text style={{ color: colors.mutedForeground, fontSize: 11, marginTop: 2 }}>
+                    {item.type === "tv" && item.season ? `T${item.season}E${item.episode} · ` : ""}
+                    {Math.round((item.progress ?? 0) * 100)}% assistido
+                  </Text>
+                  <View style={[s.histBar, { backgroundColor: colors.border + "50" }]}>
+                    <View style={[s.histFill, { width: `${Math.round((item.progress ?? 0) * 100)}%` as any, backgroundColor: RED }]} />
+                  </View>
+                </View>
+              </View>
+            ))
+          )}
+        </ScrollView>
+        {watchHistory.length > 0 && (
+          <View style={{ padding: 16 }}>
+            <Pressable onPress={() => { setShowHistoryModal(false); setTimeout(handleClearHistory, 300); }}
+              style={[s.modalBtn, { backgroundColor: `${RED}22` }]}>
+              <Text style={[s.modalBtnTxt, { color: RED }]}>Limpar Histórico</Text>
+            </Pressable>
+          </View>
+        )}
+      </ModalSheet>
+
+      {/* ── MODAL: SOBRE ────────────────────────────────── */}
+      <ModalSheet visible={showAboutModal} onClose={() => setShowAboutModal(false)} title="Sobre o NETPLAY">
+        <View style={s.modalBody}>
+          <View style={{ alignItems: "center", paddingVertical: 12 }}>
+            <LinearGradient colors={[RED, "#8b0000"]} style={{ width: 70, height: 70, borderRadius: 18, alignItems: "center", justifyContent: "center" }}>
+              <Text style={{ color: "#fff", fontSize: 28, fontWeight: "900" }}>N</Text>
+            </LinearGradient>
+            <Text style={{ color: colors.foreground, fontSize: 20, fontWeight: "800", marginTop: 12 }}>NETPLAY</Text>
+            <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>Versão 2.1.0 (build 210)</Text>
+          </View>
+          <View style={[s.aboutRow, { borderColor: colors.border + "40" }]}>
+            <Text style={{ color: colors.mutedForeground, fontSize: 13, lineHeight: 20 }}>
+              O NETPLAY é sua plataforma premium de streaming com conteúdo de qualidade. Filmes, séries, documentários e muito mais — tudo no seu bolso.{"\n\n"}
+              Desenvolvido com ❤️ no Brasil. Conteúdo via TMDB.
+            </Text>
+          </View>
+          {[
+            { label: "Versão do app", val: "2.1.0" },
+            { label: "Build", val: "210" },
+            { label: "Plataforma", val: Platform.OS === "ios" ? "iOS" : Platform.OS === "android" ? "Android" : "Web" },
+          ].map((row) => (
+            <View key={row.label} style={[s.payRow, { borderColor: colors.border + "40" }]}>
+              <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>{row.label}</Text>
+              <Text style={{ color: colors.foreground, fontSize: 13, fontWeight: "600" }}>{row.val}</Text>
+            </View>
+          ))}
+        </View>
+      </ModalSheet>
+
+      {/* ── PICKER ──────────────────────────────────────── */}
+      {pickerConfig && (
+        <PickerSheet
+          visible={!!pickerConfig}
+          onClose={() => setPickerConfig(null)}
+          title={pickerConfig.title}
+          options={pickerConfig.options}
+          value={String(settings[pickerConfig.key])}
+          onSelect={(v) => updateLocalSetting(pickerConfig.key, v as any)}
+        />
+      )}
     </View>
   );
 }
 
 const s = StyleSheet.create({
   container: { flex: 1 },
-  heroSection: {
-    alignItems: "center",
-    paddingHorizontal: 20,
-    paddingBottom: 28,
-    paddingTop: 8,
+  heroGradient: { paddingBottom: 24 },
+  heroTop: { paddingHorizontal: 20, paddingBottom: 8 },
+  screenTitle: { fontSize: 11, fontWeight: "700", letterSpacing: 3 },
+  avatarArea: { alignItems: "center", paddingBottom: 20 },
+  avatarBtn: { position: "relative", marginBottom: 14 },
+  avatar: {
+    width: 92, height: 92, borderRadius: 46,
+    alignItems: "center", justifyContent: "center",
+    borderWidth: 3, borderColor: RED,
+    shadowColor: RED, shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.5, shadowRadius: 16, elevation: 10,
+  },
+  avatarLetter: { color: "#fff", fontSize: 36, fontWeight: "800" },
+  editBadge: {
+    position: "absolute", right: 0, bottom: 0,
+    width: 28, height: 28, borderRadius: 14,
+    alignItems: "center", justifyContent: "center",
+    borderWidth: 2, borderColor: "#000",
+  },
+  userName: { fontSize: 22, fontWeight: "800", letterSpacing: -0.5 },
+  userEmail: { fontSize: 13, marginTop: 3, marginBottom: 12 },
+  badgesRow: { flexDirection: "row", gap: 8 },
+  roleBadge: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    paddingHorizontal: 10, paddingVertical: 4,
+    borderRadius: 20, borderWidth: 1,
+  },
+  roleTxt: { fontSize: 11, fontWeight: "700", letterSpacing: 0.5 },
+  statsRow: {
+    flexDirection: "row", marginHorizontal: 20,
+    borderRadius: 16, borderWidth: 1,
     overflow: "hidden",
   },
-  avatarSection: { position: "relative", marginBottom: 14 },
-  avatar: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 3,
-    borderColor: RED,
-  },
-  editAvatarBadge: {
-    position: "absolute",
-    bottom: 2,
-    right: 2,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: RED,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "#000",
-  },
-  avatarText: { color: "#fff", fontSize: 36, fontWeight: "800" },
-  userName: { fontSize: 22, fontWeight: "800", marginBottom: 4 },
-  userEmail: { fontSize: 13, marginBottom: 12 },
-  badgeRow: { flexDirection: "row", gap: 8, marginBottom: 20 },
-  premiumBadge: {
-    flexDirection: "row", alignItems: "center", gap: 5,
-    paddingHorizontal: 12, paddingVertical: 5,
-    borderRadius: 20, overflow: "hidden",
-  },
-  premiumText: { color: "#fff", fontSize: 11, fontWeight: "800", letterSpacing: 1 },
-  adminBadge: {
-    flexDirection: "row", alignItems: "center", gap: 5,
-    paddingHorizontal: 12, paddingVertical: 5,
-    borderRadius: 20, backgroundColor: "#ff980022",
-    borderWidth: 1, borderColor: "#ff980044",
-  },
-  adminText: { color: "#ff9800", fontSize: 11, fontWeight: "800" },
-  statsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.04)",
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    paddingVertical: 16,
-    paddingHorizontal: 8,
-    width: "100%",
-  },
-  statItem: { flex: 1, alignItems: "center", gap: 4 },
-  statNumber: { color: "#fff", fontSize: 18, fontWeight: "800" },
-  statLabel: { fontSize: 10, fontWeight: "600" },
-  statDivider: { width: 1, height: 32 },
-});
-
-const sRow = StyleSheet.create({
-  section: { paddingHorizontal: 20, marginBottom: 20 },
-  sectionLabel: {
-    fontSize: 11, fontWeight: "700", letterSpacing: 1,
-    marginBottom: 10, textTransform: "uppercase",
-  },
-  sectionCard: { borderRadius: 18, borderWidth: 1, overflow: "hidden" },
+  statItem: { flex: 1, alignItems: "center", paddingVertical: 14 },
+  statVal: { fontSize: 18, fontWeight: "800" },
+  statLabel: { fontSize: 11, marginTop: 2, fontWeight: "500" },
+  section: { paddingHorizontal: 16, marginBottom: 24 },
+  sectionTitle: { fontSize: 11, fontWeight: "700", letterSpacing: 1.5, marginBottom: 8, marginLeft: 4 },
+  sectionCard: { borderRadius: 16, borderWidth: 1, overflow: "hidden" },
   row: {
     flexDirection: "row", alignItems: "center",
-    paddingHorizontal: 16, paddingVertical: 13, gap: 12,
+    paddingHorizontal: 16, paddingVertical: 14,
+    borderBottomWidth: 1,
   },
-  icon: { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  label: { flex: 1, fontSize: 15, fontWeight: "500" },
-  right: { flexDirection: "row", alignItems: "center", gap: 6 },
-  value: { fontSize: 13 },
-  badge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8 },
-  badgeTxt: { fontSize: 10, fontWeight: "700" },
-  sep: { height: 1, marginLeft: 62 },
+  rowIcon: { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center", marginRight: 14 },
+  rowLabel: { flex: 1, fontSize: 14, fontWeight: "500" },
+  rowRight: { flexDirection: "row", alignItems: "center", gap: 8 },
+  rowValue: { fontSize: 13 },
+  badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
+  badgeTxt: { fontSize: 11, fontWeight: "700" },
+  version: { textAlign: "center", fontSize: 12, marginTop: 8 },
+  modalOverlay: {
+    flex: 1, justifyContent: "flex-end",
+    backgroundColor: "rgba(0,0,0,0.65)",
+  },
+  modalSheet: {
+    borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    borderWidth: 1, paddingBottom: 40, maxHeight: "85%",
+  },
+  modalHandle: {
+    width: 40, height: 4, borderRadius: 2,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    alignSelf: "center", marginTop: 12, marginBottom: 16,
+  },
+  modalTitle: { fontSize: 18, fontWeight: "800", paddingHorizontal: 24, marginBottom: 4 },
+  modalBody: { paddingHorizontal: 20, paddingTop: 12 },
+  inputLabel: { fontSize: 12, fontWeight: "600", letterSpacing: 0.5, marginBottom: 6 },
+  input: {
+    borderRadius: 12, borderWidth: 1,
+    paddingHorizontal: 14, paddingVertical: 13,
+    fontSize: 15, marginBottom: 0,
+  },
+  modalBtn: {
+    borderRadius: 14, paddingVertical: 15,
+    alignItems: "center", marginTop: 20,
+  },
+  modalBtnTxt: { color: "#fff", fontSize: 15, fontWeight: "700" },
+  pickerRow: {
+    flexDirection: "row", alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 24, paddingVertical: 16,
+    borderBottomWidth: 1,
+  },
+  pickerLabel: { fontSize: 15 },
+  planCard: { borderRadius: 16, padding: 20, marginBottom: 4 },
+  planRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 },
+  planName: { fontSize: 16, fontWeight: "800", letterSpacing: 1 },
+  planPrice: { fontSize: 28, fontWeight: "900", marginBottom: 16 },
+  planFeatures: { gap: 8 },
+  planFeatureRow: { flexDirection: "row", alignItems: "center" },
+  deviceRow: {
+    flexDirection: "row", alignItems: "center", gap: 14,
+    paddingVertical: 14, borderBottomWidth: 1,
+  },
+  deviceIcon: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  payRow: {
+    flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+    paddingVertical: 14, borderBottomWidth: 1,
+  },
+  histRow: {
+    flexDirection: "row", gap: 12, paddingVertical: 12,
+    paddingHorizontal: 20, borderBottomWidth: 1,
+  },
+  histThumb: { width: 44, height: 64, borderRadius: 6, alignItems: "center", justifyContent: "center" },
+  histBar: { height: 3, borderRadius: 2, marginTop: 8, overflow: "hidden" },
+  histFill: { height: 3, borderRadius: 2 },
+  aboutRow: { paddingVertical: 16, borderBottomWidth: 1, borderTopWidth: 1, marginVertical: 12 },
 });

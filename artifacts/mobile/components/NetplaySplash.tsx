@@ -1,122 +1,161 @@
-import React, { useEffect, useRef } from "react";
-import { Animated, Dimensions, StyleSheet, Text, View } from "react-native";
+import React, { useEffect, useRef, useState } from "react";
+import {
+  Animated,
+  Dimensions,
+  Easing,
+  Platform,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import Svg, { Circle, Path, Rect, Defs, RadialGradient, Stop } from "react-native-svg";
+import * as Haptics from "expo-haptics";
 
-const { width: SW, height: SH } = Dimensions.get("window");
-
-function NetplayLogoSvg({ size = 80 }: { size?: number }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 100 100">
-      <Defs>
-        <RadialGradient id="grad" cx="50%" cy="30%" rx="60%" ry="60%">
-          <Stop offset="0%" stopColor="#ff4040" />
-          <Stop offset="100%" stopColor="#8b0000" />
-        </RadialGradient>
-      </Defs>
-      <Rect x="5" y="5" width="90" height="90" rx="22" fill="url(#grad)" />
-      <Path
-        d="M22 30 L22 70 L34 70 L34 48 L52 70 L64 70 L64 30 L52 30 L52 52 L34 30 Z"
-        fill="white"
-      />
-      <Path
-        d="M70 30 L78 30 L78 62 L92 62 L92 70 L70 70 Z"
-        fill="white"
-        opacity="0.0"
-      />
-      <Circle cx="76" cy="50" r="10" fill="white" opacity="0.9" />
-      <Path d="M72 44 L84 50 L72 56 Z" fill="#cc0000" />
-    </Svg>
-  );
-}
+const { width: SW } = Dimensions.get("window");
+const RED = "#e50914";
+const TOTAL_MS = 3600;
 
 interface Props {
   onFinish: () => void;
 }
 
 export default function NetplaySplash({ onFinish }: Props) {
-  const logoScale = useRef(new Animated.Value(0.6)).current;
-  const logoOpacity = useRef(new Animated.Value(0)).current;
-  const textOpacity = useRef(new Animated.Value(0)).current;
-  const taglineOpacity = useRef(new Animated.Value(0)).current;
-  const barWidth = useRef(new Animated.Value(0)).current;
-  const screenOpacity = useRef(new Animated.Value(1)).current;
-  const dotOpacity1 = useRef(new Animated.Value(0.3)).current;
-  const dotOpacity2 = useRef(new Animated.Value(0.3)).current;
-  const dotOpacity3 = useRef(new Animated.Value(0.3)).current;
+  const glowOp = useRef(new Animated.Value(0)).current;
+  const glowMidOp = useRef(new Animated.Value(0)).current;
+  const glowInOp = useRef(new Animated.Value(0)).current;
+  const logoOp = useRef(new Animated.Value(0)).current;
+  const logoSc = useRef(new Animated.Value(0.5)).current;
+  const textOp = useRef(new Animated.Value(0)).current;
+  const barW = useRef(new Animated.Value(0)).current;
+  const masterOp = useRef(new Animated.Value(1)).current;
+
+  // Self-managed: becomes null to remove from tree
+  const [visible, setVisible] = useState(true);
+  const finishedRef = useRef(false);
+
+  const noDrive = { useNativeDriver: false };
+
+  const finish = () => {
+    if (finishedRef.current) return;
+    finishedRef.current = true;
+    setVisible(false);
+    onFinish();
+  };
 
   useEffect(() => {
-    const dotAnim = Animated.loop(
-      Animated.sequence([
-        Animated.timing(dotOpacity1, { toValue: 1, duration: 300, useNativeDriver: true }),
-        Animated.timing(dotOpacity1, { toValue: 0.3, duration: 300, useNativeDriver: true }),
-        Animated.timing(dotOpacity2, { toValue: 1, duration: 300, useNativeDriver: true }),
-        Animated.timing(dotOpacity2, { toValue: 0.3, duration: 300, useNativeDriver: true }),
-        Animated.timing(dotOpacity3, { toValue: 1, duration: 300, useNativeDriver: true }),
-        Animated.timing(dotOpacity3, { toValue: 0.3, duration: 300, useNativeDriver: true }),
-      ])
-    );
-    dotAnim.start();
+    if (Platform.OS !== "web") {
+      setTimeout(
+        () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {}),
+        200,
+      );
+    }
 
-    Animated.sequence([
-      Animated.parallel([
-        Animated.spring(logoScale, { toValue: 1, friction: 5, tension: 80, useNativeDriver: true }),
-        Animated.timing(logoOpacity, { toValue: 1, duration: 600, useNativeDriver: true }),
-      ]),
-      Animated.timing(textOpacity, { toValue: 1, duration: 400, useNativeDriver: true }),
-      Animated.timing(taglineOpacity, { toValue: 1, duration: 500, useNativeDriver: true }),
-      Animated.timing(barWidth, { toValue: SW * 0.55, duration: 1200, useNativeDriver: false }),
-      Animated.delay(400),
-      Animated.timing(screenOpacity, { toValue: 0, duration: 500, useNativeDriver: true }),
-    ]).start(() => {
-      dotAnim.stop();
-      onFinish();
-    });
+    // Phase 1 — Glow (0ms)
+    Animated.timing(glowOp, { toValue: 1, duration: 500, ...noDrive }).start();
+    Animated.timing(glowMidOp, { toValue: 0.75, duration: 600, ...noDrive }).start();
+    Animated.timing(glowInOp, { toValue: 0.55, duration: 700, ...noDrive }).start();
 
-    return () => dotAnim.stop();
+    // Phase 2 — Logo (600ms)
+    const t2 = setTimeout(() => {
+      Animated.timing(logoOp, { toValue: 1, duration: 350, ...noDrive }).start();
+      Animated.timing(logoSc, { toValue: 1, duration: 450, easing: Easing.out(Easing.quad), ...noDrive }).start();
+    }, 600);
+
+    // Phase 3 — Text (1100ms)
+    const t3 = setTimeout(() => {
+      Animated.timing(textOp, { toValue: 1, duration: 300, ...noDrive }).start();
+    }, 1100);
+
+    // Phase 4 — Bar (1450ms)
+    const t4 = setTimeout(() => {
+      Animated.timing(barW, {
+        toValue: SW * 0.55,
+        duration: 1400,
+        easing: Easing.inOut(Easing.quad),
+        ...noDrive,
+      }).start();
+    }, 1450);
+
+    // Phase 5 — Fade out starts at (TOTAL_MS - 420ms)
+    const t5 = setTimeout(() => {
+      Animated.timing(masterOp, {
+        toValue: 0,
+        duration: 380,
+        easing: Easing.in(Easing.quad),
+        ...noDrive,
+      }).start(() => finish());
+    }, TOTAL_MS - 420);
+
+    // Guaranteed fallback
+    const tFallback = setTimeout(() => finish(), TOTAL_MS + 600);
+
+    return () => {
+      clearTimeout(t2);
+      clearTimeout(t3);
+      clearTimeout(t4);
+      clearTimeout(t5);
+      clearTimeout(tFallback);
+    };
   }, []);
 
+  if (!visible) return null;
+
   return (
-    <Animated.View style={[styles.container, { opacity: screenOpacity }]} pointerEvents="none">
+    <Animated.View style={[s.container, { opacity: masterOp }]} pointerEvents="none">
       <LinearGradient
-        colors={["#050000", "#100000", "#000000"]}
-        locations={[0, 0.4, 1]}
+        colors={["#080000", "#0e0000", "#050000", "#000"]}
+        locations={[0, 0.35, 0.7, 1]}
         style={StyleSheet.absoluteFill}
       />
 
-      <View style={styles.glowCircle} />
+      <Animated.View style={[s.glowOuter, { opacity: glowOp }]} />
+      <Animated.View style={[s.glowMid, { opacity: glowMidOp }]} />
+      <Animated.View style={[s.glowIn, { opacity: glowInOp }]} />
 
-      <Animated.View style={[styles.logoWrap, { opacity: logoOpacity, transform: [{ scale: logoScale }] }]}>
-        <NetplayLogoSvg size={100} />
+      <Animated.View style={[s.logoWrap, { opacity: logoOp, transform: [{ scale: logoSc }] }]}>
+        <LinearGradient
+          colors={["#ff3030", "#cc0000", "#6b0000"]}
+          locations={[0, 0.5, 1]}
+          style={s.logoBox}
+        >
+          <View style={s.shine} />
+          <View style={s.nMark}>
+            <View style={s.nBar} />
+            <View style={s.nDiag} />
+            <View style={s.nBar} />
+          </View>
+          <View style={s.playCircle}>
+            <View style={s.playArrow} />
+          </View>
+        </LinearGradient>
       </Animated.View>
 
-      <Animated.View style={[styles.brandRow, { opacity: textOpacity }]}>
-        <Text style={styles.logoText}>
-          <Text style={styles.logoRed}>NET</Text>
-          <Text style={styles.logoWhite}>PLAY</Text>
-        </Text>
+      <Animated.View style={[s.brandRow, { opacity: textOp }]}>
+        <Text style={s.brandNet}>NET</Text>
+        <Text style={s.brandPlay}>PLAY</Text>
       </Animated.View>
-
-      <Animated.Text style={[styles.tagline, { opacity: taglineOpacity }]}>
-        Catálogo Premium de Entretenimento
+      <Animated.Text style={[s.tagline, { opacity: textOp }]}>
+        CATÁLOGO PREMIUM · ENTRETENIMENTO
       </Animated.Text>
 
-      <View style={styles.barBg}>
-        <Animated.View style={[styles.barFill, { width: barWidth }]} />
+      <View style={s.barTrack}>
+        <Animated.View style={[s.barFill, { width: barW }]}>
+          <LinearGradient
+            colors={["#900000", RED, "#ff3a3a", RED, "#900000"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={StyleSheet.absoluteFill}
+          />
+        </Animated.View>
       </View>
-
-      <View style={styles.dotsRow}>
-        <Animated.View style={[styles.dot, { opacity: dotOpacity1 }]} />
-        <Animated.View style={[styles.dot, { opacity: dotOpacity2 }]} />
-        <Animated.View style={[styles.dot, { opacity: dotOpacity3 }]} />
-      </View>
-
-      <Text style={styles.loadingText}>Carregando seu conteúdo...</Text>
+      <Animated.Text style={[s.loadText, { opacity: textOp }]}>
+        Carregando seu conteúdo personalizado...
+      </Animated.Text>
     </Animated.View>
   );
 }
 
-const styles = StyleSheet.create({
+const s = StyleSheet.create({
   container: {
     ...StyleSheet.absoluteFillObject,
     alignItems: "center",
@@ -124,70 +163,87 @@ const styles = StyleSheet.create({
     zIndex: 9999,
     backgroundColor: "#000",
   },
-  glowCircle: {
+  glowOuter: {
     position: "absolute",
-    width: 300,
-    height: 300,
-    borderRadius: 150,
-    backgroundColor: "rgba(229,9,20,0.07)",
-    top: SH * 0.5 - 200,
+    width: 360,
+    height: 360,
+    borderRadius: 180,
+    backgroundColor: "rgba(200,9,20,0.09)",
+    top: "18%",
+    alignSelf: "center",
   },
-  logoWrap: {
-    marginBottom: 20,
-    shadowColor: "#e50914",
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 40,
-    elevation: 20,
+  glowMid: {
+    position: "absolute",
+    width: 240,
+    height: 240,
+    borderRadius: 120,
+    backgroundColor: "rgba(220,9,20,0.13)",
+    top: "24%",
+    alignSelf: "center",
   },
-  brandRow: {
-    marginBottom: 8,
+  glowIn: {
+    position: "absolute",
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    backgroundColor: "rgba(229,9,20,0.22)",
+    top: "29%",
+    alignSelf: "center",
   },
-  logoText: {
-    letterSpacing: 8,
-    fontSize: 42,
-    fontWeight: "900",
-  },
-  logoRed: {
-    color: "#e50914",
-  },
-  logoWhite: {
-    color: "#ffffff",
-  },
-  tagline: {
-    color: "rgba(255,255,255,0.4)",
-    fontSize: 13,
-    letterSpacing: 1.5,
-    marginBottom: 56,
-    textTransform: "uppercase",
-  },
-  barBg: {
-    width: SW * 0.55,
-    height: 3,
-    backgroundColor: "rgba(255,255,255,0.08)",
-    borderRadius: 2,
+  logoWrap: { marginBottom: 22 },
+  logoBox: {
+    width: 108,
+    height: 108,
+    borderRadius: 24,
+    alignItems: "center",
+    justifyContent: "center",
     overflow: "hidden",
-    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+  },
+  shine: {
+    position: "absolute",
+    top: 0, left: 0, right: 0,
+    height: 46,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+  },
+  nMark: { flexDirection: "row", alignItems: "center", height: 46, gap: 3 },
+  nBar: { width: 9, height: 46, backgroundColor: "#fff", borderRadius: 3 },
+  nDiag: {
+    width: 9, height: 46,
+    backgroundColor: "rgba(255,255,255,0.85)",
+    borderRadius: 3,
+    transform: [{ skewX: "-16deg" }],
+  },
+  playCircle: {
+    position: "absolute", right: 10, bottom: 8,
+    width: 26, height: 26, borderRadius: 13,
+    backgroundColor: "rgba(255,255,255,0.95)",
+    alignItems: "center", justifyContent: "center",
+  },
+  playArrow: {
+    width: 0, height: 0,
+    borderLeftWidth: 8, borderTopWidth: 5, borderBottomWidth: 5,
+    borderLeftColor: RED, borderTopColor: "transparent", borderBottomColor: "transparent",
+    marginLeft: 2,
+  },
+  brandRow: { flexDirection: "row", alignItems: "center", marginBottom: 8 },
+  brandNet: { color: RED, fontSize: 46, fontWeight: "900", letterSpacing: 7 },
+  brandPlay: { color: "#fff", fontSize: 46, fontWeight: "900", letterSpacing: 7 },
+  tagline: {
+    color: "rgba(255,255,255,0.22)",
+    fontSize: 10, letterSpacing: 3.2, fontWeight: "600", marginBottom: 48,
+  },
+  barTrack: {
+    width: SW * 0.55, height: 3,
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderRadius: 2, overflow: "hidden", marginBottom: 14,
   },
   barFill: {
-    height: 3,
-    backgroundColor: "#e50914",
-    borderRadius: 2,
+    position: "absolute", left: 0, top: 0, height: 3,
+    borderRadius: 2, overflow: "hidden",
   },
-  dotsRow: {
-    flexDirection: "row",
-    gap: 8,
-    marginBottom: 12,
-  },
-  dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: "#e50914",
-  },
-  loadingText: {
-    color: "rgba(255,255,255,0.25)",
-    fontSize: 12,
-    letterSpacing: 0.5,
-  },
+  loadText: { color: "rgba(255,255,255,0.18)", fontSize: 11, letterSpacing: 0.3 },
 });

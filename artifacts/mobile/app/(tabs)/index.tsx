@@ -215,6 +215,22 @@ export default function HomeScreen() {
           <HeroBanner items={heroItems} onItemPress={goToPlayer} />
         </View>
 
+        {/* ── SEARCH BAR ─────────────────────────────────── */}
+        <Pressable
+          onPress={() => router.push("/(tabs)/search")}
+          style={({ pressed }) => [styles.searchBar, { opacity: pressed ? 0.85 : 1 }]}
+        >
+          <View style={[styles.searchBarInner, { backgroundColor: "rgba(255,255,255,0.08)", borderColor: "rgba(255,255,255,0.12)" }]}>
+            <Feather name="search" size={16} color="rgba(255,255,255,0.45)" />
+            <Text style={[styles.searchBarPlaceholder, { color: "rgba(255,255,255,0.35)" }]}>
+              Buscar filmes, séries, atores...
+            </Text>
+            <View style={styles.searchBarMic}>
+              <Feather name="mic" size={14} color="rgba(255,255,255,0.3)" />
+            </View>
+          </View>
+        </Pressable>
+
         <View style={{ paddingTop: 0, marginTop: 0 }}>
           {/* Streaming platforms row */}
           <View style={styles.streamingRow}>
@@ -454,5 +470,21 @@ const styles = StyleSheet.create({
     right: 0,
     alignItems: "center",
     zIndex: 20,
+  },
+  searchBar: { paddingHorizontal: 16, marginBottom: 16, marginTop: -4 },
+  searchBarInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    gap: 10,
+  },
+  searchBarPlaceholder: { flex: 1, fontSize: 14 },
+  searchBarMic: {
+    width: 28, height: 28, borderRadius: 14,
+    alignItems: "center", justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.06)",
   },
 });

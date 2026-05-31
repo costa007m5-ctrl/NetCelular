@@ -167,6 +167,7 @@ export default function DetailScreen() {
   const [checking, setChecking] = useState(false);
   const [unavailableVisible, setUnavailableVisible] = useState(false);
   const [indicated, setIndicated] = useState(false);
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
 
   const userId = user?.id ?? "";
   const [inList, setInList] = useState(false);
@@ -185,8 +186,23 @@ export default function DetailScreen() {
   useEffect(() => {
     if (!tmdbId) return;
     setLoading(true);
+    setLogoUrl(null);
+    const TMDB_KEY = "8f0beb08cf016ec8de49e454e09879ec";
     const fetchAll = async () => {
       try {
+        const imagesPromise = fetch(
+          `https://api.themoviedb.org/3/${type}/${tmdbId}/images?api_key=${TMDB_KEY}&include_image_language=pt,en,null`
+        )
+          .then((r) => r.json())
+          .then((data) => {
+            const logos: any[] = data.logos ?? [];
+            const en = logos.find((l) => l.iso_639_1 === "en");
+            const pt = logos.find((l) => l.iso_639_1 === "pt");
+            const best = en ?? pt ?? logos[0] ?? null;
+            if (best?.file_path) setLogoUrl(`https://image.tmdb.org/t/p/w500${best.file_path}`);
+          })
+          .catch(() => {});
+
         if (type === "movie") {
           const [det, sim, prov] = await Promise.all([
             tmdbApi.tmdb.movie(tmdbId),
@@ -217,6 +233,7 @@ export default function DetailScreen() {
           }));
           setSeasons(seasonList);
         }
+        await imagesPromise;
       } catch (e) {
         console.warn("Detail fetch error:", e);
       } finally {
@@ -439,8 +456,16 @@ export default function DetailScreen() {
                 </View>
               )}
 
-              {/* Title */}
-              <Text style={[styles.title, { color: colors.foreground }]}>{title}</Text>
+              {/* Logo or Title */}
+              {logoUrl ? (
+                <Image
+                  source={{ uri: logoUrl }}
+                  style={styles.titleLogo}
+                  resizeMode="contain"
+                />
+              ) : (
+                <Text style={[styles.title, { color: colors.foreground }]}>{title}</Text>
+              )}
 
               {/* Meta row */}
               <View style={styles.metaRow}>
@@ -709,6 +734,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   title: { fontSize: 26, fontWeight: "900", letterSpacing: -0.5, marginBottom: 8, lineHeight: 32 },
+  titleLogo: { width: "80%", height: 72, marginBottom: 10, alignSelf: "flex-start" },
   metaRow: { flexDirection: "row", flexWrap: "wrap", gap: 4, marginBottom: 8 },
   meta: { fontSize: 13 },
   ratingRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 20 },

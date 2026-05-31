@@ -19,10 +19,6 @@ function NativeTabLayout() {
         <Icon sf={{ default: "house", selected: "house.fill" }} />
         <Label>Início</Label>
       </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="search">
-        <Icon sf={{ default: "magnifyingglass", selected: "magnifyingglass" }} />
-        <Label>Buscar</Label>
-      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="descobrir">
         <Icon sf={{ default: "safari", selected: "safari.fill" }} />
         <Label>Descobrir</Label>
@@ -30,10 +26,6 @@ function NativeTabLayout() {
       <NativeTabs.Trigger name="novidades">
         <Icon sf={{ default: "star", selected: "star.fill" }} />
         <Label>Novidades</Label>
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="downloads">
-        <Icon sf={{ default: "arrow.down.circle", selected: "arrow.down.circle.fill" }} />
-        <Label>Downloads</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="list">
         <Icon sf={{ default: "bookmark", selected: "bookmark.fill" }} />
@@ -54,7 +46,7 @@ function ClassicTabLayout() {
   const isWeb = Platform.OS === "web";
 
   const bottomInset = isWeb ? 34 : Math.max(insets.bottom, 4) + 8;
-  const tabBarHeight = 62;
+  const tabBarHeight = 64;
 
   return (
     <Tabs
@@ -65,43 +57,36 @@ function ClassicTabLayout() {
         tabBarStyle: {
           position: "absolute",
           bottom: bottomInset,
-          left: 14,
-          right: 14,
+          left: 18,
+          right: 18,
           height: tabBarHeight,
-          borderRadius: 31,
+          borderRadius: 32,
           backgroundColor: "transparent",
           borderTopWidth: 0,
           elevation: 0,
           shadowOpacity: 0,
         },
         tabBarBackground: () => (
-          <View style={[styles.tabBg, { borderRadius: 31 }]}>
+          <View style={[styles.tabBg, { borderRadius: 32 }]}>
             {isIOS ? (
               <BlurView
-                intensity={90}
+                intensity={95}
                 tint="dark"
-                style={[StyleSheet.absoluteFill, { borderRadius: 31, overflow: "hidden" }]}
+                style={[StyleSheet.absoluteFill, { borderRadius: 32, overflow: "hidden" }]}
               />
             ) : (
-              <View
-                style={[
-                  StyleSheet.absoluteFill,
-                  { borderRadius: 31, backgroundColor: "rgba(12,12,12,0.96)" },
-                ]}
-              />
+              <View style={[StyleSheet.absoluteFill, { borderRadius: 32, backgroundColor: "rgba(10,10,10,0.97)" }]} />
             )}
-            <View style={[styles.tabBorder, { borderRadius: 31 }]} />
+            <View style={[styles.tabBorder, { borderRadius: 32 }]} />
           </View>
         ),
         tabBarLabelStyle: {
-          fontSize: 9,
+          fontSize: 10,
           fontWeight: "700",
           letterSpacing: 0.1,
           marginBottom: 4,
         },
-        tabBarIconStyle: {
-          marginTop: 6,
-        },
+        tabBarIconStyle: { marginTop: 6 },
       }}
     >
       <Tabs.Screen
@@ -109,23 +94,7 @@ function ClassicTabLayout() {
         options={{
           title: "Início",
           tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="house" tintColor={color} size={21} />
-            ) : (
-              <Feather name="home" size={21} color={color} />
-            ),
-        }}
-      />
-      <Tabs.Screen
-        name="search"
-        options={{
-          title: "Buscar",
-          tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="magnifyingglass" tintColor={color} size={21} />
-            ) : (
-              <Feather name="search" size={21} color={color} />
-            ),
+            isIOS ? <SymbolView name="house" tintColor={color} size={22} /> : <Feather name="home" size={22} color={color} />,
         }}
       />
       <Tabs.Screen
@@ -133,11 +102,7 @@ function ClassicTabLayout() {
         options={{
           title: "Descobrir",
           tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="safari" tintColor={color} size={21} />
-            ) : (
-              <Feather name="compass" size={21} color={color} />
-            ),
+            isIOS ? <SymbolView name="safari" tintColor={color} size={22} /> : <Feather name="compass" size={22} color={color} />,
         }}
       />
       <Tabs.Screen
@@ -145,23 +110,7 @@ function ClassicTabLayout() {
         options={{
           title: "Novidades",
           tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="star" tintColor={color} size={21} />
-            ) : (
-              <Feather name="star" size={21} color={color} />
-            ),
-        }}
-      />
-      <Tabs.Screen
-        name="downloads"
-        options={{
-          title: "Downloads",
-          tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="arrow.down.circle" tintColor={color} size={21} />
-            ) : (
-              <Feather name="download" size={21} color={color} />
-            ),
+            isIOS ? <SymbolView name="star" tintColor={color} size={22} /> : <Feather name="star" size={22} color={color} />,
         }}
       />
       <Tabs.Screen
@@ -169,11 +118,7 @@ function ClassicTabLayout() {
         options={{
           title: "Lista",
           tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="bookmark" tintColor={color} size={21} />
-            ) : (
-              <Feather name="bookmark" size={21} color={color} />
-            ),
+            isIOS ? <SymbolView name="bookmark" tintColor={color} size={22} /> : <Feather name="bookmark" size={22} color={color} />,
         }}
       />
       <Tabs.Screen
@@ -181,29 +126,14 @@ function ClassicTabLayout() {
         options={{
           title: "Perfil",
           tabBarIcon: ({ color }) =>
-            isIOS ? (
-              <SymbolView name="person" tintColor={color} size={21} />
-            ) : (
-              <Feather name="user" size={21} color={color} />
-            ),
+            isIOS ? <SymbolView name="person" tintColor={color} size={22} /> : <Feather name="user" size={22} color={color} />,
         }}
       />
-      <Tabs.Screen
-        name="franquias"
-        options={{
-          href: null,
-          title: "Franquias",
-          tabBarIcon: ({ color }) => <Feather name="layers" size={21} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="channels"
-        options={{
-          href: null,
-          title: "Canais",
-          tabBarIcon: ({ color }) => <Feather name="tv" size={21} color={color} />,
-        }}
-      />
+      {/* Hidden screens — accessible via router.push */}
+      <Tabs.Screen name="search" options={{ href: null }} />
+      <Tabs.Screen name="downloads" options={{ href: null }} />
+      <Tabs.Screen name="franquias" options={{ href: null }} />
+      <Tabs.Screen name="channels" options={{ href: null }} />
     </Tabs>
   );
 }
@@ -214,10 +144,7 @@ export default function TabLayout() {
   const [hasProfile, setHasProfile] = useState(false);
 
   useEffect(() => {
-    if (!user) {
-      setProfileChecking(false);
-      return;
-    }
+    if (!user) { setProfileChecking(false); return; }
     AsyncStorage.getItem(ACTIVE_PROFILE_KEY)
       .then((raw) => {
         if (raw) {
@@ -239,25 +166,15 @@ export default function TabLayout() {
     );
   }
 
-  if (!user) {
-    return <Redirect href="/login" />;
-  }
+  if (!user) return <Redirect href="/login" />;
+  if (!hasProfile) return <Redirect href="/profile-select" />;
 
-  if (!hasProfile) {
-    return <Redirect href="/profile-select" />;
-  }
-
-  if (Platform.OS === "ios") {
-    return <NativeTabLayout />;
-  }
+  if (Platform.OS === "ios") return <NativeTabLayout />;
   return <ClassicTabLayout />;
 }
 
 const styles = StyleSheet.create({
-  tabBg: {
-    flex: 1,
-    overflow: "hidden",
-  },
+  tabBg: { flex: 1, overflow: "hidden" },
   tabBorder: {
     ...StyleSheet.absoluteFillObject,
     borderWidth: 1,

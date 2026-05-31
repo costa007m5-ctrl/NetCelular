@@ -15,7 +15,35 @@ import { useColors } from "@/hooks/useColors";
 import type { ContentItem } from "@/constants/content";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
-const HERO_HEIGHT = 480;
+const HERO_HEIGHT = 500;
+const TMDB_KEY = "8f0beb08cf016ec8de49e454e09879ec";
+
+const logoCache = new Map<string, string | null>();
+
+function useTmdbLogo(id?: number, type?: "movie" | "tv") {
+  const [logo, setLogo] = useState<string | null>(null);
+  useEffect(() => {
+    if (!id || !type) return;
+    const key = `${type}_${id}`;
+    if (logoCache.has(key)) {
+      setLogo(logoCache.get(key) ?? null);
+      return;
+    }
+    fetch(`https://api.themoviedb.org/3/${type}/${id}/images?api_key=${TMDB_KEY}&include_image_language=pt,en,null`)
+      .then((r) => r.json())
+      .then((data) => {
+        const logos: any[] = data.logos ?? [];
+        const en = logos.find((l) => l.iso_639_1 === "en");
+        const pt = logos.find((l) => l.iso_639_1 === "pt");
+        const best = en ?? pt ?? logos[0] ?? null;
+        const path = best?.file_path ? `https://image.tmdb.org/t/p/w500${best.file_path}` : null;
+        logoCache.set(key, path);
+        setLogo(path);
+      })
+      .catch(() => { logoCache.set(`${type}_${id}`, null); });
+  }, [id, type]);
+  return logo;
+}
 
 interface HeroBannerProps {
   items: ContentItem[];
@@ -33,12 +61,13 @@ interface HeroItemProps {
 function HeroItem({ item, colors, onWatch, onDetails }: HeroItemProps) {
   const [imgError, setImgError] = useState(false);
   const handlePress = onDetails ?? onWatch;
+  const type = (item.mediaType === "movie" || item.type === "movie") ? "movie" : "tv";
+  const tmdbId = item.tmdbId ? Number(item.tmdbId) : undefined;
+  const logoUrl = useTmdbLogo(tmdbId, type);
+  const [logoError, setLogoError] = useState(false);
 
   return (
-    <Pressable
-      style={{ width: SCREEN_WIDTH, height: HERO_HEIGHT }}
-      onPress={handlePress}
-    >
+    <Pressable style={{ width: SCREEN_WIDTH, height: HERO_HEIGHT }} onPress={handlePress}>
       {!imgError ? (
         <Image
           source={{ uri: item.backdropPath }}
@@ -51,8 +80,8 @@ function HeroItem({ item, colors, onWatch, onDetails }: HeroItemProps) {
       )}
 
       <LinearGradient
-        colors={["transparent", "rgba(0,0,0,0.5)", "#000"]}
-        locations={[0.2, 0.6, 1]}
+        colors={["rgba(0,0,0,0.05)", "rgba(0,0,0,0.35)", "rgba(0,0,0,0.75)", "#000"]}
+        locations={[0, 0.3, 0.65, 1]}
         style={styles.gradient}
       />
 
@@ -65,9 +94,18 @@ function HeroItem({ item, colors, onWatch, onDetails }: HeroItemProps) {
           </View>
         )}
 
-        <Text style={[styles.heroTitle, { color: colors.foreground }]} numberOfLines={2}>
-          {item.title}
-        </Text>
+        {logoUrl && !logoError ? (
+          <Image
+            source={{ uri: logoUrl }}
+            style={styles.logoImg}
+            resizeMode="contain"
+            onError={() => setLogoError(true)}
+          />
+        ) : (
+          <Text style={[styles.heroTitle, { color: colors.foreground }]} numberOfLines={2}>
+            {item.title}
+          </Text>
+        )}
 
         <View style={styles.metaRow}>
           <View style={styles.ratingBadge}>
@@ -79,32 +117,23 @@ function HeroItem({ item, colors, onWatch, onDetails }: HeroItemProps) {
               {item.communityScore}% hype
             </Text>
           )}
-          <Text style={[styles.metaText, { color: colors.mutedForeground }]}>
-            {item.year}
-          </Text>
+          <Text style={[styles.metaText, { color: colors.mutedForeground }]}>{item.year}</Text>
           {item.duration && (
-            <Text style={[styles.metaText, { color: colors.mutedForeground }]}>
-              {item.duration}
-            </Text>
+            <Text style={[styles.metaText, { color: colors.mutedForeground }]}>{item.duration}</Text>
           )}
           {item.genres[0] && (
-            <Text style={[styles.metaText, { color: colors.mutedForeground }]}>
-              {item.genres[0]}
-            </Text>
+            <Text style={[styles.metaText, { color: colors.mutedForeground }]}>{item.genres[0]}</Text>
           )}
         </View>
 
-        <Text style={[styles.heroDesc, { color: "rgba(255,255,255,0.7)" }]} numberOfLines={2}>
+        <Text style={[styles.heroDesc, { color: "rgba(255,255,255,0.65)" }]} numberOfLines={2}>
           {item.description}
         </Text>
 
         <View style={styles.actions}>
           <Pressable
             onPress={onWatch}
-            style={({ pressed }) => [
-              styles.watchBtn,
-              { backgroundColor: colors.primary, opacity: pressed ? 0.85 : 1 },
-            ]}
+            style={({ pressed }) => [styles.watchBtn, { backgroundColor: colors.primary, opacity: pressed ? 0.85 : 1 }]}
           >
             <Feather name="play" size={16} color="#fff" />
             <Text style={styles.watchBtnText}>Assistir</Text>
@@ -112,18 +141,10 @@ function HeroItem({ item, colors, onWatch, onDetails }: HeroItemProps) {
 
           <Pressable
             onPress={onDetails ?? onWatch}
-            style={({ pressed }) => [
-              styles.detailsBtn,
-              {
-                borderColor: "rgba(255,255,255,0.35)",
-                opacity: pressed ? 0.7 : 1,
-              },
-            ]}
+            style={({ pressed }) => [styles.detailsBtn, { borderColor: "rgba(255,255,255,0.35)", opacity: pressed ? 0.7 : 1 }]}
           >
             <Feather name="info" size={14} color="rgba(255,255,255,0.8)" />
-            <Text style={[styles.detailsBtnText, { color: "rgba(255,255,255,0.8)" }]}>
-              Detalhes
-            </Text>
+            <Text style={[styles.detailsBtnText, { color: "rgba(255,255,255,0.8)" }]}>Detalhes</Text>
           </Pressable>
         </View>
       </View>
@@ -154,15 +175,12 @@ export function HeroBanner({ items, onItemPress, onDetailsPress }: HeroBannerPro
         pagingEnabled
         showsHorizontalScrollIndicator={false}
         scrollEventThrottle={16}
-        onScroll={Animated.event([{ nativeEvent: { contentOffset: { x: scrollX } } }], {
-          useNativeDriver: true,
-        })}
+        onScroll={Animated.event([{ nativeEvent: { contentOffset: { x: scrollX } } }], { useNativeDriver: true })}
         onMomentumScrollEnd={(e) => {
           const idx = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
           setActiveIndex(idx);
         }}
         style={{ width: SCREEN_WIDTH }}
-        scrollEnabled
       >
         {items.map((item) => (
           <HeroItem
@@ -182,7 +200,7 @@ export function HeroBanner({ items, onItemPress, onDetailsPress }: HeroBannerPro
             style={[
               styles.dot,
               i === activeIndex
-                ? { backgroundColor: colors.primary, width: 20 }
+                ? { backgroundColor: colors.primary, width: 22 }
                 : { backgroundColor: "rgba(255,255,255,0.3)", width: 6 },
             ]}
           />
@@ -193,126 +211,56 @@ export function HeroBanner({ items, onItemPress, onDetailsPress }: HeroBannerPro
 }
 
 const styles = StyleSheet.create({
-  heroImage: {
-    width: SCREEN_WIDTH,
-    height: HERO_HEIGHT,
-    position: "absolute",
-    top: 0,
-    left: 0,
-  },
-  gradient: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: HERO_HEIGHT * 0.85,
-  },
-  heroContent: {
-    position: "absolute",
-    bottom: 50,
-    left: 20,
-    right: 20,
-  },
+  heroImage: { width: SCREEN_WIDTH, height: HERO_HEIGHT, position: "absolute", top: 0, left: 0 },
+  gradient: { position: "absolute", bottom: 0, left: 0, right: 0, height: HERO_HEIGHT },
+  heroContent: { position: "absolute", bottom: 52, left: 20, right: 20 },
   channelBadge: {
-    alignSelf: "flex-start",
-    borderWidth: 1,
-    borderRadius: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    marginBottom: 10,
+    alignSelf: "flex-start", borderWidth: 1, borderRadius: 4,
+    paddingHorizontal: 8, paddingVertical: 3, marginBottom: 12,
   },
-  channelText: {
-    fontSize: 9,
-    fontWeight: "700",
-    letterSpacing: 1.2,
+  channelText: { fontSize: 9, fontWeight: "700", letterSpacing: 1.2 },
+  logoImg: {
+    width: SCREEN_WIDTH * 0.55,
+    height: 72,
+    marginBottom: 12,
+    alignSelf: "flex-start",
   },
   heroTitle: {
-    fontSize: 28,
+    fontSize: 30,
     fontWeight: "800",
     letterSpacing: -0.5,
-    lineHeight: 33,
-    marginBottom: 10,
+    lineHeight: 35,
+    marginBottom: 12,
+    textShadowColor: "rgba(0,0,0,0.8)",
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 8,
   },
-  metaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    flexWrap: "wrap",
-    gap: 10,
-    marginBottom: 10,
-  },
+  metaRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 10 },
   ratingBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "rgba(251,191,36,0.15)",
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderRadius: 6,
+    flexDirection: "row", alignItems: "center", gap: 4,
+    backgroundColor: "rgba(251,191,36,0.18)",
+    paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6,
   },
-  ratingText: {
-    color: "#fbbf24",
-    fontSize: 11,
-    fontWeight: "700",
-  },
-  metaText: {
-    fontSize: 12,
-    fontWeight: "500",
-  },
-  heroDesc: {
-    fontSize: 13,
-    lineHeight: 19,
-    marginBottom: 18,
-    fontWeight: "400",
-  },
-  actions: {
-    flexDirection: "row",
-    gap: 12,
-    alignItems: "center",
-  },
+  ratingText: { color: "#fbbf24", fontSize: 11, fontWeight: "700" },
+  metaText: { fontSize: 12, fontWeight: "500" },
+  heroDesc: { fontSize: 13, lineHeight: 19, marginBottom: 18, fontWeight: "400" },
+  actions: { flexDirection: "row", gap: 12, alignItems: "center" },
   watchBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 22,
-    paddingVertical: 12,
-    borderRadius: 8,
-    shadowColor: "#e50914",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    elevation: 6,
+    flexDirection: "row", alignItems: "center", gap: 8,
+    paddingHorizontal: 22, paddingVertical: 13, borderRadius: 10,
+    shadowColor: "#e50914", shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.5, shadowRadius: 14, elevation: 8,
   },
-  watchBtnText: {
-    color: "#fff",
-    fontSize: 15,
-    fontWeight: "700",
-    letterSpacing: 0.2,
-  },
+  watchBtnText: { color: "#fff", fontSize: 15, fontWeight: "700", letterSpacing: 0.2 },
   detailsBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 7,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    borderRadius: 8,
-    borderWidth: 1,
+    flexDirection: "row", alignItems: "center", gap: 7,
+    paddingHorizontal: 18, paddingVertical: 13, borderRadius: 10, borderWidth: 1,
+    backgroundColor: "rgba(0,0,0,0.3)",
   },
-  detailsBtnText: {
-    fontSize: 14,
-    fontWeight: "600",
-  },
+  detailsBtnText: { fontSize: 14, fontWeight: "600" },
   dotsContainer: {
-    position: "absolute",
-    bottom: 20,
-    left: 0,
-    right: 0,
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-    gap: 5,
+    position: "absolute", bottom: 22, left: 0, right: 0,
+    flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 5,
   },
-  dot: {
-    height: 6,
-    borderRadius: 3,
-  },
+  dot: { height: 6, borderRadius: 3 },
 });
