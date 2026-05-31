@@ -291,6 +291,30 @@ export const api = {
       }
     },
 
+    nowPlaying: async (): Promise<TmdbItem[]> => {
+      return apiFetchOrDirect("/tmdb/now-playing", () =>
+        tmdbFetch<{ results: TmdbItem[] }>("/movie/now_playing").then((r) => r.results)
+      );
+    },
+
+    upcoming: async (): Promise<TmdbItem[]> => {
+      return apiFetchOrDirect("/tmdb/upcoming", () =>
+        tmdbFetch<{ results: TmdbItem[] }>("/movie/upcoming").then((r) => r.results)
+      );
+    },
+
+    onTheAir: async (): Promise<TmdbItem[]> => {
+      return apiFetchOrDirect("/tmdb/on-the-air", () =>
+        tmdbFetch<{ results: TmdbItem[] }>("/tv/on_the_air").then((r) => r.results)
+      );
+    },
+
+    airingToday: async (): Promise<TmdbItem[]> => {
+      return apiFetchOrDirect("/tmdb/airing-today", () =>
+        tmdbFetch<{ results: TmdbItem[] }>("/tv/airing_today").then((r) => r.results)
+      );
+    },
+
     popularCollections: async (page = 1) => {
       return apiFetchOrDirect(`/tmdb/popular-collections?page=${page}`, () =>
         tmdbFetch<{ results: any[]; page: number; total_pages: number }>("/collection/popular" as any, { page: String(page) })

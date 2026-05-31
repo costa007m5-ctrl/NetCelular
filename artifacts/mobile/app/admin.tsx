@@ -312,7 +312,8 @@ export default function AdminScreen() {
         await sendPushNotificationsToTokens(
           tokens,
           "🎬 Conteúdo disponível!",
-          `"${title}" foi adicionado ao NETPLAY. Assista agora!`
+          `"${title}" foi adicionado ao NETPLAY. Assista agora!`,
+          { tmdbId: tmdbId, type: type, title: title }
         );
       }
       await db.contentRequests.markAdded(tmdbId, type);

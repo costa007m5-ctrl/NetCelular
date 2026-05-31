@@ -43,13 +43,17 @@ export async function requestPermissionsAndSetup(): Promise<boolean> {
   }
 }
 
+const EXPO_PROJECT_ID = "aa86cc57-e8c0-4ce7-806c-0d1e5e345991";
+
 export async function registerPushToken(userId: string): Promise<void> {
   if (Platform.OS === "web" || !userId) return;
   try {
     const Notifications = require("expo-notifications");
     const { status } = await Notifications.getPermissionsAsync();
     if (status !== "granted") return;
-    const tokenData = await Notifications.getExpoPushTokenAsync();
+    const tokenData = await Notifications.getExpoPushTokenAsync({
+      projectId: EXPO_PROJECT_ID,
+    }).catch(() => Notifications.getExpoPushTokenAsync());
     const token: string = tokenData?.data;
     if (token && token.startsWith("ExponentPushToken")) {
       await db.pushTokens.upsert(userId, token);
@@ -125,11 +129,12 @@ export async function sendContentAddedNotification(contentTitle: string): Promis
 export async function sendPushNotificationsToTokens(
   tokens: string[],
   title: string,
-  body: string
+  body: string,
+  data?: Record<string, any>
 ): Promise<{ sent: number; failed: number }> {
   if (tokens.length === 0) return { sent: 0, failed: 0 };
   try {
-    const messages = tokens.map((to) => ({ to, title, body, sound: "default" }));
+    const messages = tokens.map((to) => ({ to, title, body, sound: "default", data: data ?? {} }));
     const res = await fetch("https://exp.host/--/api/v2/push/send", {
       method: "POST",
       headers: {

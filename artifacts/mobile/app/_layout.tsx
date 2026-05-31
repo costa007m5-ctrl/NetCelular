@@ -6,7 +6,7 @@ import {
   useFonts,
 } from "@expo-google-fonts/inter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Stack } from "expo-router";
+import { Stack, useRouter } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import * as SystemUI from "expo-system-ui";
 import * as Linking from "expo-linking";
@@ -28,29 +28,61 @@ SplashScreen.preventAutoHideAsync();
 
 const queryClient = new QueryClient();
 
+function NotificationHandler() {
+  const router = useRouter();
+
+  useEffect(() => {
+    if (Platform.OS === "web") return;
+    let sub: any;
+    try {
+      const Notifications = require("expo-notifications");
+      sub = Notifications.addNotificationResponseReceivedListener((response: any) => {
+        try {
+          const data = response?.notification?.request?.content?.data;
+          const tmdbId = data?.tmdbId;
+          const type = data?.type;
+          const title = data?.title ?? "";
+          if (tmdbId && type) {
+            router.push({
+              pathname: "/detail",
+              params: { type, id: String(tmdbId), title },
+            });
+          }
+        } catch {}
+      });
+    } catch {}
+    return () => { try { sub?.remove?.(); } catch {} };
+  }, [router]);
+
+  return null;
+}
+
 function RootNavigator() {
   const { loading } = useAuth();
 
   if (loading) return null;
 
   return (
-    <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#000" } }}>
-      <Stack.Screen name="welcome" options={{ headerShown: false }} />
-      <Stack.Screen name="login" options={{ headerShown: false }} />
-      <Stack.Screen name="register" options={{ headerShown: false }} />
-      <Stack.Screen name="forgot-password" options={{ headerShown: false }} />
-      <Stack.Screen name="reset-password" options={{ headerShown: false }} />
-      <Stack.Screen name="email-confirmed" options={{ headerShown: false }} />
-      <Stack.Screen name="profile-select" options={{ headerShown: false }} />
-      <Stack.Screen name="onboarding/profile" options={{ headerShown: false }} />
-      <Stack.Screen name="onboarding/preferences" options={{ headerShown: false }} />
-      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-      <Stack.Screen name="detail" options={{ headerShown: false }} />
-      <Stack.Screen name="channel-detail" options={{ headerShown: false }} />
-      <Stack.Screen name="player" options={{ headerShown: false, presentation: "fullScreenModal" }} />
-      <Stack.Screen name="admin" options={{ headerShown: false }} />
-      <Stack.Screen name="+not-found" />
-    </Stack>
+    <>
+      <NotificationHandler />
+      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#000" } }}>
+        <Stack.Screen name="welcome" options={{ headerShown: false }} />
+        <Stack.Screen name="login" options={{ headerShown: false }} />
+        <Stack.Screen name="register" options={{ headerShown: false }} />
+        <Stack.Screen name="forgot-password" options={{ headerShown: false }} />
+        <Stack.Screen name="reset-password" options={{ headerShown: false }} />
+        <Stack.Screen name="email-confirmed" options={{ headerShown: false }} />
+        <Stack.Screen name="profile-select" options={{ headerShown: false }} />
+        <Stack.Screen name="onboarding/profile" options={{ headerShown: false }} />
+        <Stack.Screen name="onboarding/preferences" options={{ headerShown: false }} />
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="detail" options={{ headerShown: false }} />
+        <Stack.Screen name="channel-detail" options={{ headerShown: false }} />
+        <Stack.Screen name="player" options={{ headerShown: false, presentation: "fullScreenModal" }} />
+        <Stack.Screen name="admin" options={{ headerShown: false }} />
+        <Stack.Screen name="+not-found" />
+      </Stack>
+    </>
   );
 }
 
