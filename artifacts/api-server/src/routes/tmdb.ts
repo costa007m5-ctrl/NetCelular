@@ -239,16 +239,21 @@ router.get("/redeflix/ids", handle(async () => {
   };
 }));
 
-router.get("/redeflix/list-ids", handle(async (req) => {
+router.get("/redeflix/list-ids", async (req: any, res: any) => {
   const type = String(req.query.type ?? "movie");
-  let txt = "";
-  if (type === "movie") txt = await tmdb.redeflix.listMovieIds();
-  else if (type === "tv") txt = await tmdb.redeflix.listTvIds();
-  else if (type === "anime") txt = await tmdb.redeflix.listAnimeIds();
-  else if (type === "dorama") txt = await tmdb.redeflix.listDoramaIds();
-  else { return []; }
-  return tmdb.redeflix.parseIds(txt);
-}));
+  try {
+    let txt = "";
+    if (type === "movie") txt = await tmdb.redeflix.listMovieIds();
+    else if (type === "tv") txt = await tmdb.redeflix.listTvIds();
+    else if (type === "anime") txt = await tmdb.redeflix.listAnimeIds();
+    else if (type === "dorama") txt = await tmdb.redeflix.listDoramaIds();
+    else { res.json([]); return; }
+    res.json(tmdb.redeflix.parseIds(txt));
+  } catch (err: any) {
+    req.log.error({ err }, "redeflix list-ids error");
+    res.json([]);
+  }
+});
 
 router.get("/redeflix/url", (req, res) => {
   const type = String(req.query.type ?? "movie");
