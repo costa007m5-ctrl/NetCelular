@@ -208,6 +208,8 @@ export default function PlayerScreen() {
   const [controlsVisible, setControlsVisible] = useState(true);
   const controlsOpacity = useRef(new Animated.Value(1)).current;
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const spinAnim = useRef(new Animated.Value(0)).current;
+  const spin = spinAnim.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] });
 
   const [showPicker, setShowPicker] = useState(false);
   const [pickerSeason, setPickerSeason] = useState(season);
@@ -238,6 +240,8 @@ export default function PlayerScreen() {
     if (!ScreenOrientation) return;
     const next = !isLandscape;
     setIsLandscape(next);
+    spinAnim.setValue(0);
+    Animated.timing(spinAnim, { toValue: 1, duration: 480, useNativeDriver: true }).start();
     try {
       if (next) {
         await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE_LEFT);
@@ -252,7 +256,7 @@ export default function PlayerScreen() {
         }
       }
     } catch {}
-  }, [isLandscape]);
+  }, [isLandscape, spinAnim]);
 
   const toggleFullscreen = useCallback(() => {
     const next = !isFullscreen;
@@ -566,6 +570,12 @@ export default function PlayerScreen() {
 
       {!error && (
         <>
+          {/* Full-screen tap area — sits above WebView, below controls */}
+          <Pressable
+            style={StyleSheet.absoluteFillObject}
+            onPress={showControls}
+          />
+
           <Animated.View
             style={[styles.playerHeader, { paddingTop: topPad + 4, opacity: controlsOpacity }]}
             pointerEvents={controlsVisible ? "box-none" : "none"}
@@ -579,7 +589,9 @@ export default function PlayerScreen() {
             <View style={{ flexDirection: "row", gap: 8 }}>
               {Platform.OS !== "web" && ScreenOrientation && (
                 <Pressable onPress={toggleOrientation} style={[styles.iconBtn, isLandscape && styles.iconBtnActive]}>
-                  <Feather name="rotate-cw" size={18} color={isLandscape ? "#e50914" : "rgba(255,255,255,0.9)"} />
+                  <Animated.View style={{ transform: [{ rotate: spin }] }}>
+                    <Feather name="rotate-cw" size={18} color={isLandscape ? "#e50914" : "rgba(255,255,255,0.9)"} />
+                  </Animated.View>
                 </Pressable>
               )}
               {pipEnabled ? (
@@ -624,26 +636,20 @@ export default function PlayerScreen() {
             </Animated.View>
           )}
 
-          {/* Fullscreen button — fills whole screen including nav bar */}
-          <Pressable
-            style={styles.fullscreenBtn}
-            onPress={toggleFullscreen}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          {/* Fullscreen button — part of animated controls */}
+          <Animated.View
+            style={[styles.fullscreenBtn, { opacity: controlsOpacity }]}
+            pointerEvents={controlsVisible ? "box-none" : "none"}
           >
-            <View style={[styles.fullscreenInner, isFullscreen && styles.fullscreenInnerActive]}>
-              <Feather name={isFullscreen ? "minimize" : "maximize"} size={16} color="#fff" />
-            </View>
-          </Pressable>
-
-          <Pressable
-            style={styles.showControlsBtn}
-            onPress={showControls}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          >
-            <View style={[styles.showControlsInner, { opacity: controlsVisible ? 0.5 : 0.9 }]}>
-              <Feather name={controlsVisible ? "eye" : "eye-off"} size={14} color="#fff" />
-            </View>
-          </Pressable>
+            <Pressable
+              onPress={toggleFullscreen}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <View style={[styles.fullscreenInner, isFullscreen && styles.fullscreenInnerActive]}>
+                <Feather name={isFullscreen ? "minimize" : "maximize"} size={16} color="#fff" />
+              </View>
+            </Pressable>
+          </Animated.View>
         </>
       )}
 
@@ -893,23 +899,6 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(229,9,20,0.3)",
     borderColor: "#e50914",
   },
-  showControlsBtn: {
-    position: "absolute",
-    bottom: 70,
-    right: 16,
-    zIndex: 20,
-  },
-  showControlsInner: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.2)",
-  },
-
   pickerOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.6)",
