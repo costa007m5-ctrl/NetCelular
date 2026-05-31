@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Animated,
-  Image,
   Platform,
   Pressable,
   RefreshControl,
@@ -11,11 +10,13 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { Image } from "expo-image";
 import { StatusBar } from "expo-status-bar";
 import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useColors } from "@/hooks/useColors";
 import { HeroBanner } from "@/components/HeroBanner";
 import { ContentRow } from "@/components/ContentRow";
@@ -61,7 +62,7 @@ function StreamingChip({
           <Image
             source={{ uri: logoUrl }}
             style={styles.streamingChipLogo}
-            resizeMode="contain"
+            contentFit="contain"
             onError={() => setLogoError(true)}
           />
         ) : (
@@ -101,6 +102,13 @@ export default function HomeScreen() {
 
   const userId = user?.id ?? "";
   const [continueItems, setContinueItems] = useState<ContentItem[]>([]);
+  const [activeProfile, setActiveProfile] = useState<any>(null);
+
+  useEffect(() => {
+    AsyncStorage.getItem("netplay_active_profile_v2")
+      .then((raw) => { if (raw) setActiveProfile(JSON.parse(raw)); })
+      .catch(() => {});
+  }, [userId]);
 
   useEffect(() => {
     if (!userId || !isSupabaseConfigured) return;
@@ -330,7 +338,23 @@ export default function HomeScreen() {
               style={styles.iconBtn}
               onPress={() => router.push("/(tabs)/profile")}
             >
-              <Feather name="user" size={22} color="rgba(255,255,255,0.85)" />
+              {activeProfile?.avatarUrl ? (
+                <Image
+                  source={{ uri: activeProfile.avatarUrl }}
+                  style={{ width: 28, height: 28, borderRadius: 14 }}
+                  contentFit="cover"
+                />
+              ) : (
+                <View style={{
+                  width: 28, height: 28, borderRadius: 14,
+                  backgroundColor: "#e50914",
+                  alignItems: "center", justifyContent: "center",
+                }}>
+                  <Text style={{ color: "#fff", fontSize: 12, fontWeight: "800" }}>
+                    {(activeProfile?.name ?? user?.name ?? "N")[0]?.toUpperCase()}
+                  </Text>
+                </View>
+              )}
             </TouchableOpacity>
           </View>
         </View>

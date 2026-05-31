@@ -17,6 +17,7 @@ import { Image } from "expo-image";
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "@/lib/auth-context";
 import { api, tmdbItemToContent } from "@/lib/api";
 import type { TmdbItem } from "@/lib/api";
@@ -46,22 +47,79 @@ const QUICK_CARDS = [
   { label: "Continue",         icon: "play-circle", color: "#fbbf24", accent: "rgba(251,191,36,0.15)" },
 ];
 
-const MOOD_CARDS = [
-  { emoji: "👑", label: "Algo épico",      color: "#f59e0b", dark: "#78350f" },
-  { emoji: "😂", label: "Quero rir",       color: "#22c55e", dark: "#14532d" },
-  { emoji: "👻", label: "Quero suspense",  color: "#7c3aed", dark: "#3b0764" },
-  { emoji: "📻", label: "Ao vivo agora",   color: RED,       dark: "#7f1d1d" },
-  { emoji: "🍿", label: "Algo leve",       color: "#f97316", dark: "#7c2d12" },
+const FRANCHISE_DATA = [
+  { label: "Marvel",        color: "#e50914", tmdbType: "collection" as const, tmdbId: 131292, routeType: "collection" as const },
+  { label: "DC",            color: "#1a56db", tmdbType: "collection" as const, tmdbId: 263,    routeType: "collection" as const },
+  { label: "Harry\nPotter", color: "#b45309", tmdbType: "collection" as const, tmdbId: 1241,   routeType: "collection" as const },
+  { label: "Naruto",        color: "#f97316", tmdbType: "tv" as const,         tmdbId: 46260,  routeType: "tv" as const },
+  { label: "Star\nWars",    color: "#22d3ee", tmdbType: "collection" as const, tmdbId: 10,     routeType: "collection" as const },
+  { label: "Disney+",       color: "#a78bfa", tmdbType: null,                  tmdbId: null,   routeType: "streaming" as const },
 ];
 
-const GENRE_CARDS = [
-  { label: "Ação",    color: "#ef4444", emoji: "💥" },
-  { label: "Terror",  color: "#7c3aed", emoji: "👻" },
-  { label: "Anime",   color: "#f97316", emoji: "🎌" },
-  { label: "Futebol", color: "#22c55e", emoji: "⚽" },
-  { label: "Drama",   color: "#3b82f6", emoji: "🎭" },
-  { label: "Ficção",  color: "#06b6d4", emoji: "🚀" },
+const GENRE_DATA = [
+  { label: "Ação",    color: "#ef4444", genreId: "28",  tmdbType: "movie" as const, tmdbId: 299534, routeType: "movie" },
+  { label: "Terror",  color: "#7c3aed", genreId: "27",  tmdbType: "movie" as const, tmdbId: 539,    routeType: "movie" },
+  { label: "Anime",   color: "#f97316", genreId: "16",  tmdbType: "movie" as const, tmdbId: 129,    routeType: "movie" },
+  { label: "Futebol", color: "#22c55e", genreId: null,  tmdbType: null,             tmdbId: null,   routeType: "live"  },
+  { label: "Drama",   color: "#3b82f6", genreId: "18",  tmdbType: "tv" as const,    tmdbId: 1396,   routeType: "tv"    },
+  { label: "Ficção",  color: "#06b6d4", genreId: "878", tmdbType: "movie" as const, tmdbId: 324857, routeType: "movie" },
 ];
+
+const MOOD_DATA = [
+  { label: "Algo épico",     color: "#f59e0b", tmdbType: "movie" as const, tmdbId: 299536, genreId: "12",    routeType: "movie" },
+  { label: "Quero rir",      color: "#22c55e", tmdbType: "movie" as const, tmdbId: 616037, genreId: "35",    routeType: "movie" },
+  { label: "Quero suspense", color: "#7c3aed", tmdbType: "movie" as const, tmdbId: 539,    genreId: "53",    routeType: "movie" },
+  { label: "Ao vivo agora",  color: RED,       tmdbType: null,             tmdbId: null,   genreId: null,    routeType: "live"  },
+  { label: "Algo leve",      color: "#f97316", tmdbType: "movie" as const, tmdbId: 10193,  genreId: "10751", routeType: "movie" },
+];
+
+const SEARCH_CHANNELS = [
+  { id: "espn",      name: "ESPN",         description: "Esportes ao vivo",           color: "#ef4444" },
+  { id: "disney",    name: "Disney+",      description: "Filmes e séries da Disney",  color: "#a78bfa" },
+  { id: "amazon",    name: "Prime Video",  description: "Amazon Prime Video",         color: "#22d3ee" },
+  { id: "max",       name: "Max",          description: "HBO e Max originais",        color: "#1a56db" },
+  { id: "globo",     name: "Globoplay",    description: "Conteúdo Globo",             color: "#f97316" },
+  { id: "telecine",  name: "Telecine",     description: "Filmes em HD",              color: "#fbbf24" },
+  { id: "paramount", name: "Paramount+",   description: "Filmes e séries",           color: "#3b82f6" },
+  { id: "apple",     name: "Apple TV+",    description: "Originais Apple",           color: "#22c55e" },
+];
+
+const TMDB_API_KEY = "8f0beb08cf016ec8de49e454e09879ec";
+
+function TmdbCard({
+  tmdbType, tmdbId, label, color, cardStyle, onPress,
+}: {
+  tmdbType: "movie" | "tv" | "collection" | null;
+  tmdbId: number | null;
+  label: string;
+  color: string;
+  cardStyle?: any;
+  onPress?: () => void;
+}) {
+  const [imgPath, setImgPath] = useState<string | null>(null);
+  useEffect(() => {
+    if (!tmdbId || !tmdbType) return;
+    const url = tmdbType === "collection"
+      ? `https://api.themoviedb.org/3/collection/${tmdbId}?api_key=${TMDB_API_KEY}`
+      : `https://api.themoviedb.org/3/${tmdbType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
+    fetch(url).then(r => r.json()).then(d => setImgPath(d.backdrop_path || d.poster_path)).catch(() => {});
+  }, [tmdbId, tmdbType]);
+  const imgUrl = imgPath ? `https://image.tmdb.org/t/p/w500${imgPath}` : null;
+  return (
+    <Pressable onPress={onPress} style={[{ overflow: "hidden", borderRadius: 14, borderWidth: 1, borderColor: `${color}35` }, cardStyle]}>
+      {imgUrl
+        ? <Image source={{ uri: imgUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
+        : <View style={[StyleSheet.absoluteFill, { backgroundColor: `${color}18` }]} />
+      }
+      <LinearGradient colors={["transparent", `${color}99`, `${color}ee`]} locations={[0.1, 0.55, 1]} style={StyleSheet.absoluteFill} />
+      <View style={{ position: "absolute", bottom: 8, left: 6, right: 6, alignItems: "center" }}>
+        <Text style={{ color: "#fff", fontWeight: "800", fontSize: 11, textAlign: "center", textShadowColor: "rgba(0,0,0,0.9)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 }}>
+          {label}
+        </Text>
+      </View>
+    </Pressable>
+  );
+}
 
 /* ── Rank Badge Card (Em Alta Top 10) ── */
 function RankCard({ item, rank, onPress }: { item: TmdbItem; rank: number; onPress: () => void }) {
@@ -279,12 +337,21 @@ export default function SearchScreen() {
   const [focused, setFocused] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
   const [results, setResults] = useState<ContentItem[]>([]);
+  const [collectionResults, setCollectionResults] = useState<any[]>([]);
+  const [searchTab, setSearchTab] = useState<"media" | "collections" | "channels">("media");
   const [trending, setTrending] = useState<TmdbItem[]>([]);
   const [popular, setPopular] = useState<TmdbItem[]>([]);
   const [recents, setRecents] = useState<string[]>(RECENT_SEARCHES);
+  const [activeProfile, setActiveProfile] = useState<any>(null);
   const glowAnim = useRef(new Animated.Value(0)).current;
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<TextInput>(null);
+
+  useEffect(() => {
+    AsyncStorage.getItem("netplay_active_profile_v2")
+      .then(raw => { if (raw) setActiveProfile(JSON.parse(raw)); })
+      .catch(() => {});
+  }, [user?.id]);
 
   const load = useCallback(async () => {
     try {
@@ -301,15 +368,17 @@ export default function SearchScreen() {
   useEffect(() => { load(); }, [load]);
 
   const searchTmdb = useCallback(async (q: string) => {
-    if (!q.trim()) { setResults([]); return; }
+    if (!q.trim()) { setResults([]); setCollectionResults([]); setSearchTab("media"); return; }
     setSearchLoading(true);
     try {
       const data = await api.tmdb.search(q, "multi");
       const items = data.results
         .filter((r: TmdbItem) => r.media_type === "movie" || r.media_type === "tv")
         .map(tmdbItemToContent);
+      const cols = data.results.filter((r: any) => r.media_type === "collection");
       setResults(items);
-    } catch { setResults([]); }
+      setCollectionResults(cols);
+    } catch { setResults([]); setCollectionResults([]); }
     finally { setSearchLoading(false); }
   }, []);
 
@@ -352,9 +421,11 @@ export default function SearchScreen() {
   const badges = ["🔥 HOT", "NOVO EPISÓDIO", "AO VIVO", "🔥 HOT", "NOVO EPISÓDIO", "🔥 HOT", "AO VIVO", "NOVO EPISÓDIO"];
   const badgeLabels = ["HOT", "NOVO EPISÓDIO", "AO VIVO", "HOT", "NOVO EPISÓDIO", "HOT", "AO VIVO", "NOVO EPISÓDIO"];
 
-  const avatarLetter = user?.username?.charAt(0)?.toUpperCase() ?? "N";
-
   const isSearching = query.trim().length > 0;
+  const channelResults = SEARCH_CHANNELS.filter(c =>
+    c.name.toLowerCase().includes(query.toLowerCase()) ||
+    c.description.toLowerCase().includes(query.toLowerCase())
+  );
 
   return (
     <View style={s.container}>
@@ -373,8 +444,17 @@ export default function SearchScreen() {
               <Feather name="bell" size={19} color="rgba(255,255,255,0.8)" />
               <View style={s.notifDot} />
             </Pressable>
-            <Pressable style={s.avatarBtn}>
-              <Text style={s.avatarTxt}>{avatarLetter}</Text>
+            <Pressable
+              style={[s.avatarBtn, { overflow: "hidden" }]}
+              onPress={() => router.push("/(tabs)/profile")}
+            >
+              {activeProfile?.avatarUrl ? (
+                <Image source={{ uri: activeProfile.avatarUrl }} style={{ width: 36, height: 36 }} contentFit="cover" />
+              ) : (
+                <Text style={s.avatarTxt}>
+                  {(activeProfile?.name ?? user?.username ?? "N")[0]?.toUpperCase()}
+                </Text>
+              )}
             </Pressable>
           </View>
         </View>
@@ -411,22 +491,106 @@ export default function SearchScreen() {
 
         {/* ── SEARCH RESULTS (when typing) ── */}
         {isSearching ? (
-          <View style={{ marginTop: 8 }}>
-            {searchLoading && results.length === 0 && (
+          <View style={{ marginTop: 4 }}>
+            {/* Filter tabs */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20, gap: 8, paddingBottom: 14 }}>
+              {(["media", "collections", "channels"] as const).map((tab) => {
+                const labels = { media: "Filmes & Séries", collections: "Coleções", channels: "Canais" };
+                const counts = { media: results.length, collections: collectionResults.length, channels: channelResults.length };
+                const active = searchTab === tab;
+                return (
+                  <Pressable
+                    key={tab}
+                    onPress={() => setSearchTab(tab)}
+                    style={[
+                      { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1.5 },
+                      active ? { backgroundColor: RED, borderColor: RED } : { backgroundColor: GLASS, borderColor: GLASS_BORDER },
+                    ]}
+                  >
+                    <Text style={{ color: "#fff", fontWeight: "700", fontSize: 12 }}>
+                      {labels[tab]}{counts[tab] > 0 ? ` (${counts[tab]})` : ""}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+
+            {searchLoading && results.length === 0 && searchTab === "media" && (
               <View style={s.searchingState}>
                 <ActivityIndicator size="large" color={RED} />
                 <Text style={s.searchingTxt}>Buscando "{query}"...</Text>
               </View>
             )}
-            {!searchLoading && results.length === 0 && (
+
+            {/* Media: Filmes & Séries */}
+            {searchTab === "media" && !searchLoading && results.length === 0 && (
               <View style={s.searchingState}>
                 <Feather name="search" size={36} color="rgba(255,255,255,0.15)" />
                 <Text style={s.noResultTxt}>Nenhum resultado para "{query}"</Text>
                 <Text style={s.noResultSub}>Tente um outro título ou ator</Text>
               </View>
             )}
-            {results.map((item) => (
+            {searchTab === "media" && results.map((item) => (
               <ResultCard key={item.id} item={item} onPress={() => navigate(item)} />
+            ))}
+
+            {/* Collections */}
+            {searchTab === "collections" && !searchLoading && collectionResults.length === 0 && (
+              <View style={s.searchingState}>
+                <Feather name="box" size={36} color="rgba(255,255,255,0.15)" />
+                <Text style={s.noResultTxt}>Nenhuma coleção para "{query}"</Text>
+              </View>
+            )}
+            {searchTab === "collections" && collectionResults.map((col) => (
+              <Pressable
+                key={col.id}
+                style={rs.wrap}
+                onPress={() => router.push({ pathname: "/collection", params: { id: col.id, title: col.name } })}
+              >
+                <View style={rs.poster}>
+                  {col.backdrop_path || col.poster_path ? (
+                    <Image source={{ uri: TMDB_IMG(col.backdrop_path ?? col.poster_path)! }} style={StyleSheet.absoluteFill} contentFit="cover" />
+                  ) : (
+                    <View style={[StyleSheet.absoluteFill, { backgroundColor: "#1a1a1a", alignItems: "center", justifyContent: "center" }]}>
+                      <Feather name="box" size={20} color="#444" />
+                    </View>
+                  )}
+                </View>
+                <View style={rs.info}>
+                  <Text style={rs.title} numberOfLines={2}>{col.name}</Text>
+                  <View style={rs.metaRow}>
+                    <View style={[rs.typeBadge, { backgroundColor: "rgba(26,86,219,0.15)", borderColor: "rgba(26,86,219,0.3)" }]}>
+                      <Text style={[rs.typeTxt, { color: "#1a56db" }]}>Coleção</Text>
+                    </View>
+                    {col.parts && <Text style={rs.year}>{col.parts.length} títulos</Text>}
+                  </View>
+                </View>
+                <View style={[rs.watchBtn, { backgroundColor: "#1a56db" }]}>
+                  <Text style={rs.watchTxt}>Ver</Text>
+                </View>
+              </Pressable>
+            ))}
+
+            {/* Channels */}
+            {searchTab === "channels" && channelResults.length === 0 && (
+              <View style={s.searchingState}>
+                <Feather name="tv" size={36} color="rgba(255,255,255,0.15)" />
+                <Text style={s.noResultTxt}>Nenhum canal para "{query}"</Text>
+              </View>
+            )}
+            {searchTab === "channels" && channelResults.map((ch) => (
+              <Pressable key={ch.id} style={rs.wrap} onPress={() => router.push("/(tabs)/channels")}>
+                <View style={[rs.poster, { backgroundColor: `${ch.color}22`, alignItems: "center", justifyContent: "center" }]}>
+                  <Feather name="tv" size={26} color={ch.color} />
+                </View>
+                <View style={rs.info}>
+                  <Text style={rs.title}>{ch.name}</Text>
+                  <Text style={rs.desc}>{ch.description}</Text>
+                </View>
+                <View style={[rs.watchBtn, { backgroundColor: ch.color }]}>
+                  <Text style={rs.watchTxt}>Abrir</Text>
+                </View>
+              </Pressable>
             ))}
           </View>
         ) : (
@@ -515,25 +679,21 @@ export default function SearchScreen() {
                 </View>
               </View>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.hScroll}>
-                {GENRE_CARDS.map((g) => {
-                  const GENRE_IDS: Record<string, { id: string; type: string }> = {
-                    "Ação":    { id: "28",  type: "movie" },
-                    "Terror":  { id: "27",  type: "movie" },
-                    "Anime":   { id: "16",  type: "movie" },
-                    "Futebol": { id: "1",   type: "live"  },
-                    "Drama":   { id: "18",  type: "tv"    },
-                    "Ficção":  { id: "878", type: "movie" },
-                  };
-                  const info = GENRE_IDS[g.label];
+                {GENRE_DATA.map((g) => {
                   const handleGenre = () => {
-                    if (info?.type === "live") router.push("/(tabs)/channels");
-                    else if (info) router.push({ pathname: "/genre-browse", params: { genre_id: info.id, type: info.type, title: g.label } });
+                    if (g.routeType === "live") router.push("/(tabs)/channels");
+                    else if (g.genreId) router.push({ pathname: "/genre-browse", params: { genre_id: g.genreId, type: g.routeType, title: g.label } });
                   };
                   return (
-                    <Pressable key={g.label} onPress={handleGenre} style={[s.genreCard, { backgroundColor: `${g.color}18`, borderColor: `${g.color}33` }]}>
-                      <Text style={s.genreEmoji}>{g.emoji}</Text>
-                      <Text style={[s.genreLabel, { color: g.color }]}>{g.label}</Text>
-                    </Pressable>
+                    <TmdbCard
+                      key={g.label}
+                      tmdbType={g.tmdbType}
+                      tmdbId={g.tmdbId}
+                      label={g.label}
+                      color={g.color}
+                      cardStyle={s.genreCard}
+                      onPress={handleGenre}
+                    />
                   );
                 })}
               </ScrollView>
@@ -550,24 +710,21 @@ export default function SearchScreen() {
                 </View>
               </View>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.hScroll}>
-                {MOOD_CARDS.map((m) => {
-                  const MOOD_ROUTES: Record<string, { id: string; type: string }> = {
-                    "Algo épico":     { id: "12",  type: "movie" },
-                    "Quero rir":      { id: "35",  type: "movie" },
-                    "Quero suspense": { id: "53",  type: "movie" },
-                    "Ao vivo agora":  { id: "live", type: "live" },
-                    "Algo leve":      { id: "10751", type: "movie" },
-                  };
-                  const info = MOOD_ROUTES[m.label];
+                {MOOD_DATA.map((m) => {
                   const handleMood = () => {
-                    if (info?.type === "live") router.push("/(tabs)/channels");
-                    else if (info) router.push({ pathname: "/genre-browse", params: { genre_id: info.id, type: info.type, title: m.label } });
+                    if (m.routeType === "live") router.push("/(tabs)/channels");
+                    else if (m.genreId) router.push({ pathname: "/genre-browse", params: { genre_id: m.genreId, type: m.routeType, title: m.label } });
                   };
                   return (
-                    <Pressable key={m.label} onPress={handleMood} style={[s.moodCard, { backgroundColor: `${m.color}15`, borderColor: `${m.color}30` }]}>
-                      <Text style={s.moodEmoji}>{m.emoji}</Text>
-                      <Text style={[s.moodLabel, { color: m.color }]}>{m.label}</Text>
-                    </Pressable>
+                    <TmdbCard
+                      key={m.label}
+                      tmdbType={m.tmdbType}
+                      tmdbId={m.tmdbId}
+                      label={m.label}
+                      color={m.color}
+                      cardStyle={s.moodCard}
+                      onPress={handleMood}
+                    />
                   );
                 })}
               </ScrollView>
@@ -609,19 +766,28 @@ export default function SearchScreen() {
                 </View>
               </View>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.hScroll}>
-                {[
-                  { label: "Marvel", emoji: "⚡", color: "#e50914" },
-                  { label: "DC",     emoji: "🦇", color: "#1a56db" },
-                  { label: "Harry\nPotter", emoji: "🪄", color: "#b45309" },
-                  { label: "Naruto", emoji: "🎌", color: "#f97316" },
-                  { label: "Star\nWars", emoji: "🚀", color: "#22d3ee" },
-                  { label: "Disney+", emoji: "✨", color: "#a78bfa" },
-                ].map((u) => (
-                  <Pressable key={u.label} style={[s.universoCard, { backgroundColor: `${u.color}12`, borderColor: `${u.color}35` }]}>
-                    <Text style={s.universoEmoji}>{u.emoji}</Text>
-                    <Text style={[s.universoLabel, { color: u.color }]}>{u.label}</Text>
-                  </Pressable>
-                ))}
+                {FRANCHISE_DATA.map((u) => {
+                  const handleFranchise = () => {
+                    if (u.routeType === "collection") {
+                      router.push({ pathname: "/collection", params: { id: u.tmdbId!, title: u.label.replace("\n", " ") } });
+                    } else if (u.routeType === "tv") {
+                      router.push({ pathname: "/detail", params: { type: "tv", id: u.tmdbId!, title: u.label } });
+                    } else if (u.routeType === "streaming") {
+                      router.push({ pathname: "/streaming", params: { id: 337 } });
+                    }
+                  };
+                  return (
+                    <TmdbCard
+                      key={u.label}
+                      tmdbType={u.tmdbType}
+                      tmdbId={u.tmdbId}
+                      label={u.label}
+                      color={u.color}
+                      cardStyle={s.universoCard}
+                      onPress={handleFranchise}
+                    />
+                  );
+                })}
               </ScrollView>
             </View>
           </>

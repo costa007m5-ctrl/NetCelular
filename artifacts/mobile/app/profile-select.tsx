@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -12,6 +12,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { Image } from "expo-image";
 import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
 import { Feather } from "@expo/vector-icons";
@@ -26,7 +27,8 @@ const MAX_PROFILES = 4;
 export interface NetplayProfile {
   id: string;
   name: string;
-  avatarIndex: number;
+  avatarIndex?: number;
+  avatarUrl?: string;
   userId: string;
   isKids?: boolean;
 }
@@ -105,8 +107,17 @@ export async function setActiveProfile(profile: NetplayProfile | null): Promise<
   } catch {}
 }
 
-function ProfileAvatar({ avatarIndex, size = 72 }: { avatarIndex: number; size?: number }) {
-  const av = AVATARS[avatarIndex % AVATARS.length];
+function ProfileAvatar({ profile, size = 72 }: { profile: NetplayProfile; size?: number }) {
+  if (profile.avatarUrl) {
+    return (
+      <Image
+        source={{ uri: profile.avatarUrl }}
+        style={[styles.avatarCircle, { width: size, height: size, borderRadius: size / 2 }]}
+        contentFit="cover"
+      />
+    );
+  }
+  const av = AVATARS[(profile.avatarIndex ?? 0) % AVATARS.length];
   return (
     <View style={[styles.avatarCircle, { width: size, height: size, borderRadius: size / 2, backgroundColor: av.bg }]}>
       <Text style={{ fontSize: size * 0.45 }}>{av.emoji}</Text>
@@ -114,25 +125,119 @@ function ProfileAvatar({ avatarIndex, size = 72 }: { avatarIndex: number; size?:
   );
 }
 
+const TMDB_KEY = "8f0beb08cf016ec8de49e454e09879ec";
+
+function TmdbAvatarPicker({ selectedUrl, onSelect }: { selectedUrl: string; onSelect: (url: string) => void }) {
+  const [people, setPeople] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchQ, setSearchQ] = useState("");
+  const debRef = useRef<any>(null);
+
+  const loadPeople = (q: string) => {
+    setLoading(true);
+    const url = q.trim()
+      ? `https://api.themoviedb.org/3/search/person?api_key=${TMDB_KEY}&query=${encodeURIComponent(q)}&include_adult=false`
+      : `https://api.themoviedb.org/3/person/popular?api_key=${TMDB_KEY}`;
+    fetch(url)
+      .then(r => r.json())
+      .then(d => setPeople((d.results ?? []).filter((p: any) => p.profile_path).slice(0, 20)))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { loadPeople(""); }, []);
+
+  const handleSearch = (q: string) => {
+    setSearchQ(q);
+    if (debRef.current) clearTimeout(debRef.current);
+    debRef.current = setTimeout(() => loadPeople(q), 450);
+  };
+
+  return (
+    <View>
+      <View style={ap.searchRow}>
+        <Feather name="search" size={14} color="#555" />
+        <TextInput
+          value={searchQ}
+          onChangeText={handleSearch}
+          placeholder="Buscar ator ou personagem..."
+          placeholderTextColor="#555"
+          style={ap.searchInput}
+          autoCorrect={false}
+        />
+        {searchQ.length > 0 && (
+          <Pressable onPress={() => { setSearchQ(""); loadPeople(""); }}>
+            <Feather name="x" size={14} color="#555" />
+          </Pressable>
+        )}
+      </View>
+      {loading ? (
+        <ActivityIndicator color="#e50914" style={{ marginVertical: 12 }} />
+      ) : (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={ap.grid}>
+          {people.map((person) => {
+            const url = `https://image.tmdb.org/t/p/w185${person.profile_path}`;
+            const selected = selectedUrl === url;
+            return (
+              <Pressable key={person.id} onPress={() => onSelect(url)} style={[ap.item, selected && ap.itemSelected]}>
+                <Image source={{ uri: url }} style={ap.photo} contentFit="cover" />
+                {selected && (
+                  <View style={ap.checkBadge}>
+                    <Feather name="check" size={10} color="#fff" />
+                  </View>
+                )}
+                <Text style={ap.name} numberOfLines={1}>{person.name}</Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      )}
+    </View>
+  );
+}
+
+const ap = StyleSheet.create({
+  searchRow: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    backgroundColor: "#1a1a1a", borderRadius: 10, borderWidth: 1, borderColor: "#2a2a2a",
+    paddingHorizontal: 12, paddingVertical: 9, marginBottom: 12,
+  },
+  searchInput: { flex: 1, color: "#fff", fontSize: 13 },
+  grid: { gap: 10, paddingVertical: 4 },
+  item: { alignItems: "center", gap: 4, width: 60, borderRadius: 8, borderWidth: 2, borderColor: "transparent", padding: 2 },
+  itemSelected: { borderColor: "#e50914" },
+  photo: { width: 52, height: 52, borderRadius: 26 },
+  checkBadge: {
+    position: "absolute", top: 2, right: 2,
+    width: 18, height: 18, borderRadius: 9,
+    backgroundColor: "#e50914", alignItems: "center", justifyContent: "center",
+  },
+  name: { fontSize: 9, color: "rgba(255,255,255,0.55)", textAlign: "center", width: 56 },
+});
+
 interface EditModalProps {
   visible: boolean;
   initial?: NetplayProfile | null;
-  onSave: (name: string, avatarIndex: number, isKids: boolean) => void;
+  onSave: (name: string, avatarUrl: string, isKids: boolean) => void;
   onClose: () => void;
 }
 
 function EditProfileModal({ visible, initial, onSave, onClose }: EditModalProps) {
   const [name, setName] = useState(initial?.name ?? "");
-  const [avatarIdx, setAvatarIdx] = useState(initial?.avatarIndex ?? 0);
+  const [avatarUrl, setAvatarUrl] = useState(initial?.avatarUrl ?? "");
   const [isKids, setIsKids] = useState(initial?.isKids ?? false);
 
   useEffect(() => {
     if (visible) {
       setName(initial?.name ?? "");
-      setAvatarIdx(initial?.avatarIndex ?? 0);
+      setAvatarUrl(initial?.avatarUrl ?? "");
       setIsKids(initial?.isKids ?? false);
     }
   }, [visible, initial]);
+
+  const previewProfile: NetplayProfile = {
+    id: "preview", name, avatarUrl, userId: "", avatarIndex: 0,
+  };
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -146,29 +251,13 @@ function EditProfileModal({ visible, initial, onSave, onClose }: EditModalProps)
           <Text style={styles.sheetTitle}>{initial ? "Editar Perfil" : "Novo Perfil"}</Text>
 
           <View style={styles.editAvatarRow}>
-            <ProfileAvatar avatarIndex={avatarIdx} size={80} />
+            <ProfileAvatar profile={previewProfile} size={80} />
           </View>
 
-          <Text style={styles.fieldLabel}>AVATAR</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.avatarPicker}
-          >
-            {AVATARS.map((av, i) => (
-              <Pressable
-                key={i}
-                onPress={() => setAvatarIdx(i)}
-                style={[styles.avatarOption, i === avatarIdx && styles.avatarOptionActive]}
-              >
-                <View style={[styles.avatarOptionInner, { backgroundColor: av.bg }]}>
-                  <Text style={{ fontSize: 22 }}>{av.emoji}</Text>
-                </View>
-              </Pressable>
-            ))}
-          </ScrollView>
+          <Text style={styles.fieldLabel}>FOTO DO PERFIL</Text>
+          <TmdbAvatarPicker selectedUrl={avatarUrl} onSelect={setAvatarUrl} />
 
-          <Text style={styles.fieldLabel}>NOME</Text>
+          <Text style={[styles.fieldLabel, { marginTop: 16 }]}>NOME</Text>
           <TextInput
             style={styles.nameInput}
             value={name}
@@ -194,7 +283,7 @@ function EditProfileModal({ visible, initial, onSave, onClose }: EditModalProps)
 
           <Pressable
             style={[styles.saveBtn, !name.trim() && { opacity: 0.4 }]}
-            onPress={() => { if (name.trim()) onSave(name.trim(), avatarIdx, isKids); }}
+            onPress={() => { if (name.trim()) onSave(name.trim(), avatarUrl, isKids); }}
             disabled={!name.trim()}
           >
             <Text style={styles.saveBtnText}>SALVAR</Text>
@@ -237,12 +326,13 @@ export default function ProfileSelectScreen() {
     setEditModal(true);
   };
 
-  const handleSave = async (name: string, avatarIndex: number, isKids: boolean) => {
+  const handleSave = async (name: string, avatarUrl: string, isKids: boolean) => {
     if (!user?.id) return;
     const profile: NetplayProfile = {
       id: editTarget?.id ?? `${user.id}_${Date.now()}`,
       name,
-      avatarIndex,
+      avatarUrl,
+      avatarIndex: editTarget?.avatarIndex ?? 0,
       userId: user.id,
       isKids,
     };
@@ -295,7 +385,7 @@ export default function ProfileSelectScreen() {
               onPress={() => handleSelect(profile)}
               onLongPress={() => handleEdit(profile)}
             >
-              <ProfileAvatar avatarIndex={profile.avatarIndex} size={76} />
+              <ProfileAvatar profile={profile} size={76} />
               {profile.isKids && (
                 <View style={styles.kidsBadge}>
                   <Text style={styles.kidsBadgeTxt}>KIDS</Text>

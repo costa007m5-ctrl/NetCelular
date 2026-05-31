@@ -288,29 +288,6 @@ export default function PlayerScreen() {
             title={title}
           />
         </View>
-        {type === "tv" && (
-          <View style={[styles.episodeBar, { backgroundColor: "rgba(0,0,0,0.85)" }]}>
-            <Text style={[styles.episodeText, { color: colors.mutedForeground }]}>
-              Temporada {season} — Episódio {episode}
-            </Text>
-            <View style={styles.episodeActions}>
-              <Pressable
-                style={[styles.epBtn, { borderColor: colors.border }]}
-                onPress={() => goToEpisode(season, Math.max(1, episode - 1))}
-              >
-                <Feather name="chevron-left" size={16} color={colors.foreground} />
-                <Text style={[styles.epBtnText, { color: colors.foreground }]}>Anterior</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.epBtn, { backgroundColor: colors.primary, borderColor: colors.primary }]}
-                onPress={() => goToEpisode(season, episode + 1)}
-              >
-                <Text style={[styles.epBtnText, { color: "#fff" }]}>Próximo</Text>
-                <Feather name="chevron-right" size={16} color="#fff" />
-              </Pressable>
-            </View>
-          </View>
-        )}
         <EpisodePicker
           visible={showPicker}
           onClose={() => setShowPicker(false)}

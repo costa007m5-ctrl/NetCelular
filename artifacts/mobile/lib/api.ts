@@ -178,7 +178,27 @@ export const api = {
 
     checkAvailable: async (type: "movie" | "tv", id: number, season = 1, episode = 1): Promise<{ available: boolean }> => {
       if (API_BASE) return apiFetch(`/tmdb/redeflix/available?type=${type}&id=${id}&season=${season}&episode=${episode}`).catch(() => ({ available: true }));
-      return { available: true };
+      if (Platform.OS === "web") return { available: true };
+      try {
+        const url = type === "tv"
+          ? `https://redeflixapi.store/serie/${id}/${season}/${episode}`
+          : `https://redeflixapi.store/filme/${id}`;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 6000);
+        const res = await fetch(url, { method: "HEAD", signal: controller.signal });
+        clearTimeout(timer);
+        return { available: res.ok && res.status !== 404 };
+      } catch {
+        return { available: true };
+      }
+    },
+
+    popularPeople: async (): Promise<any[]> => {
+      return tmdbFetch<{ results: any[] }>("/person/popular").then((r) => r.results);
+    },
+
+    searchPeople: async (q: string): Promise<any[]> => {
+      return tmdbFetch<{ results: any[] }>("/search/person", { query: q, include_adult: "false" }).then((r) => r.results);
     },
 
     streaming: async (providerId: number, type: "movie" | "tv", page = 1): Promise<TmdbSearchResult> => {

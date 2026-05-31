@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Alert,
   Platform,
@@ -9,13 +9,17 @@ import {
   Text,
   View,
 } from "react-native";
+import { Image } from "expo-image";
 import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/lib/auth-context";
+
+const ACTIVE_PROFILE_KEY = "netplay_active_profile_v2";
 
 interface SettingRowProps {
   icon: string;
@@ -70,6 +74,13 @@ export default function ProfileScreen() {
   const [notifications, setNotifications] = useState(true);
   const [autoPlay, setAutoPlay] = useState(true);
   const [hd, setHd] = useState(false);
+  const [activeProfile, setActiveProfile] = useState<any>(null);
+
+  useEffect(() => {
+    AsyncStorage.getItem(ACTIVE_PROFILE_KEY)
+      .then((raw) => { if (raw) setActiveProfile(JSON.parse(raw)); })
+      .catch(() => {});
+  }, [user?.id]);
 
   const handleLogout = () => {
     if (Platform.OS === "web") {
@@ -91,7 +102,8 @@ export default function ProfileScreen() {
   };
 
   const isAdmin = user?.role === "admin";
-  const avatarLetter = user?.avatarLetter ?? user?.name?.[0]?.toUpperCase() ?? "U";
+  const profileName = activeProfile?.name ?? user?.name ?? "Usuário NETPLAY";
+  const profileInitial = profileName[0]?.toUpperCase() ?? "N";
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -100,12 +112,20 @@ export default function ProfileScreen() {
         <View style={{ height: topPad + 16 }} />
 
         <View style={styles.avatarSection}>
-          <LinearGradient colors={[colors.primary, "#8b0000"]} style={styles.avatar}>
-            <Text style={styles.avatarText}>{avatarLetter}</Text>
-          </LinearGradient>
+          {activeProfile?.avatarUrl ? (
+            <Image
+              source={{ uri: activeProfile.avatarUrl }}
+              style={styles.avatar}
+              contentFit="cover"
+            />
+          ) : (
+            <LinearGradient colors={[colors.primary, "#8b0000"]} style={styles.avatar}>
+              <Text style={styles.avatarText}>{profileInitial}</Text>
+            </LinearGradient>
+          )}
           <View style={styles.avatarInfo}>
             <Text style={[styles.userName, { color: colors.foreground }]}>
-              {user?.name ?? "Usuário NETPLAY"}
+              {profileName}
             </Text>
             <Text style={[styles.userEmail, { color: colors.mutedForeground }]} numberOfLines={1}>
               {user?.email ?? ""}

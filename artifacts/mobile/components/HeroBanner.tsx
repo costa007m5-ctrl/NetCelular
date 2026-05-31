@@ -20,6 +20,7 @@ const HERO_HEIGHT = 480;
 interface HeroBannerProps {
   items: ContentItem[];
   onItemPress?: (item: ContentItem) => void;
+  onDetailsPress?: (item: ContentItem) => void;
 }
 
 interface HeroItemProps {
@@ -31,9 +32,13 @@ interface HeroItemProps {
 
 function HeroItem({ item, colors, onWatch, onDetails }: HeroItemProps) {
   const [imgError, setImgError] = useState(false);
+  const handlePress = onDetails ?? onWatch;
 
   return (
-    <View style={{ width: SCREEN_WIDTH, height: HERO_HEIGHT }}>
+    <Pressable
+      style={{ width: SCREEN_WIDTH, height: HERO_HEIGHT }}
+      onPress={handlePress}
+    >
       {!imgError ? (
         <Image
           source={{ uri: item.backdropPath }}
@@ -106,7 +111,7 @@ function HeroItem({ item, colors, onWatch, onDetails }: HeroItemProps) {
           </Pressable>
 
           <Pressable
-            onPress={onDetails}
+            onPress={onDetails ?? onWatch}
             style={({ pressed }) => [
               styles.detailsBtn,
               {
@@ -122,11 +127,11 @@ function HeroItem({ item, colors, onWatch, onDetails }: HeroItemProps) {
           </Pressable>
         </View>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
-export function HeroBanner({ items, onItemPress }: HeroBannerProps) {
+export function HeroBanner({ items, onItemPress, onDetailsPress }: HeroBannerProps) {
   const colors = useColors();
   const [activeIndex, setActiveIndex] = useState(0);
   const scrollX = useRef(new Animated.Value(0)).current;
@@ -165,6 +170,7 @@ export function HeroBanner({ items, onItemPress }: HeroBannerProps) {
             item={item}
             colors={colors}
             onWatch={onItemPress ? () => onItemPress(item) : undefined}
+            onDetails={onDetailsPress ? () => onDetailsPress(item) : onItemPress ? () => onItemPress(item) : undefined}
           />
         ))}
       </Animated.ScrollView>
