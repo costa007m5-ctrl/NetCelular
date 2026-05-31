@@ -327,12 +327,30 @@ export default function ChannelDetailScreen() {
               injectedJavaScript={AD_BLOCKER_JS}
               onShouldStartLoadWithRequest={(req: any) => {
                 const url: string = req.url || "";
+                const isTopFrame: boolean = req.isTopFrame ?? true;
+
                 const BLOCKED = [
                   "googlesyndication","doubleclick.net","adservice.google",
                   "pagead2.googlesyndication","adnxs.com","taboola.com",
                   "popads.net","popcash.net","propellerads.com","adsterra.com",
+                  "mgid.com","revcontent.com","outbrain.com","exoclick.com",
+                  "trafficjunky.com","juicyads.com","hilltopads.net",
                 ];
-                return !BLOCKED.some((d) => url.includes(d));
+                if (BLOCKED.some((d) => url.includes(d))) return false;
+
+                /* Block top-frame redirects to different domains (ad popunders) */
+                if (isTopFrame && url !== channelUrl && url !== "about:blank") {
+                  try {
+                    const origHost = new URL(channelUrl).hostname;
+                    const navHost = new URL(url).hostname;
+                    /* Allow same origin and HLS/video CDN sub-paths */
+                    if (navHost !== origHost) return false;
+                  } catch {
+                    /* if URL parse fails, allow it */
+                  }
+                }
+
+                return true;
               }}
             />
             {/* Fullscreen toggle button */}

@@ -507,14 +507,28 @@ export default function PlayerScreen() {
         scalesPageToFit={false}
         injectedJavaScript={AD_BLOCKER_JS}
         injectedJavaScriptBeforeContentLoaded={`(function(){ window.open = function(){ return null; }; })(); true;`}
-        onShouldStartLoadWithRequest={(req) => {
-          const url = req.url;
-          const blocked =
-            url.includes("googlesyndication") ||
-            url.includes("doubleclick.net") ||
-            url.includes("adservice.google") ||
-            url.includes("pagead2.googlesyndication");
-          if (blocked) return false;
+        onShouldStartLoadWithRequest={(req: any) => {
+          const url: string = req.url || "";
+          const isTopFrame: boolean = req.isTopFrame ?? true;
+
+          const BLOCKED = [
+            "googlesyndication","doubleclick.net","adservice.google",
+            "pagead2.googlesyndication","adnxs.com","taboola.com",
+            "popads.net","popcash.net","propellerads.com","adsterra.com",
+            "mgid.com","revcontent.com","outbrain.com","exoclick.com",
+            "trafficjunky.com","juicyads.com","hilltopads.net",
+          ];
+          if (BLOCKED.some((d) => url.includes(d))) return false;
+
+          /* For live channels: block top-frame redirects to different domains */
+          if (isLive && isTopFrame && url !== playerUrl && url !== "about:blank") {
+            try {
+              const origHost = new URL(playerUrl).hostname;
+              const navHost = new URL(url).hostname;
+              if (navHost !== origHost) return false;
+            } catch {}
+          }
+
           return true;
         }}
       />
