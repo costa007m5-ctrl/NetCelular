@@ -418,12 +418,18 @@ export default function PlayerScreen() {
         mediaPlaybackRequiresUserAction={false}
         javaScriptEnabled
         domStorageEnabled
+        mixedContentMode="always"
         startInLoadingState={false}
         injectedJavaScript={AD_BLOCKER_JS}
         injectedJavaScriptBeforeContentLoaded={`(function(){ window.open = function(){ return null; }; })(); true;`}
         onShouldStartLoadWithRequest={(req) => {
-          const allowed = req.url.includes("redeflix") || req.url.includes("embedtv") || req.url.includes("faz-o-eli");
-          if (!allowed && req.navigationType === "click") return false;
+          const url = req.url;
+          const blocked =
+            url.includes("googlesyndication") ||
+            url.includes("doubleclick.net") ||
+            url.includes("adservice.google") ||
+            url.includes("pagead2.googlesyndication");
+          if (blocked) return false;
           return true;
         }}
       />

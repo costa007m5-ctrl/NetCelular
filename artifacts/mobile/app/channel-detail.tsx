@@ -131,10 +131,25 @@ export default function ChannelDetailScreen() {
       Animated.timing(fadeAnim, { toValue: 1, duration: 500, useNativeDriver: true }),
       Animated.timing(slideAnim, { toValue: 0, duration: 500, useNativeDriver: true }),
     ]).start();
+    return () => {
+      if (Platform.OS !== "web" && ScreenOrientation) {
+        try { ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP); } catch {}
+      }
+    };
   }, []);
 
   const toggleFullscreen = () => {
-    setFullscreen((v) => !v);
+    const next = !fullscreen;
+    setFullscreen(next);
+    if (Platform.OS !== "web" && ScreenOrientation) {
+      try {
+        if (next) {
+          ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
+        } else {
+          ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
+        }
+      } catch {}
+    }
   };
 
   const PLAYER_H = 230;
