@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
+  Dimensions,
   Linking,
   Modal,
   Platform,
@@ -36,9 +37,14 @@ import {
   requestPermissionsAndSetup,
   setNotificationsEnabled,
 } from "@/lib/notifications";
+import type { WatchlistItem } from "@/lib/supabase";
 
+const { width: SW } = Dimensions.get("window");
 const ACTIVE_PROFILE_KEY = "netplay_active_profile_v2";
+const BANNER_KEY = "netplay_profile_banner";
 const RED = "#e50914";
+const TMDB_KEY = "8f0beb08cf016ec8de49e454e09879ec";
+const TMDB_IMG = "https://image.tmdb.org/t/p";
 const QUALITY_OPTIONS = ["Auto", "Baixa (360p)", "Média (480p)", "Boa (720p)", "Alta (1080p)", "Ultra (4K)"];
 const AUDIO_OPTIONS = ["Português (BR)", "Inglês", "Espanhol", "Francês", "Alemão", "Italiano", "Japonês"];
 const SUBTITLE_OPTIONS = ["Desativado", "Português (BR)", "Inglês", "Espanhol", "Francês", "Alemão"];
@@ -153,6 +159,13 @@ export default function ProfileScreen() {
   const [watchedCount, setWatchedCount] = useState(0);
   const [listCount, setListCount] = useState(0);
   const [watchHistory, setWatchHistory] = useState<any[]>([]);
+  const [watchlist, setWatchlist] = useState<WatchlistItem[]>([]);
+
+  const [profileBanner, setProfileBanner] = useState<string | null>(null);
+  const [showBannerModal, setShowBannerModal] = useState(false);
+  const [showAvatarOptions, setShowAvatarOptions] = useState(false);
+  const [bannerMovies, setBannerMovies] = useState<any[]>([]);
+  const [loadingBanners, setLoadingBanners] = useState(false);
 
   const [showInfoModal, setShowInfoModal] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
@@ -177,21 +190,63 @@ export default function ProfileScreen() {
       if (raw) setActiveProfile(JSON.parse(raw));
     } catch {}
 
+    try {
+      const banner = await AsyncStorage.getItem(BANNER_KEY);
+      if (banner) setProfileBanner(banner);
+    } catch {}
+
     const s = await getSettings();
     setSettings(s);
 
     if (user?.id && isSupabaseConfigured) {
-      const [progress, watchlist] = await Promise.all([
+      const [progress, watchlistData] = await Promise.all([
         db.progress.getAll(user.id),
         db.watchlist.getAll(user.id),
       ]);
       setWatchedCount(progress.length);
-      setListCount(watchlist.length);
+      setListCount(watchlistData.length);
       setWatchHistory(progress.slice(0, 20));
+      setWatchlist(watchlistData);
     }
   }, [user?.id]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  const fetchBannerMovies = async () => {
+    setLoadingBanners(true);
+    try {
+      const [r1, r2] = await Promise.all([
+        fetch(`https://api.themoviedb.org/3/movie/popular?api_key=${TMDB_KEY}&language=pt-BR&page=1`),
+        fetch(`https://api.themoviedb.org/3/trending/all/week?api_key=${TMDB_KEY}&language=pt-BR`),
+      ]);
+      const [d1, d2] = await Promise.all([r1.json(), r2.json()]);
+      const combined = [...(d1.results ?? []), ...(d2.results ?? [])]
+        .filter((m: any) => m.backdrop_path)
+        .filter((m: any, i: number, arr: any[]) => arr.findIndex((x: any) => x.id === m.id) === i)
+        .slice(0, 24);
+      setBannerMovies(combined);
+    } catch {}
+    setLoadingBanners(false);
+  };
+
+  const openBannerPicker = () => {
+    setShowAvatarOptions(false);
+    setShowBannerModal(true);
+    if (bannerMovies.length === 0) fetchBannerMovies();
+  };
+
+  const selectBanner = async (backdropPath: string) => {
+    const url = `${TMDB_IMG}/w1280${backdropPath}`;
+    setProfileBanner(url);
+    await AsyncStorage.setItem(BANNER_KEY, url);
+    setShowBannerModal(false);
+  };
+
+  const removeBanner = async () => {
+    setProfileBanner(null);
+    await AsyncStorage.removeItem(BANNER_KEY);
+    setShowBannerModal(false);
+  };
 
   const updateLocalSetting = async <K extends keyof UserSettings>(key: K, val: UserSettings[K]) => {
     setSettings((prev) => ({ ...prev, [key]: val }));
@@ -307,6 +362,17 @@ export default function ProfileScreen() {
   const avatarUrl = activeProfile?.avatarUrl;
   const displayName = activeProfile?.name ?? user?.name ?? "Usuário";
 
+  const removeWatchlistItem = async (item: WatchlistItem) => {
+    if (!user?.id) return;
+    await db.watchlist.remove(user.id, item.tmdb_id, item.type);
+    setWatchlist((prev) => prev.filter((x) => !(x.tmdb_id === item.tmdb_id && x.type === item.type)));
+    setListCount((c) => Math.max(0, c - 1));
+  };
+
+  const navigateToDetail = (id: number, type: "movie" | "tv", title: string) => {
+    router.push({ pathname: "/detail", params: { type, id: String(id), title } });
+  };
+
   return (
     <View style={[s.container, { backgroundColor: colors.background }]}>
       <StatusBar style="light" />
@@ -316,58 +382,150 @@ export default function ProfileScreen() {
         contentContainerStyle={{ paddingBottom: 130 }}
       >
         {/* ── HERO HEADER ─────────────────────────────────── */}
-        <LinearGradient colors={["#1a0000", "#0d0000", colors.background]} style={s.heroGradient}>
-          <View style={[s.heroTop, { paddingTop: insets.top + 16 }]}>
-            <Text style={[s.screenTitle, { color: "rgba(255,255,255,0.4)" }]}>MEU PERFIL</Text>
-          </View>
-
-          <View style={s.avatarArea}>
-            <Pressable onPress={() => router.push("/profile-select")} style={s.avatarBtn}>
-              {avatarUrl ? (
-                <Image source={{ uri: avatarUrl }} style={s.avatar} contentFit="cover" />
-              ) : (
-                <LinearGradient colors={[RED, "#8b0000"]} style={s.avatar}>
-                  <Text style={s.avatarLetter}>{displayName[0]?.toUpperCase()}</Text>
-                </LinearGradient>
-              )}
-              <View style={[s.editBadge, { backgroundColor: RED }]}>
-                <Feather name="edit-2" size={11} color="#fff" />
-              </View>
-            </Pressable>
-
-            <Text style={[s.userName, { color: colors.foreground }]}>{displayName}</Text>
-            <Text style={[s.userEmail, { color: colors.mutedForeground }]}>{user?.email}</Text>
-
-            <View style={s.badgesRow}>
-              {isPremium && (
-                <View style={[s.roleBadge, { backgroundColor: `${RED}22`, borderColor: RED }]}>
-                  <Feather name="star" size={10} color={RED} />
-                  <Text style={[s.roleTxt, { color: RED }]}>PREMIUM</Text>
-                </View>
-              )}
-              {user?.role === "admin" && (
-                <View style={[s.roleBadge, { backgroundColor: "#fbbf2422", borderColor: "#fbbf24" }]}>
-                  <Feather name="shield" size={10} color="#fbbf24" />
-                  <Text style={[s.roleTxt, { color: "#fbbf24" }]}>ADMIN</Text>
-                </View>
+        <View style={s.heroWrapper}>
+          {profileBanner ? (
+            <Image
+              source={{ uri: profileBanner }}
+              style={s.bannerImage}
+              contentFit="cover"
+            />
+          ) : null}
+          <LinearGradient
+            colors={profileBanner
+              ? ["rgba(0,0,0,0.15)", "rgba(0,0,0,0.55)", "rgba(0,0,0,0.92)", colors.background]
+              : ["#1a0000", "#0d0000", colors.background]}
+            style={s.heroGradient}
+          >
+            <View style={[s.heroTop, { paddingTop: insets.top + 16 }]}>
+              <Text style={[s.screenTitle, { color: "rgba(255,255,255,0.4)" }]}>MEU PERFIL</Text>
+              {profileBanner && (
+                <Pressable onPress={() => setShowBannerModal(true)} style={s.changeBannerBtn}>
+                  <Feather name="image" size={13} color="rgba(255,255,255,0.5)" />
+                  <Text style={s.changeBannerTxt}>Trocar banner</Text>
+                </Pressable>
               )}
             </View>
-          </View>
 
-          <View style={[s.statsRow, { borderColor: colors.border + "40" }]}>
-            {[
-              { val: watchedCount, label: "Assistidos" },
-              { val: listCount, label: "Na lista" },
-              { val: 3, label: "Downloads" },
-              { val: `${totalHours}h`, label: "Tempo total" },
-            ].map((stat, i, arr) => (
-              <View key={stat.label} style={[s.statItem, i < arr.length - 1 && { borderRightWidth: 1, borderRightColor: colors.border + "40" }]}>
-                <Text style={[s.statVal, { color: colors.foreground }]}>{stat.val}</Text>
-                <Text style={[s.statLabel, { color: colors.mutedForeground }]}>{stat.label}</Text>
+            <View style={s.avatarArea}>
+              <Pressable onPress={() => setShowAvatarOptions(true)} style={s.avatarBtn}>
+                {avatarUrl ? (
+                  <Image source={{ uri: avatarUrl }} style={s.avatar} contentFit="cover" />
+                ) : (
+                  <LinearGradient colors={[RED, "#8b0000"]} style={s.avatar}>
+                    <Text style={s.avatarLetter}>{displayName[0]?.toUpperCase()}</Text>
+                  </LinearGradient>
+                )}
+                <View style={[s.editBadge, { backgroundColor: RED }]}>
+                  <Feather name="edit-2" size={11} color="#fff" />
+                </View>
+              </Pressable>
+
+              <Text style={[s.userName, { color: colors.foreground }]}>{displayName}</Text>
+              <Text style={[s.userEmail, { color: colors.mutedForeground }]}>{user?.email}</Text>
+
+              <View style={s.badgesRow}>
+                {isPremium && (
+                  <View style={[s.roleBadge, { backgroundColor: `${RED}22`, borderColor: RED }]}>
+                    <Feather name="star" size={10} color={RED} />
+                    <Text style={[s.roleTxt, { color: RED }]}>PREMIUM</Text>
+                  </View>
+                )}
+                {user?.role === "admin" && (
+                  <View style={[s.roleBadge, { backgroundColor: "#fbbf2422", borderColor: "#fbbf24" }]}>
+                    <Feather name="shield" size={10} color="#fbbf24" />
+                    <Text style={[s.roleTxt, { color: "#fbbf24" }]}>ADMIN</Text>
+                  </View>
+                )}
               </View>
-            ))}
+            </View>
+
+            <View style={[s.statsRow, { borderColor: colors.border + "40" }]}>
+              {[
+                { val: watchedCount, label: "Assistidos" },
+                { val: listCount, label: "Na lista" },
+                { val: 3, label: "Downloads" },
+                { val: `${totalHours}h`, label: "Tempo total" },
+              ].map((stat, i, arr) => (
+                <View key={stat.label} style={[s.statItem, i < arr.length - 1 && { borderRightWidth: 1, borderRightColor: colors.border + "40" }]}>
+                  <Text style={[s.statVal, { color: colors.foreground }]}>{stat.val}</Text>
+                  <Text style={[s.statLabel, { color: colors.mutedForeground }]}>{stat.label}</Text>
+                </View>
+              ))}
+            </View>
+          </LinearGradient>
+        </View>
+
+        {/* ── MINHA LISTA ──────────────────────────────────── */}
+        {watchlist.length > 0 && (
+          <View style={s.listSection}>
+            <View style={s.listHeader}>
+              <View style={s.listIconWrap}>
+                <Feather name="bookmark" size={14} color={RED} />
+              </View>
+              <Text style={[s.listTitle, { color: colors.foreground }]}>Minha Lista</Text>
+              <Text style={[s.listCount, { color: colors.mutedForeground }]}>{watchlist.length} títulos</Text>
+            </View>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={s.listScroll}
+            >
+              {watchlist.map((item) => {
+                const imgUri = item.poster_path ? `${TMDB_IMG}/w185${item.poster_path}` : null;
+                return (
+                  <Pressable
+                    key={`${item.tmdb_id}-${item.type}`}
+                    onPress={() => navigateToDetail(item.tmdb_id, item.type, item.title)}
+                    style={s.listCard}
+                  >
+                    <View style={s.listCardInner}>
+                      {imgUri ? (
+                        <Image source={{ uri: imgUri }} style={StyleSheet.absoluteFill} contentFit="cover" />
+                      ) : (
+                        <View style={[StyleSheet.absoluteFill, { backgroundColor: "#1a1a1a", alignItems: "center", justifyContent: "center" }]}>
+                          <Feather name="film" size={20} color="rgba(255,255,255,0.2)" />
+                        </View>
+                      )}
+                      <LinearGradient
+                        colors={["transparent", "rgba(0,0,0,0.85)"]}
+                        locations={[0.5, 1]}
+                        style={StyleSheet.absoluteFill}
+                      />
+                      <Pressable
+                        onPress={() => removeWatchlistItem(item)}
+                        style={s.listRemoveBtn}
+                        hitSlop={8}
+                      >
+                        <Feather name="x" size={12} color="#fff" />
+                      </Pressable>
+                      <View style={s.listCardBottom}>
+                        <Text style={s.listCardTitle} numberOfLines={2}>{item.title}</Text>
+                        <View style={s.listTypeBadge}>
+                          <Text style={s.listTypeText}>{item.type === "movie" ? "FILME" : "SÉRIE"}</Text>
+                        </View>
+                      </View>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
           </View>
-        </LinearGradient>
+        )}
+
+        {watchlist.length === 0 && (
+          <View style={[s.listSection, { paddingBottom: 8 }]}>
+            <View style={s.listHeader}>
+              <View style={s.listIconWrap}>
+                <Feather name="bookmark" size={14} color={RED} />
+              </View>
+              <Text style={[s.listTitle, { color: colors.foreground }]}>Minha Lista</Text>
+            </View>
+            <View style={s.listEmpty}>
+              <Feather name="plus-circle" size={22} color="rgba(255,255,255,0.15)" />
+              <Text style={s.listEmptyTxt}>Adicione filmes e séries à sua lista</Text>
+            </View>
+          </View>
+        )}
 
         {/* ── MINHA CONTA ─────────────────────────────────── */}
         <Section title="MINHA CONTA">
@@ -503,6 +661,107 @@ export default function ProfileScreen() {
 
         <Text style={[s.version, { color: colors.mutedForeground }]}>NETPLAY v2.1.0 · Feito com ❤️ no Brasil</Text>
       </ScrollView>
+
+      {/* ── MODAL: OPÇÕES DO AVATAR ──────────────────────── */}
+      <Modal visible={showAvatarOptions} transparent animationType="fade" onRequestClose={() => setShowAvatarOptions(false)}>
+        <Pressable style={s.modalOverlay} onPress={() => setShowAvatarOptions(false)}>
+          <View style={[s.avatarOptionsSheet, { backgroundColor: colors.card, borderColor: colors.border + "60" }]}>
+            <View style={s.modalHandle} />
+            <Text style={[s.modalTitle, { color: colors.foreground }]}>Personalizar Perfil</Text>
+
+            <Pressable
+              onPress={() => { setShowAvatarOptions(false); router.push("/profile-select"); }}
+              style={({ pressed }) => [s.avatarOption, { backgroundColor: pressed ? colors.border + "30" : "transparent" }]}
+            >
+              <View style={[s.avatarOptionIcon, { backgroundColor: RED + "22" }]}>
+                <Feather name="user" size={18} color={RED} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[s.avatarOptionTitle, { color: colors.foreground }]}>Trocar Avatar</Text>
+                <Text style={[s.avatarOptionSub, { color: colors.mutedForeground }]}>Escolha outro perfil ou avatar</Text>
+              </View>
+              <Feather name="chevron-right" size={16} color={colors.border} />
+            </Pressable>
+
+            <Pressable
+              onPress={openBannerPicker}
+              style={({ pressed }) => [s.avatarOption, { backgroundColor: pressed ? colors.border + "30" : "transparent" }]}
+            >
+              <View style={[s.avatarOptionIcon, { backgroundColor: "#a78bfa22" }]}>
+                <Feather name="image" size={18} color="#a78bfa" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[s.avatarOptionTitle, { color: colors.foreground }]}>Escolher Banner</Text>
+                <Text style={[s.avatarOptionSub, { color: colors.mutedForeground }]}>
+                  {profileBanner ? "Trocar imagem de fundo do perfil" : "Adicionar imagem de fundo premium"}
+                </Text>
+              </View>
+              <Feather name="chevron-right" size={16} color={colors.border} />
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
+
+      {/* ── MODAL: BANNER PICKER ─────────────────────────── */}
+      <Modal visible={showBannerModal} transparent animationType="slide" onRequestClose={() => setShowBannerModal(false)}>
+        <View style={s.modalOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowBannerModal(false)} />
+          <View style={[s.bannerSheet, { backgroundColor: colors.card, borderColor: colors.border + "60" }]}>
+            <View style={s.modalHandle} />
+            <View style={s.bannerSheetHeader}>
+              <Text style={[s.modalTitle, { color: colors.foreground, marginBottom: 0 }]}>Escolher Banner</Text>
+              {profileBanner && (
+                <Pressable onPress={removeBanner} style={s.removeBannerBtn}>
+                  <Feather name="trash-2" size={14} color={RED} />
+                  <Text style={[s.removeBannerTxt, { color: RED }]}>Remover</Text>
+                </Pressable>
+              )}
+            </View>
+            <Text style={[s.bannerSheetSub, { color: colors.mutedForeground }]}>
+              Selecione um backdrop para deixar seu perfil mais premium
+            </Text>
+
+            {loadingBanners ? (
+              <View style={s.bannerLoading}>
+                <View style={s.bannerLoadingDot} />
+                <Text style={{ color: colors.mutedForeground, fontSize: 13, marginLeft: 10 }}>Carregando filmes...</Text>
+              </View>
+            ) : (
+              <ScrollView
+                style={{ maxHeight: SW * 0.7 }}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={s.bannerGrid}
+              >
+                {bannerMovies.map((movie: any) => {
+                  const uri = `${TMDB_IMG}/w780${movie.backdrop_path}`;
+                  const isSelected = profileBanner === `${TMDB_IMG}/w1280${movie.backdrop_path}`;
+                  return (
+                    <Pressable
+                      key={movie.id}
+                      onPress={() => selectBanner(movie.backdrop_path)}
+                      style={[s.bannerThumb, isSelected && s.bannerThumbSelected]}
+                    >
+                      <Image source={{ uri }} style={StyleSheet.absoluteFill} contentFit="cover" />
+                      <LinearGradient
+                        colors={["transparent", "rgba(0,0,0,0.7)"]}
+                        style={StyleSheet.absoluteFill}
+                      />
+                      {isSelected && (
+                        <View style={s.bannerCheck}>
+                          <Feather name="check" size={14} color="#fff" />
+                        </View>
+                      )}
+                      <Text style={s.bannerMovieTitle} numberOfLines={1}>
+                        {movie.title ?? movie.name}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
 
       {/* ── MODAL: INFORMAÇÕES PESSOAIS ─────────────────── */}
       <ModalSheet visible={showInfoModal} onClose={() => setShowInfoModal(false)} title="Informações Pessoais">
@@ -725,11 +984,37 @@ export default function ProfileScreen() {
   );
 }
 
+const CARD_W = (SW - 48) / 2;
+
 const s = StyleSheet.create({
   container: { flex: 1 },
+  heroWrapper: { position: "relative" },
+  bannerImage: {
+    position: "absolute",
+    top: 0, left: 0, right: 0,
+    height: 320,
+  },
   heroGradient: { paddingBottom: 24 },
-  heroTop: { paddingHorizontal: 20, paddingBottom: 8 },
+  heroTop: {
+    paddingHorizontal: 20,
+    paddingBottom: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
   screenTitle: { fontSize: 11, fontWeight: "700", letterSpacing: 3 },
+  changeBannerBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.15)",
+  },
+  changeBannerTxt: { fontSize: 11, color: "rgba(255,255,255,0.6)", fontWeight: "600" },
   avatarArea: { alignItems: "center", paddingBottom: 20 },
   avatarBtn: { position: "relative", marginBottom: 14 },
   avatar: {
@@ -763,6 +1048,57 @@ const s = StyleSheet.create({
   statItem: { flex: 1, alignItems: "center", paddingVertical: 14 },
   statVal: { fontSize: 18, fontWeight: "800" },
   statLabel: { fontSize: 11, marginTop: 2, fontWeight: "500" },
+
+  // Minha Lista inline
+  listSection: { paddingTop: 24, paddingBottom: 20 },
+  listHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    marginBottom: 14,
+    gap: 8,
+  },
+  listIconWrap: {
+    width: 26, height: 26, borderRadius: 8,
+    backgroundColor: "rgba(229,9,20,0.18)",
+    alignItems: "center", justifyContent: "center",
+  },
+  listTitle: { fontSize: 16, fontWeight: "800", flex: 1, letterSpacing: -0.3 },
+  listCount: { fontSize: 12, fontWeight: "600" },
+  listScroll: { paddingHorizontal: 20, paddingBottom: 4, gap: 10 },
+  listCard: { marginRight: 0 },
+  listCardInner: {
+    width: 110, height: 165,
+    borderRadius: 14, overflow: "hidden",
+    backgroundColor: "#111",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.08)",
+    justifyContent: "flex-end",
+  },
+  listRemoveBtn: {
+    position: "absolute", top: 6, right: 6,
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    alignItems: "center", justifyContent: "center",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.15)",
+  },
+  listCardBottom: { padding: 8, gap: 4 },
+  listCardTitle: { fontSize: 10, fontWeight: "700", color: "#fff", lineHeight: 13 },
+  listTypeBadge: {
+    backgroundColor: "rgba(229,9,20,0.3)",
+    borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2,
+    alignSelf: "flex-start",
+  },
+  listTypeText: { fontSize: 8, fontWeight: "800", color: RED, letterSpacing: 0.5 },
+  listEmpty: {
+    flexDirection: "row", alignItems: "center",
+    marginHorizontal: 20, gap: 10,
+    backgroundColor: "rgba(255,255,255,0.03)",
+    borderRadius: 14, padding: 16,
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.07)",
+    borderStyle: "dashed",
+  },
+  listEmptyTxt: { fontSize: 13, color: "rgba(255,255,255,0.25)", flex: 1 },
+
   section: { paddingHorizontal: 16, marginBottom: 24 },
   sectionTitle: { fontSize: 11, fontWeight: "700", letterSpacing: 1.5, marginBottom: 8, marginLeft: 4 },
   sectionCard: { borderRadius: 16, borderWidth: 1, overflow: "hidden" },
@@ -778,6 +1114,84 @@ const s = StyleSheet.create({
   badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
   badgeTxt: { fontSize: 11, fontWeight: "700" },
   version: { textAlign: "center", fontSize: 12, marginTop: 8 },
+
+  // Avatar options modal
+  avatarOptionsSheet: {
+    marginHorizontal: 20,
+    marginBottom: 40,
+    borderRadius: 24,
+    borderWidth: 1,
+    overflow: "hidden",
+  },
+  avatarOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    gap: 14,
+  },
+  avatarOptionIcon: {
+    width: 44, height: 44, borderRadius: 14,
+    alignItems: "center", justifyContent: "center",
+  },
+  avatarOptionTitle: { fontSize: 15, fontWeight: "700" },
+  avatarOptionSub: { fontSize: 12, marginTop: 2 },
+
+  // Banner picker modal
+  bannerSheet: {
+    borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    borderWidth: 1, paddingBottom: 40,
+    maxHeight: "90%",
+  },
+  bannerSheetHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 24,
+    paddingBottom: 4,
+  },
+  bannerSheetSub: { fontSize: 13, paddingHorizontal: 24, marginBottom: 16 },
+  removeBannerBtn: { flexDirection: "row", alignItems: "center", gap: 5 },
+  removeBannerTxt: { fontSize: 13, fontWeight: "600" },
+  bannerLoading: {
+    flexDirection: "row", alignItems: "center",
+    justifyContent: "center", padding: 40,
+  },
+  bannerLoadingDot: {
+    width: 8, height: 8, borderRadius: 4, backgroundColor: RED,
+  },
+  bannerGrid: {
+    flexDirection: "row", flexWrap: "wrap",
+    paddingHorizontal: 12, gap: 8,
+  },
+  bannerThumb: {
+    width: CARD_W,
+    height: CARD_W * 0.56,
+    borderRadius: 12,
+    overflow: "hidden",
+    backgroundColor: "#1a1a1a",
+    justifyContent: "flex-end",
+    borderWidth: 2,
+    borderColor: "transparent",
+  },
+  bannerThumbSelected: {
+    borderColor: RED,
+    shadowColor: RED,
+    shadowRadius: 8,
+    shadowOpacity: 0.8,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  bannerCheck: {
+    position: "absolute", top: 8, right: 8,
+    width: 24, height: 24, borderRadius: 12,
+    backgroundColor: RED,
+    alignItems: "center", justifyContent: "center",
+  },
+  bannerMovieTitle: {
+    fontSize: 10, fontWeight: "700", color: "#fff",
+    paddingHorizontal: 8, paddingBottom: 6,
+  },
+
   modalOverlay: {
     flex: 1, justifyContent: "flex-end",
     backgroundColor: "rgba(0,0,0,0.65)",

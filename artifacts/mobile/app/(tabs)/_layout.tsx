@@ -19,17 +19,17 @@ function NativeTabLayout() {
         <Icon sf={{ default: "house", selected: "house.fill" }} />
         <Label>Início</Label>
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="channels">
+        <Icon sf={{ default: "tv", selected: "tv.fill" }} />
+        <Label>TV</Label>
+      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="descobrir">
         <Icon sf={{ default: "safari", selected: "safari.fill" }} />
         <Label>Descobrir</Label>
       </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="novidades">
-        <Icon sf={{ default: "star", selected: "star.fill" }} />
-        <Label>Novidades</Label>
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="list">
-        <Icon sf={{ default: "bookmark", selected: "bookmark.fill" }} />
-        <Label>Lista</Label>
+      <NativeTabs.Trigger name="franquias">
+        <Icon sf={{ default: "film.stack", selected: "film.stack.fill" }} />
+        <Label>Franquias</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="profile">
         <Icon sf={{ default: "person", selected: "person.fill" }} />
@@ -98,6 +98,14 @@ function ClassicTabLayout() {
         }}
       />
       <Tabs.Screen
+        name="channels"
+        options={{
+          title: "TV",
+          tabBarIcon: ({ color }) =>
+            isIOS ? <SymbolView name="tv" tintColor={color} size={22} /> : <Feather name="tv" size={22} color={color} />,
+        }}
+      />
+      <Tabs.Screen
         name="descobrir"
         options={{
           title: "Descobrir",
@@ -106,19 +114,11 @@ function ClassicTabLayout() {
         }}
       />
       <Tabs.Screen
-        name="novidades"
+        name="franquias"
         options={{
-          title: "Novidades",
+          title: "Franquias",
           tabBarIcon: ({ color }) =>
-            isIOS ? <SymbolView name="star" tintColor={color} size={22} /> : <Feather name="star" size={22} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="list"
-        options={{
-          title: "Lista",
-          tabBarIcon: ({ color }) =>
-            isIOS ? <SymbolView name="bookmark" tintColor={color} size={22} /> : <Feather name="bookmark" size={22} color={color} />,
+            isIOS ? <SymbolView name="film" tintColor={color} size={22} /> : <Feather name="film" size={22} color={color} />,
         }}
       />
       <Tabs.Screen
@@ -132,8 +132,8 @@ function ClassicTabLayout() {
       {/* Hidden screens — accessible via router.push */}
       <Tabs.Screen name="search" options={{ href: null }} />
       <Tabs.Screen name="downloads" options={{ href: null }} />
-      <Tabs.Screen name="franquias" options={{ href: null }} />
-      <Tabs.Screen name="channels" options={{ href: null }} />
+      <Tabs.Screen name="novidades" options={{ href: null }} />
+      <Tabs.Screen name="list" options={{ href: null }} />
     </Tabs>
   );
 }
