@@ -7,3 +7,4 @@
 - [Settings Supabase sync](settings-supabase-sync.md) — ALL UserSettings now sync to Supabase via SETTING_TO_DB map in profile.tsx; DB columns added to user_settings via ALTER TABLE in supabase-schema.sql.
 - [TMDB collection data](tmdb-collection-data.md) — franchise.tsx TMDB collections now populate overview/yearRange/totalHours from API; dynamicFranchise references these state vars.
 - [Search pagination](search-pagination.md) — api.tmdb.search() accepts optional page param; franchise search fallback fetches 3 pages to avoid early truncation.
+- [Novidades tab + redeflixapi lists](novidades-tab.md) — Novidades is a visible tab (2nd position); fetches real content from redeflixapi.store list TXT endpoints; channels tab is now hidden.

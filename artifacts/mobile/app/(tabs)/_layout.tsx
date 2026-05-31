@@ -19,9 +19,9 @@ function NativeTabLayout() {
         <Icon sf={{ default: "house", selected: "house.fill" }} />
         <Label>Início</Label>
       </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="channels">
-        <Icon sf={{ default: "tv", selected: "tv.fill" }} />
-        <Label>TV</Label>
+      <NativeTabs.Trigger name="novidades">
+        <Icon sf={{ default: "sparkles", selected: "sparkles" }} />
+        <Label>Novidades</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="descobrir">
         <Icon sf={{ default: "safari", selected: "safari.fill" }} />
@@ -117,11 +117,11 @@ function ClassicTabLayout() {
         }}
       />
       <Tabs.Screen
-        name="channels"
+        name="novidades"
         options={{
-          title: "TV",
+          title: "Novidades",
           tabBarIcon: ({ color }) =>
-            isIOS ? <SymbolView name="tv" tintColor={color} size={22} /> : <Feather name="tv" size={22} color={color} />,
+            isIOS ? <SymbolView name="sparkles" tintColor={color} size={22} /> : <Feather name="star" size={22} color={color} />,
         }}
       />
       <Tabs.Screen
@@ -149,9 +149,9 @@ function ClassicTabLayout() {
         }}
       />
       {/* Hidden screens — accessible via router.push */}
+      <Tabs.Screen name="channels" options={{ href: null }} />
       <Tabs.Screen name="search" options={{ href: null }} />
       <Tabs.Screen name="downloads" options={{ href: null }} />
-      <Tabs.Screen name="novidades" options={{ href: null }} />
       <Tabs.Screen name="list" options={{ href: null }} />
     </Tabs>
   );

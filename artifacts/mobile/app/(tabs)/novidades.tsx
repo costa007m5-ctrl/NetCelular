@@ -18,7 +18,6 @@ import { Image } from "expo-image";
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/lib/auth-context";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
 import { api } from "@/lib/api";
@@ -26,15 +25,34 @@ import type { TmdbItem } from "@/lib/api";
 
 const { width: SW } = Dimensions.get("window");
 const RED = "#e50914";
+const BATCH = 12;
 
+/* ─── helpers ─────────────────────────────────────────────────────────────── */
 function itemTitle(it: TmdbItem) { return it.title ?? it.name ?? "Sem título"; }
-function itemYear(it: TmdbItem)  { return (it.release_date ?? it.first_air_date ?? "2024").slice(0, 4); }
-function itemIsMovie(it: TmdbItem) { return it.media_type === "movie" || (!!it.title && !it.name); }
+function itemYear(it: TmdbItem)  { return (it.release_date ?? it.first_air_date ?? "").slice(0, 4); }
+function itemIsMovie(it: TmdbItem) {
+  return !!(it.title && !it.name) || it.media_type === "movie";
+}
 function tmdbImg(path: string | null | undefined, size = "w500") {
   return path ? `https://image.tmdb.org/t/p/${size}${path}` : null;
 }
 
-/* ─── Hero Banner ─────────────────────────────────────────────────────────── */
+/* Fetch TMDB item — tries TV first, then movie (needed for anime IDs that
+   can be either type in TMDB) */
+async function fetchTmdbItem(id: number, preferType?: "movie" | "tv"): Promise<TmdbItem | null> {
+  if (preferType === "movie") {
+    return api.tmdb.movie(id).catch(() => null);
+  }
+  if (preferType === "tv") {
+    return api.tmdb.tv(id).catch(() => null);
+  }
+  // Unknown type: try TV first, fallback to movie
+  const tv = await api.tmdb.tv(id).catch(() => null);
+  if (tv) return tv;
+  return api.tmdb.movie(id).catch(() => null);
+}
+
+/* ─── Hero Banner ──────────────────────────────────────────────────────────── */
 function HeroBanner({
   items,
   topPad,
@@ -50,12 +68,12 @@ function HeroBanner({
 }) {
   const router = useRouter();
   const [idx, setIdx] = useState(0);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     if (items.length < 2) return;
-    timerRef.current = setInterval(() => setIdx((i) => (i + 1) % Math.min(items.length, 6)), 5000);
-    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+    timer.current = setInterval(() => setIdx((i) => (i + 1) % Math.min(items.length, 6)), 5000);
+    return () => { if (timer.current) clearInterval(timer.current); };
   }, [items.length]);
 
   const item = items[idx];
@@ -68,48 +86,47 @@ function HeroBanner({
   return (
     <View style={hb.wrap}>
       {img ? (
-        <Image source={{ uri: img }} style={StyleSheet.absoluteFill} contentFit="cover" transition={400} />
+        <Image source={{ uri: img }} style={StyleSheet.absoluteFill} contentFit="cover" transition={500} />
       ) : (
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: "#111" }]} />
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: "#1a1a1a" }]} />
       )}
       <LinearGradient
-        colors={["rgba(0,0,0,0.45)", "transparent", "rgba(0,0,0,0.65)", "rgba(0,0,0,0.97)"]}
+        colors={["rgba(0,0,0,0.5)", "transparent", "rgba(0,0,0,0.7)", "rgba(0,0,0,1)"]}
         locations={[0, 0.2, 0.65, 1]}
         style={StyleSheet.absoluteFill}
       />
 
-      {/* Header overlaid */}
+      {/* Header */}
       <View style={[hb.header, { paddingTop: topPad + 10 }]}>
-        <Text style={hb.logo}>
-          <Text style={{ color: RED }}>NET</Text>PLAY
-        </Text>
+        <Text style={hb.logo}><Text style={{ color: RED }}>NET</Text>PLAY</Text>
         <View style={hb.actions}>
-          <Pressable style={hb.iconBtn} onPress={() => router.push("/(tabs)/search")}>
+          <Pressable style={hb.iconBtn} onPress={() => router.push("/(tabs)/search" as any)}>
             <Feather name="search" size={18} color="rgba(255,255,255,0.85)" />
           </Pressable>
-          <Pressable style={hb.avatarBtn} onPress={() => router.push("/(tabs)/profile")}>
+          <Pressable style={hb.avatarBtn} onPress={() => router.push("/(tabs)/profile" as any)}>
             <Text style={hb.avatarTxt}>{user?.avatarLetter ?? "N"}</Text>
           </Pressable>
         </View>
       </View>
 
-      {/* New badge */}
+      {/* NOVO badge */}
       <View style={hb.newBadge}>
         <View style={hb.newDot} />
         <Text style={hb.newTxt}>NOVO</Text>
       </View>
 
-      {/* Content */}
+      {/* Content bottom */}
       <View style={hb.content}>
         <Text style={hb.title} numberOfLines={2}>{itemTitle(item)}</Text>
         <View style={hb.meta}>
-          <Text style={hb.metaTxt}>{isMovie ? "Filme" : "Série"}</Text>
-          <View style={hb.dot} />
-          <Text style={hb.metaTxt}>{itemYear(item)}</Text>
+          <View style={[hb.typePill, { backgroundColor: isMovie ? "#3b82f620" : "#8b5cf620", borderColor: isMovie ? "#3b82f640" : "#8b5cf640" }]}>
+            <Text style={[hb.typeTxt, { color: isMovie ? "#3b82f6" : "#8b5cf6" }]}>{isMovie ? "FILME" : "SÉRIE"}</Text>
+          </View>
+          {itemYear(item) ? <Text style={hb.metaTxt}>{itemYear(item)}</Text> : null}
           {rating != null && (
             <>
-              <View style={hb.dot} />
-              <Text style={{ fontSize: 10 }}>⭐</Text>
+              <Text style={hb.metaDot}>•</Text>
+              <Text style={{ fontSize: 11 }}>⭐</Text>
               <Text style={[hb.metaTxt, { color: "#fbbf24" }]}>{rating}</Text>
             </>
           )}
@@ -129,10 +146,10 @@ function HeroBanner({
         </View>
       </View>
 
-      {/* Indicator dots */}
+      {/* Dot indicators */}
       <View style={hb.dots}>
         {items.slice(0, 6).map((_, i) => (
-          <Pressable key={i} onPress={() => setIdx(i)} style={[hb.dotItem, i === idx && hb.dotActive]} />
+          <Pressable key={i} onPress={() => setIdx(i)} style={[hb.dotBase, i === idx && hb.dotActive]} />
         ))}
       </View>
     </View>
@@ -140,7 +157,7 @@ function HeroBanner({
 }
 
 const hb = StyleSheet.create({
-  wrap: { width: SW, height: 520, justifyContent: "flex-end" },
+  wrap: { width: SW, height: 530, justifyContent: "flex-end" },
   header: {
     position: "absolute", top: 0, left: 0, right: 0,
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
@@ -165,12 +182,14 @@ const hb = StyleSheet.create({
   },
   newDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#fff" },
   newTxt: { fontSize: 10, fontWeight: "800", color: "#fff", letterSpacing: 1 },
-  content: { paddingHorizontal: 20, paddingBottom: 12, gap: 8 },
-  title: { fontSize: 32, fontWeight: "900", color: "#fff", letterSpacing: -0.5, lineHeight: 36 },
-  meta: { flexDirection: "row", alignItems: "center", gap: 6 },
-  metaTxt: { fontSize: 12, color: "rgba(255,255,255,0.55)", fontWeight: "600" },
-  dot: { width: 3, height: 3, borderRadius: 1.5, backgroundColor: "rgba(255,255,255,0.25)" },
-  overview: { fontSize: 13, color: "rgba(255,255,255,0.5)", lineHeight: 19 },
+  content: { paddingHorizontal: 20, paddingBottom: 10, gap: 8 },
+  title: { fontSize: 30, fontWeight: "900", color: "#fff", letterSpacing: -0.5, lineHeight: 34 },
+  meta: { flexDirection: "row", alignItems: "center", gap: 7 },
+  typePill: { borderRadius: 6, borderWidth: 1, paddingHorizontal: 7, paddingVertical: 3 },
+  typeTxt: { fontSize: 10, fontWeight: "800", letterSpacing: 0.5 },
+  metaTxt: { fontSize: 12, color: "rgba(255,255,255,0.5)", fontWeight: "600" },
+  metaDot: { fontSize: 10, color: "rgba(255,255,255,0.2)" },
+  overview: { fontSize: 13, color: "rgba(255,255,255,0.45)", lineHeight: 19 },
   btns: { flexDirection: "row", gap: 10, marginTop: 4 },
   playBtn: {
     flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
@@ -179,12 +198,12 @@ const hb = StyleSheet.create({
   playTxt: { fontSize: 14, fontWeight: "700", color: "#fff" },
   listBtn: {
     flexDirection: "row", alignItems: "center", gap: 8,
-    backgroundColor: "rgba(0,0,0,0.55)", borderWidth: 1, borderColor: "rgba(255,255,255,0.2)",
+    backgroundColor: "rgba(255,255,255,0.1)", borderWidth: 1, borderColor: "rgba(255,255,255,0.15)",
     paddingHorizontal: 18, paddingVertical: 13, borderRadius: 12,
   },
   listTxt: { fontSize: 14, fontWeight: "600", color: "#fff" },
   dots: { flexDirection: "row", justifyContent: "center", gap: 5, paddingBottom: 14 },
-  dotItem: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: "rgba(255,255,255,0.25)" },
+  dotBase: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: "rgba(255,255,255,0.25)" },
   dotActive: { width: 18, backgroundColor: RED },
 });
 
@@ -192,13 +211,13 @@ const hb = StyleSheet.create({
 function SectionHeader({
   title,
   icon,
-  onSeeAll,
   accent,
+  onSeeAll,
 }: {
   title: string;
   icon: any;
-  onSeeAll?: () => void;
   accent?: string;
+  onSeeAll?: () => void;
 }) {
   const c = accent ?? RED;
   return (
@@ -208,20 +227,26 @@ function SectionHeader({
       </View>
       <Text style={sh.title}>{title}</Text>
       {onSeeAll && (
-        <TouchableOpacity onPress={onSeeAll} style={sh.seeAll}>
+        <TouchableOpacity onPress={onSeeAll} style={sh.seeAll} hitSlop={8}>
           <Text style={sh.seeAllTxt}>Ver todos</Text>
-          <Feather name="chevron-right" size={13} color="rgba(255,255,255,0.35)" />
+          <Feather name="chevron-right" size={13} color="rgba(255,255,255,0.3)" />
         </TouchableOpacity>
       )}
     </View>
   );
 }
 const sh = StyleSheet.create({
-  row: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 20, marginBottom: 14 },
-  iconBox: { width: 28, height: 28, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+  row: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    paddingHorizontal: 20, marginBottom: 14,
+  },
+  iconBox: {
+    width: 28, height: 28, borderRadius: 8,
+    alignItems: "center", justifyContent: "center",
+  },
   title: { flex: 1, fontSize: 15, fontWeight: "800", color: "#fff" },
   seeAll: { flexDirection: "row", alignItems: "center", gap: 2 },
-  seeAllTxt: { fontSize: 12, color: "rgba(255,255,255,0.35)", fontWeight: "600" },
+  seeAllTxt: { fontSize: 12, color: "rgba(255,255,255,0.3)", fontWeight: "600" },
 });
 
 /* ─── Poster Card ─────────────────────────────────────────────────────────── */
@@ -243,12 +268,12 @@ function PosterCard({
         <Image source={{ uri: img }} style={StyleSheet.absoluteFill} contentFit="cover" />
       ) : (
         <View style={[StyleSheet.absoluteFill, { backgroundColor: "#1a1a1a", alignItems: "center", justifyContent: "center" }]}>
-          <Feather name="film" size={24} color="rgba(255,255,255,0.2)" />
+          <Feather name="film" size={24} color="rgba(255,255,255,0.15)" />
         </View>
       )}
       <LinearGradient
-        colors={["transparent", "rgba(0,0,0,0.95)"]}
-        locations={[0.5, 1]}
+        colors={["transparent", "rgba(0,0,0,0.9)"]}
+        locations={[0.55, 1]}
         style={StyleSheet.absoluteFill}
       />
       {badge && (
@@ -257,40 +282,48 @@ function PosterCard({
         </View>
       )}
       <View style={pc.info}>
-        <Text style={pc.title} numberOfLines={2}>{itemTitle(item)}</Text>
-        <Text style={pc.year}>{itemYear(item)}</Text>
+        <Text style={pc.titleTxt} numberOfLines={2}>{itemTitle(item)}</Text>
+        <Text style={pc.yearTxt}>{itemYear(item)}</Text>
       </View>
     </Pressable>
   );
 }
-const CARD_W = 120;
-const CARD_H = 178;
+const CARD_W = 118;
+const CARD_H = 176;
 const pc = StyleSheet.create({
   card: {
-    width: CARD_W, height: CARD_H, borderRadius: 12,
-    overflow: "hidden", marginRight: 10,
-    backgroundColor: "#1a1a1a", borderWidth: 1, borderColor: "rgba(255,255,255,0.07)",
+    width: CARD_W, height: CARD_H, borderRadius: 12, overflow: "hidden",
+    marginRight: 10, backgroundColor: "#1a1a1a",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.07)",
   },
   badge: {
     position: "absolute", top: 7, left: 7,
     borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2,
   },
   badgeTxt: { fontSize: 9, fontWeight: "800", color: "#fff", letterSpacing: 0.5 },
-  info: { position: "absolute", bottom: 0, left: 0, right: 0, padding: 8 },
-  title: { fontSize: 11, fontWeight: "700", color: "#fff", lineHeight: 14, marginBottom: 2 },
-  year: { fontSize: 10, color: "rgba(255,255,255,0.4)" },
+  info: { position: "absolute", bottom: 0, left: 0, right: 0, padding: 8, gap: 2 },
+  titleTxt: { fontSize: 11, fontWeight: "700", color: "#fff", lineHeight: 14 },
+  yearTxt: { fontSize: 10, color: "rgba(255,255,255,0.35)" },
 });
 
-/* ─── Wide Backdrop Card (Em Breve) ───────────────────────────────────────── */
-function UpcomingCard({ item, onPress }: { item: TmdbItem; onPress: () => void }) {
-  const img = tmdbImg(item.backdrop_path, "w780") ?? tmdbImg(item.poster_path, "w342");
-  const dateStr = item.release_date ?? item.first_air_date ?? "";
-  const formattedDate = dateStr
-    ? new Date(dateStr).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })
-    : "Em breve";
+/* ─── Episode Card (new episodes) ─────────────────────────────────────────── */
+function EpisodeCard({
+  item,
+  onPress,
+}: {
+  item: TmdbItem & { last_episode_to_air?: any };
+  onPress: () => void;
+}) {
+  const ep = item.last_episode_to_air;
+  const img = ep?.still_path
+    ? `https://image.tmdb.org/t/p/w500${ep.still_path}`
+    : tmdbImg(item.backdrop_path, "w780") ?? tmdbImg(item.poster_path, "w342");
+  const airDate = ep?.air_date
+    ? new Date(ep.air_date).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })
+    : null;
 
   return (
-    <Pressable style={uc.card} onPress={onPress}>
+    <Pressable style={epCard.card} onPress={onPress}>
       {img ? (
         <Image source={{ uri: img }} style={StyleSheet.absoluteFill} contentFit="cover" />
       ) : (
@@ -301,85 +334,63 @@ function UpcomingCard({ item, onPress }: { item: TmdbItem; onPress: () => void }
         locations={[0.3, 1]}
         style={StyleSheet.absoluteFill}
       />
-      <View style={uc.dateBadge}>
-        <Feather name="clock" size={9} color={RED} />
-        <Text style={uc.dateTxt}>{formattedDate.toUpperCase()}</Text>
+      {/* Series title top */}
+      <View style={epCard.topRow}>
+        <View style={epCard.seriesBadge}>
+          <Text style={epCard.seriesTxt} numberOfLines={1}>{itemTitle(item)}</Text>
+        </View>
       </View>
-      <View style={uc.info}>
-        <Text style={uc.title} numberOfLines={1}>{itemTitle(item)}</Text>
-        <Text style={uc.type}>{itemIsMovie(item) ? "Filme" : "Série"}</Text>
+      {/* Episode info bottom */}
+      <View style={epCard.info}>
+        {ep && (
+          <Text style={epCard.epLabel}>
+            T{ep.season_number} E{ep.episode_number}
+            {ep.name ? `  •  ${ep.name}` : ""}
+          </Text>
+        )}
+        {airDate && (
+          <View style={epCard.dateRow}>
+            <Feather name="calendar" size={10} color="#4caf50" />
+            <Text style={epCard.dateTxt}>{airDate}</Text>
+          </View>
+        )}
       </View>
     </Pressable>
   );
 }
-const uc = StyleSheet.create({
+const epCard = StyleSheet.create({
   card: {
-    width: 210, height: 126, borderRadius: 12, overflow: "hidden",
+    width: 230, height: 130, borderRadius: 12, overflow: "hidden",
     marginRight: 10, backgroundColor: "#1a1a1a",
     borderWidth: 1, borderColor: "rgba(255,255,255,0.07)",
     justifyContent: "space-between",
   },
-  dateBadge: {
-    margin: 8, alignSelf: "flex-start",
-    flexDirection: "row", alignItems: "center", gap: 4,
-    backgroundColor: "rgba(0,0,0,0.65)", borderWidth: 1, borderColor: `${RED}55`,
-    paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6,
+  topRow: { padding: 8 },
+  seriesBadge: {
+    alignSelf: "flex-start",
+    backgroundColor: "rgba(0,0,0,0.65)", borderRadius: 6,
+    paddingHorizontal: 8, paddingVertical: 4,
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.12)",
   },
-  dateTxt: { fontSize: 9, fontWeight: "800", color: RED, letterSpacing: 0.8 },
-  info: { padding: 10, gap: 2 },
-  title: { fontSize: 13, fontWeight: "700", color: "#fff" },
-  type: { fontSize: 10, color: "rgba(255,255,255,0.4)" },
+  seriesTxt: { fontSize: 11, fontWeight: "700", color: "#fff", maxWidth: 160 },
+  info: { padding: 10, gap: 4 },
+  epLabel: { fontSize: 12, fontWeight: "700", color: "#fff" },
+  dateRow: { flexDirection: "row", alignItems: "center", gap: 5 },
+  dateTxt: { fontSize: 11, color: "#4caf50", fontWeight: "600" },
 });
 
-/* ─── Episode Card (airing today) ─────────────────────────────────────────── */
-function EpisodeCard({ item, onPress }: { item: TmdbItem; onPress: () => void }) {
-  const img = tmdbImg(item.backdrop_path, "w780") ?? tmdbImg(item.poster_path, "w342");
+/* ─── Skeleton placeholder ────────────────────────────────────────────────── */
+function SkeletonCard() {
   return (
-    <Pressable style={ec.card} onPress={onPress}>
-      {img ? (
-        <Image source={{ uri: img }} style={StyleSheet.absoluteFill} contentFit="cover" />
-      ) : (
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: "#1a1a1a" }]} />
-      )}
-      <LinearGradient
-        colors={["transparent", "rgba(0,0,0,0.95)"]}
-        locations={[0.3, 1]}
-        style={StyleSheet.absoluteFill}
-      />
-      <View style={ec.liveBadge}>
-        <View style={ec.liveDot} />
-        <Text style={ec.liveTxt}>HOJE</Text>
-      </View>
-      <View style={ec.info}>
-        <Text style={ec.title} numberOfLines={1}>{itemTitle(item)}</Text>
-        <Text style={ec.sub}>Novo episódio</Text>
-      </View>
-    </Pressable>
+    <View style={[pc.card, { backgroundColor: "#1a1a1a", borderColor: "rgba(255,255,255,0.05)" }]}>
+      <View style={{ flex: 1, backgroundColor: "#222" }} />
+    </View>
   );
 }
-const ec = StyleSheet.create({
-  card: {
-    width: 200, height: 115, borderRadius: 12, overflow: "hidden",
-    marginRight: 10, backgroundColor: "#1a1a1a",
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.07)",
-    justifyContent: "space-between",
-  },
-  liveBadge: {
-    margin: 8, alignSelf: "flex-start",
-    flexDirection: "row", alignItems: "center", gap: 5,
-    backgroundColor: "rgba(0,0,0,0.6)", borderWidth: 1, borderColor: "#4caf5066",
-    paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6,
-  },
-  liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#4caf50" },
-  liveTxt: { fontSize: 9, fontWeight: "800", color: "#4caf50", letterSpacing: 1 },
-  info: { padding: 10, gap: 2 },
-  title: { fontSize: 13, fontWeight: "700", color: "#fff" },
-  sub: { fontSize: 10, color: "rgba(255,255,255,0.4)" },
-});
 
-/* ─── Filter Tabs ─────────────────────────────────────────────────────────── */
-type Filter = "Todos" | "Filmes" | "Séries" | "Em Breve";
-const FILTERS: Filter[] = ["Todos", "Filmes", "Séries", "Em Breve"];
+/* ─── Filter tabs ─────────────────────────────────────────────────────────── */
+type Filter = "Todos" | "Filmes" | "Séries" | "Animes" | "Doramas";
+const FILTERS: Filter[] = ["Todos", "Filmes", "Séries", "Animes", "Doramas"];
 
 /* ══════════════════ MAIN SCREEN ══════════════════ */
 export default function NovidadesScreen() {
@@ -391,24 +402,56 @@ export default function NovidadesScreen() {
 
   const [filter, setFilter] = useState<Filter>("Todos");
   const [loading, setLoading] = useState(true);
-  const [nowPlaying, setNowPlaying] = useState<TmdbItem[]>([]);
-  const [upcoming, setUpcoming] = useState<TmdbItem[]>([]);
-  const [onTheAir, setOnTheAir] = useState<TmdbItem[]>([]);
-  const [airingToday, setAiringToday] = useState<TmdbItem[]>([]);
+
+  const [movies, setMovies] = useState<TmdbItem[]>([]);
+  const [series, setSeries] = useState<(TmdbItem & { last_episode_to_air?: any })[]>([]);
+  const [animes, setAnimes] = useState<TmdbItem[]>([]);
+  const [doramas, setDoramas] = useState<TmdbItem[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [np, up, ota, at] = await Promise.all([
-        api.tmdb.nowPlaying().catch(() => [] as TmdbItem[]),
-        api.tmdb.upcoming().catch(() => [] as TmdbItem[]),
-        api.tmdb.onTheAir().catch(() => [] as TmdbItem[]),
-        api.tmdb.airingToday().catch(() => [] as TmdbItem[]),
+      /* Step 1: fetch all 4 ID lists in parallel */
+      const [movieIds, tvIds, animeIds, doramaIds] = await Promise.all([
+        api.redeflix.listIds("movie"),
+        api.redeflix.listIds("tv"),
+        api.redeflix.listIds("anime"),
+        api.redeflix.listIds("dorama"),
       ]);
-      setNowPlaying(np.slice(0, 20));
-      setUpcoming(up.slice(0, 20));
-      setOnTheAir(ota.slice(0, 20));
-      setAiringToday(at.slice(0, 20));
+
+      /* Step 2: take first BATCH from each and fetch TMDB details in parallel */
+      const mSlice = movieIds.slice(0, BATCH);
+      const tSlice = tvIds.slice(0, BATCH);
+      const aSlice = animeIds.slice(0, BATCH);
+      const dSlice = doramaIds.slice(0, BATCH);
+
+      const tvIdSet = new Set(tvIds.slice(0, 200).map(String));
+      const movieIdSet = new Set(movieIds.slice(0, 200).map(String));
+
+      /* For anime/dorama: check if the ID is known to be movie or tv */
+      const inferType = (id: number, fallback: "tv" | "movie"): "movie" | "tv" => {
+        if (tvIdSet.has(String(id))) return "tv";
+        if (movieIdSet.has(String(id))) return "movie";
+        return fallback;
+      };
+
+      const [mResults, tResults, aResults, dResults] = await Promise.all([
+        Promise.all(mSlice.map((id) => api.tmdb.movie(id).catch(() => null))),
+        Promise.all(tSlice.map((id) => api.tmdb.tv(id).catch(() => null))),
+        Promise.all(aSlice.map((id) => {
+          const t = inferType(id, "tv");
+          return (t === "tv" ? api.tmdb.tv(id) : api.tmdb.movie(id)).catch(() => null);
+        })),
+        Promise.all(dSlice.map((id) => {
+          const t = inferType(id, "tv");
+          return (t === "tv" ? api.tmdb.tv(id) : api.tmdb.movie(id)).catch(() => null);
+        })),
+      ]);
+
+      setMovies(mResults.filter(Boolean) as TmdbItem[]);
+      setSeries(tResults.filter(Boolean) as any[]);
+      setAnimes(aResults.filter(Boolean) as TmdbItem[]);
+      setDoramas(dResults.filter(Boolean) as TmdbItem[]);
     } catch {
     } finally {
       setLoading(false);
@@ -443,44 +486,40 @@ export default function NovidadesScreen() {
       });
       Alert.alert("Adicionado!", `"${itemTitle(it)}" foi adicionado à sua lista.`);
     } catch {
-      Alert.alert("Erro", "Não foi possível adicionar à lista.");
+      Alert.alert("Erro", "Não foi possível adicionar.");
     }
   };
 
-  /* hero items: now playing + on the air */
-  const heroItems = [
-    ...nowPlaying.slice(0, 4),
-    ...onTheAir.slice(0, 2),
-  ];
+  /* Hero items: first 4 movies + first 2 series */
+  const heroItems = [...movies.slice(0, 4), ...series.slice(0, 2)];
 
-  const isLoading = loading && heroItems.length === 0;
+  /* Episodes: series that have last_episode_to_air info */
+  const withEpisodes = series.filter((s: any) => s?.last_episode_to_air?.episode_number);
 
-  /* Filtered sections */
-  const showMovies = filter === "Todos" || filter === "Filmes";
-  const showSeries = filter === "Todos" || filter === "Séries";
+  const showMovies   = filter === "Todos" || filter === "Filmes";
+  const showSeries   = filter === "Todos" || filter === "Séries";
   const showEpisodes = filter === "Todos" || filter === "Séries";
-  const showUpcoming = filter === "Todos" || filter === "Em Breve";
+  const showAnimes   = filter === "Todos" || filter === "Animes";
+  const showDoramas  = filter === "Todos" || filter === "Doramas";
+
+  const isLoading = loading;
 
   return (
     <View style={st.container}>
       <StatusBar style="light" />
 
       {isLoading ? (
+        /* Loading state */
         <View style={st.loadWrap}>
           <View style={[st.loadHeader, { paddingTop: topPad + 10 }]}>
-            <Text style={st.loadLogo}>
-              <Text style={{ color: RED }}>NET</Text>PLAY
-            </Text>
+            <Text style={st.loadLogo}><Text style={{ color: RED }}>NET</Text>PLAY</Text>
           </View>
           <ActivityIndicator color={RED} size="large" />
           <Text style={st.loadTxt}>Carregando novidades...</Text>
         </View>
       ) : (
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 100 }}
-        >
-          {/* Hero */}
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 110 }}>
+          {/* Hero Banner */}
           {heroItems.length > 0 && (
             <HeroBanner
               items={heroItems}
@@ -496,126 +535,129 @@ export default function NovidadesScreen() {
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={st.filterRow}
-            style={{ marginTop: 20, marginBottom: 28 }}
+            style={{ marginTop: 20, marginBottom: 24 }}
           >
             {FILTERS.map((f) => (
               <Pressable
                 key={f}
                 onPress={() => setFilter(f)}
-                style={[st.filterPill, filter === f && st.filterActive]}
+                style={[st.pill, filter === f && st.pillActive]}
               >
-                <Text style={[st.filterTxt, filter === f && st.filterTxtActive]}>{f}</Text>
+                <Text style={[st.pillTxt, filter === f && st.pillTxtActive]}>{f}</Text>
               </Pressable>
             ))}
           </ScrollView>
 
-          {/* Novos Filmes (now_playing) */}
-          {showMovies && nowPlaying.length > 0 && (
-            <View style={{ marginBottom: 32 }}>
+          {/* ── Novos Filmes ── */}
+          {showMovies && movies.length > 0 && (
+            <View style={st.section}>
               <SectionHeader
                 title="🎬 Novos Filmes"
                 icon="film"
                 accent={RED}
-                onSeeAll={() => router.push({ pathname: "/genre-browse", params: { type: "movie", title: "Novos Filmes" } })}
+                onSeeAll={() => router.push({ pathname: "/genre-browse", params: { type: "movie", title: "Novos Filmes" } } as any)}
               />
               <FlatList
-                data={nowPlaying}
-                keyExtractor={(it) => String(it.id)}
+                data={movies}
+                keyExtractor={(it) => `m-${it.id}`}
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={{ paddingHorizontal: 20 }}
                 renderItem={({ item }) => (
-                  <PosterCard
-                    item={item}
-                    badge="NOVO"
-                    badgeColor={RED}
-                    onPress={() => navigate(item)}
-                  />
+                  <PosterCard item={item} badge="NOVO" badgeColor={RED} onPress={() => navigate(item)} />
                 )}
               />
             </View>
           )}
 
-          {/* Novas Séries (on_the_air) */}
-          {showSeries && onTheAir.length > 0 && (
-            <View style={{ marginBottom: 32 }}>
+          {/* ── Novas Séries ── */}
+          {showSeries && series.length > 0 && (
+            <View style={st.section}>
               <SectionHeader
                 title="📺 Novas Séries"
                 icon="tv"
                 accent="#8b5cf6"
-                onSeeAll={() => router.push({ pathname: "/genre-browse", params: { type: "tv", title: "Novas Séries" } })}
+                onSeeAll={() => router.push({ pathname: "/genre-browse", params: { type: "tv", title: "Novas Séries" } } as any)}
               />
               <FlatList
-                data={onTheAir}
-                keyExtractor={(it) => String(it.id)}
+                data={series}
+                keyExtractor={(it) => `t-${it.id}`}
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={{ paddingHorizontal: 20 }}
                 renderItem={({ item }) => (
-                  <PosterCard
-                    item={item}
-                    badge="SÉRIE"
-                    badgeColor="#8b5cf6"
-                    onPress={() => navigate(item)}
-                  />
+                  <PosterCard item={item} badge="SÉRIE" badgeColor="#8b5cf6" onPress={() => navigate(item)} />
                 )}
               />
             </View>
           )}
 
-          {/* Episódios de Hoje (airing_today) */}
-          {showEpisodes && airingToday.length > 0 && (
-            <View style={{ marginBottom: 32 }}>
-              <SectionHeader
-                title="🔴 Episódios de Hoje"
-                icon="radio"
-                accent="#4caf50"
-              />
+          {/* ── Novos Episódios ── */}
+          {showEpisodes && withEpisodes.length > 0 && (
+            <View style={st.section}>
+              <SectionHeader title="🔴 Novos Episódios" icon="radio" accent="#4caf50" />
               <FlatList
-                data={airingToday}
-                keyExtractor={(it) => String(it.id)}
+                data={withEpisodes}
+                keyExtractor={(it) => `ep-${it.id}`}
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={{ paddingHorizontal: 20 }}
                 renderItem={({ item }) => (
-                  <EpisodeCard item={item} onPress={() => navigate(item)} />
+                  <EpisodeCard item={item as any} onPress={() => navigate(item)} />
                 )}
               />
             </View>
           )}
 
-          {/* Em Breve (upcoming) */}
-          {showUpcoming && upcoming.length > 0 && (
-            <View style={{ marginBottom: 32 }}>
-              <SectionHeader
-                title="🕐 Em Breve"
-                icon="clock"
-                accent="#f97316"
-                onSeeAll={() => router.push({ pathname: "/genre-browse", params: { type: "movie", title: "Em Breve" } })}
-              />
+          {/* ── Animes ── */}
+          {showAnimes && animes.length > 0 && (
+            <View style={st.section}>
+              <SectionHeader title="🎌 Animes" icon="zap" accent="#f97316" />
               <FlatList
-                data={upcoming}
-                keyExtractor={(it) => String(it.id)}
+                data={animes}
+                keyExtractor={(it) => `a-${it.id}`}
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={{ paddingHorizontal: 20 }}
                 renderItem={({ item }) => (
-                  <UpcomingCard item={item} onPress={() => navigate(item)} />
+                  <PosterCard item={item} badge="ANIME" badgeColor="#f97316" onPress={() => navigate(item)} />
+                )}
+              />
+            </View>
+          )}
+
+          {/* ── Doramas ── */}
+          {showDoramas && doramas.length > 0 && (
+            <View style={st.section}>
+              <SectionHeader title="🌸 Doramas" icon="heart" accent="#ec4899" />
+              <FlatList
+                data={doramas}
+                keyExtractor={(it) => `d-${it.id}`}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ paddingHorizontal: 20 }}
+                renderItem={({ item }) => (
+                  <PosterCard item={item} badge="DORAMA" badgeColor="#ec4899" onPress={() => navigate(item)} />
                 )}
               />
             </View>
           )}
 
           {/* Empty state */}
-          {!loading && nowPlaying.length === 0 && onTheAir.length === 0 && upcoming.length === 0 && (
-            <View style={st.empty}>
-              <Feather name="film" size={40} color="rgba(255,255,255,0.15)" />
-              <Text style={st.emptyTxt}>Nenhuma novidade disponível</Text>
-              <TouchableOpacity onPress={load} style={[st.retryBtn, { backgroundColor: RED }]}>
-                <Text style={st.retryTxt}>Tentar novamente</Text>
-              </TouchableOpacity>
-            </View>
-          )}
+          {!loading &&
+            movies.length === 0 &&
+            series.length === 0 &&
+            animes.length === 0 &&
+            doramas.length === 0 && (
+              <View style={st.empty}>
+                <Feather name="wifi-off" size={40} color="rgba(255,255,255,0.12)" />
+                <Text style={st.emptyTxt}>Não foi possível carregar novidades</Text>
+                <TouchableOpacity onPress={load} style={[st.retryBtn, { backgroundColor: RED }]}>
+                  <Feather name="refresh-cw" size={14} color="#fff" />
+                  <Text style={st.retryTxt}>Tentar novamente</Text>
+                </TouchableOpacity>
+              </View>
+            )}
         </ScrollView>
       )}
     </View>
@@ -624,24 +666,36 @@ export default function NovidadesScreen() {
 
 const st = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#000" },
-  loadWrap: { flex: 1, alignItems: "center", justifyContent: "center", gap: 16, backgroundColor: "#000" },
-  loadHeader: {
-    position: "absolute", top: 0, left: 0, right: 0,
-    paddingHorizontal: 20,
+
+  /* Loading */
+  loadWrap: {
+    flex: 1, backgroundColor: "#000",
+    alignItems: "center", justifyContent: "center", gap: 16,
   },
+  loadHeader: { position: "absolute", top: 0, left: 0, right: 0, paddingHorizontal: 20 },
   loadLogo: { fontSize: 20, fontWeight: "900", color: "#fff", letterSpacing: 3 },
   loadTxt: { fontSize: 14, color: "rgba(255,255,255,0.4)" },
+
+  /* Filter row */
   filterRow: { paddingHorizontal: 20, gap: 8 },
-  filterPill: {
+  pill: {
     paddingHorizontal: 16, paddingVertical: 8, borderRadius: 50,
     borderWidth: 1, borderColor: "rgba(255,255,255,0.12)",
     backgroundColor: "rgba(255,255,255,0.05)",
   },
-  filterActive: { borderColor: RED, backgroundColor: `${RED}20` },
-  filterTxt: { fontSize: 13, fontWeight: "600", color: "rgba(255,255,255,0.4)" },
-  filterTxtActive: { color: "#fff" },
-  empty: { marginTop: 80, alignItems: "center", gap: 16 },
-  emptyTxt: { fontSize: 14, color: "rgba(255,255,255,0.35)" },
-  retryBtn: { borderRadius: 10, paddingHorizontal: 20, paddingVertical: 10 },
+  pillActive: { borderColor: RED, backgroundColor: `${RED}20` },
+  pillTxt: { fontSize: 13, fontWeight: "600", color: "rgba(255,255,255,0.4)" },
+  pillTxtActive: { color: "#fff" },
+
+  /* Sections */
+  section: { marginBottom: 30 },
+
+  /* Empty */
+  empty: { marginTop: 60, alignItems: "center", gap: 16, paddingHorizontal: 40 },
+  emptyTxt: { fontSize: 14, color: "rgba(255,255,255,0.35)", textAlign: "center" },
+  retryBtn: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    borderRadius: 10, paddingHorizontal: 20, paddingVertical: 10,
+  },
   retryTxt: { fontSize: 14, fontWeight: "700", color: "#fff" },
 });
