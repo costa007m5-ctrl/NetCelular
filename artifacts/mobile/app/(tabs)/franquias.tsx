@@ -36,6 +36,7 @@ const CARD_W = 150;
 const CARD_H = 210;
 
 const _imgCache = new Map<string, string | null>();
+const _posterCache = new Map<string, string | null>();
 const _logoCache = new Map<string, string | null>();
 
 async function fetchFranchiseImage(f: Franchise): Promise<string | null> {
@@ -63,6 +64,31 @@ async function fetchFranchiseImage(f: Franchise): Promise<string | null> {
   }
 }
 
+async function fetchFranchisePoster(f: Franchise): Promise<string | null> {
+  if (_posterCache.has(f.id)) return _posterCache.get(f.id)!;
+  try {
+    let path: string | null = null;
+    if (f.fetchType === "collection" && f.tmdbCollectionId) {
+      const d = await api.tmdb.collection(f.tmdbCollectionId);
+      path = d.poster_path ?? d.backdrop_path;
+    } else if (f.tmdbTvId) {
+      const d = await (api.tmdb.tv(f.tmdbTvId) as Promise<any>);
+      path = d.poster_path ?? d.backdrop_path ?? null;
+    } else {
+      const q = f.searchQuery ?? f.name;
+      const type = f.category === "anime" ? "tv" : "movie";
+      const d = await api.tmdb.search(q, type as any);
+      path = d.results[0]?.poster_path ?? null;
+    }
+    const url = path ? (TMDB_IMG(path, "w500") ?? null) : null;
+    _posterCache.set(f.id, url);
+    return url;
+  } catch {
+    _posterCache.set(f.id, null);
+    return null;
+  }
+}
+
 async function fetchFranchiseLogo(f: Franchise): Promise<string | null> {
   if (_logoCache.has(f.id)) return _logoCache.get(f.id)!;
   try {
@@ -83,12 +109,14 @@ async function fetchFranchiseLogo(f: Franchise): Promise<string | null> {
 
 function useFranchiseAssets(f: Franchise) {
   const [img, setImg] = useState<string | null>(_imgCache.get(f.id) ?? null);
+  const [poster, setPoster] = useState<string | null>(_posterCache.get(f.id) ?? null);
   const [logo, setLogo] = useState<string | null>(_logoCache.get(f.id) ?? null);
   useEffect(() => {
     if (!_imgCache.has(f.id)) fetchFranchiseImage(f).then(setImg);
+    if (!_posterCache.has(f.id)) fetchFranchisePoster(f).then(setPoster);
     if (!_logoCache.has(f.id)) fetchFranchiseLogo(f).then(setLogo);
   }, [f.id]);
-  return { img, logo };
+  return { img, poster, logo };
 }
 
 /* ── Hero Banner Card ─────────────────────────────────────── */
@@ -119,16 +147,14 @@ function HeroSlide({ franchise, onPress }: { franchise: Franchise; onPress: () =
           <Text style={hero.name}>{franchise.name.toUpperCase()}</Text>
         )}
         <Text style={[hero.tagline, { color: franchise.accentColor }]}>{franchise.tagline}</Text>
-        <View style={hero.metaRow}>
-          <View style={[hero.metaPill, { backgroundColor: "rgba(0,0,0,0.5)", borderColor: "rgba(255,255,255,0.15)" }]}>
-            <Feather name="film" size={10} color="rgba(255,255,255,0.6)" />
-            <Text style={hero.metaTxt}>{franchise.contentCount} títulos</Text>
+        {franchise.yearRange ? (
+          <View style={hero.metaRow}>
+            <View style={[hero.metaPill, { backgroundColor: "rgba(0,0,0,0.55)", borderColor: "rgba(255,255,255,0.12)" }]}>
+              <Feather name="calendar" size={10} color={franchise.accentColor} />
+              <Text style={[hero.metaTxt, { color: franchise.accentColor }]}>{franchise.yearRange}</Text>
+            </View>
           </View>
-          <View style={[hero.metaPill, { backgroundColor: "rgba(0,0,0,0.5)", borderColor: "rgba(255,255,255,0.15)" }]}>
-            <Feather name="calendar" size={10} color="rgba(255,255,255,0.6)" />
-            <Text style={hero.metaTxt}>{franchise.yearRange}</Text>
-          </View>
-        </View>
+        ) : null}
         <Pressable onPress={onPress} style={[hero.btn, { backgroundColor: franchise.color }]}>
           <Feather name="play" size={12} color="#fff" />
           <Text style={hero.btnTxt}>EXPLORAR UNIVERSO</Text>
@@ -218,59 +244,61 @@ function FranchiseCard({
   onFavPress?: () => void;
   rank?: number;
 }) {
-  const { img, logo } = useFranchiseAssets(franchise);
+  const { poster, logo } = useFranchiseAssets(franchise);
   const scale = useRef(new Animated.Value(1)).current;
 
   return (
     <Pressable
-      onPressIn={() => Animated.spring(scale, { toValue: 0.94, useNativeDriver: true, speed: 30, bounciness: 4 }).start()}
-      onPressOut={() => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 30, bounciness: 4 }).start()}
+      onPressIn={() => Animated.spring(scale, { toValue: 0.93, useNativeDriver: true, speed: 28, bounciness: 6 }).start()}
+      onPressOut={() => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 28, bounciness: 6 }).start()}
       onPress={onPress}
     >
       <Animated.View style={[s.card, { transform: [{ scale }] }]}>
-        {img ? (
-          <ExpoImage source={{ uri: img }} style={StyleSheet.absoluteFill} contentFit="cover" />
+        {/* Poster / fallback gradient */}
+        {poster ? (
+          <ExpoImage source={{ uri: poster }} style={StyleSheet.absoluteFill} contentFit="cover" />
         ) : (
           <LinearGradient colors={franchise.bgGradient} style={StyleSheet.absoluteFill} />
         )}
+
+        {/* Dark vignette */}
         <LinearGradient
-          colors={["rgba(0,0,0,0.05)", "rgba(0,0,0,0.35)", "rgba(0,0,0,0.90)"]}
-          locations={[0, 0.4, 1]}
+          colors={["rgba(0,0,0,0.0)", "rgba(0,0,0,0.18)", "rgba(0,0,0,0.82)"]}
+          locations={[0, 0.55, 1]}
           style={StyleSheet.absoluteFill}
         />
+
+        {/* Top accent line */}
         <View style={[s.cardTopLine, { backgroundColor: franchise.color }]} />
 
+        {/* Rank badge */}
         {rank != null && (
-          <View style={s.rankBadge}>
-            <Text style={s.rankTxt}>{rank}</Text>
+          <View style={[s.rankBadge, { borderColor: franchise.color + "88" }]}>
+            <Text style={[s.rankTxt, { color: franchise.accentColor }]}>{rank}</Text>
           </View>
         )}
 
+        {/* Heart */}
         {onFavPress && (
-          <Pressable onPress={onFavPress} style={s.heartBtn} hitSlop={8}>
-            <Feather name={isFav ? "heart" : "heart"} size={13} color={isFav ? "#ff4c4c" : "rgba(255,255,255,0.55)"} />
+          <Pressable onPress={onFavPress} style={[s.heartBtn, isFav && { backgroundColor: "rgba(255,60,60,0.25)" }]} hitSlop={10}>
+            <Feather name="heart" size={12} color={isFav ? "#ff4c4c" : "rgba(255,255,255,0.6)"} />
           </Pressable>
         )}
 
-        <View style={s.cardLogoArea}>
-          {logo ? (
+        {/* Logo overlay (only visible when no poster) */}
+        {!poster && logo && (
+          <View style={s.cardLogoArea}>
             <ExpoImage source={{ uri: logo }} style={s.logoImg} contentFit="contain" />
-          ) : (
-            <Text style={[s.cardName, { color: franchise.accentColor }]} numberOfLines={2}>
-              {franchise.shortName}
-            </Text>
-          )}
-        </View>
+          </View>
+        )}
 
+        {/* Bottom name */}
         <View style={s.cardBottom}>
-          <View style={[s.countPill, { backgroundColor: franchise.color + "28", borderColor: franchise.color + "55" }]}>
-            <Text style={[s.countTxt, { color: franchise.accentColor }]}>{franchise.contentCount} títulos</Text>
-          </View>
-          <View style={[s.genrePill]}>
-            <Text style={s.genreTxt}>
-              {franchise.category === "anime" ? "🎌" : franchise.category === "series" ? "📺" : "🎬"}
-            </Text>
-          </View>
+          {logo ? (
+            <ExpoImage source={{ uri: logo }} style={s.cardLogoBottom} contentFit="contain" />
+          ) : (
+            <Text style={s.cardName} numberOfLines={2}>{franchise.shortName}</Text>
+          )}
         </View>
       </Animated.View>
     </Pressable>
@@ -314,7 +342,6 @@ function SectionRow({
   genre?: string;
   label?: string;
 }) {
-  const visible = franchises.slice(0, 10);
   if (franchises.length === 0) return null;
 
   return (
@@ -322,10 +349,9 @@ function SectionRow({
       <View style={s.sectionHeader}>
         <View style={[s.accentBar, { backgroundColor: accentColor ?? RED }]} />
         <Text style={s.sectionTitle}>{title}</Text>
-        <Text style={s.sectionCount}>{franchises.length} universos</Text>
       </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.hScroll}>
-        {visible.map((f, i) => (
+        {franchises.map((f, i) => (
           <FranchiseCard
             key={f.id}
             franchise={f}
@@ -335,17 +361,6 @@ function SectionRow({
             rank={showRanks ? i + 1 : undefined}
           />
         ))}
-        {franchises.length > 10 && router && genre && label && (
-          <Pressable
-            onPress={() => router.push({ pathname: "/franchises-genre", params: { genre, label } })}
-            style={s.verMaisCard}
-          >
-            <LinearGradient colors={["rgba(255,255,255,0.05)", "rgba(255,255,255,0.02)"]} style={StyleSheet.absoluteFill} />
-            <Feather name="grid" size={24} color="rgba(255,255,255,0.5)" />
-            <Text style={s.verMaisTxt}>Ver mais</Text>
-            <Text style={s.verMaisCount}>+{franchises.length - 10}</Text>
-          </Pressable>
-        )}
       </ScrollView>
     </View>
   );
@@ -486,34 +501,41 @@ export default function FranquiasScreen() {
                   </View>
                 ) : (
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.hScroll}>
-                    {tmdbResults.map((col: any) => (
-                      <Pressable
-                        key={col.id}
-                        onPress={() => router.push({ pathname: "/franchise", params: { id: `tmdb_collection_${col.id}`, name: col.name } })}
-                        style={s.tmdbColCard}
-                      >
-                        {col.backdrop_path || col.poster_path ? (
-                          <Image
-                            source={{ uri: `https://image.tmdb.org/t/p/w500${col.backdrop_path ?? col.poster_path}` }}
-                            style={[StyleSheet.absoluteFill, { borderRadius: 16 }]}
-                            resizeMode="cover"
+                    {tmdbResults.map((col: any) => {
+                      const posterUri = col.poster_path
+                        ? `https://image.tmdb.org/t/p/w500${col.poster_path}`
+                        : col.backdrop_path
+                          ? `https://image.tmdb.org/t/p/w500${col.backdrop_path}`
+                          : null;
+                      return (
+                        <Pressable
+                          key={col.id}
+                          onPress={() => router.push({ pathname: "/franchise", params: { id: `tmdb_collection_${col.id}`, name: col.name } })}
+                          style={s.tmdbColCard}
+                        >
+                          {posterUri ? (
+                            <ExpoImage
+                              source={{ uri: posterUri }}
+                              style={StyleSheet.absoluteFill}
+                              contentFit="cover"
+                            />
+                          ) : (
+                            <LinearGradient colors={["#1a1a2e", "#0a0a14"]} style={StyleSheet.absoluteFill} />
+                          )}
+                          <LinearGradient
+                            colors={["rgba(0,0,0,0.0)", "rgba(0,0,0,0.75)"]}
+                            locations={[0.5, 1]}
+                            style={StyleSheet.absoluteFill}
                           />
-                        ) : (
-                          <LinearGradient colors={["#1a1a2e", "#0a0a14"]} style={StyleSheet.absoluteFill} />
-                        )}
-                        <LinearGradient
-                          colors={["rgba(0,0,0,0.05)", "rgba(0,0,0,0.88)"]}
-                          locations={[0.2, 1]}
-                          style={[StyleSheet.absoluteFill, { borderRadius: 16 }]}
-                        />
-                        <View style={s.tmdbColBadge}>
-                          <Text style={s.tmdbColBadgeTxt}>TMDB</Text>
-                        </View>
-                        <View style={s.tmdbColBottom}>
-                          <Text style={s.tmdbColName} numberOfLines={2}>{col.name}</Text>
-                        </View>
-                      </Pressable>
-                    ))}
+                          <View style={s.tmdbColBadge}>
+                            <Text style={s.tmdbColBadgeTxt}>TMDB</Text>
+                          </View>
+                          <View style={s.tmdbColBottom}>
+                            <Text style={s.tmdbColName} numberOfLines={2}>{col.name}</Text>
+                          </View>
+                        </Pressable>
+                      );
+                    })}
                   </ScrollView>
                 )}
               </>
@@ -608,7 +630,6 @@ export default function FranquiasScreen() {
         <View style={s.stickyContent}>
           <View>
             <Text style={s.stickyTitle}>🌌 UNIVERSOS</Text>
-            <Text style={s.stickySub}>{FRANCHISES.length} franquias</Text>
           </View>
           <View style={s.stickyRight}>
             <Pressable
@@ -687,50 +708,36 @@ const s = StyleSheet.create({
   // Card
   card: {
     width: CARD_W, height: CARD_H,
-    borderRadius: 16, overflow: "hidden",
-    marginRight: 12, backgroundColor: "#1a1a1a",
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.08)",
+    borderRadius: 14, overflow: "hidden",
+    marginRight: 12, backgroundColor: "#111",
   },
-  cardTopLine: { position: "absolute", top: 0, left: 0, right: 0, height: 2.5, zIndex: 2 },
+  cardTopLine: { position: "absolute", top: 0, left: 0, right: 0, height: 3, zIndex: 2 },
   rankBadge: {
-    position: "absolute", top: 10, left: 10, zIndex: 3,
-    backgroundColor: "rgba(0,0,0,0.72)", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 7,
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.12)",
+    position: "absolute", top: 9, left: 9, zIndex: 3,
+    backgroundColor: "rgba(0,0,0,0.78)", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 7,
+    borderWidth: 1,
   },
-  rankTxt: { color: "#fff", fontSize: 13, fontWeight: "900" },
+  rankTxt: { fontSize: 12, fontWeight: "900" },
   heartBtn: {
-    position: "absolute", top: 10, right: 10, zIndex: 3,
-    backgroundColor: "rgba(0,0,0,0.6)", width: 28, height: 28, borderRadius: 14,
+    position: "absolute", top: 9, right: 9, zIndex: 3,
+    backgroundColor: "rgba(0,0,0,0.65)", width: 27, height: 27, borderRadius: 14,
     alignItems: "center", justifyContent: "center",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.10)",
   },
   cardLogoArea: {
-    position: "absolute", top: 0, left: 0, right: 0, bottom: 44,
+    position: "absolute", top: 0, left: 0, right: 0, bottom: 52,
     zIndex: 2, alignItems: "center", justifyContent: "center", paddingHorizontal: 10,
   },
   logoImg: { width: "85%", height: 60, maxWidth: 120 },
-  cardName: {
-    fontSize: 14, fontWeight: "900", textAlign: "center",
-    textShadowColor: "rgba(0,0,0,0.9)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 6,
-  },
   cardBottom: {
     position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 2,
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    padding: 10,
+    padding: 10, paddingBottom: 11,
   },
-  countPill: { paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6, borderWidth: 1 },
-  countTxt: { fontSize: 10, fontWeight: "700" },
-  genrePill: { width: 24, height: 24, alignItems: "center", justifyContent: "center" },
-  genreTxt: { fontSize: 14 },
-
-  // Ver mais
-  verMaisCard: {
-    width: 90, height: CARD_H, borderRadius: 16, overflow: "hidden",
-    marginRight: 12, backgroundColor: GLASS,
-    borderWidth: 1.5, borderColor: GLASS_B, borderStyle: "dashed",
-    alignItems: "center", justifyContent: "center", gap: 8,
+  cardLogoBottom: { width: "100%", height: 32 },
+  cardName: {
+    color: "#fff", fontSize: 13, fontWeight: "800", lineHeight: 17,
+    textShadowColor: "rgba(0,0,0,0.95)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 8,
   },
-  verMaisTxt: { color: "rgba(255,255,255,0.7)", fontSize: 13, fontWeight: "700" },
-  verMaisCount: { color: "rgba(255,255,255,0.4)", fontSize: 11 },
 
   // Sticky header
   stickyHeader: { position: "absolute", top: 0, left: 0, right: 0, zIndex: 10 },
@@ -739,7 +746,6 @@ const s = StyleSheet.create({
     paddingHorizontal: 20, paddingVertical: 10,
   },
   stickyTitle: { color: "#fff", fontSize: 15, fontWeight: "900", letterSpacing: 1.5 },
-  stickySub: { color: "rgba(255,255,255,0.35)", fontSize: 11, marginTop: 1 },
   stickyRight: { flexDirection: "row", gap: 10 },
   stickyBtn: {
     width: 38, height: 38, borderRadius: 19,
