@@ -46,7 +46,7 @@ function ClassicTabLayout() {
   const isWeb = Platform.OS === "web";
   const isAndroid = Platform.OS === "android";
 
-  const bottomInset = isWeb ? 34 : Math.max(insets.bottom, 4) + 8;
+  const bottomInset = isWeb ? 34 : isAndroid ? Math.max(insets.bottom, 24) + 12 : Math.max(insets.bottom, 4) + 8;
   const tabBarHeight = 64;
 
   return (

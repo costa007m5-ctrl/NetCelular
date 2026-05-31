@@ -515,7 +515,7 @@ export default function DetailScreen() {
         <View style={styles.trailerModalContainer}>
           <StatusBar style="light" />
           {/* Header */}
-          <View style={styles.trailerModalHeader}>
+          <View style={[styles.trailerModalHeader, { paddingTop: insets.top + 12 }]}>
             <TouchableOpacity
               onPress={() => setShowTrailerModal(false)}
               style={styles.trailerModalClose}
@@ -525,22 +525,14 @@ export default function DetailScreen() {
             <Text style={styles.trailerModalTitle} numberOfLines={1}>
               TRAILER
             </Text>
-            <TouchableOpacity
-              onPress={() => {
-                const url = `https://www.youtube.com/watch?v=${trailerKey}`;
-                Linking.openURL(url).catch(() => {});
-              }}
-              style={styles.trailerModalClose}
-            >
-              <Feather name="external-link" size={18} color="#fff" />
-            </TouchableOpacity>
+            <View style={{ width: 40 }} />
           </View>
 
           {/* Player area */}
           <View style={styles.trailerPlayerWrap}>
             {Platform.OS === "web" ? (
               <iframe
-                src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&rel=0&modestbranding=1`}
+                src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&rel=0&modestbranding=1&controls=1&showinfo=0&iv_load_policy=3`}
                 style={{ width: "100%", height: "100%", border: "none" } as any}
                 allow="autoplay; fullscreen"
                 allowFullScreen
@@ -548,28 +540,42 @@ export default function DetailScreen() {
             ) : WebView ? (
               <WebView
                 source={{
-                  uri: `https://www.youtube.com/embed/${trailerKey}?autoplay=1&rel=0&modestbranding=1`,
+                  uri: `https://www.youtube.com/embed/${trailerKey}?autoplay=1&rel=0&modestbranding=1&controls=1&showinfo=0&iv_load_policy=3`,
                 }}
                 allowsFullscreenVideo
                 mediaPlaybackRequiresUserAction={false}
                 javaScriptEnabled
                 style={{ flex: 1, backgroundColor: "#000" }}
+                injectedJavaScript={`
+                  (function() {
+                    var style = document.createElement('style');
+                    style.textContent = [
+                      '.ytp-youtube-button { display: none !important; }',
+                      '.ytp-watermark { display: none !important; }',
+                      '.ytp-share-button { display: none !important; }',
+                      '.ytp-watch-later-button { display: none !important; }',
+                      'a[href*="youtube.com"] { pointer-events: none !important; }',
+                      '.branding-img { display: none !important; }',
+                    ].join('');
+                    document.head.appendChild(style);
+                    setInterval(function() {
+                      var ytBtn = document.querySelector('.ytp-youtube-button');
+                      if (ytBtn) ytBtn.style.display = 'none';
+                      var wm = document.querySelector('.ytp-watermark');
+                      if (wm) wm.style.display = 'none';
+                    }, 500);
+                  })(); true;
+                `}
               />
             ) : (
               <View style={styles.trailerFallback}>
-                <Feather name="youtube" size={56} color="#ff0000" style={{ marginBottom: 18 }} />
+                <Feather name="play-circle" size={56} color={colors.primary} style={{ marginBottom: 18 }} />
                 <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700", marginBottom: 8, textAlign: "center" }}>
-                  Abrir no YouTube
+                  Player indisponível
                 </Text>
                 <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 13, marginBottom: 24, textAlign: "center" }}>
                   O player não está disponível neste dispositivo.
                 </Text>
-                <TouchableOpacity
-                  style={styles.trailerOpenYt}
-                  onPress={() => Linking.openURL(`https://www.youtube.com/watch?v=${trailerKey}`)}
-                >
-                  <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15 }}>ABRIR NO YOUTUBE</Text>
-                </TouchableOpacity>
               </View>
             )}
           </View>
@@ -697,6 +703,9 @@ export default function DetailScreen() {
                   <Text style={styles.trailerBtnText}>ASSISTIR TRAILER</Text>
                 </Pressable>
               ) : null}
+
+              {/* Spacer after trailer button when present */}
+              {trailerKey ? <View style={{ height: 20 }} /> : null}
 
               {/* Action row */}
               <View style={styles.actionRow}>
@@ -1196,7 +1205,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingTop: 52,
     paddingBottom: 14,
     borderBottomWidth: 1,
     borderBottomColor: "rgba(255,255,255,0.1)",
