@@ -1,5 +1,14 @@
-const BASE_URL = "https://1.animezey23112022.workers.dev";
+import { Platform } from "react-native";
+
+const DRIVE_WORKER = "https://1.animezey23112022.workers.dev";
 const DOWNLOAD_DOMAIN = "https://animezey16082023.animezey16082023.workers.dev";
+
+function getDriveProxyBase(): string {
+  if (Platform.OS === "web") return "/api/drive";
+  const domain = process.env.EXPO_PUBLIC_DOMAIN;
+  if (domain) return `https://${domain}/api/drive`;
+  return DRIVE_WORKER;
+}
 
 export type DriveFile = {
   kind: "drive#file";
@@ -85,15 +94,26 @@ export async function listFolder(
   pageToken = ""
 ): Promise<DriveListing | null> {
   try {
+    const proxyBase = getDriveProxyBase();
     const encodedPath = path
       .split("/")
       .map((seg) => encodeURIComponent(seg))
       .join("/");
-    const url = `${BASE_URL}/${drive}:/${encodedPath}/`;
+
+    let url: string;
+    let body: object;
+    if (proxyBase === DRIVE_WORKER) {
+      url = `${DRIVE_WORKER}/${drive}:/${encodedPath}/`;
+      body = { pageToken };
+    } else {
+      url = `${proxyBase}/folder`;
+      body = { drive, path, pageToken };
+    }
+
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pageToken }),
+      body: JSON.stringify(body),
     });
     if (!res.ok) return null;
     const json: DriveListing = await res.json();
