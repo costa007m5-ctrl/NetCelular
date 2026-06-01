@@ -89,7 +89,7 @@ export async function listFolder(
       .split("/")
       .map((seg) => encodeURIComponent(seg))
       .join("/");
-    const url = `${BASE_URL}/${drive}:/${encodedPath}`;
+    const url = `${BASE_URL}/${drive}:/${encodedPath}/`;
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
