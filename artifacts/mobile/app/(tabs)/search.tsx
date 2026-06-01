@@ -22,6 +22,7 @@ import { useAuth } from "@/lib/auth-context";
 import { api, tmdbItemToContent } from "@/lib/api";
 import type { TmdbItem } from "@/lib/api";
 import type { ContentItem } from "@/constants/content";
+import { searchDriveByTitle, DriveMatch } from "@/lib/gdrive-search";
 
 const { width: SW } = Dimensions.get("window");
 const RED = "#ff1a1a";
@@ -346,6 +347,7 @@ export default function SearchScreen() {
   const [activeProfile, setActiveProfile] = useState<any>(null);
   const [showIARecs, setShowIARecs] = useState(false);
   const [iaRecs, setIaRecs] = useState<TmdbItem[]>([]);
+  const [driveResults, setDriveResults] = useState<DriveMatch[]>([]);
   const glowAnim = useRef(new Animated.Value(0)).current;
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<TextInput>(null);
@@ -388,24 +390,25 @@ export default function SearchScreen() {
   useEffect(() => { load(); }, [load]);
 
   const searchTmdb = useCallback(async (q: string) => {
-    if (!q.trim()) { setResults([]); setCollectionResults([]); setSearchTab("media"); return; }
+    if (!q.trim()) { setResults([]); setCollectionResults([]); setDriveResults([]); setSearchTab("media"); return; }
     saveRecent(q.trim());
     setSearchLoading(true);
     try {
-      const [multiData, colData] = await Promise.all([
+      const [multiData, colData, driveMatches] = await Promise.all([
         api.tmdb.search(q, "multi"),
         api.tmdb.searchCollections(q, 1),
+        searchDriveByTitle(q),
       ]);
       const items = multiData.results
         .filter((r: TmdbItem) => r.media_type === "movie" || r.media_type === "tv")
         .map(tmdbItemToContent);
-      // Merge collections from multi search + dedicated search, deduplicate by id
       const multiCols = multiData.results.filter((r: any) => r.media_type === "collection");
       const dedupMap = new Map<number, any>();
       [...(colData.results ?? []), ...multiCols].forEach((c: any) => dedupMap.set(c.id, c));
       setResults(items);
       setCollectionResults(Array.from(dedupMap.values()));
-    } catch { setResults([]); setCollectionResults([]); }
+      setDriveResults(driveMatches);
+    } catch { setResults([]); setCollectionResults([]); setDriveResults([]); }
     finally { setSearchLoading(false); }
   }, []);
 
@@ -560,6 +563,52 @@ export default function SearchScreen() {
             {searchTab === "media" && results.map((item) => (
               <ResultCard key={item.id} item={item} onPress={() => navigate(item)} />
             ))}
+
+            {/* ── Acervo Drive results ── */}
+            {searchTab === "media" && driveResults.length > 0 && (
+              <View style={{ marginHorizontal: 20, marginTop: 8, marginBottom: 6 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                  <View style={{ width: 3, height: 14, backgroundColor: "#16a34a", borderRadius: 2 }} />
+                  <Text style={{ color: "#4ade80", fontSize: 11, fontWeight: "800", letterSpacing: 1.5 }}>
+                    NO ACERVO DRIVE ({driveResults.length})
+                  </Text>
+                </View>
+                {driveResults.map((match, i) => (
+                  <Pressable
+                    key={i}
+                    style={({ pressed }) => [
+                      rs.wrap,
+                      { marginHorizontal: 0, backgroundColor: pressed ? "rgba(22,163,74,0.1)" : "rgba(22,163,74,0.06)", borderColor: "rgba(22,163,74,0.2)" },
+                    ]}
+                    onPress={() =>
+                      router.push({
+                        pathname: match.isFolder ? "/(tabs)/channels" : "/gdrive-player",
+                        params: match.isFolder
+                          ? {}
+                          : { fileName: match.name, fileLink: match.link ?? "", drive: String(match.drive), folderPath: match.path },
+                      })
+                    }
+                  >
+                    <View style={[rs.poster, { backgroundColor: "rgba(22,163,74,0.15)", alignItems: "center", justifyContent: "center" }]}>
+                      <Feather name={match.isFolder ? "folder" : "play-circle"} size={28} color="#4ade80" />
+                    </View>
+                    <View style={rs.info}>
+                      <Text style={rs.title} numberOfLines={2}>{match.name}</Text>
+                      <View style={rs.metaRow}>
+                        <View style={[rs.typeBadge, { backgroundColor: "rgba(22,163,74,0.15)", borderColor: "rgba(22,163,74,0.3)" }]}>
+                          <Text style={[rs.typeTxt, { color: "#4ade80" }]}>{match.isFolder ? "PASTA" : "ARQUIVO"}</Text>
+                        </View>
+                        <Text style={rs.year}>Drive {match.drive} · {match.category}</Text>
+                      </View>
+                      <Text style={rs.desc}>🎬 Disponível no Acervo Drive</Text>
+                    </View>
+                    <View style={[rs.watchBtn, { backgroundColor: "#16a34a" }]}>
+                      <Text style={rs.watchTxt}>Play 2</Text>
+                    </View>
+                  </Pressable>
+                ))}
+              </View>
+            )}
 
             {/* Collections */}
             {searchTab === "collections" && !searchLoading && collectionResults.length === 0 && (

@@ -22,6 +22,8 @@ import type { ContentRequest } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { sendPushNotificationsToTokens, sendContentAddedNotification } from "@/lib/notifications";
 import { TMDB_IMG } from "@/lib/api";
+import { checkDriveApi, searchDriveByTitle, DriveMatch } from "@/lib/gdrive-search";
+import { listFolderAll, DRIVE_ROOTS, isFolder, isVideo, formatSize } from "@/lib/gdrive-index";
 
 const RED = "#e50914";
 const GOLD = "#fbbf24";
@@ -284,7 +286,13 @@ export default function AdminScreen() {
   const [userCount, setUserCount] = useState<number | null>(null);
   const [watchlistCount, setWatchlistCount] = useState<number | null>(null);
   const [ratingsCount, setRatingsCount] = useState<number | null>(null);
-  const [activeTab, setActiveTab] = useState<"sistema" | "emails" | "indicacoes" | "notifs">("sistema");
+  const [activeTab, setActiveTab] = useState<"sistema" | "emails" | "indicacoes" | "notifs" | "acervo">("sistema");
+  const [driveStatus, setDriveStatus] = useState<{ online: boolean; latencyMs: number; folderCount: number } | null>(null);
+  const [driveLoading, setDriveLoading] = useState(false);
+  const [driveFolders, setDriveFolders] = useState<{ label: string; count: number; drive: 0|1; path: string }[]>([]);
+  const [driveTestQuery, setDriveTestQuery] = useState("");
+  const [driveTestResults, setDriveTestResults] = useState<DriveMatch[]>([]);
+  const [driveTestLoading, setDriveTestLoading] = useState(false);
 
   const [contentRequests, setContentRequests] = useState<ContentRequest[]>([]);
   const [pendingCount, setPendingCount] = useState(0);
@@ -429,6 +437,44 @@ export default function AdminScreen() {
 
   useEffect(() => { checkApis(); }, []);
 
+  const loadDriveInfo = useCallback(async () => {
+    setDriveLoading(true);
+    const status = await checkDriveApi();
+    setDriveStatus(status);
+    if (status.online) {
+      const roots = [
+        { label: "Drive 0 / Animes",   drive: 0 as const, path: "Animes" },
+        { label: "Drive 0 / Desenhos", drive: 0 as const, path: "Desenhos" },
+        { label: "Drive 0 / Filmes",   drive: 0 as const, path: "Filmes" },
+        { label: "Drive 0 / Novelas",  drive: 0 as const, path: "Novelas" },
+        { label: "Drive 0 / Outros",   drive: 0 as const, path: "Outros" },
+        { label: "Drive 1 / Filmes",   drive: 1 as const, path: "Filmes" },
+        { label: "Drive 1 / Séries",   drive: 1 as const, path: "Séries" },
+        { label: "Drive 1 / Livros",   drive: 1 as const, path: "Livros" },
+      ];
+      const results = await Promise.all(
+        roots.map(async (r) => {
+          const items = await listFolderAll(r.drive, r.path);
+          return { label: r.label, count: items.length, drive: r.drive, path: r.path };
+        })
+      );
+      setDriveFolders(results);
+    }
+    setDriveLoading(false);
+  }, []);
+
+  const handleDriveTest = useCallback(async () => {
+    if (!driveTestQuery.trim()) return;
+    setDriveTestLoading(true);
+    const results = await searchDriveByTitle(driveTestQuery);
+    setDriveTestResults(results);
+    setDriveTestLoading(false);
+  }, [driveTestQuery]);
+
+  useEffect(() => {
+    if (activeTab === "acervo" && !driveStatus) loadDriveInfo();
+  }, [activeTab, driveStatus, loadDriveInfo]);
+
   if (!user || user.role !== "admin") {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -461,29 +507,31 @@ export default function AdminScreen() {
       </View>
 
       {/* ── TABS ── */}
-      <View style={[styles.tabsRow, { borderBottomColor: colors.border }]}>
-        {(["sistema", "notifs", "indicacoes", "emails"] as const).map((tab) => (
-          <Pressable
-            key={tab}
-            onPress={() => setActiveTab(tab)}
-            style={[styles.tab, activeTab === tab && { borderBottomColor: RED, borderBottomWidth: 2 }]}
-          >
-            <Feather
-              name={tab === "sistema" ? "activity" : tab === "notifs" ? "send" : tab === "indicacoes" ? "inbox" : "mail"}
-              size={14}
-              color={activeTab === tab ? RED : colors.mutedForeground}
-            />
-            <Text style={[styles.tabTxt, { color: activeTab === tab ? RED : colors.mutedForeground }]}>
-              {tab === "sistema" ? "Sistema" : tab === "notifs" ? "Push" : tab === "indicacoes" ? "Pedidos" : "E-mails"}
-            </Text>
-            {tab === "indicacoes" && pendingCount > 0 && (
-              <View style={[styles.badge, { backgroundColor: RED }]}>
-                <Text style={styles.badgeTxt}>{pendingCount}</Text>
-              </View>
-            )}
-          </Pressable>
-        ))}
-      </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        <View style={[styles.tabsRow, { borderBottomColor: colors.border }]}>
+          {(["sistema", "notifs", "indicacoes", "emails", "acervo"] as const).map((tab) => (
+            <Pressable
+              key={tab}
+              onPress={() => setActiveTab(tab)}
+              style={[styles.tab, activeTab === tab && { borderBottomColor: RED, borderBottomWidth: 2 }]}
+            >
+              <Feather
+                name={tab === "sistema" ? "activity" : tab === "notifs" ? "send" : tab === "indicacoes" ? "inbox" : tab === "acervo" ? "hard-drive" : "mail"}
+                size={14}
+                color={activeTab === tab ? RED : colors.mutedForeground}
+              />
+              <Text style={[styles.tabTxt, { color: activeTab === tab ? RED : colors.mutedForeground }]}>
+                {tab === "sistema" ? "Sistema" : tab === "notifs" ? "Push" : tab === "indicacoes" ? "Pedidos" : tab === "acervo" ? "Acervo" : "E-mails"}
+              </Text>
+              {tab === "indicacoes" && pendingCount > 0 && (
+                <View style={[styles.badge, { backgroundColor: RED }]}>
+                  <Text style={styles.badgeTxt}>{pendingCount}</Text>
+                </View>
+              )}
+            </Pressable>
+          ))}
+        </View>
+      </ScrollView>
 
       <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 80 }}>
 
@@ -942,6 +990,133 @@ export default function AdminScreen() {
                     );
                   });
               })()
+            )}
+          </>
+        )}
+
+        {/* ── ABA ACERVO ── */}
+        {activeTab === "acervo" && (
+          <>
+            <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginTop: 20 }]}>STATUS DO DRIVE INDEX</Text>
+
+            <View style={[styles.apiCard, { backgroundColor: colors.card, borderColor: colors.border, marginBottom: 14 }]}>
+              <View style={styles.apiRow}>
+                <View style={styles.apiLeft}>
+                  <Text style={[styles.apiName, { color: colors.foreground }]}>animezey23112022.workers.dev</Text>
+                  {driveStatus?.latencyMs !== undefined && (
+                    <Text style={[styles.apiLatency, { color: colors.mutedForeground }]}>{driveStatus.latencyMs}ms</Text>
+                  )}
+                  {driveStatus?.online && (
+                    <Text style={[styles.apiDetail, { color: colors.mutedForeground }]}>
+                      {driveStatus.folderCount} itens na raiz de Animes
+                    </Text>
+                  )}
+                </View>
+                {driveLoading ? (
+                  <ActivityIndicator size="small" color={RED} />
+                ) : (
+                  <StatusBadge status={driveStatus?.online ? "ok" : driveStatus === null ? "loading" : "error"} />
+                )}
+              </View>
+            </View>
+
+            <Pressable
+              onPress={loadDriveInfo}
+              style={[styles.refreshBtn, { backgroundColor: colors.card, alignSelf: "flex-start", marginBottom: 20, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 }]}
+            >
+              <Feather name="refresh-cw" size={14} color={RED} />
+              <Text style={[styles.refreshText, { color: RED }]}>Atualizar</Text>
+            </Pressable>
+
+            {driveFolders.length > 0 && (
+              <>
+                <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginBottom: 10 }]}>CONTEÚDO POR PASTA</Text>
+                <View style={[styles.apiCard, { backgroundColor: colors.card, borderColor: colors.border, marginBottom: 20 }]}>
+                  {driveFolders.map((folder, i) => (
+                    <React.Fragment key={folder.label}>
+                      <View style={styles.apiRow}>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1 }}>
+                          <Feather name="folder" size={14} color={RED} />
+                          <Text style={[styles.apiName, { color: colors.foreground }]}>{folder.label}</Text>
+                        </View>
+                        <View style={[badge.wrap, { backgroundColor: RED + "20", borderColor: RED + "40" }]}>
+                          <Text style={[badge.text, { color: RED }]}>{folder.count}</Text>
+                        </View>
+                      </View>
+                      {i < driveFolders.length - 1 && <View style={[styles.sep, { backgroundColor: colors.border }]} />}
+                    </React.Fragment>
+                  ))}
+                </View>
+              </>
+            )}
+
+            {driveLoading && driveFolders.length === 0 && (
+              <View style={{ alignItems: "center", paddingVertical: 30, gap: 10 }}>
+                <ActivityIndicator color={RED} size="large" />
+                <Text style={[styles.apiDetail, { color: colors.mutedForeground }]}>Carregando estatísticas...</Text>
+              </View>
+            )}
+
+            <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginBottom: 10 }]}>TESTAR BUSCA POR TÍTULO</Text>
+            <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
+              <TextInput
+                style={[{
+                  flex: 1, backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1,
+                  borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10,
+                  color: colors.foreground, fontSize: 14,
+                }]}
+                placeholder="Ex: Dragon Ball, Naruto, One Piece..."
+                placeholderTextColor={colors.mutedForeground}
+                value={driveTestQuery}
+                onChangeText={setDriveTestQuery}
+                returnKeyType="search"
+                onSubmitEditing={handleDriveTest}
+              />
+              <Pressable
+                onPress={handleDriveTest}
+                style={{ backgroundColor: RED, borderRadius: 10, paddingHorizontal: 16, alignItems: "center", justifyContent: "center" }}
+              >
+                {driveTestLoading ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Feather name="search" size={16} color="#fff" />
+                )}
+              </Pressable>
+            </View>
+
+            {driveTestResults.length > 0 && (
+              <View style={[styles.apiCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <Text style={[styles.apiLatency, { color: colors.mutedForeground, marginBottom: 8 }]}>
+                  {driveTestResults.length} resultado(s) encontrado(s):
+                </Text>
+                {driveTestResults.map((r, i) => (
+                  <React.Fragment key={i}>
+                    <View style={[styles.apiRow, { paddingVertical: 6 }]}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.apiName, { color: colors.foreground }]}>{r.name}</Text>
+                        <Text style={[styles.apiLatency, { color: colors.mutedForeground }]}>
+                          Drive {r.drive} · {r.category}{r.isFolder ? " · 📁 pasta" : " · 🎬 arquivo"}
+                        </Text>
+                      </View>
+                      <View style={[badge.wrap, { backgroundColor: "#16a34a20", borderColor: "#16a34a40" }]}>
+                        <Text style={[badge.text, { color: "#4ade80" }]}>
+                          {r.isFolder ? "PASTA" : "ARQUIVO"}
+                        </Text>
+                      </View>
+                    </View>
+                    {i < driveTestResults.length - 1 && <View style={[styles.sep, { backgroundColor: colors.border }]} />}
+                  </React.Fragment>
+                ))}
+              </View>
+            )}
+
+            {driveTestResults.length === 0 && driveTestQuery.length > 0 && !driveTestLoading && (
+              <View style={[styles.infoCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <Feather name="search" size={16} color={colors.mutedForeground} />
+                <Text style={[styles.infoSub, { color: colors.mutedForeground }]}>
+                  Nenhum conteúdo encontrado no Acervo para "{driveTestQuery}"
+                </Text>
+              </View>
             )}
           </>
         )}

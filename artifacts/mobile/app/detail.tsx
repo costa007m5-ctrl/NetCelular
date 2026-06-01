@@ -30,6 +30,7 @@ import { useAuth } from "@/lib/auth-context";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
 import type { WatchProgress } from "@/lib/supabase";
 import type { ContentItem } from "@/constants/content";
+import { searchDriveByTitle, DriveMatch } from "@/lib/gdrive-search";
 
 let WebView: any = null;
 try { WebView = require("react-native-webview").WebView; } catch {}
@@ -188,6 +189,14 @@ export default function DetailScreen() {
   const [liked, setLiked] = useState<boolean | undefined>(undefined);
   const [isDownloaded, setIsDownloaded] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [driveMatches, setDriveMatches] = useState<DriveMatch[]>([]);
+
+  // Search Drive for matching content by title
+  useEffect(() => {
+    const titleStr = params.title ? String(params.title) : "";
+    if (!titleStr) return;
+    searchDriveByTitle(titleStr).then(setDriveMatches).catch(() => {});
+  }, [params.title]);
 
   useEffect(() => {
     if (!userId || !tmdbId || !isSupabaseConfigured) return;
@@ -805,6 +814,33 @@ export default function DetailScreen() {
                   {checking ? "Verificando..." : "ASSISTIR AGORA"}
                 </Text>
               </Pressable>
+
+              {/* Play 2 — Acervo Drive */}
+              {driveMatches.length > 0 && (
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.watchBtn,
+                    { backgroundColor: "#16a34a", marginTop: 8 },
+                    pressed && { opacity: 0.85 },
+                  ]}
+                  onPress={() =>
+                    router.push({
+                      pathname: driveMatches[0].isFolder ? "/(tabs)/channels" : "/gdrive-player",
+                      params: driveMatches[0].isFolder
+                        ? {}
+                        : {
+                            fileName: driveMatches[0].name,
+                            fileLink: driveMatches[0].link ?? "",
+                            drive: String(driveMatches[0].drive),
+                            folderPath: driveMatches[0].path,
+                          },
+                    })
+                  }
+                >
+                  <Feather name="hard-drive" size={18} color="#fff" />
+                  <Text style={styles.watchBtnText}>PLAY 2 · ACERVO DRIVE</Text>
+                </Pressable>
+              )}
 
               {/* Trailer button */}
               {trailerKey ? (
