@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   Clipboard,
   Image,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -13,6 +14,9 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+
+let WebView: any = null;
+try { WebView = require("react-native-webview").WebView; } catch {}
 import { StatusBar } from "expo-status-bar";
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -287,7 +291,121 @@ export default function AdminScreen() {
   const [userCount, setUserCount] = useState<number | null>(null);
   const [watchlistCount, setWatchlistCount] = useState<number | null>(null);
   const [ratingsCount, setRatingsCount] = useState<number | null>(null);
-  const [activeTab, setActiveTab] = useState<"sistema" | "emails" | "indicacoes" | "notifs" | "acervo">("sistema");
+  const [activeTab, setActiveTab] = useState<"sistema" | "emails" | "indicacoes" | "notifs" | "acervo" | "gstream">("sistema");
+
+  // ── GStream state ──────────────────────────────────────────────────────────
+  const [gSection, setGSection] = useState<"dashboard" | "filmes" | "series" | "animes" | "api">("dashboard");
+  const [gApiStatus, setGApiStatus] = useState<"idle" | "loading" | "ok" | "error">("idle");
+  const [gApiLatency, setGApiLatency] = useState<number | null>(null);
+
+  const [gMovieId, setGMovieId] = useState("");
+  const [gMovieLoading, setGMovieLoading] = useState(false);
+  const [gMovieResult, setGMovieResult] = useState<"idle" | "found" | "notfound">("idle");
+  const [gMovieUrl, setGMovieUrl] = useState("");
+
+  const [gTvId, setGTvId] = useState("");
+  const [gTvSeason, setGTvSeason] = useState("1");
+  const [gTvEpisode, setGTvEpisode] = useState("1");
+  const [gTvLoading, setGTvLoading] = useState(false);
+  const [gTvResult, setGTvResult] = useState<{ dub: boolean; leg: boolean } | null>(null);
+  const [gTvDubUrl, setGTvDubUrl] = useState("");
+  const [gTvLegUrl, setGTvLegUrl] = useState("");
+
+  const [gAnimeId, setGAnimeId] = useState("");
+  const [gAnimeSeason, setGAnimeSeason] = useState("1");
+  const [gAnimeEpisode, setGAnimeEpisode] = useState("1");
+  const [gAnimeLoading, setGAnimeLoading] = useState(false);
+  const [gAnimeResult, setGAnimeResult] = useState<{ dub: boolean; leg: boolean } | null>(null);
+  const [gAnimeDubUrl, setGAnimeDubUrl] = useState("");
+  const [gAnimeLegUrl, setGAnimeLegUrl] = useState("");
+
+  const [gPlayerVisible, setGPlayerVisible] = useState(false);
+  const [gPlayerUrl, setGPlayerUrl] = useState("");
+  const [gPlayerTitle, setGPlayerTitle] = useState("");
+
+  const EMBED_BASE = "https://embed.embedplayer.site";
+
+  const checkGStreamApi = async () => {
+    setGApiStatus("loading");
+    const t = Date.now();
+    try {
+      const res = await fetch(`${EMBED_BASE}/dooplay?movie=550`, { signal: AbortSignal.timeout(7000) });
+      const json = await res.json().catch(() => null);
+      setGApiLatency(Date.now() - t);
+      setGApiStatus(json ? "ok" : "error");
+    } catch {
+      setGApiStatus("error");
+      setGApiLatency(null);
+    }
+  };
+
+  const checkGStreamMovie = async () => {
+    const id = gMovieId.trim();
+    if (!id) return;
+    setGMovieLoading(true);
+    setGMovieResult("idle");
+    try {
+      const res = await fetch(`${EMBED_BASE}/dooplay?movie=${id}`, { signal: AbortSignal.timeout(7000) });
+      const json = await res.json().catch(() => null);
+      if (json?.movie) {
+        setGMovieUrl(`${EMBED_BASE}/${id}`);
+        setGMovieResult("found");
+      } else {
+        setGMovieResult("notfound");
+      }
+    } catch {
+      setGMovieResult("notfound");
+    } finally {
+      setGMovieLoading(false);
+    }
+  };
+
+  const checkGStreamTv = async (isAnime: boolean) => {
+    const id = isAnime ? gAnimeId.trim() : gTvId.trim();
+    const season = isAnime ? gAnimeSeason.trim() : gTvSeason.trim();
+    const ep = isAnime ? gAnimeEpisode.trim() : gTvEpisode.trim();
+    if (!id) return;
+    if (isAnime) { setGAnimeLoading(true); setGAnimeResult(null); }
+    else { setGTvLoading(true); setGTvResult(null); }
+    try {
+      const res = await fetch(`${EMBED_BASE}/tv/${id}/${season}/${ep}/lang`, { signal: AbortSignal.timeout(7000) });
+      const json = await res.json().catch(() => null);
+      const dub = !!(json?.dub);
+      const leg = !!(json?.leg);
+      const dubUrl = `${EMBED_BASE}/tv/${id}/${season}/${ep}/dub`;
+      const legUrl = `${EMBED_BASE}/tv/${id}/${season}/${ep}/leg`;
+      if (isAnime) {
+        setGAnimeResult({ dub, leg });
+        setGAnimeDubUrl(dubUrl);
+        setGAnimeLegUrl(legUrl);
+      } else {
+        setGTvResult({ dub, leg });
+        setGTvDubUrl(dubUrl);
+        setGTvLegUrl(legUrl);
+      }
+    } catch {
+      if (isAnime) setGAnimeResult({ dub: false, leg: false });
+      else setGTvResult({ dub: false, leg: false });
+    } finally {
+      if (isAnime) setGAnimeLoading(false);
+      else setGTvLoading(false);
+    }
+  };
+
+  const openGPlayer = (url: string, title: string) => {
+    setGPlayerUrl(url);
+    setGPlayerTitle(title);
+    setGPlayerVisible(true);
+  };
+
+  const copyText = (text: string) => {
+    if (Platform.OS === "web") {
+      navigator.clipboard?.writeText(text).catch(() => {});
+    } else {
+      Clipboard.setString(text);
+    }
+  };
+
   const [driveStatus, setDriveStatus] = useState<{ online: boolean; latencyMs: number; folderCount: number } | null>(null);
   const [driveLoading, setDriveLoading] = useState(false);
   const [driveFolders, setDriveFolders] = useState<{ label: string; count: number; drive: 0|1; path: string }[]>([]);
@@ -510,19 +628,19 @@ export default function AdminScreen() {
       {/* ── TABS ── */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
         <View style={[styles.tabsRow, { borderBottomColor: colors.border }]}>
-          {(["sistema", "notifs", "indicacoes", "emails", "acervo"] as const).map((tab) => (
+          {(["sistema", "notifs", "indicacoes", "emails", "acervo", "gstream"] as const).map((tab) => (
             <Pressable
               key={tab}
               onPress={() => setActiveTab(tab)}
-              style={[styles.tab, activeTab === tab && { borderBottomColor: RED, borderBottomWidth: 2 }]}
+              style={[styles.tab, activeTab === tab && { borderBottomColor: tab === "gstream" ? "#6366f1" : RED, borderBottomWidth: 2 }]}
             >
               <Feather
-                name={tab === "sistema" ? "activity" : tab === "notifs" ? "send" : tab === "indicacoes" ? "inbox" : tab === "acervo" ? "hard-drive" : "mail"}
+                name={tab === "sistema" ? "activity" : tab === "notifs" ? "send" : tab === "indicacoes" ? "inbox" : tab === "acervo" ? "hard-drive" : tab === "gstream" ? "play-circle" : "mail"}
                 size={14}
-                color={activeTab === tab ? RED : colors.mutedForeground}
+                color={activeTab === tab ? (tab === "gstream" ? "#6366f1" : RED) : colors.mutedForeground}
               />
-              <Text style={[styles.tabTxt, { color: activeTab === tab ? RED : colors.mutedForeground }]}>
-                {tab === "sistema" ? "Sistema" : tab === "notifs" ? "Push" : tab === "indicacoes" ? "Pedidos" : tab === "acervo" ? "Acervo" : "E-mails"}
+              <Text style={[styles.tabTxt, { color: activeTab === tab ? (tab === "gstream" ? "#6366f1" : RED) : colors.mutedForeground }]}>
+                {tab === "sistema" ? "Sistema" : tab === "notifs" ? "Push" : tab === "indicacoes" ? "Pedidos" : tab === "acervo" ? "Acervo" : tab === "gstream" ? "GStream" : "E-mails"}
               </Text>
               {tab === "indicacoes" && pendingCount > 0 && (
                 <View style={[styles.badge, { backgroundColor: RED }]}>
@@ -1148,7 +1266,554 @@ export default function AdminScreen() {
             ))}
           </>
         )}
+
+        {/* ── ABA GSTREAM ── */}
+        {activeTab === "gstream" && (
+          <>
+            {/* Header GStream */}
+            <View style={[gs.header, { backgroundColor: "#6366f115", borderColor: "#6366f130" }]}>
+              <View style={gs.headerIcon}>
+                <Feather name="play-circle" size={22} color="#6366f1" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[gs.headerTitle, { color: colors.foreground }]}>GStream</Text>
+                <Text style={[gs.headerSub, { color: colors.mutedForeground }]}>Powered by embedplayer.site</Text>
+              </View>
+            </View>
+
+            {/* Sub-nav */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4 }}>
+              <View style={{ flexDirection: "row", gap: 8, paddingVertical: 12 }}>
+                {(["dashboard", "filmes", "series", "animes", "api"] as const).map((s) => (
+                  <Pressable
+                    key={s}
+                    onPress={() => setGSection(s)}
+                    style={[gs.subTab, {
+                      backgroundColor: gSection === s ? "#6366f1" : colors.card,
+                      borderColor: gSection === s ? "#6366f1" : colors.border,
+                    }]}
+                  >
+                    <Feather
+                      name={s === "dashboard" ? "grid" : s === "filmes" ? "film" : s === "series" ? "tv" : s === "animes" ? "zap" : "code"}
+                      size={13}
+                      color={gSection === s ? "#fff" : colors.mutedForeground}
+                    />
+                    <Text style={[gs.subTabTxt, { color: gSection === s ? "#fff" : colors.mutedForeground }]}>
+                      {s === "dashboard" ? "Dashboard" : s === "filmes" ? "Filmes" : s === "series" ? "Séries" : s === "animes" ? "Animes" : "API"}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </ScrollView>
+
+            {/* ── Dashboard ── */}
+            {gSection === "dashboard" && (
+              <>
+                <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginBottom: 12 }]}>STATUS DO EMBEDPLAYER</Text>
+                <View style={[styles.apiCard, { backgroundColor: colors.card, borderColor: colors.border, marginBottom: 16 }]}>
+                  <View style={styles.apiRow}>
+                    <View style={styles.apiLeft}>
+                      <Text style={[styles.apiName, { color: colors.foreground }]}>embed.embedplayer.site</Text>
+                      {gApiLatency !== null && (
+                        <Text style={[styles.apiLatency, { color: colors.mutedForeground }]}>{gApiLatency}ms</Text>
+                      )}
+                      <Text style={[styles.apiDetail, { color: colors.mutedForeground }]}>
+                        Endpoint de embed para filmes e séries via TMDB ID
+                      </Text>
+                    </View>
+                    {gApiStatus === "loading" ? (
+                      <ActivityIndicator size="small" color="#6366f1" />
+                    ) : gApiStatus === "idle" ? (
+                      <View style={[badge.wrap, { backgroundColor: "#33333322", borderColor: "#33333355" }]}>
+                        <View style={[badge.dot, { backgroundColor: "#888" }]} />
+                        <Text style={[badge.text, { color: "#888" }]}>Aguardando</Text>
+                      </View>
+                    ) : (
+                      <StatusBadge status={gApiStatus === "ok" ? "ok" : "error"} />
+                    )}
+                  </View>
+                </View>
+
+                <Pressable
+                  onPress={checkGStreamApi}
+                  style={[styles.refreshBtn, { backgroundColor: "#6366f120", borderColor: "#6366f140", borderWidth: 1, alignSelf: "flex-start", paddingHorizontal: 16, paddingVertical: 9, borderRadius: 10, marginBottom: 20 }]}
+                >
+                  {gApiStatus === "loading" ? (
+                    <ActivityIndicator size="small" color="#6366f1" />
+                  ) : (
+                    <Feather name="zap" size={14} color="#6366f1" />
+                  )}
+                  <Text style={[styles.refreshText, { color: "#6366f1" }]}>Verificar API</Text>
+                </Pressable>
+
+                <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginBottom: 12 }]}>COMO FUNCIONA</Text>
+                <View style={[styles.apiCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                  {[
+                    { icon: "film", label: "Filme", desc: "Verifica disponibilidade por TMDB ID e retorna o embed URL" },
+                    { icon: "tv", label: "Série / Anime", desc: "Verifica dublagem e legenda por TMDB ID + temporada + episódio" },
+                    { icon: "globe", label: "Suporte", desc: "URLs de embed funcionam em WebView (app) e iframe (web)" },
+                  ].map((item, i) => (
+                    <React.Fragment key={item.label}>
+                      <View style={[styles.apiRow, { alignItems: "center" }]}>
+                        <View style={{ width: 36, height: 36, borderRadius: 8, backgroundColor: "#6366f118", alignItems: "center", justifyContent: "center", marginRight: 12 }}>
+                          <Feather name={item.icon as any} size={16} color="#6366f1" />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.apiName, { color: colors.foreground }]}>{item.label}</Text>
+                          <Text style={[styles.apiDetail, { color: colors.mutedForeground }]}>{item.desc}</Text>
+                        </View>
+                      </View>
+                      {i < 2 && <View style={[styles.sep, { backgroundColor: colors.border }]} />}
+                    </React.Fragment>
+                  ))}
+                </View>
+
+                <View style={[gs.infoBanner, { backgroundColor: "#6366f110", borderColor: "#6366f130", marginTop: 16 }]}>
+                  <Feather name="info" size={15} color="#6366f1" />
+                  <Text style={[gs.infoTxt, { color: colors.mutedForeground }]}>
+                    Use as abas Filmes, Séries e Animes para testar o player com qualquer TMDB ID antes de exibir para os usuários.
+                  </Text>
+                </View>
+              </>
+            )}
+
+            {/* ── Filmes ── */}
+            {gSection === "filmes" && (
+              <>
+                <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginBottom: 12 }]}>TESTAR PLAYER DE FILME</Text>
+                <View style={[gs.infoBanner, { backgroundColor: "#6366f110", borderColor: "#6366f130", marginBottom: 14 }]}>
+                  <Feather name="info" size={14} color="#6366f1" />
+                  <Text style={[gs.infoTxt, { color: colors.mutedForeground }]}>
+                    Digite o TMDB ID do filme (ex: 550 = Clube da Luta, 27205 = A Origem)
+                  </Text>
+                </View>
+
+                <View style={{ flexDirection: "row", gap: 8, marginBottom: 14 }}>
+                  <TextInput
+                    style={[gs.input, { flex: 1, backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
+                    placeholder="TMDB ID do filme (ex: 550)"
+                    placeholderTextColor={colors.mutedForeground}
+                    value={gMovieId}
+                    onChangeText={setGMovieId}
+                    keyboardType="numeric"
+                    returnKeyType="search"
+                    onSubmitEditing={checkGStreamMovie}
+                  />
+                  <Pressable
+                    onPress={checkGStreamMovie}
+                    style={[gs.checkBtn, { backgroundColor: "#6366f1" }]}
+                  >
+                    {gMovieLoading ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Feather name="search" size={16} color="#fff" />
+                    )}
+                  </Pressable>
+                </View>
+
+                {gMovieResult === "found" && (
+                  <View style={[gs.resultCard, { backgroundColor: "#16a34a12", borderColor: "#16a34a40" }]}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                      <Feather name="check-circle" size={20} color="#4ade80" />
+                      <Text style={[gs.resultTitle, { color: "#4ade80" }]}>Disponível no GStream!</Text>
+                    </View>
+                    <Text style={[gs.resultUrl, { color: colors.mutedForeground }]} numberOfLines={1}>{gMovieUrl}</Text>
+                    <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
+                      <Pressable
+                        onPress={() => openGPlayer(gMovieUrl, `Filme #${gMovieId}`)}
+                        style={[gs.playBtn, { backgroundColor: "#6366f1", flex: 1 }]}
+                      >
+                        <Feather name="play" size={15} color="#fff" />
+                        <Text style={gs.playBtnTxt}>Testar Player</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => copyText(gMovieUrl)}
+                        style={[gs.playBtn, { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border }]}
+                      >
+                        <Feather name="copy" size={15} color={colors.mutedForeground} />
+                      </Pressable>
+                    </View>
+                  </View>
+                )}
+
+                {gMovieResult === "notfound" && (
+                  <View style={[gs.resultCard, { backgroundColor: `${RED}10`, borderColor: `${RED}35` }]}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                      <Feather name="x-circle" size={20} color={RED} />
+                      <Text style={[gs.resultTitle, { color: RED }]}>Não disponível no GStream</Text>
+                    </View>
+                    <Text style={[styles.apiDetail, { color: colors.mutedForeground, marginTop: 6 }]}>
+                      O TMDB ID {gMovieId} não foi encontrado no embedplayer.site
+                    </Text>
+                  </View>
+                )}
+
+                <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginTop: 22, marginBottom: 10 }]}>EXEMPLOS RÁPIDOS</Text>
+                <View style={[styles.apiCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                  {[
+                    { id: "550", title: "Clube da Luta" },
+                    { id: "27205", title: "A Origem" },
+                    { id: "157336", title: "Interestelar" },
+                    { id: "299534", title: "Vingadores: Ultimato" },
+                  ].map((ex, i) => (
+                    <React.Fragment key={ex.id}>
+                      <Pressable
+                        onPress={() => { setGMovieId(ex.id); setGMovieResult("idle"); }}
+                        style={[styles.apiRow, { paddingVertical: 12 }]}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.apiName, { color: colors.foreground }]}>{ex.title}</Text>
+                          <Text style={[styles.apiLatency, { color: colors.mutedForeground }]}>TMDB ID: {ex.id}</Text>
+                        </View>
+                        <Feather name="chevron-right" size={16} color={colors.mutedForeground} />
+                      </Pressable>
+                      {i < 3 && <View style={[styles.sep, { backgroundColor: colors.border }]} />}
+                    </React.Fragment>
+                  ))}
+                </View>
+              </>
+            )}
+
+            {/* ── Séries ── */}
+            {gSection === "series" && (
+              <>
+                <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginBottom: 12 }]}>TESTAR PLAYER DE SÉRIE</Text>
+                <View style={[gs.infoBanner, { backgroundColor: "#6366f110", borderColor: "#6366f130", marginBottom: 14 }]}>
+                  <Feather name="info" size={14} color="#6366f1" />
+                  <Text style={[gs.infoTxt, { color: colors.mutedForeground }]}>
+                    Digite o TMDB ID da série, temporada e episódio (ex: 1396 = Breaking Bad)
+                  </Text>
+                </View>
+
+                <View style={{ gap: 8, marginBottom: 14 }}>
+                  <TextInput
+                    style={[gs.input, { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
+                    placeholder="TMDB ID da série (ex: 1396)"
+                    placeholderTextColor={colors.mutedForeground}
+                    value={gTvId}
+                    onChangeText={setGTvId}
+                    keyboardType="numeric"
+                  />
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    <TextInput
+                      style={[gs.input, { flex: 1, backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
+                      placeholder="Temporada"
+                      placeholderTextColor={colors.mutedForeground}
+                      value={gTvSeason}
+                      onChangeText={setGTvSeason}
+                      keyboardType="numeric"
+                    />
+                    <TextInput
+                      style={[gs.input, { flex: 1, backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
+                      placeholder="Episódio"
+                      placeholderTextColor={colors.mutedForeground}
+                      value={gTvEpisode}
+                      onChangeText={setGTvEpisode}
+                      keyboardType="numeric"
+                    />
+                    <Pressable
+                      onPress={() => checkGStreamTv(false)}
+                      style={[gs.checkBtn, { backgroundColor: "#6366f1" }]}
+                    >
+                      {gTvLoading ? <ActivityIndicator size="small" color="#fff" /> : <Feather name="search" size={16} color="#fff" />}
+                    </Pressable>
+                  </View>
+                </View>
+
+                {gTvResult && (
+                  <View style={[gs.resultCard, {
+                    backgroundColor: (gTvResult.dub || gTvResult.leg) ? "#16a34a12" : `${RED}10`,
+                    borderColor: (gTvResult.dub || gTvResult.leg) ? "#16a34a40" : `${RED}35`,
+                  }]}>
+                    <Text style={[gs.resultTitle, { color: (gTvResult.dub || gTvResult.leg) ? "#4ade80" : RED, marginBottom: 12 }]}>
+                      {(gTvResult.dub || gTvResult.leg) ? "Disponível no GStream!" : "Não disponível"}
+                    </Text>
+                    {gTvResult.dub && (
+                      <Pressable
+                        onPress={() => openGPlayer(gTvDubUrl, `Série #${gTvId} S${gTvSeason}E${gTvEpisode} DUB`)}
+                        style={[gs.playBtn, { backgroundColor: "#6366f1", marginBottom: 8 }]}
+                      >
+                        <Feather name="play" size={15} color="#fff" />
+                        <Text style={gs.playBtnTxt}>🇧🇷 Assistir Dublado</Text>
+                      </Pressable>
+                    )}
+                    {gTvResult.leg && (
+                      <Pressable
+                        onPress={() => openGPlayer(gTvLegUrl, `Série #${gTvId} S${gTvSeason}E${gTvEpisode} LEG`)}
+                        style={[gs.playBtn, { backgroundColor: colors.card, borderWidth: 1, borderColor: "#6366f150" }]}
+                      >
+                        <Feather name="play" size={15} color="#6366f1" />
+                        <Text style={[gs.playBtnTxt, { color: "#6366f1" }]}>🇺🇸 Assistir Legendado</Text>
+                      </Pressable>
+                    )}
+                    {!gTvResult.dub && !gTvResult.leg && (
+                      <Text style={[styles.apiDetail, { color: colors.mutedForeground }]}>
+                        Nenhuma versão encontrada para T{gTvSeason}E{gTvEpisode}
+                      </Text>
+                    )}
+                  </View>
+                )}
+
+                <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginTop: 22, marginBottom: 10 }]}>EXEMPLOS RÁPIDOS</Text>
+                <View style={[styles.apiCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                  {[
+                    { id: "1396", title: "Breaking Bad", s: "1", e: "1" },
+                    { id: "60735", title: "The Flash", s: "1", e: "1" },
+                    { id: "66732", title: "Stranger Things", s: "1", e: "1" },
+                  ].map((ex, i) => (
+                    <React.Fragment key={ex.id}>
+                      <Pressable
+                        onPress={() => { setGTvId(ex.id); setGTvSeason(ex.s); setGTvEpisode(ex.e); setGTvResult(null); }}
+                        style={[styles.apiRow, { paddingVertical: 12 }]}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.apiName, { color: colors.foreground }]}>{ex.title}</Text>
+                          <Text style={[styles.apiLatency, { color: colors.mutedForeground }]}>ID: {ex.id} · T{ex.s}E{ex.e}</Text>
+                        </View>
+                        <Feather name="chevron-right" size={16} color={colors.mutedForeground} />
+                      </Pressable>
+                      {i < 2 && <View style={[styles.sep, { backgroundColor: colors.border }]} />}
+                    </React.Fragment>
+                  ))}
+                </View>
+              </>
+            )}
+
+            {/* ── Animes ── */}
+            {gSection === "animes" && (
+              <>
+                <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginBottom: 12 }]}>TESTAR PLAYER DE ANIME</Text>
+                <View style={[gs.infoBanner, { backgroundColor: "#6366f110", borderColor: "#6366f130", marginBottom: 14 }]}>
+                  <Feather name="info" size={14} color="#6366f1" />
+                  <Text style={[gs.infoTxt, { color: colors.mutedForeground }]}>
+                    Animes usam a mesma API que séries. Use o TMDB ID do anime (ex: 46260 = Sword Art Online)
+                  </Text>
+                </View>
+
+                <View style={{ gap: 8, marginBottom: 14 }}>
+                  <TextInput
+                    style={[gs.input, { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
+                    placeholder="TMDB ID do anime (ex: 46260)"
+                    placeholderTextColor={colors.mutedForeground}
+                    value={gAnimeId}
+                    onChangeText={setGAnimeId}
+                    keyboardType="numeric"
+                  />
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    <TextInput
+                      style={[gs.input, { flex: 1, backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
+                      placeholder="Temporada"
+                      placeholderTextColor={colors.mutedForeground}
+                      value={gAnimeSeason}
+                      onChangeText={setGAnimeSeason}
+                      keyboardType="numeric"
+                    />
+                    <TextInput
+                      style={[gs.input, { flex: 1, backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
+                      placeholder="Episódio"
+                      placeholderTextColor={colors.mutedForeground}
+                      value={gAnimeEpisode}
+                      onChangeText={setGAnimeEpisode}
+                      keyboardType="numeric"
+                    />
+                    <Pressable
+                      onPress={() => checkGStreamTv(true)}
+                      style={[gs.checkBtn, { backgroundColor: "#6366f1" }]}
+                    >
+                      {gAnimeLoading ? <ActivityIndicator size="small" color="#fff" /> : <Feather name="search" size={16} color="#fff" />}
+                    </Pressable>
+                  </View>
+                </View>
+
+                {gAnimeResult && (
+                  <View style={[gs.resultCard, {
+                    backgroundColor: (gAnimeResult.dub || gAnimeResult.leg) ? "#16a34a12" : `${RED}10`,
+                    borderColor: (gAnimeResult.dub || gAnimeResult.leg) ? "#16a34a40" : `${RED}35`,
+                  }]}>
+                    <Text style={[gs.resultTitle, { color: (gAnimeResult.dub || gAnimeResult.leg) ? "#4ade80" : RED, marginBottom: 12 }]}>
+                      {(gAnimeResult.dub || gAnimeResult.leg) ? "Disponível no GStream!" : "Não disponível"}
+                    </Text>
+                    {gAnimeResult.dub && (
+                      <Pressable
+                        onPress={() => openGPlayer(gAnimeDubUrl, `Anime #${gAnimeId} S${gAnimeSeason}E${gAnimeEpisode} DUB`)}
+                        style={[gs.playBtn, { backgroundColor: "#6366f1", marginBottom: 8 }]}
+                      >
+                        <Feather name="play" size={15} color="#fff" />
+                        <Text style={gs.playBtnTxt}>🇧🇷 Assistir Dublado</Text>
+                      </Pressable>
+                    )}
+                    {gAnimeResult.leg && (
+                      <Pressable
+                        onPress={() => openGPlayer(gAnimeLegUrl, `Anime #${gAnimeId} S${gAnimeSeason}E${gAnimeEpisode} LEG`)}
+                        style={[gs.playBtn, { backgroundColor: colors.card, borderWidth: 1, borderColor: "#6366f150" }]}
+                      >
+                        <Feather name="play" size={15} color="#6366f1" />
+                        <Text style={[gs.playBtnTxt, { color: "#6366f1" }]}>🇺🇸 Assistir Legendado</Text>
+                      </Pressable>
+                    )}
+                    {!gAnimeResult.dub && !gAnimeResult.leg && (
+                      <Text style={[styles.apiDetail, { color: colors.mutedForeground }]}>
+                        Nenhuma versão encontrada para T{gAnimeSeason}E{gAnimeEpisode}
+                      </Text>
+                    )}
+                  </View>
+                )}
+
+                <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginTop: 22, marginBottom: 10 }]}>EXEMPLOS RÁPIDOS</Text>
+                <View style={[styles.apiCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                  {[
+                    { id: "46260", title: "Sword Art Online", s: "1", e: "1" },
+                    { id: "31911", title: "Fairy Tail", s: "1", e: "1" },
+                    { id: "37854", title: "One Piece", s: "1", e: "1" },
+                  ].map((ex, i) => (
+                    <React.Fragment key={ex.id}>
+                      <Pressable
+                        onPress={() => { setGAnimeId(ex.id); setGAnimeSeason(ex.s); setGAnimeEpisode(ex.e); setGAnimeResult(null); }}
+                        style={[styles.apiRow, { paddingVertical: 12 }]}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.apiName, { color: colors.foreground }]}>{ex.title}</Text>
+                          <Text style={[styles.apiLatency, { color: colors.mutedForeground }]}>ID: {ex.id} · T{ex.s}E{ex.e}</Text>
+                        </View>
+                        <Feather name="chevron-right" size={16} color={colors.mutedForeground} />
+                      </Pressable>
+                      {i < 2 && <View style={[styles.sep, { backgroundColor: colors.border }]} />}
+                    </React.Fragment>
+                  ))}
+                </View>
+              </>
+            )}
+
+            {/* ── API Docs ── */}
+            {gSection === "api" && (
+              <>
+                <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginBottom: 12 }]}>ENDPOINTS DA API</Text>
+                {[
+                  {
+                    method: "GET",
+                    label: "Verificar Filme",
+                    endpoint: "https://embed.embedplayer.site/dooplay?movie={tmdb_id}",
+                    desc: "Retorna {movie: true/false}. Verifica se o filme está disponível.",
+                    color: "#22c55e",
+                  },
+                  {
+                    method: "EMBED",
+                    label: "Player de Filme",
+                    endpoint: "https://embed.embedplayer.site/{tmdb_id}",
+                    desc: "URL do iframe/WebView para reproduzir o filme.",
+                    color: "#6366f1",
+                  },
+                  {
+                    method: "GET",
+                    label: "Verificar Série/Anime",
+                    endpoint: "https://embed.embedplayer.site/tv/{id}/{season}/{ep}/lang",
+                    desc: "Retorna {dub: bool, leg: bool}. Verifica disponibilidade de dublagem e legenda.",
+                    color: "#22c55e",
+                  },
+                  {
+                    method: "EMBED",
+                    label: "Player Dublado",
+                    endpoint: "https://embed.embedplayer.site/tv/{id}/{season}/{ep}/dub",
+                    desc: "URL do player para versão dublada em português.",
+                    color: "#6366f1",
+                  },
+                  {
+                    method: "EMBED",
+                    label: "Player Legendado",
+                    endpoint: "https://embed.embedplayer.site/tv/{id}/{season}/{ep}/leg",
+                    desc: "URL do player para versão legendada.",
+                    color: "#f59e0b",
+                  },
+                ].map((ep, i) => (
+                  <View key={ep.label} style={[gs.apiEndpoint, { backgroundColor: colors.card, borderColor: colors.border, marginBottom: 10 }]}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                      <View style={[gs.methodBadge, { backgroundColor: ep.color + "20", borderColor: ep.color + "50" }]}>
+                        <Text style={[gs.methodTxt, { color: ep.color }]}>{ep.method}</Text>
+                      </View>
+                      <Text style={[styles.apiName, { color: colors.foreground }]}>{ep.label}</Text>
+                    </View>
+                    <View style={[gs.endpointRow, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                      <Text style={[gs.endpointTxt, { color: "#6366f1", flex: 1 }]} numberOfLines={2}>{ep.endpoint}</Text>
+                      <Pressable onPress={() => copyText(ep.endpoint)} style={{ padding: 4 }}>
+                        <Feather name="copy" size={14} color={colors.mutedForeground} />
+                      </Pressable>
+                    </View>
+                    <Text style={[styles.apiDetail, { color: colors.mutedForeground, marginTop: 6 }]}>{ep.desc}</Text>
+                  </View>
+                ))}
+
+                <View style={[gs.infoBanner, { backgroundColor: GOLD + "10", borderColor: GOLD + "30", marginTop: 8 }]}>
+                  <Feather name="alert-circle" size={14} color={GOLD} />
+                  <Text style={[gs.infoTxt, { color: colors.mutedForeground }]}>
+                    A API pode ter restrições de CORS em ambiente web. No app nativo (WebView) funciona normalmente.
+                  </Text>
+                </View>
+              </>
+            )}
+          </>
+        )}
       </ScrollView>
+
+      {/* ── GStream Player Modal ── */}
+      <Modal
+        visible={gPlayerVisible}
+        animationType="slide"
+        onRequestClose={() => setGPlayerVisible(false)}
+        statusBarTranslucent
+      >
+        <View style={{ flex: 1, backgroundColor: "#000" }}>
+          {/* Header */}
+          <View style={[gs.playerHeader, { paddingTop: insets.top + 8 }]}>
+            <Pressable onPress={() => setGPlayerVisible(false)} style={gs.playerClose}>
+              <Feather name="x" size={22} color="#fff" />
+            </Pressable>
+            <Text style={gs.playerTitle} numberOfLines={1}>{gPlayerTitle}</Text>
+            <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: "#6366f1" }} />
+              <Text style={{ color: "#6366f1", fontSize: 11, fontWeight: "700" }}>GStream</Text>
+            </View>
+          </View>
+
+          {/* Player area */}
+          <View style={{ flex: 1 }}>
+            {Platform.OS === "web" ? (
+              <iframe
+                src={gPlayerUrl}
+                style={{ width: "100%", height: "100%", border: "none" } as any}
+                allow="autoplay; encrypted-media; fullscreen"
+                allowFullScreen
+              />
+            ) : WebView ? (
+              <WebView
+                source={{ uri: gPlayerUrl }}
+                style={{ flex: 1, backgroundColor: "#000" }}
+                allowsFullscreenVideo
+                javaScriptEnabled
+                domStorageEnabled
+                allowsInlineMediaPlayback
+                mediaPlaybackRequiresUserAction={false}
+                mixedContentMode="always"
+              />
+            ) : (
+              <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 12 }}>
+                <Feather name="alert-circle" size={40} color="#6366f1" />
+                <Text style={{ color: "#fff", fontSize: 15, fontWeight: "600" }}>WebView indisponível</Text>
+                <Text style={{ color: "#888", fontSize: 13, textAlign: "center", paddingHorizontal: 32 }}>
+                  Instale o app nativo para reproduzir via WebView.
+                </Text>
+              </View>
+            )}
+          </View>
+
+          {/* URL bar */}
+          <View style={[gs.playerUrlBar, { paddingBottom: insets.bottom + 8 }]}>
+            <Text style={gs.playerUrlTxt} numberOfLines={1}>{gPlayerUrl}</Text>
+            <Pressable onPress={() => copyText(gPlayerUrl)}>
+              <Feather name="copy" size={14} color="#6366f1" />
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1206,4 +1871,32 @@ const styles = StyleSheet.create({
   infoBox: { flexDirection: "row", alignItems: "flex-start", borderRadius: 12, borderWidth: 1, padding: 14, gap: 12 },
   infoBoxTitle: { fontSize: 13, fontWeight: "700", marginBottom: 6 },
   infoBoxText: { fontSize: 12, lineHeight: 19 },
+});
+
+const gs = StyleSheet.create({
+  header: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 14, borderWidth: 1, padding: 14, marginTop: 16, marginBottom: 4 },
+  headerIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: "#6366f118", alignItems: "center", justifyContent: "center" },
+  headerTitle: { fontSize: 16, fontWeight: "800", letterSpacing: 0.3 },
+  headerSub: { fontSize: 12, marginTop: 2 },
+  subTab: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1 },
+  subTabTxt: { fontSize: 12, fontWeight: "700" },
+  input: { borderRadius: 10, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 11, fontSize: 14 },
+  checkBtn: { width: 46, height: 46, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  resultCard: { borderRadius: 14, borderWidth: 1, padding: 16, marginBottom: 16 },
+  resultTitle: { fontSize: 15, fontWeight: "700" },
+  resultUrl: { fontSize: 11, marginTop: 4 },
+  playBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 10, paddingVertical: 12, paddingHorizontal: 16 },
+  playBtnTxt: { fontSize: 14, fontWeight: "700", color: "#fff" },
+  infoBanner: { flexDirection: "row", alignItems: "flex-start", borderRadius: 10, borderWidth: 1, padding: 12, gap: 8 },
+  infoTxt: { fontSize: 12, lineHeight: 17, flex: 1 },
+  apiEndpoint: { borderRadius: 14, borderWidth: 1, padding: 14 },
+  methodBadge: { borderRadius: 6, borderWidth: 1, paddingHorizontal: 7, paddingVertical: 3 },
+  methodTxt: { fontSize: 10, fontWeight: "800", letterSpacing: 0.5 },
+  endpointRow: { flexDirection: "row", alignItems: "center", borderRadius: 8, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 8, gap: 8, marginTop: 6 },
+  endpointTxt: { fontSize: 11, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" },
+  playerHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingBottom: 12, backgroundColor: "#000" },
+  playerClose: { width: 38, height: 38, borderRadius: 19, backgroundColor: "rgba(255,255,255,0.1)", alignItems: "center", justifyContent: "center" },
+  playerTitle: { flex: 1, color: "#fff", fontSize: 14, fontWeight: "600", textAlign: "center", marginHorizontal: 8 },
+  playerUrlBar: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16, paddingTop: 10, backgroundColor: "#111" },
+  playerUrlTxt: { flex: 1, color: "#6366f1", fontSize: 10, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" },
 });
