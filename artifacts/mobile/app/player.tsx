@@ -873,7 +873,7 @@ export default function PlayerScreen() {
 
   // ── Guard: invalid ID ───────────────────────────────────────────────────────
 
-  if (!id && !isLive) {
+  if (!id && !isLive && !directM3u8 && !directEmbed) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <View style={[styles.backBtn, { top: topPad + 8 }]}>
