@@ -2504,12 +2504,15 @@ export default function AdminScreen() {
               <iframe
                 src={wPlayerUrl}
                 style={{ width: "100%", height: "100%", border: "none" } as any}
-                allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+                allow="autoplay *; encrypted-media *; picture-in-picture *; fullscreen *; clipboard-write *; accelerometer *; gyroscope *; web-share *"
                 allowFullScreen
               />
             ) : WebView ? (
               <WebView
-                source={{ uri: wPlayerUrl }}
+                source={{
+                  html: `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0"><style>*{margin:0;padding:0;box-sizing:border-box;}html,body{width:100%;height:100%;background:#000;overflow:hidden;}iframe{position:fixed;top:0;left:0;width:100%;height:100%;border:none;}</style></head><body><iframe src="${wPlayerUrl}" width="100%" height="100%" frameborder="0" scrolling="no" allow="autoplay *; encrypted-media *; picture-in-picture *; fullscreen *; clipboard-write *; accelerometer *; gyroscope *; web-share *" allowfullscreen webkitallowfullscreen mozallowfullscreen></iframe></body></html>`,
+                  baseUrl: "https://warezcdn.lat",
+                }}
                 style={{ flex: 1, backgroundColor: "#000" }}
                 allowsFullscreenVideo
                 javaScriptEnabled
