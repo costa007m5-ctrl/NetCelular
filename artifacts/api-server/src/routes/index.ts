@@ -5,6 +5,7 @@ import liveTvRouter from "./live-tv";
 import redeflixRouter from "./redeflix";
 import driveRouter from "./drive";
 import gstreamRouter from "./gstream";
+import r2Router from "./r2";
 
 const router: IRouter = Router();
 
@@ -14,5 +15,6 @@ router.use("/live", liveTvRouter);
 router.use("/redeflix", redeflixRouter);
 router.use("/drive", driveRouter);
 router.use("/gstream", gstreamRouter);
+router.use("/r2", r2Router);
 
 export default router;

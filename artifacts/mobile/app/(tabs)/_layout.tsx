@@ -12,7 +12,7 @@ import { useAuth } from "@/lib/auth-context";
 
 const ACTIVE_PROFILE_KEY = "netplay_active_profile_v2";
 
-function NativeTabLayout() {
+function NativeTabLayout({ isAdmin }: { isAdmin: boolean }) {
   return (
     <NativeTabs>
       <NativeTabs.Trigger name="index">
@@ -35,6 +35,12 @@ function NativeTabLayout() {
         <Icon sf={{ default: "externaldrive", selected: "externaldrive.fill" }} />
         <Label>Acervo</Label>
       </NativeTabs.Trigger>
+      {isAdmin && (
+        <NativeTabs.Trigger name="admin">
+          <Icon sf={{ default: "shield", selected: "shield.fill" }} />
+          <Label>Admin</Label>
+        </NativeTabs.Trigger>
+      )}
       <NativeTabs.Trigger name="profile">
         <Icon sf={{ default: "person", selected: "person.fill" }} />
         <Label>Perfil</Label>
