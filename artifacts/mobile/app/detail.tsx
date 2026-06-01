@@ -60,6 +60,7 @@ function EpisodeRow({
   colors,
   onPress,
   onDrivePress,
+  onGstreamPress,
 }: {
   ep: TmdbEpisode;
   watched: boolean;
@@ -67,6 +68,7 @@ function EpisodeRow({
   colors: ReturnType<typeof import("@/hooks/useColors").useColors>;
   onPress: () => void;
   onDrivePress?: () => void;
+  onGstreamPress?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -147,6 +149,11 @@ function EpisodeRow({
         <Pressable onPress={onPress} style={styles.epPlayBtn}>
           <Feather name="play-circle" size={28} color={current ? colors.primary : colors.foreground} />
         </Pressable>
+        {onGstreamPress && (
+          <Pressable onPress={onGstreamPress} style={[styles.epPlayBtn, { backgroundColor: "#7c3aed", borderRadius: 8, padding: 4, marginTop: 4 }]}>
+            <Feather name="zap" size={16} color="#fff" />
+          </Pressable>
+        )}
         {onDrivePress && (
           <Pressable onPress={onDrivePress} style={[styles.epPlayBtn, styles.epDriveBtn]}>
             <Feather name="hard-drive" size={18} color="#fff" />
@@ -214,7 +221,7 @@ export default function DetailScreen() {
       try {
         if (type === "movie") {
           const r = await tmdbApi.gstream.checkMovie(tmdbId);
-          if (r.available) {
+          if (r.movie) {
             setGstreamAvailable(true);
             setGstreamMovieUrl(r.url ?? null);
           }
@@ -1152,6 +1159,7 @@ export default function DetailScreen() {
                           current={current}
                           colors={colors}
                           onPress={() => goToPlayer(selectedSeason, ep.episode_number)}
+                          onGstreamPress={gstreamAvailable ? () => goToGstreamPlayer(selectedSeason, ep.episode_number) : undefined}
                           onDrivePress={hasDrive ? () => goToDriveEpisode(ep) : undefined}
                         />
                       );

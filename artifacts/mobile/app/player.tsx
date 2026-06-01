@@ -71,10 +71,28 @@ const M3U8_INTERCEPTOR_JS = `
   if (window.__m3u8HookInstalled) return;
   window.__m3u8HookInstalled = true;
   var _seen = {};
+  var _isTop = (window === window.top);
+
+  // Top-frame bridge: forward postMessage from child iframes to ReactNativeWebView
+  if (_isTop) {
+    window.addEventListener('message', function(e) {
+      try {
+        var d = typeof e.data === 'string' ? e.data : JSON.stringify(e.data);
+        if (d && d.includes('m3u8_found')) {
+          window.ReactNativeWebView && window.ReactNativeWebView.postMessage(d);
+        }
+      } catch(x) {}
+    });
+  }
 
   function rnPost(payload) {
+    // Try direct ReactNativeWebView first (works in main frame and in-frame injections)
     try { window.ReactNativeWebView && window.ReactNativeWebView.postMessage(payload); } catch(e) {}
-    try { window.top && window.top.ReactNativeWebView && window.top.ReactNativeWebView.postMessage(payload); } catch(e) {}
+    // Fallback for iframes: bubble up via postMessage to top frame bridge above
+    if (!_isTop) {
+      try { window.parent.postMessage(payload, '*'); } catch(e) {}
+      try { window.top.postMessage(payload, '*'); } catch(e) {}
+    }
   }
 
   function send(url, ref) {
@@ -244,15 +262,24 @@ const AD_BLOCKER_JS = `
 (function() {
   window.open = function() { return null; };
   history.pushState = function() { return null; };
-  function isAllowed(src) { return !src || src.includes('redeflix') || src.includes('embedtv') || src.includes('faz-o-eli') || src.includes('embedplayer'); }
+  var AD_DOMAINS = ['parembed.embedplayer.site','googlesyndication','doubleclick.net','adservice','adnxs','taboola','popads','popcash','propellerads','adsterra','mgid','revcontent','outbrain','exoclick','trafficjunky','juicyads','hilltopads'];
+  function isAdDomain(src) {
+    if (!src) return false;
+    try { var h = new URL(src).hostname; return AD_DOMAINS.some(function(d){ return h === d || h.endsWith('.'+d) || src.includes(d); }); } catch(e) { return AD_DOMAINS.some(function(d){ return src.includes(d); }); }
+  }
+  function isAllowed(src) {
+    if (!src) return true;
+    if (isAdDomain(src)) return false;
+    return src.includes('redeflix') || src.includes('embedtv') || src.includes('faz-o-eli') || src.includes('embed.embedplayer.site') || src.includes('embedplayer2.xyz');
+  }
   function removeAds() {
     try { document.querySelectorAll('iframe').forEach(function(el) { if (!isAllowed(el.src)) el.remove(); }); } catch(e) {}
     try { document.querySelectorAll('a[target="_blank"],a[onclick*="open"]').forEach(function(el) { el.removeAttribute('href'); el.removeAttribute('onclick'); el.removeAttribute('target'); el.addEventListener('click', function(e) { e.preventDefault(); e.stopPropagation(); }, true); }); } catch(e) {}
-    var sels = ['[id*="google_ads"],[id*="aswift"],[class*="overlay-ad"]','[class*="ad-container"],[id*="ad-container"]','iframe[src*="googlesyndication"],iframe[src*="doubleclick"]','#preroll-ads,.preroll,[class*="preroll"]','[class*="popup"],[id*="popup"]'];
+    var sels = ['[id*="google_ads"],[id*="aswift"],[class*="overlay-ad"]','[class*="ad-container"],[id*="ad-container"]','iframe[src*="googlesyndication"],iframe[src*="doubleclick"]','iframe[src*="parembed"]','#preroll-ads,.preroll,[class*="preroll"]','[class*="popup"],[id*="popup"]'];
     sels.forEach(function(s) { try { document.querySelectorAll(s).forEach(function(el) { el.remove(); }); } catch(e) {} });
   }
   removeAds();
-  setInterval(removeAds, 1000);
+  setInterval(removeAds, 800);
   try { new MutationObserver(removeAds).observe(document.body, { childList: true, subtree: true }); } catch(e) {}
 })(); true;
 `;
@@ -991,6 +1018,7 @@ export default function PlayerScreen() {
           const url: string = req.url || "";
           const isTopFrame: boolean = req.isTopFrame ?? true;
           const BLOCKED = [
+            "parembed.embedplayer.site",
             "googlesyndication","doubleclick.net","adservice.google",
             "pagead2.googlesyndication","adnxs.com","taboola.com",
             "popads.net","popcash.net","propellerads.com","adsterra.com",
