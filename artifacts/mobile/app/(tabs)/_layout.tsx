@@ -49,7 +49,7 @@ function NativeTabLayout({ isAdmin }: { isAdmin: boolean }) {
   );
 }
 
-function ClassicTabLayout() {
+function ClassicTabLayout({ isAdmin }: { isAdmin: boolean }) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const isIOS = Platform.OS === "ios";
@@ -159,6 +159,14 @@ function ClassicTabLayout() {
         }}
       />
       <Tabs.Screen
+        name="admin"
+        options={isAdmin ? {
+          title: "Admin",
+          tabBarIcon: ({ color }) =>
+            isIOS ? <SymbolView name="shield" tintColor={color} size={22} /> : <Feather name="shield" size={22} color={color} />,
+        } : { href: null }}
+      />
+      <Tabs.Screen
         name="profile"
         options={{
           title: "Perfil",
@@ -205,8 +213,10 @@ export default function TabLayout() {
   if (!user) return <Redirect href="/welcome" />;
   if (!hasProfile) return <Redirect href="/profile-select" />;
 
-  if (Platform.OS === "ios") return <NativeTabLayout />;
-  return <ClassicTabLayout />;
+  const isAdmin = user.role === "admin";
+
+  if (Platform.OS === "ios") return <NativeTabLayout isAdmin={isAdmin} />;
+  return <ClassicTabLayout isAdmin={isAdmin} />;
 }
 
 const styles = StyleSheet.create({
