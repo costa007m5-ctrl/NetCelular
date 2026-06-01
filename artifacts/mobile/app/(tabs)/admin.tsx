@@ -146,7 +146,10 @@ export default function AdminScreen() {
     if (!item.isVideo) return;
     try {
       const url = await getSignedUrl(item.key);
-      router.push({ pathname: "/player", params: { url, title: item.name } });
+      router.push({
+        pathname: "/player",
+        params: { type: "movie", id: "0", title: item.name, directM3u8: url },
+      });
     } catch (e: any) {
       setError(e.message ?? "Erro ao abrir arquivo");
     }
