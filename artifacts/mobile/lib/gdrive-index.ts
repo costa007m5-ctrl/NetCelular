@@ -72,28 +72,58 @@ export function parseEpisodeInfo(name: string): {
   season?: number;
   episode?: number;
   title: string;
+  seriesTitle?: string;
 } {
   const bare = name.replace(/\.[^.]+$/, "").trim();
-  // S01E01 or S01EP01
-  const sxe = name.match(/[Ss](\d{1,2})[Ee][Pp]?(\d{1,3})/);
+
+  // Helper: extract series name = everything before the code marker, stripped of brackets/quality tags
+  function extractSeries(beforeCode: string): string {
+    return beforeCode
+      .replace(/[\s–-]+$/, "")
+      .replace(/\[.*?\]/g, "")
+      .replace(/\(.*?\)/g, "")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+  }
+
+  // S01E01 or S01EP01  — e.g. "A Lenda de Tarzan - s01e19 [1072p][Dual Áudio]"
+  const sxeIdx = bare.search(/[Ss]\d{1,2}[Ee][Pp]?\d{1,3}/);
+  const sxe = bare.match(/[Ss](\d{1,2})[Ee][Pp]?(\d{1,3})/);
   if (sxe) {
-    return { season: parseInt(sxe[1], 10), episode: parseInt(sxe[2], 10), title: bare };
+    const seriesTitle = sxeIdx > 0 ? extractSeries(bare.substring(0, sxeIdx)) : undefined;
+    return {
+      season: parseInt(sxe[1], 10),
+      episode: parseInt(sxe[2], 10),
+      title: bare,
+      seriesTitle: seriesTitle || undefined,
+    };
   }
-  // 1x01
-  const alt = name.match(/(\d{1,2})x(\d{1,3})/i);
+
+  // 1x01  — e.g. "Show Name - 1x01"
+  const altIdx = bare.search(/\d{1,2}x\d{1,3}/i);
+  const alt = bare.match(/(\d{1,2})x(\d{1,3})/i);
   if (alt) {
-    return { season: parseInt(alt[1], 10), episode: parseInt(alt[2], 10), title: bare };
+    const seriesTitle = altIdx > 0 ? extractSeries(bare.substring(0, altIdx)) : undefined;
+    return {
+      season: parseInt(alt[1], 10),
+      episode: parseInt(alt[2], 10),
+      title: bare,
+      seriesTitle: seriesTitle || undefined,
+    };
   }
+
   // " - Ep. N "
-  const numEp = name.match(/\s-\s[Ee][Pp]?\.?\s?(\d{1,3})[\s.]/);
+  const numEp = bare.match(/\s-\s[Ee][Pp]?\.?\s?(\d{1,3})[\s.]/);
   if (numEp) {
     return { episode: parseInt(numEp[1], 10), title: bare };
   }
+
   // Leading zero-padded number e.g. "01 - Title.mkv" or "01.mkv"
-  const leading = name.match(/^(\d{1,3})[\s.-]/);
+  const leading = bare.match(/^(\d{1,3})[\s.-]/);
   if (leading) {
     return { episode: parseInt(leading[1], 10), title: bare };
   }
+
   return { title: bare };
 }
 

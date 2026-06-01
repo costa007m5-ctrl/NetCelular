@@ -40,12 +40,33 @@ function fmt(ms: number): string {
 }
 
 function cleanTitle(name: string): string {
+  const ep = parseEpisodeInfo(name);
+  // If we found a series title before the SxxExx code, use it
+  if (ep.seriesTitle) return ep.seriesTitle;
+  // Otherwise strip extension, quality tags, and brackets
   return name
     .replace(/\.[^.]+$/, "")
     .replace(/\[.*?\]/g, "")
     .replace(/\(.*?\)/g, "")
     .replace(/\s{2,}/g, " ")
     .trim();
+}
+
+function episodeLabel(name: string, index: number): string {
+  const ep = parseEpisodeInfo(name);
+  const bare = name.replace(/\.[^.]+$/, "").trim();
+  // Remove quality/audio tags from the raw name
+  const clean = bare
+    .replace(/\[.*?\]/g, "")
+    .replace(/\(.*?\)/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  if (ep.seriesTitle) {
+    // "A Lenda de Tarzan · E19"
+    const epNum = ep.episode !== undefined ? ` · E${String(ep.episode).padStart(2, "0")}` : "";
+    return `${ep.seriesTitle}${epNum}`;
+  }
+  return clean || String(index + 1);
 }
 
 export default function GdrivePlayer() {
@@ -419,7 +440,7 @@ export default function GdrivePlayer() {
                       </Text>
                     </View>
                     <Text style={[s.epItemTxt, { color: active ? "#fff" : "#aaa" }]} numberOfLines={2}>
-                      {pi.name.replace(/\.[^.]+$/, "")}
+                      {episodeLabel(pi.name, index)}
                     </Text>
                     {active && <Feather name="volume-2" size={14} color={RED} />}
                   </TouchableOpacity>
