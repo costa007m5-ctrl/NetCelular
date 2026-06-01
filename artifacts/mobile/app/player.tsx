@@ -511,6 +511,7 @@ export default function PlayerScreen() {
     type: string; id: string; season?: string; episode?: string;
     title?: string; posterPath?: string; backdropPath?: string;
     streamUrl?: string; isLive?: string; totalSeasons?: string;
+    gstreamMode?: string; gstreamLang?: string; gstreamMovieUrl?: string;
   }>();
 
   const type = (params.type ?? "movie") as "movie" | "tv" | "live";
@@ -522,6 +523,9 @@ export default function PlayerScreen() {
   const backdropPath = params.backdropPath ?? "";
   const streamUrl = params.streamUrl ?? "";
   const isLive = params.isLive === "true";
+  const gstreamMode = params.gstreamMode === "true";
+  const gstreamLang = (params.gstreamLang ?? "dub") as "dub" | "leg";
+  const gstreamMovieUrl = params.gstreamMovieUrl ?? "";
 
   // ── WebView states ──────────────────────────────────────────────────────────
   const [loading, setLoading] = useState(true);
@@ -549,7 +553,14 @@ export default function PlayerScreen() {
   const [loadingEpisodes, setLoadingEpisodes] = useState(false);
   const navigatingToEpisodeRef = useRef(false);
 
-  const playerUrl = isLive && streamUrl ? streamUrl : api.redeflix.url(type as "movie" | "tv", id, season, episode);
+  const EMBED_BASE = "https://embed.embedplayer.site";
+  const playerUrl = gstreamMode
+    ? (type === "tv"
+        ? `${EMBED_BASE}/tv/${id}/${season}/${episode}/${gstreamLang}`
+        : gstreamMovieUrl || `${EMBED_BASE}/${id}`)
+    : isLive && streamUrl
+    ? streamUrl
+    : api.redeflix.url(type as "movie" | "tv", id, season, episode);
 
   useEffect(() => {
     if (Platform.OS === "web" || !ScreenOrientation) return;
@@ -722,7 +733,15 @@ export default function PlayerScreen() {
     navigatingToEpisodeRef.current = true;
     router.replace({
       pathname: "/player",
-      params: { type, id: String(id), season: String(s), episode: String(ep), title, totalSeasons: String(totalSeasons) },
+      params: {
+        type,
+        id: String(id),
+        season: String(s),
+        episode: String(ep),
+        title,
+        totalSeasons: String(totalSeasons),
+        ...(gstreamMode ? { gstreamMode: "true", gstreamLang } : {}),
+      },
     });
   };
 

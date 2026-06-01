@@ -204,6 +204,31 @@ export default function DetailScreen() {
   const [gstreamLang, setGstreamLang] = useState<"dub" | "leg">("dub");
   const [gstreamMovieUrl, setGstreamMovieUrl] = useState<string | null>(null);
 
+  // Check GStream availability in background (non-blocking)
+  useEffect(() => {
+    if (!tmdbId) return;
+    setGstreamAvailable(false);
+    setGstreamMovieUrl(null);
+    const check = async () => {
+      try {
+        if (type === "movie") {
+          const r = await tmdbApi.gstream.checkMovie(tmdbId);
+          if (r.available) {
+            setGstreamAvailable(true);
+            setGstreamMovieUrl(r.url ?? null);
+          }
+        } else {
+          const r = await tmdbApi.gstream.checkTv(tmdbId, 1, 1);
+          if (r.available) {
+            setGstreamAvailable(true);
+            setGstreamLang(r.dub ? "dub" : "leg");
+          }
+        }
+      } catch {}
+    };
+    check();
+  }, [tmdbId, type]);
+
   // Search Drive for matching content by title
   useEffect(() => {
     const titleStr = params.title ? String(params.title) : "";
@@ -475,6 +500,25 @@ export default function DetailScreen() {
         title: details?.title ?? details?.name ?? "",
         posterPath: details?.poster_path ?? "",
         backdropPath: details?.backdrop_path ?? "",
+      },
+    });
+  };
+
+  const goToGstreamPlayer = (season = 1, episode = 1) => {
+    router.push({
+      pathname: "/player",
+      params: {
+        type,
+        id: String(tmdbId),
+        season: String(season),
+        episode: String(episode),
+        title: details?.title ?? details?.name ?? "",
+        posterPath: details?.poster_path ?? "",
+        backdropPath: details?.backdrop_path ?? "",
+        gstreamMode: "true",
+        gstreamLang,
+        ...(type === "movie" && gstreamMovieUrl ? { gstreamMovieUrl } : {}),
+        totalSeasons: String((details as any)?.number_of_seasons ?? 1),
       },
     });
   };
@@ -916,6 +960,28 @@ export default function DetailScreen() {
                 >
                   <Feather name="hard-drive" size={18} color="#fff" />
                   <Text style={styles.watchBtnText}>PLAY 2 · ACERVO DRIVE</Text>
+                </Pressable>
+              )}
+
+              {/* Play 3 — GStream Native */}
+              {gstreamAvailable && (
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.watchBtn,
+                    { backgroundColor: "#7c3aed", marginTop: 8 },
+                    pressed && { opacity: 0.85 },
+                  ]}
+                  onPress={() => {
+                    const resumeSeason = (type === "tv" && watchProgress?.season) ? watchProgress.season : 1;
+                    const resumeEp = (type === "tv" && watchProgress?.episode) ? watchProgress.episode : 1;
+                    goToGstreamPlayer(resumeSeason, resumeEp);
+                  }}
+                >
+                  <Feather name="zap" size={18} color="#fff" />
+                  <Text style={styles.watchBtnText}>
+                    {"PLAY 3 · GSTREAM"}
+                    {type === "tv" ? `  ·  ${gstreamLang.toUpperCase()}` : ""}
+                  </Text>
                 </Pressable>
               )}
 
