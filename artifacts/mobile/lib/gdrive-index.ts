@@ -73,19 +73,41 @@ export function parseEpisodeInfo(name: string): {
   episode?: number;
   title: string;
 } {
+  const bare = name.replace(/\.[^.]+$/, "").trim();
+  // S01E01 or S01EP01
   const sxe = name.match(/[Ss](\d{1,2})[Ee][Pp]?(\d{1,3})/);
   if (sxe) {
-    return {
-      season: parseInt(sxe[1], 10),
-      episode: parseInt(sxe[2], 10),
-      title: name.replace(/\.[^.]+$/, "").trim(),
-    };
+    return { season: parseInt(sxe[1], 10), episode: parseInt(sxe[2], 10), title: bare };
   }
-  const numEp = name.match(/\s-\s[Ee][Pp]?\.?\s?(\d{1,3})\s/);
+  // 1x01
+  const alt = name.match(/(\d{1,2})x(\d{1,3})/i);
+  if (alt) {
+    return { season: parseInt(alt[1], 10), episode: parseInt(alt[2], 10), title: bare };
+  }
+  // " - Ep. N "
+  const numEp = name.match(/\s-\s[Ee][Pp]?\.?\s?(\d{1,3})[\s.]/);
   if (numEp) {
-    return { episode: parseInt(numEp[1], 10), title: name.replace(/\.[^.]+$/, "").trim() };
+    return { episode: parseInt(numEp[1], 10), title: bare };
   }
-  return { title: name.replace(/\.[^.]+$/, "").trim() };
+  // Leading zero-padded number e.g. "01 - Title.mkv" or "01.mkv"
+  const leading = name.match(/^(\d{1,3})[\s.-]/);
+  if (leading) {
+    return { episode: parseInt(leading[1], 10), title: bare };
+  }
+  return { title: bare };
+}
+
+export function parseSeasonFolderNumber(name: string): number | null {
+  // "Temporada 1", "Temporada 01", "Season 1", "Season 01", "Temp 1"
+  const m1 = name.match(/^(?:temporada|season|temp(?:orada)?)\s*(\d+)$/i);
+  if (m1) return parseInt(m1[1], 10);
+  // "T1", "T01", "S1", "S01" (standalone)
+  const m2 = name.match(/^[TS](\d{1,2})$/i);
+  if (m2) return parseInt(m2[1], 10);
+  // Just a number "1", "01"
+  const m3 = name.match(/^(\d{1,2})$/);
+  if (m3) return parseInt(m3[1], 10);
+  return null;
 }
 
 export async function listFolder(

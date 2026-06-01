@@ -30,7 +30,8 @@ import { useAuth } from "@/lib/auth-context";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
 import type { WatchProgress } from "@/lib/supabase";
 import type { ContentItem } from "@/constants/content";
-import { searchDriveByTitle, DriveMatch } from "@/lib/gdrive-search";
+import { searchDriveByTitle, getDriveSeasonEpisodes, DriveMatch } from "@/lib/gdrive-search";
+import { DriveItem, parseEpisodeInfo } from "@/lib/gdrive-index";
 
 let WebView: any = null;
 try { WebView = require("react-native-webview").WebView; } catch {}
@@ -58,20 +59,19 @@ function EpisodeRow({
   current,
   colors,
   onPress,
+  onDrivePress,
 }: {
   ep: TmdbEpisode;
   watched: boolean;
   current: boolean;
   colors: ReturnType<typeof import("@/hooks/useColors").useColors>;
   onPress: () => void;
+  onDrivePress?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <Pressable
-      style={[styles.episodeRow, { backgroundColor: colors.card, borderColor: current ? colors.primary : colors.border }]}
-      onPress={onPress}
-    >
+    <View style={[styles.episodeRow, { backgroundColor: colors.card, borderColor: current ? colors.primary : colors.border }]}>
       {/* Thumbnail */}
       {ep.still_path ? (
         <Image
@@ -142,11 +142,18 @@ function EpisodeRow({
         ) : null}
       </View>
 
-      {/* Play button */}
-      <Pressable onPress={onPress} style={styles.epPlayBtn}>
-        <Feather name="play-circle" size={30} color={current ? colors.primary : colors.foreground} />
-      </Pressable>
-    </Pressable>
+      {/* Play buttons column */}
+      <View style={styles.epPlayCol}>
+        <Pressable onPress={onPress} style={styles.epPlayBtn}>
+          <Feather name="play-circle" size={28} color={current ? colors.primary : colors.foreground} />
+        </Pressable>
+        {onDrivePress && (
+          <Pressable onPress={onDrivePress} style={[styles.epPlayBtn, styles.epDriveBtn]}>
+            <Feather name="hard-drive" size={18} color="#fff" />
+          </Pressable>
+        )}
+      </View>
+    </View>
   );
 }
 
@@ -190,6 +197,8 @@ export default function DetailScreen() {
   const [isDownloaded, setIsDownloaded] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [driveMatches, setDriveMatches] = useState<DriveMatch[]>([]);
+  const [driveEpisodeMap, setDriveEpisodeMap] = useState<Record<number, DriveItem>>({});
+  const [driveSeasonItems, setDriveSeasonItems] = useState<DriveItem[]>([]);
 
   // Search Drive for matching content by title
   useEffect(() => {
@@ -197,6 +206,33 @@ export default function DetailScreen() {
     if (!titleStr) return;
     searchDriveByTitle(titleStr).then(setDriveMatches).catch(() => {});
   }, [params.title]);
+
+  // Load drive episodes for the selected season whenever the series match or season changes
+  useEffect(() => {
+    if (type !== "tv") return;
+    const match = driveMatches.find((m) => m.isFolder);
+    if (!match) {
+      setDriveEpisodeMap({});
+      setDriveSeasonItems([]);
+      return;
+    }
+    getDriveSeasonEpisodes(match.drive, match.path, selectedSeason)
+      .then((items) => {
+        setDriveSeasonItems(items);
+        const map: Record<number, DriveItem> = {};
+        for (const item of items) {
+          const info = parseEpisodeInfo(item.name);
+          if (info.episode !== undefined) {
+            map[info.episode] = item;
+          }
+        }
+        setDriveEpisodeMap(map);
+      })
+      .catch(() => {
+        setDriveEpisodeMap({});
+        setDriveSeasonItems([]);
+      });
+  }, [type, driveMatches, selectedSeason]);
 
   useEffect(() => {
     if (!userId || !tmdbId || !isSupabaseConfigured) return;
@@ -435,6 +471,33 @@ export default function DetailScreen() {
         title: details?.title ?? details?.name ?? "",
         posterPath: details?.poster_path ?? "",
         backdropPath: details?.backdrop_path ?? "",
+      },
+    });
+  };
+
+  const goToDriveEpisode = (ep: TmdbEpisode) => {
+    const driveItem = driveEpisodeMap[ep.episode_number];
+    if (!driveItem) return;
+    const match = driveMatches.find((m) => m.isFolder)!;
+
+    // Build playlist sorted by episode number
+    const sorted = [...driveSeasonItems].sort((a, b) => {
+      const ia = parseEpisodeInfo(a.name).episode ?? 999;
+      const ib = parseEpisodeInfo(b.name).episode ?? 999;
+      return ia - ib;
+    });
+    const playlist = sorted.map((item) => ({ name: item.name, link: item.link ?? "" }));
+    const currentIndex = sorted.findIndex((item) => item.id === driveItem.id);
+
+    router.push({
+      pathname: "/gdrive-player",
+      params: {
+        fileName: driveItem.name,
+        fileLink: driveItem.link ?? "",
+        drive: String(match.drive),
+        folderPath: match.path,
+        playlist: JSON.stringify(playlist),
+        currentIndex: String(Math.max(0, currentIndex)),
       },
     });
   };
@@ -992,6 +1055,7 @@ export default function DetailScreen() {
                   ) : (
                     episodeList.map((ep) => {
                       const { watched, current } = getEpisodeStatus(ep);
+                      const hasDrive = !!driveEpisodeMap[ep.episode_number];
                       return (
                         <EpisodeRow
                           key={ep.episode_number}
@@ -1000,6 +1064,7 @@ export default function DetailScreen() {
                           current={current}
                           colors={colors}
                           onPress={() => goToPlayer(selectedSeason, ep.episode_number)}
+                          onDrivePress={hasDrive ? () => goToDriveEpisode(ep) : undefined}
                         />
                       );
                     })
@@ -1259,7 +1324,16 @@ const styles = StyleSheet.create({
   episodeMeta: { fontSize: 10, fontWeight: "500" },
   epSynopsis: { fontSize: 11, lineHeight: 15, marginTop: 2 },
   epSynopsisToggle: { fontSize: 11, fontWeight: "600", marginTop: 1 },
-  epPlayBtn: { paddingLeft: 4, paddingTop: 12, alignSelf: "flex-start" },
+  epPlayCol: { alignItems: "center", justifyContent: "flex-start", paddingTop: 10, paddingLeft: 4, gap: 6 },
+  epPlayBtn: { padding: 2, alignItems: "center", justifyContent: "center" },
+  epDriveBtn: {
+    backgroundColor: "#16a34a",
+    borderRadius: 8,
+    width: 30,
+    height: 30,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   detailRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 12, borderBottomWidth: 1, gap: 12 },
   detailLabel: { fontSize: 13, flex: 1 },
   detailValue: { fontSize: 13, fontWeight: "500", flex: 2, textAlign: "right" },

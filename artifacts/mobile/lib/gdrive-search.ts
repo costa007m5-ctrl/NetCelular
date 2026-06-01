@@ -1,4 +1,4 @@
-import { listFolder, DriveItem, isFolder, isVideo, getStreamUrl } from "./gdrive-index";
+import { listFolder, listFolderAll, DriveItem, isFolder, isVideo, getStreamUrl, parseEpisodeInfo, parseSeasonFolderNumber } from "./gdrive-index";
 
 export type DriveMatch = {
   name: string;
@@ -87,6 +87,34 @@ export async function searchDriveByTitle(title: string): Promise<DriveMatch[]> {
   });
 
   return matches.slice(0, 6);
+}
+
+export async function getDriveSeasonEpisodes(
+  drive: 0 | 1,
+  seriesPath: string,
+  seasonNumber: number
+): Promise<DriveItem[]> {
+  const seriesItems = await listFolderAll(drive, seriesPath);
+
+  // Try to find a season subfolder
+  const seasonFolder = seriesItems.find((item) => {
+    if (!isFolder(item)) return false;
+    return parseSeasonFolderNumber(item.name) === seasonNumber;
+  });
+
+  if (seasonFolder) {
+    const seasonPath = `${seriesPath}/${seasonFolder.name}`;
+    const episodeItems = await listFolderAll(drive, seasonPath);
+    return episodeItems.filter(isVideo);
+  }
+
+  // No season folder — look for episodes directly in the series folder
+  // Filter by season number embedded in filename; if season is undefined fall back to season 1
+  const videos = seriesItems.filter(isVideo);
+  return videos.filter((item) => {
+    const info = parseEpisodeInfo(item.name);
+    return info.season === seasonNumber || (info.season === undefined && seasonNumber === 1);
+  });
 }
 
 export async function checkDriveApi(): Promise<{
