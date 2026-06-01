@@ -335,10 +335,11 @@ export default function AdminScreen() {
     setGApiStatus("loading");
     const t = Date.now();
     try {
-      const res = await fetch(`${EMBED_BASE}/tv/1396/1/1/lang`, { signal: AbortSignal.timeout(7000) });
+      const base = getApiBase();
+      const res = await fetch(`${base}/gstream/status`, { signal: AbortSignal.timeout(10000) });
       const json = await res.json().catch(() => null);
       setGApiLatency(Date.now() - t);
-      setGApiStatus((json?.dub !== undefined || json?.leg !== undefined) ? "ok" : "error");
+      setGApiStatus(json?.online ? "ok" : "error");
     } catch {
       setGApiStatus("error");
       setGApiLatency(null);
@@ -397,12 +398,16 @@ export default function AdminScreen() {
     if (isAnime) { setGAnimeLoading(true); setGAnimeResult(null); }
     else { setGTvLoading(true); setGTvResult(null); }
     try {
-      const res = await fetch(`${EMBED_BASE}/tv/${id}/${season}/${ep}/lang`, { signal: AbortSignal.timeout(7000) });
+      const base = getApiBase();
+      const res = await fetch(
+        `${base}/gstream/check-tv?id=${encodeURIComponent(id)}&season=${encodeURIComponent(season)}&episode=${encodeURIComponent(ep)}`,
+        { signal: AbortSignal.timeout(12000) }
+      );
       const json = await res.json().catch(() => null);
       const dub = !!(json?.dub);
       const leg = !!(json?.leg);
-      const dubUrl = `${EMBED_BASE}/tv/${id}/${season}/${ep}/dub`;
-      const legUrl = `${EMBED_BASE}/tv/${id}/${season}/${ep}/leg`;
+      const dubUrl = json?.dubUrl ?? `${EMBED_BASE}/tv/${id}/${season}/${ep}/dub`;
+      const legUrl = json?.legUrl ?? `${EMBED_BASE}/tv/${id}/${season}/${ep}/leg`;
       if (isAnime) {
         setGAnimeResult({ dub, leg });
         setGAnimeDubUrl(dubUrl);

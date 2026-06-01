@@ -49,4 +49,52 @@ router.get("/check-movie", async (req, res) => {
   }
 });
 
+router.get("/check-tv", async (req, res) => {
+  const id = (req.query["id"] as string || "").trim();
+  const season = (req.query["season"] as string || "1").trim();
+  const episode = (req.query["episode"] as string || "1").trim();
+  if (!id) return res.json({ dub: false, leg: false, error: "No ID provided" });
+  try {
+    const response = await fetch(`${EMBED_BASE}/tv/${id}/${season}/${episode}/lang`, {
+      headers: {
+        "User-Agent": "Mozilla/5.0",
+        "Referer": `${EMBED_BASE}/`,
+      },
+      signal: AbortSignal.timeout(8000),
+    });
+    const json = await response.json().catch(() => null);
+    if (!json || (json.dub === undefined && json.leg === undefined)) {
+      return res.json({ dub: false, leg: false, available: false });
+    }
+    res.json({
+      dub: !!json.dub,
+      leg: !!json.leg,
+      available: !!(json.dub || json.leg),
+      dubUrl: `${EMBED_BASE}/tv/${id}/${season}/${episode}/dub`,
+      legUrl: `${EMBED_BASE}/tv/${id}/${season}/${episode}/leg`,
+    });
+  } catch {
+    res.status(500).json({ dub: false, leg: false, available: false, error: "Request failed" });
+  }
+});
+
+router.get("/status", async (req, res) => {
+  const t = Date.now();
+  try {
+    const response = await fetch(`${EMBED_BASE}/tv/1396/1/1/lang`, {
+      headers: {
+        "User-Agent": "Mozilla/5.0",
+        "Referer": `${EMBED_BASE}/`,
+      },
+      signal: AbortSignal.timeout(7000),
+    });
+    const json = await response.json().catch(() => null);
+    const latency = Date.now() - t;
+    const online = !!(json?.dub !== undefined || json?.leg !== undefined);
+    res.json({ online, latency });
+  } catch {
+    res.json({ online: false, latency: null });
+  }
+});
+
 export default router;
