@@ -148,6 +148,7 @@ function RootNavigator() {
         <Stack.Screen name="catalog-list" options={{ headerShown: false }} />
         <Stack.Screen name="channel-detail" options={{ headerShown: false }} />
         <Stack.Screen name="player" options={{ headerShown: false, presentation: "fullScreenModal" }} />
+        <Stack.Screen name="gdrive-player" options={{ headerShown: false, presentation: "fullScreenModal" }} />
         <Stack.Screen name="admin" options={{ headerShown: false }} />
         <Stack.Screen name="notification-history" options={{ headerShown: false }} />
         <Stack.Screen name="+not-found" />

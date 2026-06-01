@@ -32,8 +32,8 @@ function NativeTabLayout() {
         <Label>Franquias</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="channels">
-        <Icon sf={{ default: "tv", selected: "tv.fill" }} />
-        <Label>Canais</Label>
+        <Icon sf={{ default: "externaldrive", selected: "externaldrive.fill" }} />
+        <Label>Acervo</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="profile">
         <Icon sf={{ default: "person", selected: "person.fill" }} />
@@ -147,9 +147,9 @@ function ClassicTabLayout() {
       <Tabs.Screen
         name="channels"
         options={{
-          title: "Canais",
+          title: "Acervo",
           tabBarIcon: ({ color }) =>
-            isIOS ? <SymbolView name="tv" tintColor={color} size={22} /> : <Feather name="tv" size={22} color={color} />,
+            isIOS ? <SymbolView name="externaldrive" tintColor={color} size={22} /> : <Feather name="hard-drive" size={22} color={color} />,
         }}
       />
       <Tabs.Screen
