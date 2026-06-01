@@ -338,6 +338,36 @@ export const api = {
     },
   },
 
+  gstream: {
+    checkMovie: async (id: number): Promise<{ available: boolean; url?: string }> => {
+      try {
+        const r = await apiFetch<any>(`/gstream/check-movie?id=${id}`);
+        return { available: !!r.movie, url: r.url };
+      } catch {
+        return { available: false };
+      }
+    },
+
+    checkTv: async (
+      id: number,
+      season = 1,
+      episode = 1
+    ): Promise<{ available: boolean; dub: boolean; leg: boolean; dubUrl?: string; legUrl?: string }> => {
+      try {
+        const r = await apiFetch<any>(`/gstream/check-tv?id=${id}&season=${season}&episode=${episode}`);
+        return {
+          available: !!r.available,
+          dub: !!r.dub,
+          leg: !!r.leg,
+          dubUrl: r.dubUrl,
+          legUrl: r.legUrl,
+        };
+      } catch {
+        return { available: false, dub: false, leg: false };
+      }
+    },
+  },
+
   redeflix: {
     url: (type: "movie" | "tv", id: number, season = 1, episode = 1): string => {
       if (type === "tv") return `https://redeflixapi.store/serie/${id}/${season}/${episode}`;

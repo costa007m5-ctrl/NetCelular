@@ -200,6 +200,10 @@ export default function DetailScreen() {
   const [driveEpisodeMap, setDriveEpisodeMap] = useState<Record<number, DriveItem>>({});
   const [driveSeasonItems, setDriveSeasonItems] = useState<DriveItem[]>([]);
 
+  const [gstreamAvailable, setGstreamAvailable] = useState(false);
+  const [gstreamLang, setGstreamLang] = useState<"dub" | "leg">("dub");
+  const [gstreamMovieUrl, setGstreamMovieUrl] = useState<string | null>(null);
+
   // Search Drive for matching content by title
   useEffect(() => {
     const titleStr = params.title ? String(params.title) : "";
