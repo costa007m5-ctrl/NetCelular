@@ -203,6 +203,7 @@ export default function DetailScreen() {
   const [gstreamAvailable, setGstreamAvailable] = useState(false);
   const [gstreamLang, setGstreamLang] = useState<"dub" | "leg">("dub");
   const [gstreamMovieUrl, setGstreamMovieUrl] = useState<string | null>(null);
+  const [gstreamResolving, setGstreamResolving] = useState(false);
 
   // Check GStream availability in background (non-blocking)
   useEffect(() => {
@@ -504,23 +505,38 @@ export default function DetailScreen() {
     });
   };
 
-  const goToGstreamPlayer = (season = 1, episode = 1) => {
-    router.push({
-      pathname: "/player",
-      params: {
-        type,
-        id: String(tmdbId),
-        season: String(season),
-        episode: String(episode),
-        title: details?.title ?? details?.name ?? "",
-        posterPath: details?.poster_path ?? "",
-        backdropPath: details?.backdrop_path ?? "",
-        gstreamMode: "true",
-        gstreamLang,
-        ...(type === "movie" && gstreamMovieUrl ? { gstreamMovieUrl } : {}),
-        totalSeasons: String((details as any)?.number_of_seasons ?? 1),
-      },
-    });
+  const goToGstreamPlayer = async (season = 1, episode = 1) => {
+    setGstreamResolving(true);
+    const baseParams = {
+      type,
+      id: String(tmdbId),
+      season: String(season),
+      episode: String(episode),
+      title: details?.title ?? details?.name ?? "",
+      posterPath: details?.poster_path ?? "",
+      backdropPath: details?.backdrop_path ?? "",
+      gstreamMode: "true",
+      gstreamLang,
+      totalSeasons: String((details as any)?.number_of_seasons ?? 1),
+    };
+    try {
+      const resolved = await tmdbApi.gstream.resolveStream(type, tmdbId, season, episode, gstreamLang);
+      router.push({
+        pathname: "/player",
+        params: resolved.m3u8
+          ? { ...baseParams, directM3u8: resolved.m3u8, directReferer: resolved.embedUrl }
+          : resolved.iframeUrl
+          ? { ...baseParams, directEmbed: resolved.iframeUrl, directReferer: resolved.embedUrl }
+          : { ...baseParams, ...(type === "movie" && gstreamMovieUrl ? { gstreamMovieUrl } : {}) },
+      });
+    } catch {
+      router.push({
+        pathname: "/player",
+        params: { ...baseParams, ...(type === "movie" && gstreamMovieUrl ? { gstreamMovieUrl } : {}) },
+      });
+    } finally {
+      setGstreamResolving(false);
+    }
   };
 
   const goToDriveEpisode = (ep: TmdbEpisode) => {
@@ -966,10 +982,11 @@ export default function DetailScreen() {
               {/* Play 3 — GStream Native */}
               {gstreamAvailable && (
                 <Pressable
+                  disabled={gstreamResolving}
                   style={({ pressed }) => [
                     styles.watchBtn,
                     { backgroundColor: "#7c3aed", marginTop: 8 },
-                    pressed && { opacity: 0.85 },
+                    (pressed || gstreamResolving) && { opacity: 0.7 },
                   ]}
                   onPress={() => {
                     const resumeSeason = (type === "tv" && watchProgress?.season) ? watchProgress.season : 1;
@@ -977,10 +994,11 @@ export default function DetailScreen() {
                     goToGstreamPlayer(resumeSeason, resumeEp);
                   }}
                 >
-                  <Feather name="zap" size={18} color="#fff" />
+                  <Feather name={gstreamResolving ? "loader" : "zap"} size={18} color="#fff" />
                   <Text style={styles.watchBtnText}>
-                    {"PLAY 3 · GSTREAM"}
-                    {type === "tv" ? `  ·  ${gstreamLang.toUpperCase()}` : ""}
+                    {gstreamResolving
+                      ? "Buscando stream..."
+                      : `PLAY 3 · GSTREAM${type === "tv" ? `  ·  ${gstreamLang.toUpperCase()}` : ""}`}
                   </Text>
                 </Pressable>
               )}

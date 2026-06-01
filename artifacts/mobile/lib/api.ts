@@ -366,6 +366,27 @@ export const api = {
         return { available: false, dub: false, leg: false };
       }
     },
+
+    resolveStream: async (
+      type: string,
+      id: number,
+      season = 1,
+      episode = 1,
+      lang = "dub"
+    ): Promise<{ m3u8: string | null; embedUrl: string; iframeUrl: string | null }> => {
+      try {
+        const r = await apiFetch<any>(
+          `/gstream/resolve-stream?type=${type}&id=${id}&season=${season}&episode=${episode}&lang=${lang}`
+        );
+        return {
+          m3u8: r.m3u8 ?? null,
+          embedUrl: r.embedUrl ?? "",
+          iframeUrl: r.iframeUrl ?? null,
+        };
+      } catch {
+        return { m3u8: null, embedUrl: "", iframeUrl: null };
+      }
+    },
   },
 
   redeflix: {

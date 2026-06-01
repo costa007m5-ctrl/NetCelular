@@ -72,40 +72,78 @@ const M3U8_INTERCEPTOR_JS = `
   window.__m3u8HookInstalled = true;
   var _seen = {};
 
-  function send(url) {
+  function rnPost(payload) {
+    try { window.ReactNativeWebView && window.ReactNativeWebView.postMessage(payload); } catch(e) {}
+    try { window.top && window.top.ReactNativeWebView && window.top.ReactNativeWebView.postMessage(payload); } catch(e) {}
+  }
+
+  function send(url, ref) {
     if (!url || typeof url !== 'string') return;
+    if (!url.includes('.m3u8')) return;
     var base = url.split('?')[0].split('#')[0];
-    if (!base.match(/\\.m3u8$/i)) return;
     if (_seen[base]) return;
     _seen[base] = 1;
+    rnPost(JSON.stringify({ type: 'm3u8_found', url: url, referer: ref || window.location.href || '' }));
+  }
+
+  function tryExtractM3u8(text, ref) {
+    if (!text || !text.includes('.m3u8')) return;
     try {
-      var ref = window.location.href || '';
-      window.top.ReactNativeWebView && window.top.ReactNativeWebView.postMessage(
-        JSON.stringify({ type: 'm3u8_found', url: url, referer: ref })
-      );
+      var data = JSON.parse(text);
+      if (!data) return;
+      var srcs = data.sources || data.source || data.data || [];
+      if (!Array.isArray(srcs)) srcs = [srcs];
+      srcs.forEach(function(s) {
+        if (s && s.file) send(s.file, ref);
+        if (s && s.src) send(s.src, ref);
+        if (s && s.url) send(s.url, ref);
+        if (typeof s === 'string') send(s, ref);
+      });
+      if (data.file) send(data.file, ref);
+      if (data.src) send(data.src, ref);
+      if (data.url) send(data.url, ref);
+      if (data.stream) send(data.stream, ref);
+      if (data.hls) send(data.hls, ref);
     } catch(e) {
-      try {
-        window.ReactNativeWebView && window.ReactNativeWebView.postMessage(
-          JSON.stringify({ type: 'm3u8_found', url: url, referer: window.location.href || '' })
-        );
-      } catch(e2) {}
+      var matches = text.match(/https?:[^"' ]+\\.m3u8[^"' ]*/g);
+      if (matches) matches.forEach(function(m) { send(m, ref); });
     }
   }
 
-  // Hook XHR
+  // Hook XHR — intercept both URL and RESPONSE body
   var _xOpen = XMLHttpRequest.prototype.open;
+  var _xSend = XMLHttpRequest.prototype.send;
   XMLHttpRequest.prototype.open = function(m, u) {
-    if (u) send(String(u));
+    this.__rnUrl = u ? String(u) : '';
+    if (this.__rnUrl) send(this.__rnUrl);
     return _xOpen.apply(this, arguments);
   };
+  XMLHttpRequest.prototype.send = function() {
+    var self = this;
+    var origLoad = self.onload;
+    self.onload = function(e) {
+      try { tryExtractM3u8(self.responseText, self.__rnUrl); } catch(x) {}
+      if (origLoad) origLoad.apply(self, arguments);
+    };
+    self.addEventListener('load', function() {
+      try { tryExtractM3u8(self.responseText, self.__rnUrl); } catch(x) {}
+    });
+    return _xSend.apply(self, arguments);
+  };
 
-  // Hook fetch
+  // Hook fetch — intercept URL and response body
   var _fetch = window.fetch;
   if (_fetch) {
-    window.fetch = function(r, i) {
-      var u = typeof r === 'string' ? r : (r && typeof r === 'object' && r.url) ? r.url : '';
+    window.fetch = function(r, opts) {
+      var u = typeof r === 'string' ? r : (r && r.url) ? r.url : '';
       if (u) send(u);
-      return _fetch.apply(window, arguments);
+      var p = _fetch.apply(window, arguments);
+      if (u) {
+        p.then(function(resp) {
+          try { resp.clone().text().then(function(t) { tryExtractM3u8(t, u); }).catch(function(){}); } catch(x) {}
+        }).catch(function(){});
+      }
+      return p;
     };
   }
 
@@ -121,29 +159,64 @@ const M3U8_INTERCEPTOR_JS = `
     }
   } catch(e) {}
 
-  // Hook JWPlayer (may load after this script)
+  // Hook HTMLSourceElement.src
+  try {
+    var _ssrcD = Object.getOwnPropertyDescriptor(HTMLSourceElement.prototype, 'src');
+    if (_ssrcD && _ssrcD.set) {
+      Object.defineProperty(HTMLSourceElement.prototype, 'src', {
+        configurable: true, enumerable: true,
+        get: _ssrcD.get,
+        set: function(v) { if (v) send(String(v)); return _ssrcD.set.call(this, v); }
+      });
+    }
+  } catch(e) {}
+
+  // Hook HLS.js
+  function hookHls() {
+    if (!window.Hls || window.Hls.__rnHooked) return false;
+    window.Hls.__rnHooked = true;
+    var _load = window.Hls.prototype.loadSource;
+    window.Hls.prototype.loadSource = function(src) { send(src); return _load.apply(this, arguments); };
+    return true;
+  }
+
+  // Hook JWPlayer
   function hookJw() {
-    if (!window.jwplayer || window.jwplayer.__hooked) return false;
+    if (!window.jwplayer || window.jwplayer.__rnHooked) return false;
+    window.jwplayer.__rnHooked = true;
     var _jw = window.jwplayer;
     window.jwplayer = function() {
       var p = _jw.apply(this, arguments);
       if (p && p.setup) {
         var _setup = p.setup.bind(p);
         p.setup = function(cfg) {
-          try { (cfg && cfg.sources || []).forEach(function(s) { if (s && s.file) send(s.file); }); } catch(e) {}
+          try { ((cfg && cfg.sources) || []).forEach(function(s) { if (s && s.file) send(s.file); }); } catch(x) {}
           return _setup(cfg);
         };
       }
       return p;
     };
-    window.jwplayer.__hooked = true;
-    try { window.jwplayer.key = _jw.key; } catch(e) {}
+    try { window.jwplayer.key = _jw.key; } catch(x) {}
     return true;
   }
-  if (!hookJw()) {
-    var _ti = setInterval(function() { if (hookJw()) clearInterval(_ti); }, 150);
-    setTimeout(function() { clearInterval(_ti); }, 20000);
+
+  if (!hookHls() || !hookJw()) {
+    var _t = setInterval(function() {
+      if (!window.Hls || !window.Hls.__rnHooked) hookHls();
+      if (!window.jwplayer || !window.jwplayer.__rnHooked) hookJw();
+    }, 150);
+    setTimeout(function() { clearInterval(_t); }, 30000);
   }
+
+  // Scan video elements periodically (fallback for preloaded videos)
+  setInterval(function() {
+    try {
+      document.querySelectorAll('video[src],video>source').forEach(function(el) {
+        var s = el.src || el.getAttribute('src');
+        if (s) send(s);
+      });
+    } catch(e) {}
+  }, 800);
 })(); true;
 `;
 
@@ -181,6 +254,25 @@ const AD_BLOCKER_JS = `
   removeAds();
   setInterval(removeAds, 1000);
   try { new MutationObserver(removeAds).observe(document.body, { childList: true, subtree: true }); } catch(e) {}
+})(); true;
+`;
+
+// Auto-triggers fireload() on embedplayer2.xyz pages (direct iframe embed mode)
+const EMBED_AUTOPLAY_JS = `
+(function() {
+  function tryFire() {
+    try {
+      if (typeof fireload === 'function') { fireload(); return true; }
+    } catch(e) {}
+    try {
+      var btn = document.querySelector('.play-button-outer');
+      if (btn && btn.style.display !== 'none') { btn.click(); return true; }
+    } catch(e) {}
+    return false;
+  }
+  [200, 600, 1200, 2000, 3500].forEach(function(ms) {
+    setTimeout(function() { if (!window.__rn_fired) { if(tryFire()) window.__rn_fired=true; } }, ms);
+  });
 })(); true;
 `;
 
@@ -512,6 +604,7 @@ export default function PlayerScreen() {
     title?: string; posterPath?: string; backdropPath?: string;
     streamUrl?: string; isLive?: string; totalSeasons?: string;
     gstreamMode?: string; gstreamLang?: string; gstreamMovieUrl?: string;
+    directM3u8?: string; directReferer?: string; directEmbed?: string;
   }>();
 
   const type = (params.type ?? "movie") as "movie" | "tv" | "live";
@@ -526,6 +619,9 @@ export default function PlayerScreen() {
   const gstreamMode = params.gstreamMode === "true";
   const gstreamLang = (params.gstreamLang ?? "dub") as "dub" | "leg";
   const gstreamMovieUrl = params.gstreamMovieUrl ?? "";
+  const directM3u8 = params.directM3u8 ?? "";
+  const directReferer = params.directReferer ?? "";
+  const directEmbed = params.directEmbed ?? "";
 
   // ── WebView states ──────────────────────────────────────────────────────────
   const [loading, setLoading] = useState(true);
@@ -540,9 +636,10 @@ export default function PlayerScreen() {
   const controlsOpacity = useRef(new Animated.Value(1)).current;
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ── Native player states ────────────────────────────────────────────────────
-  const [m3u8Url, setM3u8Url] = useState<string | null>(null);
-  const [m3u8Referer, setM3u8Referer] = useState("");
+  // ── Native player states ─────────────────────────────────────────────────────
+  // If directM3u8 was resolved server-side, use it immediately (no WebView)
+  const [m3u8Url, setM3u8Url] = useState<string | null>(directM3u8 || null);
+  const [m3u8Referer, setM3u8Referer] = useState(directReferer || "");
   const [useWebViewFallback, setUseWebViewFallback] = useState(false);
 
   // ── Episode picker states ───────────────────────────────────────────────────
@@ -554,7 +651,9 @@ export default function PlayerScreen() {
   const navigatingToEpisodeRef = useRef(false);
 
   const EMBED_BASE = "https://embed.embedplayer.site";
-  const playerUrl = gstreamMode
+  const playerUrl = directEmbed
+    ? directEmbed
+    : gstreamMode
     ? (type === "tv"
         ? `${EMBED_BASE}/tv/${id}/${season}/${episode}/${gstreamLang}`
         : gstreamMovieUrl || `${EMBED_BASE}/${id}`)
@@ -857,7 +956,17 @@ export default function PlayerScreen() {
 
       <WebView
         ref={webviewRef}
-        source={{ uri: playerUrl }}
+        source={
+          directEmbed
+            ? {
+                uri: directEmbed,
+                headers: {
+                  Referer: directReferer || "https://embed.embedplayer.site/",
+                  Origin: "https://embed.embedplayer.site",
+                },
+              }
+            : { uri: playerUrl }
+        }
         style={styles.webview}
         onLoadStart={() => { if (!initialLoadDone) { setLoading(true); setError(false); } }}
         onLoadEnd={() => { setLoading(false); setInitialLoadDone(true); saveProgress(); showControls(); }}
@@ -874,7 +983,7 @@ export default function PlayerScreen() {
         scalesPageToFit={false}
         injectedJavaScriptBeforeContentLoaded={M3U8_INTERCEPTOR_JS}
         injectedJavaScriptBeforeContentLoadedForMainFrameOnly={false}
-        injectedJavaScript={AD_BLOCKER_JS}
+        injectedJavaScript={directEmbed ? `${AD_BLOCKER_JS}\n${EMBED_AUTOPLAY_JS}` : AD_BLOCKER_JS}
         injectedJavaScriptForMainFrameOnly={false}
         injectedJavaScriptBeforeContentLoadedIntoEachFrame={M3U8_INTERCEPTOR_JS}
         injectedJavaScriptBeforeContentLoadedIntoEachFrameForMainFrameOnly={false}
