@@ -329,10 +329,10 @@ export default function AdminScreen() {
     setGApiStatus("loading");
     const t = Date.now();
     try {
-      const res = await fetch(`${EMBED_BASE}/dooplay?movie=550`, { signal: AbortSignal.timeout(7000) });
+      const res = await fetch(`${EMBED_BASE}/tv/1396/1/1/lang`, { signal: AbortSignal.timeout(7000) });
       const json = await res.json().catch(() => null);
       setGApiLatency(Date.now() - t);
-      setGApiStatus(json ? "ok" : "error");
+      setGApiStatus((json?.dub !== undefined || json?.leg !== undefined) ? "ok" : "error");
     } catch {
       setGApiStatus("error");
       setGApiLatency(null);
@@ -1346,17 +1346,17 @@ export default function AdminScreen() {
                   <Text style={[styles.refreshText, { color: "#6366f1" }]}>Verificar API</Text>
                 </Pressable>
 
-                <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginBottom: 12 }]}>COMO FUNCIONA</Text>
+                <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginBottom: 12 }]}>SUPORTE POR TIPO</Text>
                 <View style={[styles.apiCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
                   {[
-                    { icon: "film", label: "Filme", desc: "Verifica disponibilidade por TMDB ID e retorna o embed URL" },
-                    { icon: "tv", label: "Série / Anime", desc: "Verifica dublagem e legenda por TMDB ID + temporada + episódio" },
-                    { icon: "globe", label: "Suporte", desc: "URLs de embed funcionam em WebView (app) e iframe (web)" },
+                    { icon: "tv", label: "Séries", desc: "✅ Funciona — verifica DUB e LEG por temporada/episódio", ok: true },
+                    { icon: "zap", label: "Animes", desc: "✅ Funciona — mesma API de séries, mesmo endpoint /tv/", ok: true },
+                    { icon: "film", label: "Filmes", desc: "❌ Não suportado — /dooplay?movie= sempre retorna false", ok: false },
                   ].map((item, i) => (
                     <React.Fragment key={item.label}>
                       <View style={[styles.apiRow, { alignItems: "center" }]}>
-                        <View style={{ width: 36, height: 36, borderRadius: 8, backgroundColor: "#6366f118", alignItems: "center", justifyContent: "center", marginRight: 12 }}>
-                          <Feather name={item.icon as any} size={16} color="#6366f1" />
+                        <View style={{ width: 36, height: 36, borderRadius: 8, backgroundColor: item.ok ? "#16a34a18" : `${RED}15`, alignItems: "center", justifyContent: "center", marginRight: 12 }}>
+                          <Feather name={item.icon as any} size={16} color={item.ok ? "#4ade80" : RED} />
                         </View>
                         <View style={{ flex: 1 }}>
                           <Text style={[styles.apiName, { color: colors.foreground }]}>{item.label}</Text>
@@ -1368,10 +1368,10 @@ export default function AdminScreen() {
                   ))}
                 </View>
 
-                <View style={[gs.infoBanner, { backgroundColor: "#6366f110", borderColor: "#6366f130", marginTop: 16 }]}>
-                  <Feather name="info" size={15} color="#6366f1" />
+                <View style={[gs.infoBanner, { backgroundColor: GOLD + "12", borderColor: GOLD + "35", marginTop: 4 }]}>
+                  <Feather name="alert-triangle" size={14} color={GOLD} />
                   <Text style={[gs.infoTxt, { color: colors.mutedForeground }]}>
-                    Use as abas Filmes, Séries e Animes para testar o player com qualquer TMDB ID antes de exibir para os usuários.
+                    Testado via curl: /tv/1396/1/1/lang → {`{"dub":true,"leg":false}`}. Confirma que Séries e Animes funcionam. Filmes retornam sempre false no endpoint de verificação.
                   </Text>
                 </View>
               </>
@@ -1380,11 +1380,40 @@ export default function AdminScreen() {
             {/* ── Filmes ── */}
             {gSection === "filmes" && (
               <>
-                <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginBottom: 12 }]}>TESTAR PLAYER DE FILME</Text>
-                <View style={[gs.infoBanner, { backgroundColor: "#6366f110", borderColor: "#6366f130", marginBottom: 14 }]}>
+                <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginBottom: 12 }]}>STATUS DOS FILMES</Text>
+
+                {/* Confirmed limitation banner */}
+                <View style={[gs.resultCard, { backgroundColor: `${RED}10`, borderColor: `${RED}35`, marginBottom: 4 }]}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                    <Feather name="x-circle" size={20} color={RED} />
+                    <Text style={[gs.resultTitle, { color: RED }]}>Filmes não suportados</Text>
+                  </View>
+                  <Text style={[styles.apiDetail, { color: colors.mutedForeground, lineHeight: 18 }]}>
+                    Testado via curl — o endpoint{"\n"}
+                    <Text style={{ color: colors.foreground, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" }}>
+                      /dooplay?movie=&#123;id&#125;
+                    </Text>
+                    {"\n"}retorna sempre{" "}
+                    <Text style={{ color: RED, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" }}>
+                      {`{"movie":false}`}
+                    </Text>
+                    {" "}para qualquer TMDB ID. O banco de filmes está vazio ou desativado nesta API.
+                  </Text>
+                </View>
+
+                <View style={[gs.infoBanner, { backgroundColor: GOLD + "12", borderColor: GOLD + "35", marginBottom: 20 }]}>
+                  <Feather name="alert-triangle" size={14} color={GOLD} />
+                  <Text style={[gs.infoTxt, { color: colors.mutedForeground }]}>
+                    Para filmes, use outra fonte de embed ou o Google Drive (Acervo). Para séries e animes, o GStream funciona normalmente.
+                  </Text>
+                </View>
+
+                {/* Try anyway section */}
+                <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginBottom: 12 }]}>TESTAR MESMO ASSIM</Text>
+                <View style={[gs.infoBanner, { backgroundColor: "#6366f110", borderColor: "#6366f130", marginBottom: 12 }]}>
                   <Feather name="info" size={14} color="#6366f1" />
                   <Text style={[gs.infoTxt, { color: colors.mutedForeground }]}>
-                    Digite o TMDB ID do filme (ex: 550 = Clube da Luta, 27205 = A Origem)
+                    Insira um TMDB ID para abrir o player diretamente, sem verificação prévia.
                   </Text>
                 </View>
 
@@ -1394,61 +1423,42 @@ export default function AdminScreen() {
                     placeholder="TMDB ID do filme (ex: 550)"
                     placeholderTextColor={colors.mutedForeground}
                     value={gMovieId}
-                    onChangeText={setGMovieId}
+                    onChangeText={(t) => { setGMovieId(t); setGMovieResult("idle"); }}
                     keyboardType="numeric"
-                    returnKeyType="search"
-                    onSubmitEditing={checkGStreamMovie}
+                    returnKeyType="done"
                   />
                   <Pressable
-                    onPress={checkGStreamMovie}
+                    onPress={() => {
+                      if (gMovieId.trim()) {
+                        setGMovieUrl(`${EMBED_BASE}/${gMovieId.trim()}`);
+                        setGMovieResult("found");
+                      }
+                    }}
                     style={[gs.checkBtn, { backgroundColor: "#6366f1" }]}
                   >
-                    {gMovieLoading ? (
-                      <ActivityIndicator size="small" color="#fff" />
-                    ) : (
-                      <Feather name="search" size={16} color="#fff" />
-                    )}
+                    <Feather name="play" size={16} color="#fff" />
                   </Pressable>
                 </View>
 
-                {gMovieResult === "found" && (
-                  <View style={[gs.resultCard, { backgroundColor: "#16a34a12", borderColor: "#16a34a40" }]}>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 }}>
-                      <Feather name="check-circle" size={20} color="#4ade80" />
-                      <Text style={[gs.resultTitle, { color: "#4ade80" }]}>Disponível no GStream!</Text>
-                    </View>
-                    <Text style={[gs.resultUrl, { color: colors.mutedForeground }]} numberOfLines={1}>{gMovieUrl}</Text>
-                    <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
-                      <Pressable
-                        onPress={() => openGPlayer(gMovieUrl, `Filme #${gMovieId}`)}
-                        style={[gs.playBtn, { backgroundColor: "#6366f1", flex: 1 }]}
-                      >
-                        <Feather name="play" size={15} color="#fff" />
-                        <Text style={gs.playBtnTxt}>Testar Player</Text>
-                      </Pressable>
-                      <Pressable
-                        onPress={() => copyText(gMovieUrl)}
-                        style={[gs.playBtn, { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border }]}
-                      >
-                        <Feather name="copy" size={15} color={colors.mutedForeground} />
-                      </Pressable>
-                    </View>
+                {gMovieResult === "found" && gMovieId.trim() !== "" && (
+                  <View style={{ flexDirection: "row", gap: 8, marginBottom: 20 }}>
+                    <Pressable
+                      onPress={() => openGPlayer(gMovieUrl, `Filme #${gMovieId}`)}
+                      style={[gs.playBtn, { backgroundColor: "#6366f1", flex: 1 }]}
+                    >
+                      <Feather name="play" size={15} color="#fff" />
+                      <Text style={gs.playBtnTxt}>Abrir Player (teste)</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => copyText(gMovieUrl)}
+                      style={[gs.playBtn, { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border }]}
+                    >
+                      <Feather name="copy" size={15} color={colors.mutedForeground} />
+                    </Pressable>
                   </View>
                 )}
 
-                {gMovieResult === "notfound" && (
-                  <View style={[gs.resultCard, { backgroundColor: `${RED}10`, borderColor: `${RED}35` }]}>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                      <Feather name="x-circle" size={20} color={RED} />
-                      <Text style={[gs.resultTitle, { color: RED }]}>Não disponível no GStream</Text>
-                    </View>
-                    <Text style={[styles.apiDetail, { color: colors.mutedForeground, marginTop: 6 }]}>
-                      O TMDB ID {gMovieId} não foi encontrado no embedplayer.site
-                    </Text>
-                  </View>
-                )}
-
-                <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginTop: 22, marginBottom: 10 }]}>EXEMPLOS RÁPIDOS</Text>
+                <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginTop: 8, marginBottom: 10 }]}>EXEMPLOS</Text>
                 <View style={[styles.apiCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
                   {[
                     { id: "550", title: "Clube da Luta" },
@@ -1458,14 +1468,18 @@ export default function AdminScreen() {
                   ].map((ex, i) => (
                     <React.Fragment key={ex.id}>
                       <Pressable
-                        onPress={() => { setGMovieId(ex.id); setGMovieResult("idle"); }}
+                        onPress={() => {
+                          setGMovieId(ex.id);
+                          setGMovieUrl(`${EMBED_BASE}/${ex.id}`);
+                          setGMovieResult("found");
+                        }}
                         style={[styles.apiRow, { paddingVertical: 12 }]}
                       >
                         <View style={{ flex: 1 }}>
                           <Text style={[styles.apiName, { color: colors.foreground }]}>{ex.title}</Text>
                           <Text style={[styles.apiLatency, { color: colors.mutedForeground }]}>TMDB ID: {ex.id}</Text>
                         </View>
-                        <Feather name="chevron-right" size={16} color={colors.mutedForeground} />
+                        <Feather name="play" size={14} color="#6366f1" />
                       </Pressable>
                       {i < 3 && <View style={[styles.sep, { backgroundColor: colors.border }]} />}
                     </React.Fragment>
