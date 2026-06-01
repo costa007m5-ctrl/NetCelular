@@ -823,19 +823,29 @@ export default function DetailScreen() {
                     { backgroundColor: "#16a34a", marginTop: 8 },
                     pressed && { opacity: 0.85 },
                   ]}
-                  onPress={() =>
-                    router.push({
-                      pathname: driveMatches[0].isFolder ? "/(tabs)/channels" : "/gdrive-player",
-                      params: driveMatches[0].isFolder
-                        ? {}
-                        : {
-                            fileName: driveMatches[0].name,
-                            fileLink: driveMatches[0].link ?? "",
-                            drive: String(driveMatches[0].drive),
-                            folderPath: driveMatches[0].path,
-                          },
-                    })
-                  }
+                  onPress={() => {
+                    const match = driveMatches[0];
+                    if (match.isFolder) {
+                      router.push({
+                        pathname: "/(tabs)/channels",
+                        params: {
+                          drive: String(match.drive),
+                          folderPath: match.path,
+                          folderLabel: match.name,
+                        },
+                      });
+                    } else {
+                      router.push({
+                        pathname: "/gdrive-player",
+                        params: {
+                          fileName: match.name,
+                          fileLink: match.link ?? "",
+                          drive: String(match.drive),
+                          folderPath: match.path,
+                        },
+                      });
+                    }
+                  }}
                 >
                   <Feather name="hard-drive" size={18} color="#fff" />
                   <Text style={styles.watchBtnText}>PLAY 2 · ACERVO DRIVE</Text>

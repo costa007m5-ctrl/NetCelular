@@ -107,7 +107,7 @@ export default function GdrivePlayer() {
   const streamUrl = getStreamUrl({ ...currentItem, id: "", driveId: "", mimeType: "", modifiedTime: "", kind: "drive#file" } as any);
   const ep = parseEpisodeInfo(currentItem.name);
 
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!!WebView);
   const [showControls, setShowControls] = useState(true);
   const [showPlaylist, setShowPlaylist] = useState(false);
   const [videoEnded, setVideoEnded] = useState(false);

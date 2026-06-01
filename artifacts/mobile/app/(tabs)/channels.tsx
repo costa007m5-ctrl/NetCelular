@@ -12,7 +12,7 @@ import {
   View,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import {
@@ -33,6 +33,7 @@ export default function DriveScreen() {
   const colors = useColors();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const params = useLocalSearchParams<{ drive?: string; folderPath?: string; folderLabel?: string }>();
 
   const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([]);
   const [items, setItems] = useState<DriveItem[]>([]);
@@ -100,6 +101,20 @@ export default function DriveScreen() {
     },
     [breadcrumbs, fetchFolder]
   );
+
+  // Auto-navigate when arriving from detail screen with a folder deep-link
+  useEffect(() => {
+    const driveParam = params.drive;
+    const pathParam = params.folderPath;
+    const labelParam = params.folderLabel;
+    if (!driveParam || !pathParam) return;
+    const driveNum = parseInt(driveParam, 10) as 0 | 1;
+    if (driveNum !== 0 && driveNum !== 1) return;
+    const label = labelParam || pathParam.split("/").pop() || pathParam;
+    setBreadcrumbs([{ label, drive: driveNum, path: pathParam }]);
+    fetchFolder(driveNum, pathParam);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.drive, params.folderPath]);
 
   const handleItemPress = useCallback(
     (item: DriveItem) => {
