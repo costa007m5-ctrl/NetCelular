@@ -291,7 +291,7 @@ export default function AdminScreen() {
   const [userCount, setUserCount] = useState<number | null>(null);
   const [watchlistCount, setWatchlistCount] = useState<number | null>(null);
   const [ratingsCount, setRatingsCount] = useState<number | null>(null);
-  const [activeTab, setActiveTab] = useState<"sistema" | "emails" | "indicacoes" | "notifs" | "acervo" | "gstream">("sistema");
+  const [activeTab, setActiveTab] = useState<"sistema" | "emails" | "indicacoes" | "notifs" | "acervo" | "gstream" | "warez">("sistema");
 
   // ── GStream state ──────────────────────────────────────────────────────────
   const [gSection, setGSection] = useState<"dashboard" | "filmes" | "series" | "animes" | "api">("dashboard");
@@ -330,6 +330,25 @@ export default function AdminScreen() {
   const [gPlayerTitle, setGPlayerTitle] = useState("");
 
   const EMBED_BASE = "https://embed.embedplayer.site";
+
+  // ── WarezCDN state ──────────────────────────────────────────────────────────
+  const WAREZ_BASE = "https://warezcdn.lat";
+  const [wSection, setWSection] = useState<"player" | "catalogo" | "canais" | "eventos" | "pesquisa">("player");
+  const [wLoading, setWLoading] = useState(false);
+  const [wError, setWError] = useState<string | null>(null);
+  const [wResults, setWResults] = useState<any[]>([]);
+  const [wSearch, setWSearch] = useState("");
+  const [wGenre, setWGenre] = useState("");
+  const [wCategory, setWCategory] = useState<"filme" | "serie" | "anime" | "dorama">("filme");
+  const [wEventSport, setWEventSport] = useState("");
+  const [wChannelQ, setWChannelQ] = useState("");
+  const [wPlayerVisible, setWPlayerVisible] = useState(false);
+  const [wPlayerUrl, setWPlayerUrl] = useState("");
+  const [wPlayerTitle, setWPlayerTitle] = useState("");
+  const [wEmbedType, setWEmbedType] = useState<"filme" | "serie">("filme");
+  const [wEmbedId, setWEmbedId] = useState("");
+  const [wEmbedSeason, setWEmbedSeason] = useState("1");
+  const [wEmbedEpisode, setWEmbedEpisode] = useState("1");
 
   const checkGStreamApi = async () => {
     setGApiStatus("loading");
@@ -438,6 +457,56 @@ export default function AdminScreen() {
     } else {
       Clipboard.setString(text);
     }
+  };
+
+  // ── WarezCDN functions ──────────────────────────────────────────────────────
+  const WAREZ_ADBLOCK_JS = `(function(){
+    const BD=['googlesyndication','adservice.google','doubleclick.net','googletagmanager','hotmart','moatads','outbrain','taboola','propellerads','popcash','exoclick','trafficjunky','adnxs','rubiconproject','openx','pubmatic','appnexus','popads','popunder','juicyads','fuckingfast.cdn','unlockcontent','pushcrew','onesignal','pushwoosh','infinitypush','ad-maven','adcash'];
+    const bl=u=>u&&BD.some(d=>u.includes(d));
+    const oO=XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open=function(m,u){if(bl(u))return;oO.apply(this,arguments)};
+    const oF=window.fetch;
+    window.fetch=function(u,o){if(bl(typeof u==='string'?u:u?.url||''))return Promise.resolve(new Response('',{status:200}));return oF.apply(this,arguments)};
+    new MutationObserver(()=>{
+      document.querySelectorAll('iframe,script,ins,div[id*="ad"],div[class*="ad-"],div[class*="banner"],div[id*="banner"],div[id*="popup"],div[class*="popup"]').forEach(el=>{
+        const s=el.src||el.getAttribute('data-src')||'';
+        if(bl(s))el.remove();
+      });
+    }).observe(document.documentElement,{childList:true,subtree:true});
+  })();true;`;
+
+  const fetchWarezList = async (cat: string, q?: string, genre?: string, extra?: Record<string, string>) => {
+    setWLoading(true);
+    setWError(null);
+    setWResults([]);
+    try {
+      let url = `${WAREZ_BASE}/lista?category=${cat}&format=json`;
+      if (q) url += `&q=${encodeURIComponent(q)}`;
+      if (genre) url += `&genero=${encodeURIComponent(genre)}`;
+      if (extra) Object.entries(extra).forEach(([k, v]) => { if (v) url += `&${k}=${encodeURIComponent(v)}`; });
+      const resp = await fetch(url, { signal: AbortSignal.timeout(15000) });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+      const items = Array.isArray(data) ? data : data?.items ?? data?.results ?? data?.channels ?? data?.events ?? [data];
+      setWResults(items);
+    } catch (e: any) {
+      setWError(e.message ?? "Erro ao buscar");
+    } finally {
+      setWLoading(false);
+    }
+  };
+
+  const openWPlayer = (url: string, title: string) => {
+    setWPlayerUrl(url);
+    setWPlayerTitle(title);
+    setWPlayerVisible(true);
+  };
+
+  const buildWarezEmbed = () => {
+    const id = wEmbedId.trim();
+    if (!id) return "";
+    if (wEmbedType === "filme") return `${WAREZ_BASE}/filme/${id}`;
+    return `${WAREZ_BASE}/serie/${id}/${wEmbedSeason}/${wEmbedEpisode}`;
   };
 
   const [driveStatus, setDriveStatus] = useState<{ online: boolean; latencyMs: number; folderCount: number } | null>(null);
@@ -662,27 +731,31 @@ export default function AdminScreen() {
       {/* ── TABS ── */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
         <View style={[styles.tabsRow, { borderBottomColor: colors.border }]}>
-          {(["sistema", "notifs", "indicacoes", "emails", "acervo", "gstream"] as const).map((tab) => (
-            <Pressable
-              key={tab}
-              onPress={() => setActiveTab(tab)}
-              style={[styles.tab, activeTab === tab && { borderBottomColor: tab === "gstream" ? "#6366f1" : RED, borderBottomWidth: 2 }]}
-            >
-              <Feather
-                name={tab === "sistema" ? "activity" : tab === "notifs" ? "send" : tab === "indicacoes" ? "inbox" : tab === "acervo" ? "hard-drive" : tab === "gstream" ? "play-circle" : "mail"}
-                size={14}
-                color={activeTab === tab ? (tab === "gstream" ? "#6366f1" : RED) : colors.mutedForeground}
-              />
-              <Text style={[styles.tabTxt, { color: activeTab === tab ? (tab === "gstream" ? "#6366f1" : RED) : colors.mutedForeground }]}>
-                {tab === "sistema" ? "Sistema" : tab === "notifs" ? "Push" : tab === "indicacoes" ? "Pedidos" : tab === "acervo" ? "Acervo" : tab === "gstream" ? "GStream" : "E-mails"}
-              </Text>
-              {tab === "indicacoes" && pendingCount > 0 && (
-                <View style={[styles.badge, { backgroundColor: RED }]}>
-                  <Text style={styles.badgeTxt}>{pendingCount}</Text>
-                </View>
-              )}
-            </Pressable>
-          ))}
+          {(["sistema", "notifs", "indicacoes", "emails", "acervo", "gstream", "warez"] as const).map((tab) => {
+            const tabColor = tab === "gstream" ? "#6366f1" : tab === "warez" ? "#f97316" : RED;
+            const isActive = activeTab === tab;
+            return (
+              <Pressable
+                key={tab}
+                onPress={() => setActiveTab(tab)}
+                style={[styles.tab, isActive && { borderBottomColor: tabColor, borderBottomWidth: 2 }]}
+              >
+                <Feather
+                  name={tab === "sistema" ? "activity" : tab === "notifs" ? "send" : tab === "indicacoes" ? "inbox" : tab === "acervo" ? "hard-drive" : tab === "gstream" ? "play-circle" : tab === "warez" ? "globe" : "mail"}
+                  size={14}
+                  color={isActive ? tabColor : colors.mutedForeground}
+                />
+                <Text style={[styles.tabTxt, { color: isActive ? tabColor : colors.mutedForeground }]}>
+                  {tab === "sistema" ? "Sistema" : tab === "notifs" ? "Push" : tab === "indicacoes" ? "Pedidos" : tab === "acervo" ? "Acervo" : tab === "gstream" ? "GStream" : tab === "warez" ? "WarezCDN" : "E-mails"}
+                </Text>
+                {tab === "indicacoes" && pendingCount > 0 && (
+                  <View style={[styles.badge, { backgroundColor: RED }]}>
+                    <Text style={styles.badgeTxt}>{pendingCount}</Text>
+                  </View>
+                )}
+              </Pressable>
+            );
+          })}
         </View>
       </ScrollView>
 
@@ -1880,7 +1953,597 @@ export default function AdminScreen() {
             )}
           </>
         )}
+
+        {/* ── ABA WAREZCDN ── */}
+        {activeTab === "warez" && (
+          <>
+            {/* Header */}
+            <View style={[wz.header, { backgroundColor: "#f9731615", borderColor: "#f9731630" }]}>
+              <View style={wz.headerIcon}>
+                <Feather name="globe" size={22} color="#f97316" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[wz.headerTitle, { color: colors.foreground }]}>WarezCDN</Text>
+                <Text style={[wz.headerSub, { color: colors.mutedForeground }]}>warezcdn.lat — Sandbox com ad blocker + explorador de API</Text>
+              </View>
+            </View>
+
+            {/* Sub-nav */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4 }}>
+              <View style={{ flexDirection: "row", gap: 8, paddingVertical: 12 }}>
+                {(["player", "catalogo", "canais", "eventos", "pesquisa"] as const).map((s) => (
+                  <Pressable
+                    key={s}
+                    onPress={() => { setWSection(s); setWResults([]); setWError(null); }}
+                    style={[wz.subTab, {
+                      backgroundColor: wSection === s ? "#f97316" : colors.card,
+                      borderColor: wSection === s ? "#f97316" : colors.border,
+                    }]}
+                  >
+                    <Feather
+                      name={s === "player" ? "play-circle" : s === "catalogo" ? "film" : s === "canais" ? "tv" : s === "eventos" ? "zap" : "search"}
+                      size={13}
+                      color={wSection === s ? "#fff" : colors.mutedForeground}
+                    />
+                    <Text style={[wz.subTabTxt, { color: wSection === s ? "#fff" : colors.mutedForeground }]}>
+                      {s === "player" ? "Sandbox" : s === "catalogo" ? "Catálogo" : s === "canais" ? "Canais" : s === "eventos" ? "Eventos" : "Pesquisa"}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            </ScrollView>
+
+            {/* ── Sandbox Player ── */}
+            {wSection === "player" && (
+              <>
+                <View style={[wz.infoBanner, { backgroundColor: "#f9731612", borderColor: "#f9731630", marginBottom: 16 }]}>
+                  <Feather name="shield" size={14} color="#f97316" />
+                  <Text style={[wz.infoTxt, { color: colors.mutedForeground }]}>
+                    Sandbox com <Text style={{ color: "#f97316", fontWeight: "700" }}>bloqueio de anúncios ativo</Text> — teste qualquer embed do WarezCDN antes de integrar ao app.
+                  </Text>
+                </View>
+
+                <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginBottom: 10 }]}>TIPO DE CONTEÚDO</Text>
+                <View style={{ flexDirection: "row", gap: 8, marginBottom: 16 }}>
+                  {(["filme", "serie"] as const).map((t) => (
+                    <Pressable
+                      key={t}
+                      onPress={() => setWEmbedType(t)}
+                      style={[wz.typeBtn, {
+                        backgroundColor: wEmbedType === t ? "#f9731620" : colors.card,
+                        borderColor: wEmbedType === t ? "#f97316" : colors.border,
+                        flex: 1,
+                      }]}
+                    >
+                      <Feather name={t === "filme" ? "film" : "tv"} size={15} color={wEmbedType === t ? "#f97316" : colors.mutedForeground} />
+                      <Text style={[wz.typeBtnTxt, { color: wEmbedType === t ? "#f97316" : colors.mutedForeground }]}>
+                        {t === "filme" ? "Filme" : "Série / Anime"}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+
+                <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginBottom: 8 }]}>
+                  {wEmbedType === "filme" ? "ID DO FILME (IMDB ou TMDB)" : "ID DA SÉRIE (TMDB)"}
+                </Text>
+                <TextInput
+                  style={[wz.input, { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground, marginBottom: 10 }]}
+                  placeholder={wEmbedType === "filme" ? "ex: tt0068646 ou 238" : "ex: 1396 (Breaking Bad)"}
+                  placeholderTextColor={colors.mutedForeground}
+                  value={wEmbedId}
+                  onChangeText={setWEmbedId}
+                  autoCapitalize="none"
+                />
+
+                {wEmbedType === "serie" && (
+                  <View style={{ flexDirection: "row", gap: 8, marginBottom: 10 }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginBottom: 6 }]}>TEMPORADA</Text>
+                      <TextInput
+                        style={[wz.input, { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
+                        placeholder="1"
+                        placeholderTextColor={colors.mutedForeground}
+                        value={wEmbedSeason}
+                        onChangeText={setWEmbedSeason}
+                        keyboardType="numeric"
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginBottom: 6 }]}>EPISÓDIO</Text>
+                      <TextInput
+                        style={[wz.input, { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
+                        placeholder="1"
+                        placeholderTextColor={colors.mutedForeground}
+                        value={wEmbedEpisode}
+                        onChangeText={setWEmbedEpisode}
+                        keyboardType="numeric"
+                      />
+                    </View>
+                  </View>
+                )}
+
+                {wEmbedId.trim() !== "" && (
+                  <View style={[wz.urlPreview, { backgroundColor: colors.card, borderColor: "#f9731640", marginBottom: 12 }]}>
+                    <Text style={[wz.urlLabel, { color: colors.mutedForeground }]}>URL DO EMBED</Text>
+                    <Text style={[wz.urlText, { color: "#f97316" }]} numberOfLines={2}>{buildWarezEmbed()}</Text>
+                  </View>
+                )}
+
+                <Pressable
+                  onPress={() => {
+                    const url = buildWarezEmbed();
+                    if (url) openWPlayer(url, wEmbedType === "filme" ? `Filme ${wEmbedId}` : `Série ${wEmbedId} T${wEmbedSeason}E${wEmbedEpisode}`);
+                  }}
+                  style={[wz.playBtn, {
+                    backgroundColor: wEmbedId.trim() ? "#f97316" : colors.card,
+                    borderColor: wEmbedId.trim() ? "#f97316" : colors.border,
+                    borderWidth: 1,
+                    marginBottom: 24,
+                  }]}
+                >
+                  <Feather name="play" size={16} color={wEmbedId.trim() ? "#fff" : colors.mutedForeground} />
+                  <Text style={[wz.playBtnTxt, { color: wEmbedId.trim() ? "#fff" : colors.mutedForeground }]}>Abrir no Sandbox</Text>
+                </Pressable>
+
+                <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginBottom: 10 }]}>ENDPOINTS DO PLAYER</Text>
+                {[
+                  { label: "Filme", endpoint: `${WAREZ_BASE}/filme/{ID}`, desc: "Aceita IMDB (tt...) ou TMDB numérico" },
+                  { label: "Série / Anime / Dorama", endpoint: `${WAREZ_BASE}/serie/{TMDB_ID}/{season}/{episode}`, desc: "Unificado para séries, animes e doramas" },
+                  { label: "Catálogo /lista", endpoint: `${WAREZ_BASE}/lista?category=filme&format=json`, desc: "Lista pública de IDs disponíveis" },
+                  { label: "Pesquisa global", endpoint: `${WAREZ_BASE}/lista?category=pesquisa&q=QUERY&format=json`, desc: "Busca unificada em conteúdos, canais e eventos" },
+                  { label: "Canais", endpoint: `${WAREZ_BASE}/lista?category=canais&format=json`, desc: "Lista de canais com dados de stream e logo" },
+                  { label: "Eventos esportivos", endpoint: `${WAREZ_BASE}/lista?category=eventos&sport=futebol&format=json`, desc: "Jogos ao vivo e agendados" },
+                ].map((ep) => (
+                  <View key={ep.label} style={[wz.endpointCard, { backgroundColor: colors.card, borderColor: colors.border, marginBottom: 8 }]}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                      <View style={[wz.endpointBadge, { backgroundColor: "#f9731620", borderColor: "#f9731640" }]}>
+                        <Text style={[wz.endpointMethod, { color: "#f97316" }]}>GET</Text>
+                      </View>
+                      <Text style={[styles.apiName, { color: colors.foreground }]}>{ep.label}</Text>
+                    </View>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: colors.background, borderRadius: 8, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 10, paddingVertical: 8, marginBottom: 4 }}>
+                      <Text style={{ flex: 1, fontSize: 11, color: "#f97316", fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" }} numberOfLines={2}>{ep.endpoint}</Text>
+                      <Pressable onPress={() => copyText(ep.endpoint)}><Feather name="copy" size={13} color={colors.mutedForeground} /></Pressable>
+                    </View>
+                    <Text style={[styles.apiDetail, { color: colors.mutedForeground }]}>{ep.desc}</Text>
+                  </View>
+                ))}
+              </>
+            )}
+
+            {/* ── Catálogo ── */}
+            {wSection === "catalogo" && (
+              <>
+                <View style={{ flexDirection: "row", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
+                  {(["filme", "serie", "anime", "dorama"] as const).map((c) => (
+                    <Pressable
+                      key={c}
+                      onPress={() => { setWCategory(c); setWResults([]); setWError(null); }}
+                      style={[wz.catBtn, {
+                        backgroundColor: wCategory === c ? "#f9731620" : colors.card,
+                        borderColor: wCategory === c ? "#f97316" : colors.border,
+                      }]}
+                    >
+                      <Text style={[wz.catBtnTxt, { color: wCategory === c ? "#f97316" : colors.mutedForeground }]}>
+                        {c === "filme" ? "🎬 Filmes" : c === "serie" ? "📺 Séries" : c === "anime" ? "⚡ Animes" : "🌸 Doramas"}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+
+                <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
+                  <TextInput
+                    style={[wz.input, { flex: 1, backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
+                    placeholder="Filtrar por gênero (ex: acao, drama, romance)"
+                    placeholderTextColor={colors.mutedForeground}
+                    value={wGenre}
+                    onChangeText={setWGenre}
+                    autoCapitalize="none"
+                  />
+                  <Pressable
+                    onPress={() => fetchWarezList(wCategory, undefined, wGenre || undefined)}
+                    style={[wz.searchBtn, { backgroundColor: "#f97316" }]}
+                  >
+                    {wLoading ? <ActivityIndicator size="small" color="#fff" /> : <Feather name="download-cloud" size={16} color="#fff" />}
+                  </Pressable>
+                </View>
+
+                {wError && (
+                  <View style={[wz.infoBanner, { backgroundColor: `${RED}10`, borderColor: `${RED}30`, marginBottom: 12 }]}>
+                    <Feather name="alert-circle" size={14} color={RED} />
+                    <Text style={[wz.infoTxt, { color: RED }]}>{wError}</Text>
+                  </View>
+                )}
+
+                {wResults.length > 0 && (
+                  <>
+                    <View style={[wz.infoBanner, { backgroundColor: "#f9731612", borderColor: "#f9731630", marginBottom: 12 }]}>
+                      <Feather name="list" size={14} color="#f97316" />
+                      <Text style={[wz.infoTxt, { color: colors.mutedForeground }]}>
+                        <Text style={{ color: "#f97316", fontWeight: "700" }}>{wResults.length} itens</Text> carregados. Toque para abrir no sandbox.
+                      </Text>
+                    </View>
+                    {wResults.slice(0, 60).map((item: any, idx: number) => {
+                      const id = typeof item === "string" || typeof item === "number" ? String(item) : item?.id ?? item?.tmdb_id ?? item?.imdb_id ?? `#${idx}`;
+                      const title = item?.title ?? item?.name ?? item?.titulo ?? "";
+                      const poster = item?.poster ?? item?.poster_path ?? item?.image ?? "";
+                      return (
+                        <Pressable
+                          key={idx}
+                          onPress={() => {
+                            const isMovie = wCategory === "filme";
+                            const url = isMovie ? `${WAREZ_BASE}/filme/${id}` : `${WAREZ_BASE}/serie/${id}/1/1`;
+                            openWPlayer(url, title || `${wCategory} ${id}`);
+                          }}
+                          style={[wz.resultRow, { backgroundColor: colors.card, borderColor: colors.border }]}
+                        >
+                          {poster ? (
+                            <Image source={{ uri: poster.startsWith("http") ? poster : `https://image.tmdb.org/t/p/w92${poster}` }} style={wz.poster} />
+                          ) : (
+                            <View style={[wz.posterPlaceholder, { backgroundColor: colors.cardElevated ?? colors.background }]}>
+                              <Feather name="film" size={16} color={colors.mutedForeground} />
+                            </View>
+                          )}
+                          <View style={{ flex: 1 }}>
+                            <Text style={[wz.resultId, { color: "#f97316" }]}>ID: {id}</Text>
+                            {title ? <Text style={[wz.resultTitle, { color: colors.foreground }]} numberOfLines={1}>{title}</Text> : null}
+                          </View>
+                          <Feather name="play-circle" size={20} color="#f97316" />
+                        </Pressable>
+                      );
+                    })}
+                    {wResults.length > 60 && (
+                      <Text style={[styles.apiDetail, { color: colors.mutedForeground, textAlign: "center", paddingVertical: 8 }]}>
+                        Mostrando 60 de {wResults.length} itens
+                      </Text>
+                    )}
+                  </>
+                )}
+
+                {!wLoading && wResults.length === 0 && !wError && (
+                  <View style={[styles.emptyBox, { borderColor: colors.border }]}>
+                    <Feather name="film" size={32} color={colors.mutedForeground} />
+                    <Text style={[styles.emptyTxt, { color: colors.mutedForeground }]}>Selecione uma categoria e toque em Carregar</Text>
+                  </View>
+                )}
+              </>
+            )}
+
+            {/* ── Canais ── */}
+            {wSection === "canais" && (
+              <>
+                <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
+                  <TextInput
+                    style={[wz.input, { flex: 1, backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
+                    placeholder="Buscar canal (ex: sportv, globo, ESPN)"
+                    placeholderTextColor={colors.mutedForeground}
+                    value={wChannelQ}
+                    onChangeText={setWChannelQ}
+                    autoCapitalize="none"
+                    returnKeyType="search"
+                    onSubmitEditing={() => fetchWarezList("canais", wChannelQ || undefined)}
+                  />
+                  <Pressable
+                    onPress={() => fetchWarezList("canais", wChannelQ || undefined)}
+                    style={[wz.searchBtn, { backgroundColor: "#f97316" }]}
+                  >
+                    {wLoading ? <ActivityIndicator size="small" color="#fff" /> : <Feather name="search" size={16} color="#fff" />}
+                  </Pressable>
+                </View>
+
+                {wError && (
+                  <View style={[wz.infoBanner, { backgroundColor: `${RED}10`, borderColor: `${RED}30`, marginBottom: 12 }]}>
+                    <Feather name="alert-circle" size={14} color={RED} />
+                    <Text style={[wz.infoTxt, { color: RED }]}>{wError}</Text>
+                  </View>
+                )}
+
+                {wResults.map((ch: any, idx: number) => {
+                  const name = ch?.name ?? ch?.title ?? ch?.canal ?? `Canal ${idx + 1}`;
+                  const logo = ch?.logo ?? ch?.image ?? "";
+                  const streamUrl = ch?.stream_url ?? ch?.url ?? ch?.player ?? "";
+                  const genre = ch?.genre ?? ch?.category ?? "";
+                  return (
+                    <View key={idx} style={[wz.channelRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                      {logo ? (
+                        <Image source={{ uri: logo }} style={wz.channelLogo} resizeMode="contain" />
+                      ) : (
+                        <View style={[wz.channelLogoPlaceholder, { backgroundColor: colors.background }]}>
+                          <Feather name="tv" size={16} color="#f97316" />
+                        </View>
+                      )}
+                      <View style={{ flex: 1 }}>
+                        <Text style={[wz.channelName, { color: colors.foreground }]} numberOfLines={1}>{name}</Text>
+                        {genre ? <Text style={[styles.apiDetail, { color: colors.mutedForeground }]}>{genre}</Text> : null}
+                      </View>
+                      {streamUrl ? (
+                        <Pressable
+                          onPress={() => openWPlayer(streamUrl, name)}
+                          style={[wz.playSmall, { backgroundColor: "#f9731620", borderColor: "#f9731640" }]}
+                        >
+                          <Feather name="play" size={13} color="#f97316" />
+                        </Pressable>
+                      ) : null}
+                    </View>
+                  );
+                })}
+
+                {!wLoading && wResults.length === 0 && !wError && (
+                  <View style={[styles.emptyBox, { borderColor: colors.border }]}>
+                    <Feather name="tv" size={32} color={colors.mutedForeground} />
+                    <Text style={[styles.emptyTxt, { color: colors.mutedForeground }]}>Busque um canal pelo nome ou carregue todos</Text>
+                  </View>
+                )}
+              </>
+            )}
+
+            {/* ── Eventos ── */}
+            {wSection === "eventos" && (
+              <>
+                <View style={{ flexDirection: "row", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+                  {[
+                    { key: "", label: "Todos" },
+                    { key: "futebol", label: "⚽ Futebol" },
+                    { key: "basquete", label: "🏀 Basquete" },
+                    { key: "mma", label: "🥊 MMA" },
+                    { key: "golfe", label: "⛳ Golfe" },
+                    { key: "volei", label: "🏐 Vôlei" },
+                  ].map((sp) => (
+                    <Pressable
+                      key={sp.key}
+                      onPress={() => setWEventSport(sp.key)}
+                      style={[wz.catBtn, {
+                        backgroundColor: wEventSport === sp.key ? "#f9731620" : colors.card,
+                        borderColor: wEventSport === sp.key ? "#f97316" : colors.border,
+                      }]}
+                    >
+                      <Text style={[wz.catBtnTxt, { color: wEventSport === sp.key ? "#f97316" : colors.mutedForeground }]}>{sp.label}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+
+                <Pressable
+                  onPress={() => fetchWarezList("eventos", undefined, undefined, wEventSport ? { sport: wEventSport } : undefined)}
+                  style={[wz.playBtn, { backgroundColor: "#f97316", marginBottom: 14 }]}
+                >
+                  {wLoading ? <ActivityIndicator size="small" color="#fff" /> : <Feather name="zap" size={15} color="#fff" />}
+                  <Text style={[wz.playBtnTxt, { color: "#fff" }]}>Buscar Eventos</Text>
+                </Pressable>
+
+                {wError && (
+                  <View style={[wz.infoBanner, { backgroundColor: `${RED}10`, borderColor: `${RED}30`, marginBottom: 12 }]}>
+                    <Feather name="alert-circle" size={14} color={RED} />
+                    <Text style={[wz.infoTxt, { color: RED }]}>{wError}</Text>
+                  </View>
+                )}
+
+                {wResults.map((ev: any, idx: number) => {
+                  const title = ev?.title ?? ev?.name ?? `Evento ${idx + 1}`;
+                  const team1 = ev?.team1 ?? ev?.home ?? "";
+                  const team2 = ev?.team2 ?? ev?.away ?? "";
+                  const logo1 = ev?.logo1 ?? ev?.home_logo ?? ev?.event_logo ?? "";
+                  const logo2 = ev?.logo2 ?? ev?.away_logo ?? "";
+                  const cover = ev?.cover ?? ev?.thumb ?? ev?.image ?? "";
+                  const status = ev?.status ?? "";
+                  const competition = ev?.competition ?? ev?.league ?? "";
+                  const players: any[] = ev?.players ?? [];
+                  return (
+                    <View key={idx} style={[wz.eventCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                      {cover ? <Image source={{ uri: cover }} style={wz.eventCover} resizeMode="cover" /> : null}
+                      <View style={{ padding: 12 }}>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                          {status === "live" && (
+                            <View style={{ backgroundColor: "#ef444420", borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                              <Text style={{ color: "#ef4444", fontSize: 10, fontWeight: "800" }}>🔴 AO VIVO</Text>
+                            </View>
+                          )}
+                          {competition ? <Text style={[styles.apiDetail, { color: colors.mutedForeground }]}>{competition}</Text> : null}
+                        </View>
+                        {team1 && team2 ? (
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                            {logo1 ? <Image source={{ uri: logo1 }} style={wz.teamLogo} resizeMode="contain" /> : null}
+                            <View style={{ flex: 1 }}>
+                              <Text style={[wz.resultTitle, { color: colors.foreground }]} numberOfLines={1}>{team1}</Text>
+                              <Text style={[styles.apiDetail, { color: colors.mutedForeground }]}>vs</Text>
+                              <Text style={[wz.resultTitle, { color: colors.foreground }]} numberOfLines={1}>{team2}</Text>
+                            </View>
+                            {logo2 ? <Image source={{ uri: logo2 }} style={wz.teamLogo} resizeMode="contain" /> : null}
+                          </View>
+                        ) : (
+                          <Text style={[wz.resultTitle, { color: colors.foreground, marginBottom: 8 }]} numberOfLines={2}>{title}</Text>
+                        )}
+                        {players.length > 0 && (
+                          <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
+                            {players.slice(0, 4).map((p: any, pi: number) => {
+                              const pUrl = p?.url ?? p?.stream_url ?? p?.link ?? (typeof p === "string" ? p : "");
+                              const pLabel = p?.name ?? p?.label ?? `P${pi + 1}`;
+                              return pUrl ? (
+                                <Pressable
+                                  key={pi}
+                                  onPress={() => openWPlayer(pUrl, `${title} — ${pLabel}`)}
+                                  style={{ flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "#f9731620", borderWidth: 1, borderColor: "#f9731640", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 }}
+                                >
+                                  <Feather name="play" size={11} color="#f97316" />
+                                  <Text style={{ color: "#f97316", fontSize: 11, fontWeight: "700" }}>{pLabel}</Text>
+                                </Pressable>
+                              ) : null;
+                            })}
+                          </View>
+                        )}
+                      </View>
+                    </View>
+                  );
+                })}
+
+                {!wLoading && wResults.length === 0 && !wError && (
+                  <View style={[styles.emptyBox, { borderColor: colors.border }]}>
+                    <Feather name="zap" size={32} color={colors.mutedForeground} />
+                    <Text style={[styles.emptyTxt, { color: colors.mutedForeground }]}>Selecione um esporte e busque eventos</Text>
+                  </View>
+                )}
+              </>
+            )}
+
+            {/* ── Pesquisa global ── */}
+            {wSection === "pesquisa" && (
+              <>
+                <View style={[wz.infoBanner, { backgroundColor: "#f9731612", borderColor: "#f9731630", marginBottom: 14 }]}>
+                  <Feather name="info" size={14} color="#f97316" />
+                  <Text style={[wz.infoTxt, { color: colors.mutedForeground }]}>
+                    Busca unificada em filmes, séries, canais e eventos disponíveis no WarezCDN.
+                  </Text>
+                </View>
+
+                <View style={{ flexDirection: "row", gap: 8, marginBottom: 14 }}>
+                  <TextInput
+                    style={[wz.input, { flex: 1, backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
+                    placeholder="ex: flamengo, breaking bad, ESPN..."
+                    placeholderTextColor={colors.mutedForeground}
+                    value={wSearch}
+                    onChangeText={setWSearch}
+                    autoCapitalize="none"
+                    returnKeyType="search"
+                    onSubmitEditing={() => fetchWarezList("pesquisa", wSearch)}
+                  />
+                  <Pressable
+                    onPress={() => fetchWarezList("pesquisa", wSearch)}
+                    style={[wz.searchBtn, { backgroundColor: "#f97316" }]}
+                  >
+                    {wLoading ? <ActivityIndicator size="small" color="#fff" /> : <Feather name="search" size={16} color="#fff" />}
+                  </Pressable>
+                </View>
+
+                {wError && (
+                  <View style={[wz.infoBanner, { backgroundColor: `${RED}10`, borderColor: `${RED}30`, marginBottom: 12 }]}>
+                    <Feather name="alert-circle" size={14} color={RED} />
+                    <Text style={[wz.infoTxt, { color: RED }]}>{wError}</Text>
+                  </View>
+                )}
+
+                {wResults.map((item: any, idx: number) => {
+                  const id = item?.id ?? item?.tmdb_id ?? item?.imdb_id ?? `${idx}`;
+                  const title = item?.title ?? item?.name ?? item?.canal ?? `Resultado ${idx + 1}`;
+                  const type = item?.type ?? item?.category ?? "";
+                  const poster = item?.poster ?? item?.logo ?? item?.image ?? "";
+                  const streamUrl = item?.stream_url ?? item?.url ?? "";
+                  return (
+                    <Pressable
+                      key={idx}
+                      onPress={() => {
+                        const url = streamUrl
+                          ? streamUrl
+                          : type === "filme"
+                            ? `${WAREZ_BASE}/filme/${id}`
+                            : `${WAREZ_BASE}/serie/${id}/1/1`;
+                        if (url) openWPlayer(url, title);
+                      }}
+                      style={[wz.resultRow, { backgroundColor: colors.card, borderColor: colors.border }]}
+                    >
+                      {poster ? (
+                        <Image source={{ uri: poster.startsWith("http") ? poster : `https://image.tmdb.org/t/p/w92${poster}` }} style={wz.poster} />
+                      ) : (
+                        <View style={[wz.posterPlaceholder, { backgroundColor: colors.background }]}>
+                          <Feather name={type === "canal" ? "tv" : "film"} size={16} color={colors.mutedForeground} />
+                        </View>
+                      )}
+                      <View style={{ flex: 1 }}>
+                        <Text style={[wz.resultTitle, { color: colors.foreground }]} numberOfLines={1}>{title}</Text>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 3 }}>
+                          {type ? (
+                            <View style={{ backgroundColor: "#f9731620", borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1 }}>
+                              <Text style={{ color: "#f97316", fontSize: 10, fontWeight: "700" }}>{type.toUpperCase()}</Text>
+                            </View>
+                          ) : null}
+                          {id ? <Text style={[styles.apiDetail, { color: colors.mutedForeground }]}>ID: {id}</Text> : null}
+                        </View>
+                      </View>
+                      <Feather name="play-circle" size={20} color="#f97316" />
+                    </Pressable>
+                  );
+                })}
+
+                {!wLoading && wResults.length === 0 && !wError && (
+                  <View style={[styles.emptyBox, { borderColor: colors.border }]}>
+                    <Feather name="search" size={32} color={colors.mutedForeground} />
+                    <Text style={[styles.emptyTxt, { color: colors.mutedForeground }]}>Digite algo para pesquisar</Text>
+                  </View>
+                )}
+              </>
+            )}
+          </>
+        )}
       </ScrollView>
+
+      {/* ── WarezCDN Player Modal (Sandbox) ── */}
+      <Modal
+        visible={wPlayerVisible}
+        animationType="slide"
+        onRequestClose={() => setWPlayerVisible(false)}
+        statusBarTranslucent
+      >
+        <View style={{ flex: 1, backgroundColor: "#000" }}>
+          <View style={[gs.playerHeader, { paddingTop: insets.top + 8 }]}>
+            <Pressable onPress={() => setWPlayerVisible(false)} style={gs.playerClose}>
+              <Feather name="x" size={22} color="#fff" />
+            </Pressable>
+            <Text style={gs.playerTitle} numberOfLines={1}>{wPlayerTitle}</Text>
+            <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "#f9731620", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
+                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: "#f97316" }} />
+                <Text style={{ color: "#f97316", fontSize: 11, fontWeight: "700" }}>WarezCDN</Text>
+              </View>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "#22c55e20", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
+                <Feather name="shield" size={11} color="#22c55e" />
+                <Text style={{ color: "#22c55e", fontSize: 11, fontWeight: "700" }}>AD BLOCK</Text>
+              </View>
+            </View>
+          </View>
+
+          <View style={{ flex: 1 }}>
+            {Platform.OS === "web" ? (
+              <iframe
+                src={wPlayerUrl}
+                style={{ width: "100%", height: "100%", border: "none" } as any}
+                allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+                allowFullScreen
+              />
+            ) : WebView ? (
+              <WebView
+                source={{ uri: wPlayerUrl }}
+                style={{ flex: 1, backgroundColor: "#000" }}
+                allowsFullscreenVideo
+                javaScriptEnabled
+                domStorageEnabled
+                allowsInlineMediaPlayback
+                mediaPlaybackRequiresUserAction={false}
+                mixedContentMode="always"
+                injectedJavaScript={WAREZ_ADBLOCK_JS}
+                onShouldStartLoadWithRequest={(req) => {
+                  const BLOCKED = ["googlesyndication","adservice.google","doubleclick.net","googletagmanager","hotmart","moatads","outbrain","taboola","propellerads","popcash","exoclick","trafficjunky","adnxs","rubiconproject","openx","pubmatic","appnexus","popads","juicyads","adcash","ad-maven"];
+                  const url = req.url ?? "";
+                  if (BLOCKED.some(d => url.includes(d))) return false;
+                  return true;
+                }}
+              />
+            ) : (
+              <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 12 }}>
+                <Feather name="alert-circle" size={40} color="#f97316" />
+                <Text style={{ color: "#fff", fontSize: 15, fontWeight: "600" }}>WebView indisponível</Text>
+                <Text style={{ color: "#888", fontSize: 13, textAlign: "center", paddingHorizontal: 32 }}>
+                  Instale o app nativo para reproduzir via WebView.
+                </Text>
+              </View>
+            )}
+          </View>
+
+          <View style={[gs.playerUrlBar, { paddingBottom: insets.bottom + 8, backgroundColor: "#0a0a0a" }]}>
+            <Text style={[gs.playerUrlTxt, { color: "#f97316" }]} numberOfLines={1}>{wPlayerUrl}</Text>
+            <Pressable onPress={() => copyText(wPlayerUrl)}>
+              <Feather name="copy" size={14} color="#f97316" />
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
 
       {/* ── GStream Player Modal ── */}
       <Modal
@@ -2029,4 +2692,42 @@ const gs = StyleSheet.create({
   playerUrlTxt: { flex: 1, color: "#6366f1", fontSize: 10, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" },
   verifyBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 10, paddingVertical: 13, paddingHorizontal: 16 },
   verifyBtnTxt: { fontSize: 14, fontWeight: "700", color: "#fff" },
+});
+
+const wz = StyleSheet.create({
+  header: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 14, borderWidth: 1, padding: 14, marginTop: 16, marginBottom: 4 },
+  headerIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: "#f9731618", alignItems: "center", justifyContent: "center" },
+  headerTitle: { fontSize: 16, fontWeight: "800", letterSpacing: 0.3 },
+  headerSub: { fontSize: 12, marginTop: 2 },
+  subTab: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1 },
+  subTabTxt: { fontSize: 12, fontWeight: "700" },
+  input: { borderRadius: 10, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 11, fontSize: 14 },
+  infoBanner: { flexDirection: "row", alignItems: "flex-start", borderRadius: 10, borderWidth: 1, padding: 12, gap: 8 },
+  infoTxt: { fontSize: 12, lineHeight: 17, flex: 1 },
+  typeBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 10, borderWidth: 1, paddingVertical: 12 },
+  typeBtnTxt: { fontSize: 14, fontWeight: "700" },
+  urlPreview: { borderRadius: 10, borderWidth: 1, padding: 12 },
+  urlLabel: { fontSize: 10, fontWeight: "700", letterSpacing: 0.8, marginBottom: 4 },
+  urlText: { fontSize: 12, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" },
+  playBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 10, paddingVertical: 13, paddingHorizontal: 16 },
+  playBtnTxt: { fontSize: 14, fontWeight: "700" },
+  endpointCard: { borderRadius: 14, borderWidth: 1, padding: 14 },
+  endpointBadge: { borderRadius: 6, borderWidth: 1, paddingHorizontal: 7, paddingVertical: 3 },
+  endpointMethod: { fontSize: 10, fontWeight: "800", letterSpacing: 0.5 },
+  catBtn: { flexDirection: "row", alignItems: "center", borderRadius: 20, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 7 },
+  catBtnTxt: { fontSize: 12, fontWeight: "700" },
+  searchBtn: { width: 46, height: 46, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  resultRow: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 12, borderWidth: 1, padding: 10, marginBottom: 8 },
+  poster: { width: 42, height: 60, borderRadius: 6 },
+  posterPlaceholder: { width: 42, height: 60, borderRadius: 6, alignItems: "center", justifyContent: "center" },
+  resultId: { fontSize: 11, fontWeight: "700", marginBottom: 2 },
+  resultTitle: { fontSize: 13, fontWeight: "600" },
+  channelRow: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 12, borderWidth: 1, padding: 10, marginBottom: 8 },
+  channelLogo: { width: 52, height: 36, borderRadius: 6 },
+  channelLogoPlaceholder: { width: 52, height: 36, borderRadius: 6, alignItems: "center", justifyContent: "center" },
+  channelName: { fontSize: 14, fontWeight: "700" },
+  playSmall: { width: 36, height: 36, borderRadius: 8, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  eventCard: { borderRadius: 14, borderWidth: 1, marginBottom: 12, overflow: "hidden" },
+  eventCover: { width: "100%", height: 80 },
+  teamLogo: { width: 36, height: 36, borderRadius: 4 },
 });
