@@ -111,6 +111,19 @@ export default function GdrivePlayer() {
   const streamUrl = getStreamUrl({ ...currentItem, id: "", driveId: "", mimeType: "", modifiedTime: "", kind: "drive#file" } as any);
   const ep = parseEpisodeInfo(currentItem.name);
 
+  // Build the listing worker URL for web iframe player (supports MKV via video.js)
+  const LISTING_WORKER = "https://1.animezey23112022.workers.dev";
+  const webPlayerUrl = (() => {
+    const drive = params.drive ?? "0";
+    const folder = params.folderPath ?? "";
+    const filename = currentItem.name;
+    if (!filename) return "";
+    const encodedFolder = folder.split("/").map(s => encodeURIComponent(s)).join("/");
+    const encodedFile = encodeURIComponent(filename);
+    const path = encodedFolder ? `${encodedFolder}/${encodedFile}` : encodedFile;
+    return `${LISTING_WORKER}/${drive}:/${path}`;
+  })();
+
   const [loading, setLoading] = useState(!IS_WEB);
   const [showControls, setShowControls] = useState(true);
   const [showPlaylist, setShowPlaylist] = useState(false);
@@ -121,47 +134,33 @@ export default function GdrivePlayer() {
   const webContainerRef = useRef<any>(null);
   const webVideoRef = useRef<any>(null);
 
-  // Web-only: mount a native <video> element into the container div
+  // Web-only: mount an iframe pointing to the listing worker's built-in video.js player
   useEffect(() => {
     if (!IS_WEB) return;
     const container = webContainerRef.current;
     if (!container) return;
 
-    // Cleanup old video
+    // Cleanup previous iframe/video
     if (webVideoRef.current) {
-      try {
-        webVideoRef.current.pause();
-        webVideoRef.current.src = "";
-      } catch {}
       webVideoRef.current = null;
     }
     while (container.firstChild) container.removeChild(container.firstChild);
 
-    // Build and append new <video> element
-    const video = document.createElement("video");
-    video.src = streamUrl;
-    video.controls = true;
-    video.autoplay = true;
-    (video as any).playsInline = true;
-    video.setAttribute("playsinline", "");
-    video.style.cssText =
-      "width:100%;height:100%;object-fit:contain;background:#000;display:block;";
+    if (!webPlayerUrl) return;
 
-    video.addEventListener("ended", () => {
-      setVideoEnded(true);
-      showControlsNow();
-    });
-
-    container.appendChild(video);
-    webVideoRef.current = video;
+    const iframe = document.createElement("iframe");
+    iframe.src = webPlayerUrl;
+    iframe.allow = "autoplay; fullscreen";
+    iframe.setAttribute("allowfullscreen", "");
+    iframe.style.cssText =
+      "width:100%;height:100%;border:none;background:#000;display:block;";
+    container.appendChild(iframe);
+    webVideoRef.current = iframe;
 
     return () => {
-      try {
-        video.pause();
-        video.src = "";
-      } catch {}
+      iframe.src = "about:blank";
     };
-  }, [streamUrl]);
+  }, [webPlayerUrl]);
 
   useEffect(() => {
     const lock = async () => {
