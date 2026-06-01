@@ -22,6 +22,7 @@ import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { ThemeProvider } from "@/lib/theme-context";
 import { CatalogProvider } from "@/lib/catalog-context";
 import { requestPermissionsAndSetup, scheduleNewContentNotification, saveNotificationToHistory } from "@/lib/notifications";
+import { checkAndPromptUpdate } from "@/lib/app-updater";
 import { supabase } from "@/lib/supabase";
 
 SystemUI.setBackgroundColorAsync("#000000");
@@ -212,6 +213,11 @@ export default function RootLayout() {
     requestPermissionsAndSetup().then((granted) => {
       if (granted) scheduleNewContentNotification().catch(() => {});
     });
+    // Check for OTA updates 3 seconds after launch (non-blocking)
+    const updateTimer = setTimeout(() => {
+      checkAndPromptUpdate(true).catch(() => {});
+    }, 3000);
+    return () => clearTimeout(updateTimer);
   }, []);
 
   const handleSplashFinish = () => setShowSplash(false);
