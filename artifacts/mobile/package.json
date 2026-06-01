@@ -55,6 +55,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",
+    "expo-av": "^16.0.8",
     "expo-crypto": "~15.0.9",
     "expo-navigation-bar": "^5.0.10",
     "expo-notifications": "^0.32.17",
