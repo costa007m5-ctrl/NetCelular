@@ -262,7 +262,7 @@ const AD_BLOCKER_JS = `
 (function() {
   window.open = function() { return null; };
   history.pushState = function() { return null; };
-  var AD_DOMAINS = ['parembed.embedplayer.site','googlesyndication','doubleclick.net','adservice','adnxs','taboola','popads','popcash','propellerads','adsterra','mgid','revcontent','outbrain','exoclick','trafficjunky','juicyads','hilltopads'];
+  var AD_DOMAINS = ['parembed.embedplayer.site','parembed','adplayer.pro','googlesyndication','doubleclick.net','adservice','googleadservices','googletagmanager','googletagservices','google-analytics','adnxs','advertising.com','taboola','criteo','rubiconproject','pubmatic','openx.net','casalemedia','smartadserver','sovrn','contextweb','districtm.io','popads','popcash','propellerads','trafficjunky','trafficfactory','popunder.ru','adskeeper','adcash','adsterra','mgid','revcontent','outbrain','exoclick','juicyads','hilltopads','clickadu','evadav','trafficstars','zeropark','richpush','ero-advertising','hotjar','crazyegg'];
   function isAdDomain(src) {
     if (!src) return false;
     try { var h = new URL(src).hostname; return AD_DOMAINS.some(function(d){ return h === d || h.endsWith('.'+d) || src.includes(d); }); } catch(e) { return AD_DOMAINS.some(function(d){ return src.includes(d); }); }
@@ -906,11 +906,22 @@ export default function PlayerScreen() {
           ) : <View style={{ width: 40 }} />}
         </View>
         <View style={styles.iframeWrap}>
-          <iframe
-            src={playerUrl}
-            style={{ width: "100%", height: "100%", border: "none", backgroundColor: "#000" }}
-            allowFullScreen allow="autoplay; fullscreen; encrypted-media" title={title}
-          />
+          {directM3u8 ? (
+            /* Native HTML5 player when m3u8 resolved server-side — NO ads */
+            <video
+              src={directM3u8}
+              controls
+              autoPlay
+              style={{ width: "100%", height: "100%", backgroundColor: "#000" } as any}
+              ref={(el: any) => { if (el) { el.volume = 1; } }}
+            />
+          ) : (
+            <iframe
+              src={directEmbed || playerUrl}
+              style={{ width: "100%", height: "100%", border: "none", backgroundColor: "#000" }}
+              allowFullScreen allow="autoplay; fullscreen; encrypted-media" title={title}
+            />
+          )}
         </View>
         <EpisodePicker
           visible={showPicker} onClose={() => setShowPicker(false)}
@@ -1017,13 +1028,47 @@ export default function PlayerScreen() {
         onShouldStartLoadWithRequest={(req: any) => {
           const url: string = req.url || "";
           const isTopFrame: boolean = req.isTopFrame ?? true;
+
+          // ── Capture m3u8 URLs that the WebView tries to navigate to ──────────
+          if (url.includes(".m3u8") && !useWebViewFallback) {
+            setM3u8Url(url);
+            setM3u8Referer((req.mainDocumentURL as string) || playerUrl || "");
+            saveProgress();
+            return false;
+          }
+
+          // ── AdGuard-style comprehensive domain blocklist ──────────────────────
           const BLOCKED = [
-            "parembed.embedplayer.site",
-            "googlesyndication","doubleclick.net","adservice.google",
-            "pagead2.googlesyndication","adnxs.com","taboola.com",
-            "popads.net","popcash.net","propellerads.com","adsterra.com",
+            // Embed ad domains
+            "parembed.embedplayer.site","parembed","adplayer.pro",
+            // Google ads
+            "googlesyndication.com","doubleclick.net","adservice.google.com",
+            "pagead2.googlesyndication","googleadservices.com","googletagmanager.com",
+            "googletagservices.com","google-analytics.com","analytics.google.com",
+            // Programmatic ad networks
+            "adnxs.com","advertising.com","ads.yahoo.com","taboola.com",
+            "criteo.com","criteo.net","criteoadvertising.com",
+            "rubiconproject.com","pubmatic.com","openx.net","openx.com",
+            "casalemedia.com","smartadserver.com","sovrn.com",
+            "contextweb.com","districtm.io","33across.com",
+            // Pop/redirect ad networks
+            "popads.net","popcash.net","trafficjunky.com","trafficfactory.biz",
+            "popunder.ru","propellerads.com","popadscdn.net",
+            "adskeeper.co.uk","adcash.com","adcloudstore.com",
+            // Tracking/stats
+            "adsterra.com","adsterra.network","highperformancecpm.com",
             "mgid.com","revcontent.com","outbrain.com","exoclick.com",
-            "trafficjunky.com","juicyads.com","hilltopads.net",
+            "juicyads.com","hilltopads.net","hilltopads.com",
+            "clickadu.com","evadav.com","trafficstars.com",
+            "zeropark.com","richpush.co","a-ads.com",
+            "ero-advertising.com","etargetnet.com","clksite.com",
+            // Malware / redirects
+            "go.oclasrv.com","allyouwant","p.vitaminupdates.com",
+            "browser-update.org","softwareupdate","cdn77-static.com",
+            // Analytics/trackers
+            "mc.yandex.ru","metrika.yandex","hotjar.com","crazyegg.com",
+            "mouseflow.com","amplitude.com","mixpanel.com","segment.com",
+            "fullstory.com","logrocket.com","newrelic.com",
           ];
           if (BLOCKED.some((d) => url.includes(d))) return false;
           if (isLive && isTopFrame && url !== playerUrl && url !== "about:blank") {
