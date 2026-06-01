@@ -1511,13 +1511,20 @@ export default function AdminScreen() {
                       onChangeText={setGTvEpisode}
                       keyboardType="numeric"
                     />
-                    <Pressable
-                      onPress={() => checkGStreamTv(false)}
-                      style={[gs.checkBtn, { backgroundColor: "#6366f1" }]}
-                    >
-                      {gTvLoading ? <ActivityIndicator size="small" color="#fff" /> : <Feather name="search" size={16} color="#fff" />}
-                    </Pressable>
                   </View>
+                  <Pressable
+                    onPress={() => checkGStreamTv(false)}
+                    style={[gs.verifyBtn, { backgroundColor: "#6366f1" }]}
+                  >
+                    {gTvLoading ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <>
+                        <Feather name="search" size={15} color="#fff" />
+                        <Text style={gs.verifyBtnTxt}>Verificar Disponibilidade</Text>
+                      </>
+                    )}
+                  </Pressable>
                 </View>
 
                 {gTvResult && (
@@ -1616,13 +1623,20 @@ export default function AdminScreen() {
                       onChangeText={setGAnimeEpisode}
                       keyboardType="numeric"
                     />
-                    <Pressable
-                      onPress={() => checkGStreamTv(true)}
-                      style={[gs.checkBtn, { backgroundColor: "#6366f1" }]}
-                    >
-                      {gAnimeLoading ? <ActivityIndicator size="small" color="#fff" /> : <Feather name="search" size={16} color="#fff" />}
-                    </Pressable>
                   </View>
+                  <Pressable
+                    onPress={() => checkGStreamTv(true)}
+                    style={[gs.verifyBtn, { backgroundColor: "#6366f1" }]}
+                  >
+                    {gAnimeLoading ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <>
+                        <Feather name="search" size={15} color="#fff" />
+                        <Text style={gs.verifyBtnTxt}>Verificar Disponibilidade</Text>
+                      </>
+                    )}
+                  </Pressable>
                 </View>
 
                 {gAnimeResult && (
@@ -1899,4 +1913,6 @@ const gs = StyleSheet.create({
   playerTitle: { flex: 1, color: "#fff", fontSize: 14, fontWeight: "600", textAlign: "center", marginHorizontal: 8 },
   playerUrlBar: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16, paddingTop: 10, backgroundColor: "#111" },
   playerUrlTxt: { flex: 1, color: "#6366f1", fontSize: 10, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" },
+  verifyBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 10, paddingVertical: 13, paddingHorizontal: 16 },
+  verifyBtnTxt: { fontSize: 14, fontWeight: "700", color: "#fff" },
 });
