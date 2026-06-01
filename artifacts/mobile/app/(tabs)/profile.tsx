@@ -36,6 +36,7 @@ import {
 } from "@/lib/user-settings";
 import {
   getNotificationsEnabled,
+  registerPushToken,
   requestPermissionsAndSetup,
   setNotificationsEnabled,
 } from "@/lib/notifications";
@@ -433,9 +434,33 @@ export default function ProfileScreen() {
   };
 
   const handleNotifToggle = async (val: boolean) => {
-    if (val) await requestPermissionsAndSetup();
+    if (val) {
+      const granted = await requestPermissionsAndSetup();
+      if (granted && user?.id) {
+        registerPushToken(user.id).catch(() => {});
+      }
+    }
     await setNotificationsEnabled(val);
     updateLocalSetting("notifPush", val);
+  };
+
+  const handleReRegisterToken = async () => {
+    if (!user?.id) return;
+    try {
+      const granted = await requestPermissionsAndSetup();
+      if (!granted) {
+        Alert.alert(
+          "Permissão negada",
+          "Ative as notificações nas configurações do seu celular para receber alertas do NETPLAY.",
+          [{ text: "OK" }]
+        );
+        return;
+      }
+      await registerPushToken(user.id);
+      Alert.alert("Pronto!", "Seu dispositivo foi registrado para receber notificações push.");
+    } catch {
+      Alert.alert("Erro", "Não foi possível registrar o dispositivo. Tente novamente.");
+    }
   };
 
   const openPicker = (key: keyof UserSettings, title: string, options: string[]) => {
@@ -785,6 +810,11 @@ export default function ProfileScreen() {
             icon="tag" label="Promoções e Ofertas"
             toggle toggleValue={settings.notifPromo}
             onToggle={(v) => updateLocalSetting("notifPromo", v)}
+          />
+          <Row
+            icon="smartphone" label="Registrar este dispositivo"
+            value="Ativar push neste celular"
+            onPress={handleReRegisterToken}
             last
           />
         </Section>

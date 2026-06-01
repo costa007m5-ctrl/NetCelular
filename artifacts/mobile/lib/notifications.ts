@@ -89,13 +89,16 @@ export async function requestPermissionsAndSetup(): Promise<boolean> {
       }),
     });
     const { status: existing } = await Notifications.getPermissionsAsync();
+    console.log("[Push] Status de permissão atual:", existing);
     let finalStatus = existing;
     if (existing !== "granted") {
       const { status } = await Notifications.requestPermissionsAsync();
       finalStatus = status;
+      console.log("[Push] Novo status após solicitar permissão:", finalStatus);
     }
     return finalStatus === "granted";
-  } catch {
+  } catch (e) {
+    console.error("[Push] Erro em requestPermissionsAndSetup:", e);
     return false;
   }
 }
@@ -107,15 +110,53 @@ export async function registerPushToken(userId: string): Promise<void> {
   try {
     const Notifications = require("expo-notifications");
     const { status } = await Notifications.getPermissionsAsync();
-    if (status !== "granted") return;
-    const tokenData = await Notifications.getExpoPushTokenAsync({
-      projectId: EXPO_PROJECT_ID,
-    }).catch(() => Notifications.getExpoPushTokenAsync());
-    const token: string = tokenData?.data;
-    if (token && token.startsWith("ExponentPushToken")) {
-      await db.pushTokens.upsert(userId, token);
+    if (status !== "granted") {
+      console.warn("[Push] Permissão não concedida para userId:", userId);
+      return;
     }
-  } catch {}
+
+    let tokenData: any;
+    try {
+      tokenData = await Notifications.getExpoPushTokenAsync({ projectId: EXPO_PROJECT_ID });
+    } catch (e1) {
+      console.warn("[Push] Falha com projectId, tentando sem:", e1);
+      try {
+        tokenData = await Notifications.getExpoPushTokenAsync();
+      } catch (e2) {
+        console.error("[Push] Falha ao obter token:", e2);
+        return;
+      }
+    }
+
+    const token: string = tokenData?.data;
+    if (!token) {
+      console.warn("[Push] Token vazio retornado para userId:", userId);
+      return;
+    }
+
+    const isValidToken = token.startsWith("ExponentPushToken") || token.startsWith("ExpoToken");
+    if (!isValidToken) {
+      console.warn("[Push] Formato de token inesperado:", token);
+      return;
+    }
+
+    const { error } = await (async () => {
+      try {
+        await db.pushTokens.upsert(userId, token);
+        return { error: null };
+      } catch (e) {
+        return { error: e };
+      }
+    })();
+
+    if (error) {
+      console.error("[Push] Erro ao salvar token no Supabase:", error);
+    } else {
+      console.log("[Push] Token registrado com sucesso para userId:", userId, "token:", token.slice(0, 30) + "...");
+    }
+  } catch (e) {
+    console.error("[Push] Erro inesperado em registerPushToken:", e);
+  }
 }
 
 export async function scheduleWelcomeNotification(): Promise<void> {
