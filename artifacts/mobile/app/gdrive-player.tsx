@@ -111,19 +111,6 @@ export default function GdrivePlayer() {
   const streamUrl = getStreamUrl({ ...currentItem, id: "", driveId: "", mimeType: "", modifiedTime: "", kind: "drive#file" } as any);
   const ep = parseEpisodeInfo(currentItem.name);
 
-  // Build the listing worker URL for web iframe player (supports MKV via video.js)
-  const LISTING_WORKER = "https://1.animezey23112022.workers.dev";
-  const webPlayerUrl = (() => {
-    const drive = params.drive ?? "0";
-    const folder = params.folderPath ?? "";
-    const filename = currentItem.name;
-    if (!filename) return "";
-    const encodedFolder = folder.split("/").map(s => encodeURIComponent(s)).join("/");
-    const encodedFile = encodeURIComponent(filename);
-    const path = encodedFolder ? `${encodedFolder}/${encodedFile}` : encodedFile;
-    return `${LISTING_WORKER}/${drive}:/${path}`;
-  })();
-
   const [loading, setLoading] = useState(!IS_WEB);
   const [showControls, setShowControls] = useState(true);
   const [showPlaylist, setShowPlaylist] = useState(false);
@@ -134,33 +121,47 @@ export default function GdrivePlayer() {
   const webContainerRef = useRef<any>(null);
   const webVideoRef = useRef<any>(null);
 
-  // Web-only: mount an iframe pointing to the listing worker's built-in video.js player
+  // Web-only: mount a native <video> element into the container div
   useEffect(() => {
     if (!IS_WEB) return;
     const container = webContainerRef.current;
     if (!container) return;
 
-    // Cleanup previous iframe/video
+    // Cleanup old video
     if (webVideoRef.current) {
+      try {
+        webVideoRef.current.pause();
+        webVideoRef.current.src = "";
+      } catch {}
       webVideoRef.current = null;
     }
     while (container.firstChild) container.removeChild(container.firstChild);
 
-    if (!webPlayerUrl) return;
+    // Build and append new <video> element
+    const video = document.createElement("video");
+    video.src = streamUrl;
+    video.controls = true;
+    video.autoplay = true;
+    (video as any).playsInline = true;
+    video.setAttribute("playsinline", "");
+    video.style.cssText =
+      "width:100%;height:100%;object-fit:contain;background:#000;display:block;";
 
-    const iframe = document.createElement("iframe");
-    iframe.src = webPlayerUrl;
-    iframe.allow = "autoplay; fullscreen";
-    iframe.setAttribute("allowfullscreen", "");
-    iframe.style.cssText =
-      "width:100%;height:100%;border:none;background:#000;display:block;";
-    container.appendChild(iframe);
-    webVideoRef.current = iframe;
+    video.addEventListener("ended", () => {
+      setVideoEnded(true);
+      showControlsNow();
+    });
+
+    container.appendChild(video);
+    webVideoRef.current = video;
 
     return () => {
-      iframe.src = "about:blank";
+      try {
+        video.pause();
+        video.src = "";
+      } catch {}
     };
-  }, [webPlayerUrl]);
+  }, [streamUrl]);
 
   useEffect(() => {
     const lock = async () => {
@@ -244,96 +245,14 @@ export default function GdrivePlayer() {
   const hasNext = currentIndex < playlist.length - 1;
   const hasPrev = currentIndex > 0;
 
-  // Web: render top bar + iframe + bottom nav (no overlay needed)
-  if (IS_WEB) {
-    return (
-      <View style={[styles.container, { flexDirection: "column" }]}>
-        <StatusBar hidden />
-        {/* Top bar */}
-        <View style={[styles.topBar, { backgroundColor: "rgba(0,0,0,0.9)", paddingTop: 12, paddingBottom: 10 }]}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn}>
-            <Feather name="chevron-left" size={26} color="#fff" />
-          </TouchableOpacity>
-          <View style={{ flex: 1, marginHorizontal: 10 }}>
-            {ep.season !== undefined && ep.episode !== undefined && (
-              <Text style={styles.epLabel}>
-                S{String(ep.season).padStart(2, "0")}E{String(ep.episode).padStart(2, "0")}
-              </Text>
-            )}
-            <Text style={styles.titleText} numberOfLines={1}>
-              {currentItem.name.replace(/\.[^.]+$/, "")}
-            </Text>
-          </View>
-          {playlist.length > 1 && (
-            <TouchableOpacity onPress={() => setShowPlaylist(true)} style={[styles.iconBtn, { flexDirection: "row", gap: 4 }]}>
-              <Feather name="list" size={18} color="#fff" />
-              <Text style={{ color: "#fff", fontSize: 12 }}>{currentIndex + 1}/{playlist.length}</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-
-        {/* iframe player - fills remaining space */}
-        <View ref={webContainerRef} style={{ flex: 1, backgroundColor: "#000" }} />
-
-        {/* Bottom episode navigation */}
-        {playlist.length > 1 && (
-          <View style={{ flexDirection: "row", justifyContent: "space-between", backgroundColor: "rgba(0,0,0,0.9)", paddingHorizontal: 24, paddingVertical: 10 }}>
-            <TouchableOpacity onPress={goPrev} disabled={!hasPrev} style={{ alignItems: "center", opacity: hasPrev ? 1 : 0.3 }}>
-              <Feather name="skip-back" size={24} color="#fff" />
-              <Text style={styles.navLabel}>Anterior</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={goNext} disabled={!hasNext} style={{ alignItems: "center", opacity: hasNext ? 1 : 0.3 }}>
-              <Feather name="skip-forward" size={24} color="#fff" />
-              <Text style={styles.navLabel}>Próximo</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* Playlist Modal */}
-        <Modal visible={showPlaylist} transparent animationType="slide" onRequestClose={() => setShowPlaylist(false)}>
-          <View style={styles.modalBg}>
-            <View style={styles.modalSheet}>
-              <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Episódios ({playlist.length})</Text>
-                <TouchableOpacity onPress={() => setShowPlaylist(false)}>
-                  <Feather name="x" size={22} color="#fff" />
-                </TouchableOpacity>
-              </View>
-              <FlatList
-                data={playlist}
-                keyExtractor={(_, i) => String(i)}
-                showsVerticalScrollIndicator={false}
-                renderItem={({ item: ep_item, index }) => {
-                  const epInfo = parseEpisodeInfo(ep_item.name);
-                  const isActive = index === currentIndex;
-                  return (
-                    <TouchableOpacity onPress={() => goToEpisode(index)} style={[styles.epItem, isActive && { backgroundColor: RED + "22", borderColor: RED + "60" }]}>
-                      <View style={[styles.epNum, { backgroundColor: isActive ? RED : "#333" }]}>
-                        <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>
-                          {epInfo.episode !== undefined ? `E${String(epInfo.episode).padStart(2, "0")}` : String(index + 1)}
-                        </Text>
-                      </View>
-                      <Text style={[styles.epTitle, { color: isActive ? "#fff" : "#ccc" }]} numberOfLines={2}>
-                        {ep_item.name.replace(/\.[^.]+$/, "")}
-                      </Text>
-                      {isActive && <Feather name="volume-2" size={14} color={RED} />}
-                    </TouchableOpacity>
-                  );
-                }}
-              />
-            </View>
-          </View>
-        </Modal>
-      </View>
-    );
-  }
-
   return (
     <View style={styles.container}>
       <StatusBar hidden />
 
-      {/* Native player — WebView */}
-      {WebView ? (
+      {/* Video player — web uses native <video> DOM element, native uses WebView */}
+      {IS_WEB ? (
+        <View ref={webContainerRef} style={styles.webview} />
+      ) : WebView ? (
         <WebView
           ref={webviewRef}
           source={{ html: buildPlayerHTML(streamUrl) }}
