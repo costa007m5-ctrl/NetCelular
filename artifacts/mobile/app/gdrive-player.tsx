@@ -21,8 +21,12 @@ import { parseEpisodeInfo, getStreamUrl } from "@/lib/gdrive-index";
 const RED = "#e50914";
 const AUTO_HIDE_MS = 4000;
 
+const IS_WEB = Platform.OS === "web";
+
 let WebView: any = null;
-try { WebView = require("react-native-webview").WebView; } catch {}
+if (!IS_WEB) {
+  try { WebView = require("react-native-webview").WebView; } catch {}
+}
 
 let ScreenOrientation: any = null;
 try { ScreenOrientation = require("expo-screen-orientation"); } catch {}
@@ -107,13 +111,57 @@ export default function GdrivePlayer() {
   const streamUrl = getStreamUrl({ ...currentItem, id: "", driveId: "", mimeType: "", modifiedTime: "", kind: "drive#file" } as any);
   const ep = parseEpisodeInfo(currentItem.name);
 
-  const [loading, setLoading] = useState(!!WebView);
+  const [loading, setLoading] = useState(!IS_WEB);
   const [showControls, setShowControls] = useState(true);
   const [showPlaylist, setShowPlaylist] = useState(false);
   const [videoEnded, setVideoEnded] = useState(false);
   const controlsOpacity = useRef(new Animated.Value(1)).current;
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const webviewRef = useRef<any>(null);
+  const webContainerRef = useRef<any>(null);
+  const webVideoRef = useRef<any>(null);
+
+  // Web-only: mount a native <video> element into the container div
+  useEffect(() => {
+    if (!IS_WEB) return;
+    const container = webContainerRef.current;
+    if (!container) return;
+
+    // Cleanup old video
+    if (webVideoRef.current) {
+      try {
+        webVideoRef.current.pause();
+        webVideoRef.current.src = "";
+      } catch {}
+      webVideoRef.current = null;
+    }
+    while (container.firstChild) container.removeChild(container.firstChild);
+
+    // Build and append new <video> element
+    const video = document.createElement("video");
+    video.src = streamUrl;
+    video.controls = true;
+    video.autoplay = true;
+    (video as any).playsInline = true;
+    video.setAttribute("playsinline", "");
+    video.style.cssText =
+      "width:100%;height:100%;object-fit:contain;background:#000;display:block;";
+
+    video.addEventListener("ended", () => {
+      setVideoEnded(true);
+      showControlsNow();
+    });
+
+    container.appendChild(video);
+    webVideoRef.current = video;
+
+    return () => {
+      try {
+        video.pause();
+        video.src = "";
+      } catch {}
+    };
+  }, [streamUrl]);
 
   useEffect(() => {
     const lock = async () => {
@@ -167,7 +215,7 @@ export default function GdrivePlayer() {
 
   const goToEpisode = useCallback((index: number) => {
     setCurrentIndex(index);
-    setLoading(true);
+    if (!IS_WEB) setLoading(true);
     setVideoEnded(false);
     setShowPlaylist(false);
     showControlsNow();
@@ -201,8 +249,10 @@ export default function GdrivePlayer() {
     <View style={styles.container}>
       <StatusBar hidden />
 
-      {/* WebView player */}
-      {WebView ? (
+      {/* Video player — web uses native <video> DOM element, native uses WebView */}
+      {IS_WEB ? (
+        <View ref={webContainerRef} style={styles.webview} />
+      ) : WebView ? (
         <WebView
           ref={webviewRef}
           source={{ html: buildPlayerHTML(streamUrl) }}
