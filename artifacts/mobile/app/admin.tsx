@@ -26,7 +26,7 @@ import { db, isSupabaseConfigured } from "@/lib/supabase";
 import type { ContentRequest } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { sendPushNotificationsToTokens, sendContentAddedNotification } from "@/lib/notifications";
-import { TMDB_IMG } from "@/lib/api";
+import { TMDB_IMG, getApiBase } from "@/lib/api";
 import { checkDriveApi, searchDriveByTitle, DriveMatch } from "@/lib/gdrive-search";
 import { listFolderAll, DRIVE_ROOTS, isFolder, isVideo, formatSize } from "@/lib/gdrive-index";
 
@@ -302,6 +302,12 @@ export default function AdminScreen() {
   const [gMovieLoading, setGMovieLoading] = useState(false);
   const [gMovieResult, setGMovieResult] = useState<"idle" | "found" | "notfound">("idle");
   const [gMovieUrl, setGMovieUrl] = useState("");
+  const [gMovieTitle, setGMovieTitle] = useState("");
+
+  const [gCatalogSearch, setGCatalogSearch] = useState("");
+  const [gCatalogLoading, setGCatalogLoading] = useState(false);
+  const [gCatalogResults, setGCatalogResults] = useState<Array<{ id: number; title: string; embed: string; image: string; preview: string }>>([]);
+  const [gCatalogTotal, setGCatalogTotal] = useState<number | null>(null);
 
   const [gTvId, setGTvId] = useState("");
   const [gTvSeason, setGTvSeason] = useState("1");
@@ -339,24 +345,47 @@ export default function AdminScreen() {
     }
   };
 
-  const checkGStreamMovie = async () => {
-    const id = gMovieId.trim();
+  const checkGStreamMovie = async (overrideId?: string, overrideTitle?: string) => {
+    const id = (overrideId ?? gMovieId).trim();
     if (!id) return;
     setGMovieLoading(true);
     setGMovieResult("idle");
+    if (overrideTitle) setGMovieTitle(overrideTitle);
+    else if (!overrideId) setGMovieTitle("");
     try {
-      const res = await fetch(`${EMBED_BASE}/dooplay?movie=${id}`, { signal: AbortSignal.timeout(7000) });
+      const base = getApiBase();
+      const res = await fetch(`${base}/gstream/check-movie?id=${encodeURIComponent(id)}`, { signal: AbortSignal.timeout(10000) });
       const json = await res.json().catch(() => null);
       if (json?.movie) {
-        setGMovieUrl(`${EMBED_BASE}/${id}`);
+        setGMovieUrl(json.url ?? `${EMBED_BASE}/${id}`);
+        if (overrideId) setGMovieId(id);
         setGMovieResult("found");
       } else {
+        if (overrideId) setGMovieId(id);
         setGMovieResult("notfound");
       }
     } catch {
       setGMovieResult("notfound");
     } finally {
       setGMovieLoading(false);
+    }
+  };
+
+  const searchGStreamCatalog = async (query: string) => {
+    if (!query.trim()) { setGCatalogResults([]); return; }
+    setGCatalogLoading(true);
+    try {
+      const base = getApiBase();
+      const res = await fetch(`${base}/gstream/catalog?type=filmes`, { signal: AbortSignal.timeout(15000) });
+      const arr: any[] = await res.json().catch(() => []);
+      if (gCatalogTotal === null) setGCatalogTotal(arr.length);
+      const q = query.toLowerCase();
+      const filtered = arr.filter((m: any) => m.title?.toLowerCase().includes(q));
+      setGCatalogResults(filtered.slice(0, 30));
+    } catch {
+      setGCatalogResults([]);
+    } finally {
+      setGCatalogLoading(false);
     }
   };
 
@@ -1349,14 +1378,14 @@ export default function AdminScreen() {
                 <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginBottom: 12 }]}>SUPORTE POR TIPO</Text>
                 <View style={[styles.apiCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
                   {[
-                    { icon: "tv", label: "Séries", desc: "✅ Funciona — verifica DUB e LEG por temporada/episódio", ok: true },
-                    { icon: "zap", label: "Animes", desc: "✅ Funciona — mesma API de séries, mesmo endpoint /tv/", ok: true },
-                    { icon: "film", label: "Filmes", desc: "❌ Não suportado — /dooplay?movie= sempre retorna false", ok: false },
+                    { icon: "film", label: "Filmes", desc: "✅ 11.433 filmes — usa IMDB ID (tt...), não TMDB ID", ok: true },
+                    { icon: "tv", label: "Séries", desc: "✅ 2.949 séries — verifica DUB/LEG por TMDB ID + T/E", ok: true },
+                    { icon: "zap", label: "Animes", desc: "✅ 244 animes — mesmo endpoint /tv/ das séries", ok: true },
                   ].map((item, i) => (
                     <React.Fragment key={item.label}>
                       <View style={[styles.apiRow, { alignItems: "center" }]}>
-                        <View style={{ width: 36, height: 36, borderRadius: 8, backgroundColor: item.ok ? "#16a34a18" : `${RED}15`, alignItems: "center", justifyContent: "center", marginRight: 12 }}>
-                          <Feather name={item.icon as any} size={16} color={item.ok ? "#4ade80" : RED} />
+                        <View style={{ width: 36, height: 36, borderRadius: 8, backgroundColor: "#16a34a18", alignItems: "center", justifyContent: "center", marginRight: 12 }}>
+                          <Feather name={item.icon as any} size={16} color="#4ade80" />
                         </View>
                         <View style={{ flex: 1 }}>
                           <Text style={[styles.apiName, { color: colors.foreground }]}>{item.label}</Text>
@@ -1368,10 +1397,14 @@ export default function AdminScreen() {
                   ))}
                 </View>
 
-                <View style={[gs.infoBanner, { backgroundColor: GOLD + "12", borderColor: GOLD + "35", marginTop: 4 }]}>
-                  <Feather name="alert-triangle" size={14} color={GOLD} />
+                <View style={[gs.infoBanner, { backgroundColor: "#16a34a12", borderColor: "#16a34a35", marginTop: 4 }]}>
+                  <Feather name="info" size={14} color="#4ade80" />
                   <Text style={[gs.infoTxt, { color: colors.mutedForeground }]}>
-                    Testado via curl: /tv/1396/1/1/lang → {`{"dub":true,"leg":false}`}. Confirma que Séries e Animes funcionam. Filmes retornam sempre false no endpoint de verificação.
+                    Filmes usam IMDB IDs — ex:{" "}
+                    <Text style={{ fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace", color: colors.foreground }}>tt0118688</Text>
+                    {" "}(Batman & Robin) retorna{" "}
+                    <Text style={{ fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace", color: "#4ade80" }}>{`{"movie":true}`}</Text>
+                    . Séries/Animes usam TMDB IDs.
                   </Text>
                 </View>
               </>
@@ -1380,106 +1413,168 @@ export default function AdminScreen() {
             {/* ── Filmes ── */}
             {gSection === "filmes" && (
               <>
-                <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginBottom: 12 }]}>STATUS DOS FILMES</Text>
-
-                {/* Confirmed limitation banner */}
-                <View style={[gs.resultCard, { backgroundColor: `${RED}10`, borderColor: `${RED}35`, marginBottom: 4 }]}>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 }}>
-                    <Feather name="x-circle" size={20} color={RED} />
-                    <Text style={[gs.resultTitle, { color: RED }]}>Filmes não suportados</Text>
-                  </View>
-                  <Text style={[styles.apiDetail, { color: colors.mutedForeground, lineHeight: 18 }]}>
-                    Testado via curl — o endpoint{"\n"}
-                    <Text style={{ color: colors.foreground, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" }}>
-                      /dooplay?movie=&#123;id&#125;
-                    </Text>
-                    {"\n"}retorna sempre{" "}
-                    <Text style={{ color: RED, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" }}>
-                      {`{"movie":false}`}
-                    </Text>
-                    {" "}para qualquer TMDB ID. O banco de filmes está vazio ou desativado nesta API.
-                  </Text>
-                </View>
-
-                <View style={[gs.infoBanner, { backgroundColor: GOLD + "12", borderColor: GOLD + "35", marginBottom: 20 }]}>
-                  <Feather name="alert-triangle" size={14} color={GOLD} />
+                {/* Correct ID format info */}
+                <View style={[gs.infoBanner, { backgroundColor: "#16a34a12", borderColor: "#16a34a35", marginBottom: 14 }]}>
+                  <Feather name="check-circle" size={14} color="#4ade80" />
                   <Text style={[gs.infoTxt, { color: colors.mutedForeground }]}>
-                    Para filmes, use outra fonte de embed ou o Google Drive (Acervo). Para séries e animes, o GStream funciona normalmente.
+                    <Text style={{ color: "#4ade80", fontWeight: "600" }}>11.433 filmes disponíveis!</Text>
+                    {"  "}Filmes usam{" "}
+                    <Text style={{ color: colors.foreground, fontWeight: "600" }}>IMDB IDs</Text>
+                    {" "}(formato{" "}
+                    <Text style={{ fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace", color: "#6366f1" }}>tt...</Text>
+                    {") — não TMDB IDs."}
                   </Text>
                 </View>
 
-                {/* Try anyway section */}
-                <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginBottom: 12 }]}>TESTAR MESMO ASSIM</Text>
-                <View style={[gs.infoBanner, { backgroundColor: "#6366f110", borderColor: "#6366f130", marginBottom: 12 }]}>
-                  <Feather name="info" size={14} color="#6366f1" />
-                  <Text style={[gs.infoTxt, { color: colors.mutedForeground }]}>
-                    Insira um TMDB ID para abrir o player diretamente, sem verificação prévia.
-                  </Text>
-                </View>
-
+                {/* IMDB ID Check */}
+                <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginBottom: 10 }]}>VERIFICAR POR IMDB ID</Text>
                 <View style={{ flexDirection: "row", gap: 8, marginBottom: 14 }}>
                   <TextInput
                     style={[gs.input, { flex: 1, backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
-                    placeholder="TMDB ID do filme (ex: 550)"
+                    placeholder="IMDB ID (ex: tt0137523)"
                     placeholderTextColor={colors.mutedForeground}
                     value={gMovieId}
                     onChangeText={(t) => { setGMovieId(t); setGMovieResult("idle"); }}
-                    keyboardType="numeric"
-                    returnKeyType="done"
+                    autoCapitalize="none"
+                    returnKeyType="search"
+                    onSubmitEditing={() => checkGStreamMovie()}
                   />
                   <Pressable
-                    onPress={() => {
-                      if (gMovieId.trim()) {
-                        setGMovieUrl(`${EMBED_BASE}/${gMovieId.trim()}`);
-                        setGMovieResult("found");
-                      }
-                    }}
+                    onPress={() => checkGStreamMovie()}
                     style={[gs.checkBtn, { backgroundColor: "#6366f1" }]}
                   >
-                    <Feather name="play" size={16} color="#fff" />
+                    {gMovieLoading ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Feather name="search" size={16} color="#fff" />
+                    )}
                   </Pressable>
                 </View>
 
-                {gMovieResult === "found" && gMovieId.trim() !== "" && (
-                  <View style={{ flexDirection: "row", gap: 8, marginBottom: 20 }}>
-                    <Pressable
-                      onPress={() => openGPlayer(gMovieUrl, `Filme #${gMovieId}`)}
-                      style={[gs.playBtn, { backgroundColor: "#6366f1", flex: 1 }]}
-                    >
-                      <Feather name="play" size={15} color="#fff" />
-                      <Text style={gs.playBtnTxt}>Abrir Player (teste)</Text>
-                    </Pressable>
-                    <Pressable
-                      onPress={() => copyText(gMovieUrl)}
-                      style={[gs.playBtn, { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border }]}
-                    >
-                      <Feather name="copy" size={15} color={colors.mutedForeground} />
-                    </Pressable>
+                {gMovieResult === "found" && (
+                  <View style={[gs.resultCard, { backgroundColor: "#16a34a12", borderColor: "#16a34a40", marginBottom: 16 }]}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                      <Feather name="check-circle" size={20} color="#4ade80" />
+                      <View style={{ flex: 1 }}>
+                        <Text style={[gs.resultTitle, { color: "#4ade80" }]}>Disponível no GStream!</Text>
+                        {gMovieTitle ? <Text style={[styles.apiDetail, { color: colors.mutedForeground, marginTop: 2 }]}>{gMovieTitle}</Text> : null}
+                      </View>
+                    </View>
+                    <Text style={[gs.resultUrl, { color: colors.mutedForeground }]} numberOfLines={1}>{gMovieUrl}</Text>
+                    <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
+                      <Pressable
+                        onPress={() => openGPlayer(gMovieUrl, gMovieTitle || `Filme ${gMovieId}`)}
+                        style={[gs.playBtn, { backgroundColor: "#6366f1", flex: 1 }]}
+                      >
+                        <Feather name="play" size={15} color="#fff" />
+                        <Text style={gs.playBtnTxt}>Testar Player</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => copyText(gMovieUrl)}
+                        style={[gs.playBtn, { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border }]}
+                      >
+                        <Feather name="copy" size={15} color={colors.mutedForeground} />
+                      </Pressable>
+                    </View>
                   </View>
                 )}
 
-                <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginTop: 8, marginBottom: 10 }]}>EXEMPLOS</Text>
+                {gMovieResult === "notfound" && (
+                  <View style={[gs.resultCard, { backgroundColor: `${RED}10`, borderColor: `${RED}35`, marginBottom: 16 }]}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                      <Feather name="x-circle" size={20} color={RED} />
+                      <Text style={[gs.resultTitle, { color: RED }]}>Não encontrado no GStream</Text>
+                    </View>
+                    <Text style={[styles.apiDetail, { color: colors.mutedForeground, marginTop: 6 }]}>
+                      {gMovieId} não está na base. Tente buscar pelo título abaixo.
+                    </Text>
+                  </View>
+                )}
+
+                {/* Search by title */}
+                <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginBottom: 10 }]}>
+                  BUSCAR POR TÍTULO{gCatalogTotal !== null ? `  (${gCatalogTotal.toLocaleString()} filmes)` : ""}
+                </Text>
+                <View style={{ flexDirection: "row", gap: 8, marginBottom: 10 }}>
+                  <TextInput
+                    style={[gs.input, { flex: 1, backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
+                    placeholder="Nome do filme (ex: Batman, Vingadores...)"
+                    placeholderTextColor={colors.mutedForeground}
+                    value={gCatalogSearch}
+                    onChangeText={(t) => { setGCatalogSearch(t); if (!t.trim()) setGCatalogResults([]); }}
+                    returnKeyType="search"
+                    onSubmitEditing={() => searchGStreamCatalog(gCatalogSearch)}
+                  />
+                  <Pressable
+                    onPress={() => searchGStreamCatalog(gCatalogSearch)}
+                    style={[gs.checkBtn, { backgroundColor: "#6366f1" }]}
+                  >
+                    {gCatalogLoading ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Feather name="search" size={16} color="#fff" />
+                    )}
+                  </Pressable>
+                </View>
+
+                {gCatalogResults.length > 0 && (
+                  <View style={[styles.apiCard, { backgroundColor: colors.card, borderColor: colors.border, marginBottom: 16 }]}>
+                    {gCatalogResults.slice(0, 20).map((item, i) => (
+                      <React.Fragment key={item.id}>
+                        <Pressable
+                          onPress={() => checkGStreamMovie(String(item.embed), item.title)}
+                          style={[styles.apiRow, { paddingVertical: 11, alignItems: "center" }]}
+                        >
+                          {item.image ? (
+                            <Image source={{ uri: item.image }} style={{ width: 36, height: 52, borderRadius: 4, marginRight: 10, backgroundColor: colors.border }} resizeMode="cover" />
+                          ) : (
+                            <View style={{ width: 36, height: 52, borderRadius: 4, marginRight: 10, backgroundColor: `#6366f120`, alignItems: "center", justifyContent: "center" }}>
+                              <Feather name="film" size={14} color="#6366f1" />
+                            </View>
+                          )}
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.apiName, { color: colors.foreground }]} numberOfLines={2}>{item.title}</Text>
+                            <Text style={[styles.apiLatency, { color: colors.mutedForeground }]}>IMDB: {item.embed}</Text>
+                          </View>
+                          <Feather name="search" size={14} color="#6366f1" />
+                        </Pressable>
+                        {i < gCatalogResults.length - 1 && <View style={[styles.sep, { backgroundColor: colors.border }]} />}
+                      </React.Fragment>
+                    ))}
+                    {gCatalogResults.length > 20 && (
+                      <Text style={[styles.apiDetail, { color: colors.mutedForeground, textAlign: "center", padding: 10 }]}>
+                        +{gCatalogResults.length - 20} resultados — refine a busca
+                      </Text>
+                    )}
+                  </View>
+                )}
+
+                {gCatalogSearch.trim() && gCatalogResults.length === 0 && !gCatalogLoading && (
+                  <View style={[gs.infoBanner, { backgroundColor: `${RED}10`, borderColor: `${RED}25`, marginBottom: 16 }]}>
+                    <Feather name="info" size={14} color={colors.mutedForeground} />
+                    <Text style={[gs.infoTxt, { color: colors.mutedForeground }]}>Nenhum resultado para "{gCatalogSearch}". Tente outro nome.</Text>
+                  </View>
+                )}
+
+                {/* Quick IMDB examples */}
+                <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginBottom: 10 }]}>EXEMPLOS RÁPIDOS (IMDB IDs)</Text>
                 <View style={[styles.apiCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
                   {[
-                    { id: "550", title: "Clube da Luta" },
-                    { id: "27205", title: "A Origem" },
-                    { id: "157336", title: "Interestelar" },
-                    { id: "299534", title: "Vingadores: Ultimato" },
+                    { id: "tt0118688", title: "Batman & Robin" },
+                    { id: "tt21110654", title: "Batman Azteca: Choque de Impérios" },
+                    { id: "tt12794046", title: "Batman: Morte em Família" },
+                    { id: "tt9661164", title: "No Ordinary Heist" },
                   ].map((ex, i) => (
                     <React.Fragment key={ex.id}>
                       <Pressable
-                        onPress={() => {
-                          setGMovieId(ex.id);
-                          setGMovieUrl(`${EMBED_BASE}/${ex.id}`);
-                          setGMovieResult("found");
-                        }}
+                        onPress={() => checkGStreamMovie(ex.id, ex.title)}
                         style={[styles.apiRow, { paddingVertical: 12 }]}
                       >
                         <View style={{ flex: 1 }}>
                           <Text style={[styles.apiName, { color: colors.foreground }]}>{ex.title}</Text>
-                          <Text style={[styles.apiLatency, { color: colors.mutedForeground }]}>TMDB ID: {ex.id}</Text>
+                          <Text style={[styles.apiLatency, { color: colors.mutedForeground, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" }]}>{ex.id}</Text>
                         </View>
-                        <Feather name="play" size={14} color="#6366f1" />
+                        <Feather name="search" size={14} color="#6366f1" />
                       </Pressable>
                       {i < 3 && <View style={[styles.sep, { backgroundColor: colors.border }]} />}
                     </React.Fragment>

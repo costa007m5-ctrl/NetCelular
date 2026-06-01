@@ -4,6 +4,7 @@ import tmdbRouter from "./tmdb";
 import liveTvRouter from "./live-tv";
 import redeflixRouter from "./redeflix";
 import driveRouter from "./drive";
+import gstreamRouter from "./gstream";
 
 const router: IRouter = Router();
 
@@ -12,5 +13,6 @@ router.use("/tmdb", tmdbRouter);
 router.use("/live", liveTvRouter);
 router.use("/redeflix", redeflixRouter);
 router.use("/drive", driveRouter);
+router.use("/gstream", gstreamRouter);
 
 export default router;
