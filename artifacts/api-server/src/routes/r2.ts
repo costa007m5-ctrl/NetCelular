@@ -398,7 +398,7 @@ router.get("/list", async (req, res) => {
       name: p.Prefix!.replace(prefix, "").replace(/\/$/, "") || p.Prefix!,
     }));
 
-    const files = (data.Contents ?? [])
+    let files = (data.Contents ?? [])
       .filter((o) => o.Key !== prefix && !o.Key?.endsWith("__registry.json"))
       .map((o) => ({
         type: "file" as const,
@@ -410,6 +410,25 @@ router.get("/list", async (req, res) => {
         isVideo: isLikelyVideo(o.Key!, o.Size ?? 0),
       }));
 
+    // Fallback: if delimiter was used and no video found at this level,
+    // do a recursive search so older clients (APK) can still find nested videos
+    if (delimiter && !files.some((f) => f.isVideo) && folders.length > 0) {
+      const recCmd = new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, MaxKeys: 1000 });
+      const recData = await client.send(recCmd);
+      const recFiles = (recData.Contents ?? [])
+        .filter((o) => o.Key !== prefix && !o.Key?.endsWith("__registry.json"))
+        .map((o) => ({
+          type: "file" as const,
+          key: o.Key!,
+          name: o.Key!.split("/").pop() ?? o.Key!,
+          size: o.Size ?? 0,
+          lastModified: o.LastModified?.toISOString() ?? null,
+          fileType: fileType(o.Key!),
+          isVideo: isLikelyVideo(o.Key!, o.Size ?? 0),
+        }));
+      if (recFiles.some((f) => f.isVideo)) files = recFiles;
+    }
+
     res.json({ bucket, prefix, folders, files, isTruncated: data.IsTruncated ?? false, nextToken: data.NextContinuationToken ?? null });
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? "error" });
@@ -417,13 +436,28 @@ router.get("/list", async (req, res) => {
 });
 
 // GET /signed-url
+// If key ends with "/" it is treated as a folder — server finds first video recursively
 router.get("/signed-url", async (req, res) => {
   try {
     const client = getClient();
     const bucket = getBucket(req.query);
-    const key = req.query["key"] as string;
+    let key = req.query["key"] as string;
     if (!key) { res.status(400).json({ error: "key is required" }); return; }
     const expiresIn = Number(req.query["expires"] ?? 3600);
+
+    // Resolve folder → first video file (recursive, no delimiter)
+    if (key.endsWith("/")) {
+      const listCmd = new ListObjectsV2Command({ Bucket: bucket, Prefix: key, MaxKeys: 1000 });
+      const listData = await client.send(listCmd);
+      const contents = listData.Contents ?? [];
+      const video = contents.find((o) => o.Key && isLikelyVideo(o.Key, o.Size ?? 0));
+      if (!video?.Key) {
+        res.status(404).json({ error: "Nenhum vídeo encontrado na pasta" });
+        return;
+      }
+      key = video.Key;
+    }
+
     const cmd = new GetObjectCommand({ Bucket: bucket, Key: key });
     const url = await getSignedUrl(client, cmd, { expiresIn });
     res.json({ url, key, bucket, expiresIn });
