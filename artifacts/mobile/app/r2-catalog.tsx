@@ -190,8 +190,9 @@ function EpisodeList({ entry, season, onBack, onRegister }: {
 
 // ── Season List ────────────────────────────────────────────────────────────────
 
-function SeasonList({ entry, onBack, onSelectSeason }: {
+function SeasonList({ entry, onBack, onSelectSeason, onEdit }: {
   entry: CatalogEntry; onBack: () => void; onSelectSeason: (s: SeasonInfo) => void;
+  onEdit: (entry: CatalogEntry) => void;
 }) {
   const insets = useSafeAreaInsets();
   return (
@@ -204,6 +205,10 @@ function SeasonList({ entry, onBack, onSelectSeason }: {
       )}
       <View style={[styles.subHeader, { paddingTop: insets.top + 12 }]}>
         <Pressable onPress={onBack} style={styles.iconBtn}><Feather name="arrow-left" size={22} color="#fff" /></Pressable>
+        <View style={{ flex: 1 }} />
+        <Pressable onPress={() => onEdit(entry)} style={[styles.iconBtn, { backgroundColor: "rgba(255,255,255,0.08)", borderRadius: 8, marginRight: 4 }]}>
+          <Feather name="edit-2" size={17} color="rgba(255,255,255,0.7)" />
+        </Pressable>
       </View>
       <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 100 }}>
         <View style={styles.detailMeta}>
@@ -242,9 +247,10 @@ function SeasonList({ entry, onBack, onSelectSeason }: {
 
 // ── Catalog Grid ───────────────────────────────────────────────────────────────
 
-function CatalogGrid({ onSelect, onRegister }: {
+function CatalogGrid({ onSelect, onRegister, onEdit }: {
   onSelect: (entry: CatalogEntry) => void;
   onRegister: (key: string) => void;
+  onEdit: (entry: CatalogEntry) => void;
 }) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -334,6 +340,10 @@ function CatalogGrid({ onSelect, onRegister }: {
                     <Text style={styles.typeBadgeText}>{entry.type === "tv" ? "SÉRIE" : "FILME"}</Text>
                   </View>
                   {isBusy && <View style={styles.posterLoading}><ActivityIndicator color="#fff" size="small" /></View>}
+                  {/* Edit button overlay */}
+                  <Pressable style={[styles.registerOverlay, { right: 28 }]} onPress={() => onEdit(entry)}>
+                    <Feather name="edit-2" size={11} color="#fff" />
+                  </Pressable>
                   {/* Register button overlay */}
                   <Pressable style={styles.registerOverlay} onPress={() => onRegister(entry.key)}>
                     <Feather name="link" size={12} color="#fff" />
@@ -837,6 +847,164 @@ function RegisterModal({ r2Key, episode, onClose, onDone }: {
   );
 }
 
+// ── Edit Entry Modal ───────────────────────────────────────────────────────────
+
+function EditEntryModal({ entry, onClose, onDone }: {
+  entry: CatalogEntry; onClose: () => void; onDone: (newName: string) => void;
+}) {
+  const [displayName, setDisplayName] = useState(entry.tmdb?.title ?? entry.name);
+  const [folderName, setFolderName] = useState(entry.name);
+  const [q, setQ] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [results, setResults] = useState<TmdbSearchResult[]>([]);
+  const [selected, setSelected] = useState<TmdbSearchResult | null>(
+    entry.tmdb ? { id: entry.tmdb.id, title: entry.tmdb.title, poster_path: entry.tmdb.poster_path, media_type: entry.tmdb.media_type } : null
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState("");
+
+  const search = async () => {
+    if (!q.trim()) return;
+    setSearching(true);
+    setError(null);
+    try {
+      const data = await apiFetch<{ results: TmdbSearchResult[] }>(`/tmdb-search?q=${encodeURIComponent(q)}&type=multi`);
+      setResults(data.results);
+    } catch (e: any) { setError(e.message); }
+    finally { setSearching(false); }
+  };
+
+  const save = async () => {
+    const newFolder = folderName.trim();
+    const newDisplay = displayName.trim();
+    if (!newFolder) { setError("Nome da pasta não pode estar vazio"); return; }
+    setSaving(true);
+    setError(null);
+    try {
+      const oldFolder = entry.name;
+      const newPrefix = newFolder.endsWith("/") ? newFolder : `${newFolder}/`;
+
+      // 1. If folder name changed, rename the actual folder in R2
+      if (newFolder !== oldFolder) {
+        setProgress("Renomeando pasta no R2…");
+        await apiPost("/rename-folder", { oldPrefix: oldFolder, newPrefix: newFolder });
+      }
+
+      // 2. Save TMDB override + display name in catalog-meta
+      setProgress("Salvando metadados…");
+      await apiPost("/catalog-meta", {
+        prefix: newPrefix,
+        tmdbId: selected?.id,
+        tmdbType: selected?.media_type,
+        displayName: newDisplay !== newFolder ? newDisplay : undefined,
+      });
+
+      onDone(newDisplay || newFolder);
+    } catch (e: any) { setError(e.message ?? "Erro ao salvar"); }
+    finally { setSaving(false); setProgress(""); }
+  };
+
+  return (
+    <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <View style={[styles.modalWrap, { backgroundColor: "#111" }]}>
+        <View style={styles.modalHeader}>
+          <Text style={styles.modalTitle}>Editar entrada</Text>
+          <Pressable onPress={onClose}><Feather name="x" size={22} color="rgba(255,255,255,0.6)" /></Pressable>
+        </View>
+
+        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 80 }}>
+          {/* Folder (real R2 key) */}
+          <Text style={styles.fieldLabel}>Nome da pasta no R2</Text>
+          <TextInput
+            style={styles.input}
+            value={folderName}
+            onChangeText={setFolderName}
+            autoCapitalize="none"
+            autoCorrect={false}
+            placeholderTextColor="rgba(255,255,255,0.25)"
+          />
+          <Text style={[styles.dim, { fontSize: 11, textAlign: "left", marginTop: 4, marginBottom: 16 }]}>
+            ⚠️ Alterar renomeia a pasta real no R2 e move todos os arquivos
+          </Text>
+
+          {/* Display name (shown to users, TMDB-based) */}
+          <Text style={styles.fieldLabel}>Nome exibido (título)</Text>
+          <TextInput
+            style={[styles.input, { marginBottom: 16 }]}
+            value={displayName}
+            onChangeText={setDisplayName}
+            placeholderTextColor="rgba(255,255,255,0.25)"
+          />
+
+          {/* TMDB search */}
+          <Text style={[styles.fieldLabel]}>Série / Filme no TMDB</Text>
+          {selected && (
+            <View style={[styles.tmdbResult, { borderColor: RED, backgroundColor: `${RED}15`, marginBottom: 10 }]}>
+              {selected.poster_path ? (
+                <Image source={{ uri: TMDB_IMG(selected.poster_path, "w92") ?? "" }} style={styles.tmdbPoster} contentFit="cover" />
+              ) : (
+                <View style={[styles.tmdbPoster, { backgroundColor: "rgba(255,255,255,0.08)", alignItems: "center", justifyContent: "center" }]}>
+                  <Feather name="film" size={16} color="rgba(255,255,255,0.3)" />
+                </View>
+              )}
+              <View style={{ flex: 1, marginLeft: 10 }}>
+                <Text style={styles.tmdbTitle}>{selected.title}</Text>
+                <Text style={[styles.dim, { color: RED }]}>{selected.media_type === "tv" ? "Série" : "Filme"} · ID {selected.id}</Text>
+              </View>
+              <Pressable onPress={() => setSelected(null)}><Feather name="x" size={16} color="rgba(255,255,255,0.4)" /></Pressable>
+            </View>
+          )}
+
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <TextInput
+              style={[styles.input, { flex: 1 }]}
+              placeholder="Buscar no TMDB…"
+              placeholderTextColor="rgba(255,255,255,0.25)"
+              value={q}
+              onChangeText={setQ}
+              onSubmitEditing={search}
+              returnKeyType="search"
+            />
+            <Pressable style={[styles.actionBtn, { paddingHorizontal: 14, marginTop: 0 }]} onPress={search} disabled={searching}>
+              {searching ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="search" size={16} color="#fff" />}
+            </Pressable>
+          </View>
+
+          {results.map((r) => (
+            <Pressable
+              key={r.id}
+              style={[styles.tmdbResult, { marginTop: 8 }, selected?.id === r.id && { borderColor: RED, backgroundColor: `${RED}18` }]}
+              onPress={() => { setSelected(r); setResults([]); setDisplayName(r.title); }}
+            >
+              {r.poster_path ? (
+                <Image source={{ uri: TMDB_IMG(r.poster_path, "w92") ?? "" }} style={styles.tmdbPoster} contentFit="cover" />
+              ) : (
+                <View style={[styles.tmdbPoster, { backgroundColor: "rgba(255,255,255,0.08)", alignItems: "center", justifyContent: "center" }]}>
+                  <Feather name="film" size={16} color="rgba(255,255,255,0.3)" />
+                </View>
+              )}
+              <View style={{ flex: 1, marginLeft: 10 }}>
+                <Text style={styles.tmdbTitle}>{r.title}</Text>
+                <Text style={styles.dim}>{r.media_type === "tv" ? "Série" : "Filme"} · ID {r.id}</Text>
+              </View>
+              {selected?.id === r.id && <Feather name="check-circle" size={18} color={RED} />}
+            </Pressable>
+          ))}
+
+          {error && <View style={[styles.errorBox, { marginTop: 12 }]}><Text style={styles.errorBoxText}>{error}</Text></View>}
+          {progress ? <Text style={[styles.dim, { marginTop: 10, textAlign: "center" }]}>{progress}</Text> : null}
+
+          <Pressable style={[styles.actionBtn, { marginTop: 20 }]} onPress={save} disabled={saving}>
+            {saving ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="save" size={16} color="#fff" />}
+            <Text style={styles.actionBtnText}>{saving ? "Salvando…" : "Salvar"}</Text>
+          </Pressable>
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+}
+
 // ── Main Screen ────────────────────────────────────────────────────────────────
 
 export default function R2CatalogScreen() {
@@ -848,7 +1016,8 @@ export default function R2CatalogScreen() {
   const [catalogView, setCatalogView] = useState<CatalogView>({ screen: "catalog" });
   const [registerKey, setRegisterKey] = useState<string | null>(null);
   const [registerEp, setRegisterEp] = useState<number | undefined>(undefined);
-  const [registered, setRegistered] = useState(0); // bump to show toast
+  const [registered, setRegistered] = useState(0);
+  const [editEntry, setEditEntry] = useState<CatalogEntry | null>(null);
 
   if (!user || user.role !== "admin") {
     return (
@@ -906,6 +1075,7 @@ export default function R2CatalogScreen() {
         <CatalogGrid
           onSelect={(entry) => setCatalogView({ screen: "seasons", entry })}
           onRegister={openRegister}
+          onEdit={(entry) => setEditEntry(entry)}
         />
       )}
 
@@ -914,6 +1084,7 @@ export default function R2CatalogScreen() {
           entry={(catalogView as any).entry}
           onBack={() => setCatalogView({ screen: "catalog" })}
           onSelectSeason={(season) => setCatalogView({ screen: "episodes", entry: (catalogView as any).entry, season })}
+          onEdit={(e) => setEditEntry(e)}
         />
       )}
 
@@ -943,11 +1114,24 @@ export default function R2CatalogScreen() {
         />
       )}
 
+      {/* Edit entry modal */}
+      {editEntry && (
+        <EditEntryModal
+          entry={editEntry}
+          onClose={() => setEditEntry(null)}
+          onDone={(_newName) => {
+            setEditEntry(null);
+            setRegistered((v) => v + 1);
+            setCatalogView({ screen: "catalog" });
+          }}
+        />
+      )}
+
       {/* Success toast */}
       {registered > 0 && (
         <View style={styles.toast}>
           <Feather name="check-circle" size={16} color="#4ade80" />
-          <Text style={styles.toastText}>Registrado! Aparecerá como opção de play no detalhe do título.</Text>
+          <Text style={styles.toastText}>Salvo! Atualize o catálogo para ver as mudanças.</Text>
         </View>
       )}
     </View>

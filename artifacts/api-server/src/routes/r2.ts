@@ -153,6 +153,40 @@ export interface RegistryItem {
 
 interface Registry { version: number; items: RegistryItem[] }
 
+// ── Catalog Meta (TMDB overrides + folder display names, stored in R2) ────────
+
+interface CatalogMetaEntry {
+  tmdbId?: number;
+  tmdbType?: "movie" | "tv";
+  displayName?: string;
+}
+interface CatalogMeta { version: number; overrides: Record<string, CatalogMetaEntry> }
+
+async function readCatalogMeta(client: S3Client, bucket: string): Promise<CatalogMeta> {
+  try {
+    const cmd = new GetObjectCommand({ Bucket: bucket, Key: "__catalog-meta.json" });
+    const data = await client.send(cmd);
+    const body = data.Body;
+    if (!body) return { version: 1, overrides: {} };
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of body as any) chunks.push(chunk);
+    const text = Buffer.concat(chunks).toString("utf-8");
+    return JSON.parse(text) as CatalogMeta;
+  } catch {
+    return { version: 1, overrides: {} };
+  }
+}
+
+async function writeCatalogMeta(client: S3Client, bucket: string, meta: CatalogMeta): Promise<void> {
+  const body = JSON.stringify(meta, null, 2);
+  await client.send(new PutObjectCommand({
+    Bucket: bucket,
+    Key: "__catalog-meta.json",
+    Body: body,
+    ContentType: "application/json",
+  }));
+}
+
 async function readRegistry(client: S3Client, bucket: string): Promise<Registry> {
   try {
     const cmd = new GetObjectCommand({ Bucket: bucket, Key: "__registry.json" });
@@ -227,12 +261,15 @@ async function hasVideoFiles(client: S3Client, bucket: string, prefix: string): 
 }
 
 async function buildCatalog(client: S3Client, bucket: string): Promise<CatalogEntry[]> {
-  const topPrefixes = await listPrefixes(client, bucket, "");
+  const [topPrefixes, catalogMeta] = await Promise.all([
+    listPrefixes(client, bucket, ""),
+    readCatalogMeta(client, bucket),
+  ]);
   const entries: CatalogEntry[] = [];
 
   for (const titlePrefix of topPrefixes) {
     const name = titlePrefix.replace(/\/$/, "");
-    if (name === "__registry") continue; // skip internal
+    if (name === "__registry" || name === "__catalog-meta") continue;
 
     const subPrefixes = await listPrefixes(client, bucket, titlePrefix);
     const seasons: SeasonInfo[] = [];
@@ -248,14 +285,36 @@ async function buildCatalog(client: S3Client, bucket: string): Promise<CatalogEn
 
     const isSeries = seasons.length > 0;
     const hasVideos = !isSeries && await hasVideoFiles(client, bucket, titlePrefix);
-    // Search TMDB without a hint first to get accurate media_type
-    const tmdbMatch = await searchTmdb(name, isSeries ? "tv" : hasVideos ? "movie" : undefined);
+
+    // Check for saved TMDB override in catalog-meta
+    const override = catalogMeta.overrides[titlePrefix];
+    let tmdbMatch: TmdbMatch | null = null;
+
+    if (override?.tmdbId) {
+      // Use the saved TMDB ID directly — fetch details from TMDB
+      try {
+        const type = override.tmdbType ?? (isSeries ? "tv" : "movie");
+        if (type === "tv") {
+          const r = await (tmdb as any).tv.details(override.tmdbId);
+          tmdbMatch = { id: r.id, title: r.name, poster_path: r.poster_path, backdrop_path: r.backdrop_path, overview: r.overview, vote_average: r.vote_average, first_air_date: r.first_air_date, media_type: "tv" };
+        } else {
+          const r = await (tmdb as any).movies.details(override.tmdbId);
+          tmdbMatch = { id: r.id, title: r.title, poster_path: r.poster_path, backdrop_path: r.backdrop_path, overview: r.overview, vote_average: r.vote_average, release_date: r.release_date, media_type: "movie" };
+        }
+      } catch {
+        tmdbMatch = await searchTmdb(override.displayName ?? name, override.tmdbType ?? (isSeries ? "tv" : undefined));
+      }
+    } else {
+      tmdbMatch = await searchTmdb(override?.displayName ?? name, isSeries ? "tv" : hasVideos ? "movie" : undefined);
+    }
+
     // Use TMDB media_type to correct series detection (flat episode structure)
     const type: CatalogEntry["type"] = isSeries ? "tv"
-      : tmdbMatch?.media_type === "tv" ? "tv"
-      : (tmdbMatch?.media_type === "movie" || hasVideos) ? "movie"
+      : (override?.tmdbType === "tv" || tmdbMatch?.media_type === "tv") ? "tv"
+      : (override?.tmdbType === "movie" || tmdbMatch?.media_type === "movie" || hasVideos) ? "movie"
       : "unknown";
-    entries.push({ key: titlePrefix, name, type, seasons, tmdb: tmdbMatch });
+
+    entries.push({ key: titlePrefix, name: override?.displayName ?? name, type, seasons, tmdb: tmdbMatch });
     await new Promise((r) => setTimeout(r, 150));
   }
 
@@ -558,6 +617,80 @@ router.post("/mkdir", async (req, res) => {
     await client.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: "", ContentType: "text/plain" }));
     catalogCache = null;
     res.json({ ok: true, key });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "error" });
+  }
+});
+
+// ── NEW: Catalog Meta — save TMDB override for a folder ──────────────────────
+// POST /catalog-meta  { prefix, tmdbId, tmdbType, displayName }
+router.post("/catalog-meta", async (req, res) => {
+  try {
+    const { prefix, tmdbId, tmdbType, displayName } = req.body as {
+      prefix: string; tmdbId?: number; tmdbType?: "movie" | "tv"; displayName?: string;
+    };
+    if (!prefix) { res.status(400).json({ error: "prefix required" }); return; }
+
+    const client = getClient();
+    const bucket = getBucket();
+    const meta = await readCatalogMeta(client, bucket);
+    meta.overrides[prefix] = { ...(meta.overrides[prefix] ?? {}), tmdbId, tmdbType, displayName };
+    await writeCatalogMeta(client, bucket, meta);
+    catalogCache = null;
+    res.json({ ok: true, prefix, override: meta.overrides[prefix] });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "error" });
+  }
+});
+
+// ── NEW: Rename folder ────────────────────────────────────────────────────────
+// POST /rename-folder  { oldPrefix, newPrefix }
+// Moves ALL objects under oldPrefix to newPrefix, updates catalog-meta if needed
+router.post("/rename-folder", async (req, res) => {
+  try {
+    const { oldPrefix, newPrefix } = req.body as { oldPrefix: string; newPrefix: string };
+    if (!oldPrefix || !newPrefix) { res.status(400).json({ error: "oldPrefix and newPrefix required" }); return; }
+
+    const src = oldPrefix.endsWith("/") ? oldPrefix : `${oldPrefix}/`;
+    const dst = newPrefix.endsWith("/") ? newPrefix : `${newPrefix}/`;
+    if (src === dst) { res.json({ ok: true, moved: 0 }); return; }
+
+    const client = getClient();
+    const bucket = getBucket();
+
+    // List all objects under old prefix (paginate)
+    let token: string | undefined;
+    const keys: string[] = [];
+    do {
+      const cmd = new ListObjectsV2Command({ Bucket: bucket, Prefix: src, MaxKeys: 1000, ContinuationToken: token });
+      const data = await client.send(cmd);
+      for (const obj of data.Contents ?? []) { if (obj.Key) keys.push(obj.Key); }
+      token = data.IsTruncated ? data.NextContinuationToken : undefined;
+    } while (token);
+
+    if (keys.length === 0) { res.status(404).json({ error: "No objects found under prefix" }); return; }
+
+    // Copy each object to new prefix, then delete original
+    for (const key of keys) {
+      const newKey = dst + key.slice(src.length);
+      await client.send(new CopyObjectCommand({
+        Bucket: bucket,
+        CopySource: `${bucket}/${key}`,
+        Key: newKey,
+      }));
+      await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+    }
+
+    // Update catalog-meta overrides key if it existed
+    const meta = await readCatalogMeta(client, bucket);
+    if (meta.overrides[src]) {
+      meta.overrides[dst] = meta.overrides[src];
+      delete meta.overrides[src];
+      await writeCatalogMeta(client, bucket, meta);
+    }
+
+    catalogCache = null;
+    res.json({ ok: true, moved: keys.length, src, dst });
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? "error" });
   }

@@ -71,9 +71,7 @@ export default function R2PlayerScreen() {
   const [positionMs, setPositionMs] = useState(0);
   const [durationMs, setDurationMs] = useState(0);
 
-  // Progress bar 0-100
   const loadProgress = useRef(new Animated.Value(0)).current;
-  const loadPct = useRef(0);
   const fakeAnim = useRef<Animated.CompositeAnimation | null>(null);
   const controlsOpacity = useRef(new Animated.Value(1)).current;
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -105,7 +103,6 @@ export default function R2PlayerScreen() {
   useEffect(() => {
     if (!params.key) { setPhase("error"); setErrorMsg("Arquivo não especificado"); return; }
 
-    // Start fake progress animation: 0 → 80% in ~4s
     fakeAnim.current = Animated.timing(loadProgress, {
       toValue: 80,
       duration: 4000,
@@ -116,13 +113,22 @@ export default function R2PlayerScreen() {
     fetchSignedUrl(params.key)
       .then((url) => {
         setVideoUrl(url);
-        // Continue 80 → 95% while video initialises
-        fakeAnim.current = Animated.timing(loadProgress, {
-          toValue: 95,
-          duration: 1500,
-          useNativeDriver: false,
-        });
-        fakeAnim.current.start();
+
+        if (Platform.OS === "web") {
+          // Web: <video> element handles buffering natively — transition to ready immediately
+          fakeAnim.current?.stop();
+          Animated.timing(loadProgress, { toValue: 100, duration: 300, useNativeDriver: false }).start(() => {
+            setPhase("ready");
+          });
+        } else {
+          // Native: continue to 95%, wait for onVideoLoad from the hidden Video component
+          fakeAnim.current = Animated.timing(loadProgress, {
+            toValue: 95,
+            duration: 1500,
+            useNativeDriver: false,
+          });
+          fakeAnim.current.start();
+        }
       })
       .catch((e) => {
         setPhase("error");
@@ -131,7 +137,7 @@ export default function R2PlayerScreen() {
       });
   }, [params.key]);
 
-  // ── When video is ready (expo-av onLoad) ──────────────────────────────────
+  // ── When video is ready (expo-av onLoad) — native only ────────────────────
   const onVideoLoad = useCallback((status: any) => {
     setDurationMs(status?.durationMillis ?? 0);
     fakeAnim.current?.stop();
@@ -190,82 +196,54 @@ export default function R2PlayerScreen() {
 
   const progress = durationMs > 0 ? positionMs / durationMs : 0;
 
-  // ── Loading phase (fake progress bar) ─────────────────────────────────────
-  if (phase === "loading" || phase === "error") {
-    return (
-      <View style={styles.loadScreen}>
-        <StatusBar hidden />
-        {backdropPath ? (
-          <Image
-            source={{ uri: TMDB_IMG(backdropPath) ?? "" }}
-            style={StyleSheet.absoluteFill}
-            contentFit="cover"
-          />
-        ) : null}
-        <View style={styles.loadOverlay} />
-
-        {phase === "error" ? (
-          <View style={styles.loadCenter}>
-            <Feather name="alert-circle" size={48} color={RED} />
-            <Text style={styles.loadTitle}>{errorMsg}</Text>
-            <Pressable style={styles.retryBtn} onPress={() => router.back()}>
-              <Text style={styles.retryText}>Voltar</Text>
-            </Pressable>
-          </View>
-        ) : (
-          <View style={styles.loadCenter}>
-            <Text style={styles.loadServiceLabel}>N E T P L A Y</Text>
-            <Text style={styles.loadTitle} numberOfLines={2}>{title}</Text>
-            {(season != null && episode != null) && (
-              <Text style={styles.loadEp}>T{season} · Ep {episode}{episodeName ? ` — ${episodeName}` : ""}</Text>
-            )}
-
-            {/* Progress bar */}
-            <View style={styles.barTrack}>
-              <Animated.View
-                style={[
-                  styles.barFill,
-                  {
-                    width: loadProgress.interpolate({
-                      inputRange: [0, 100],
-                      outputRange: ["0%", "100%"],
-                    }),
-                  },
-                ]}
-              />
-            </View>
-            <Animated.Text style={styles.barPct}>
-              {/* We derive displayed % from the animated value */}
-              <ProgressText value={loadProgress} />
-            </Animated.Text>
-          </View>
-        )}
-
-        {/* Back button */}
-        <Pressable style={[styles.backBtn, { top: topPad + 8 }]} onPress={() => router.back()}>
-          <Feather name="arrow-left" size={22} color="#fff" />
-        </Pressable>
-      </View>
-    );
-  }
-
-  // ── Web fallback ───────────────────────────────────────────────────────────
+  // ── Web player ─────────────────────────────────────────────────────────────
   if (Platform.OS === "web") {
     return (
       <View style={{ flex: 1, backgroundColor: "#000" }}>
         <StatusBar hidden />
-        <Pressable style={[styles.backBtn, { top: topPad + 8 }]} onPress={() => router.back()}>
-          <Feather name="arrow-left" size={22} color="#fff" />
-        </Pressable>
-        <Text style={[styles.loadTitle, { position: "absolute", top: topPad + 8, left: 60, right: 60 }]} numberOfLines={1}>{title}</Text>
+
+        {/* Loading overlay — shown until URL is ready */}
+        {phase === "loading" && (
+          <View style={StyleSheet.absoluteFill}>
+            {backdropPath ? (
+              <Image source={{ uri: TMDB_IMG(backdropPath) ?? "" }} style={StyleSheet.absoluteFill} contentFit="cover" />
+            ) : null}
+            <View style={styles.loadOverlay} />
+            <View style={styles.loadCenter}>
+              <Text style={styles.loadServiceLabel}>N E T P L A Y</Text>
+              <Text style={styles.loadTitle} numberOfLines={2}>{title}</Text>
+              {(season != null && episode != null) && (
+                <Text style={styles.loadEp}>T{season} · Ep {episode}{episodeName ? ` — ${episodeName}` : ""}</Text>
+              )}
+              <View style={styles.barTrack}>
+                <Animated.View style={[styles.barFill, { width: loadProgress.interpolate({ inputRange: [0, 100], outputRange: ["0%", "100%"] }) }]} />
+              </View>
+              <Animated.Text style={styles.barPct}><ProgressText value={loadProgress} /></Animated.Text>
+            </View>
+          </View>
+        )}
+
+        {/* Error overlay */}
+        {phase === "error" && (
+          <View style={[StyleSheet.absoluteFill, styles.loadOverlay, styles.loadCenter]}>
+            <Feather name="alert-circle" size={48} color={RED} />
+            <Text style={styles.loadTitle}>{errorMsg}</Text>
+          </View>
+        )}
+
+        {/* HTML video — rendered as soon as URL is available */}
         {videoUrl && (
           <video
             src={videoUrl}
             controls
             autoPlay
-            style={{ width: "100%", height: "100%", backgroundColor: "#000" } as any}
+            style={{ width: "100%", height: "100%", backgroundColor: "#000", display: phase === "loading" ? "none" : "block" } as any}
           />
         )}
+
+        <Pressable style={[styles.backBtn, { top: topPad + 8 }]} onPress={() => router.back()}>
+          <Feather name="arrow-left" size={22} color="#fff" />
+        </Pressable>
       </View>
     );
   }
@@ -274,69 +252,105 @@ export default function R2PlayerScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: "#000" }}>
       <StatusBar hidden />
+
+      {/* Native Video — always mounted once URL is available so onLoad fires during loading phase */}
       {videoUrl && Video && (
         <Video
           ref={videoRef}
           source={{ uri: videoUrl }}
-          style={StyleSheet.absoluteFill}
+          style={[StyleSheet.absoluteFill, { opacity: phase === "ready" ? 1 : 0 }]}
           resizeMode={ResizeMode?.CONTAIN ?? "contain"}
-          shouldPlay={isPlaying}
+          shouldPlay={false}
           onLoad={onVideoLoad}
           onPlaybackStatusUpdate={onPlaybackStatusUpdate}
           useNativeControls={false}
         />
       )}
 
-      {/* Tap zone */}
-      <Pressable style={StyleSheet.absoluteFill} onPress={showControls} />
+      {/* Loading overlay — shown until video is ready */}
+      {(phase === "loading" || phase === "error") && (
+        <View style={StyleSheet.absoluteFill}>
+          {backdropPath ? (
+            <Image source={{ uri: TMDB_IMG(backdropPath) ?? "" }} style={StyleSheet.absoluteFill} contentFit="cover" />
+          ) : null}
+          <View style={styles.loadOverlay} />
 
-      {/* Controls overlay */}
-      {controlsVisible && (
-        <Animated.View style={[styles.controls, { opacity: controlsOpacity }]}>
-          {/* Top bar */}
-          <View style={[styles.topBar, { paddingTop: topPad + 8 }]}>
-            <Pressable style={styles.iconBtn} onPress={() => router.back()}>
-              <Feather name="arrow-left" size={22} color="#fff" />
-            </Pressable>
-            <View style={{ flex: 1, marginHorizontal: 12 }}>
-              <Text style={styles.ctrlTitle} numberOfLines={1}>{title}</Text>
+          {phase === "error" ? (
+            <View style={styles.loadCenter}>
+              <Feather name="alert-circle" size={48} color={RED} />
+              <Text style={styles.loadTitle}>{errorMsg}</Text>
+              <Pressable style={styles.retryBtn} onPress={() => router.back()}>
+                <Text style={styles.retryText}>Voltar</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <View style={styles.loadCenter}>
+              <Text style={styles.loadServiceLabel}>N E T P L A Y</Text>
+              <Text style={styles.loadTitle} numberOfLines={2}>{title}</Text>
               {(season != null && episode != null) && (
-                <Text style={styles.ctrlEp}>T{season} · Ep {episode}{episodeName ? ` — ${episodeName}` : ""}</Text>
+                <Text style={styles.loadEp}>T{season} · Ep {episode}{episodeName ? ` — ${episodeName}` : ""}</Text>
               )}
+              <View style={styles.barTrack}>
+                <Animated.View style={[styles.barFill, { width: loadProgress.interpolate({ inputRange: [0, 100], outputRange: ["0%", "100%"] }) }]} />
+              </View>
+              <Animated.Text style={styles.barPct}><ProgressText value={loadProgress} /></Animated.Text>
             </View>
-          </View>
+          )}
 
-          {/* Center buttons */}
-          <View style={styles.centerRow}>
-            <Pressable style={styles.iconBtn} onPress={() => seek("back")}>
-              <Feather name="rotate-ccw" size={28} color="#fff" />
-              <Text style={styles.seekLabel}>10s</Text>
-            </Pressable>
-            <Pressable style={[styles.iconBtn, styles.playBtn]} onPress={togglePlay}>
-              <Feather name={isPlaying ? "pause" : "play"} size={36} color="#fff" />
-            </Pressable>
-            <Pressable style={styles.iconBtn} onPress={() => seek("forward")}>
-              <Feather name="rotate-cw" size={28} color="#fff" />
-              <Text style={styles.seekLabel}>10s</Text>
-            </Pressable>
-          </View>
+          <Pressable style={[styles.backBtn, { top: topPad + 8 }]} onPress={() => router.back()}>
+            <Feather name="arrow-left" size={22} color="#fff" />
+          </Pressable>
+        </View>
+      )}
 
-          {/* Bottom seek bar */}
-          <View style={styles.bottomBar}>
-            <Text style={styles.timeText}>{formatTime(positionMs)}</Text>
-            <View style={styles.seekTrack}>
-              <View style={[styles.seekFill, { width: `${progress * 100}%` }]} />
-              <View style={[styles.seekThumb, { left: `${progress * 100}%` }]} />
-            </View>
-            <Text style={styles.timeText}>{formatTime(durationMs)}</Text>
-          </View>
-        </Animated.View>
+      {/* Controls overlay — shown after video is ready */}
+      {phase === "ready" && (
+        <>
+          <Pressable style={StyleSheet.absoluteFill} onPress={showControls} />
+          {controlsVisible && (
+            <Animated.View style={[styles.controls, { opacity: controlsOpacity }]}>
+              <View style={[styles.topBar, { paddingTop: topPad + 8 }]}>
+                <Pressable style={styles.iconBtn} onPress={() => router.back()}>
+                  <Feather name="arrow-left" size={22} color="#fff" />
+                </Pressable>
+                <View style={{ flex: 1, marginHorizontal: 12 }}>
+                  <Text style={styles.ctrlTitle} numberOfLines={1}>{title}</Text>
+                  {(season != null && episode != null) && (
+                    <Text style={styles.ctrlEp}>T{season} · Ep {episode}{episodeName ? ` — ${episodeName}` : ""}</Text>
+                  )}
+                </View>
+              </View>
+
+              <View style={styles.centerRow}>
+                <Pressable style={styles.iconBtn} onPress={() => seek("back")}>
+                  <Feather name="rotate-ccw" size={28} color="#fff" />
+                  <Text style={styles.seekLabel}>10s</Text>
+                </Pressable>
+                <Pressable style={[styles.iconBtn, styles.playBtn]} onPress={togglePlay}>
+                  <Feather name={isPlaying ? "pause" : "play"} size={36} color="#fff" />
+                </Pressable>
+                <Pressable style={styles.iconBtn} onPress={() => seek("forward")}>
+                  <Feather name="rotate-cw" size={28} color="#fff" />
+                  <Text style={styles.seekLabel}>10s</Text>
+                </Pressable>
+              </View>
+
+              <View style={styles.bottomBar}>
+                <Text style={styles.timeText}>{formatTime(positionMs)}</Text>
+                <View style={styles.seekTrack}>
+                  <View style={[styles.seekFill, { width: `${progress * 100}%` }]} />
+                  <View style={[styles.seekThumb, { left: `${progress * 100}%` }]} />
+                </View>
+                <Text style={styles.timeText}>{formatTime(durationMs)}</Text>
+              </View>
+            </Animated.View>
+          )}
+        </>
       )}
     </View>
   );
 }
 
-/** Reads animated value and renders integer % */
 function ProgressText({ value }: { value: Animated.Value }) {
   const [pct, setPct] = useState(0);
   useEffect(() => {
@@ -347,7 +361,6 @@ function ProgressText({ value }: { value: Animated.Value }) {
 }
 
 const styles = StyleSheet.create({
-  loadScreen: { flex: 1, backgroundColor: "#000" },
   loadOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.72)" },
   loadCenter: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 40 },
   loadServiceLabel: { color: RED, fontSize: 13, fontWeight: "900", letterSpacing: 6, marginBottom: 24 },
