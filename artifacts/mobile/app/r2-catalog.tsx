@@ -1494,19 +1494,24 @@ function EditEntryModal({ entry, onClose, onDone }: {
     setSaving(true);
     setError(null);
     try {
-      const oldFolder = entry.name;
-      const newPrefix = newFolder.endsWith("/") ? newFolder : `${newFolder}/`;
+      // entry.key is the full R2 prefix, e.g. "séries animadas/A lenda de Tarzan/"
+      // entry.name is just the last segment, e.g. "A lenda de Tarzan"
+      const oldFullPrefix = entry.key; // full path with trailing slash
+      const parentPath = oldFullPrefix.slice(0, oldFullPrefix.length - entry.name.length - 1); // e.g. "séries animadas/"
 
-      // 1. If folder name changed, rename the actual folder in R2
-      if (newFolder !== oldFolder) {
+      // Build the new full prefix using the parent path + new folder name
+      const newFullPrefix = parentPath + newFolder + "/";
+
+      // 1. If folder name changed, rename the actual folder in R2 (using full paths)
+      if (newFolder !== entry.name) {
         setProgress("Renomeando pasta no R2…");
-        await apiPost("/rename-folder", { oldPrefix: oldFolder, newPrefix: newFolder });
+        await apiPost("/rename-folder", { oldPrefix: oldFullPrefix, newPrefix: newFullPrefix });
       }
 
-      // 2. Save TMDB override + display name in catalog-meta
+      // 2. Save TMDB override + display name in catalog-meta (using full prefix as key)
       setProgress("Salvando metadados…");
       await apiPost("/catalog-meta", {
-        prefix: newPrefix,
+        prefix: newFullPrefix,
         tmdbId: selected?.id,
         tmdbType: selected?.media_type,
         displayName: newDisplay !== newFolder ? newDisplay : undefined,
