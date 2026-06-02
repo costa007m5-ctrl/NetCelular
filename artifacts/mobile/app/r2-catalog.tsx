@@ -700,11 +700,14 @@ function UploadPanel() {
     setBulkJobs(initial);
     setBulkRunning(true);
 
-    // Start downloads with controlled concurrency (3 at a time) — unlimited total
-    const MAX_CONCURRENT = 3;
+    // Controlled concurrency: max 5 active downloads at a time.
+    // Each worker awaits job COMPLETION before picking the next URL,
+    // so exactly ≤5 server-side jobs run simultaneously.
+    const MAX_CONCURRENT = 5;
     let cursor = 0;
 
-    const startOne = async (idx: number, u: string) => {
+    // Runs one full download cycle (POST + poll until done/error) and resolves only when finished.
+    const runOne = async (idx: number, u: string): Promise<void> => {
       try {
         const r = await apiPost<{ jobId: string; key: string }>("/download-url", {
           url: u,
@@ -716,35 +719,39 @@ function UploadPanel() {
           return next;
         });
 
-        const poll = async () => {
-          try {
-            const j = await apiFetch<Job>(`/job/${r.jobId}`);
-            setBulkJobs((prev) => {
-              const next = [...prev];
-              next[idx] = {
-                ...next[idx],
-                status: j.status,
-                progress: j.progress,
-                key: j.key ?? next[idx].key,
-                error: j.error,
-              };
-              return next;
-            });
-            if (j.status === "done") {
-              stopBulkPoll(r.jobId);
-              markUrlAsUploaded(u);
-            } else if (j.status === "error") {
-              stopBulkPoll(r.jobId);
-            } else {
-              const t = setTimeout(poll, 1500);
+        // Inline poll loop — awaits until job finishes (done or error).
+        // Only then does this Promise resolve, freeing the worker slot.
+        await new Promise<void>((resolve) => {
+          const poll = async () => {
+            try {
+              const j = await apiFetch<Job>(`/job/${r.jobId}`);
+              setBulkJobs((prev) => {
+                const next = [...prev];
+                next[idx] = {
+                  ...next[idx],
+                  status: j.status,
+                  progress: j.progress,
+                  key: j.key ?? next[idx].key,
+                  error: j.error,
+                };
+                return next;
+              });
+              if (j.status === "done") {
+                markUrlAsUploaded(u);
+                resolve();
+              } else if (j.status === "error") {
+                resolve();
+              } else {
+                const t = setTimeout(poll, 1500);
+                bulkPollRefs.current.set(r.jobId, t);
+              }
+            } catch {
+              const t = setTimeout(poll, 2500);
               bulkPollRefs.current.set(r.jobId, t);
             }
-          } catch {
-            const t = setTimeout(poll, 2500);
-            bulkPollRefs.current.set(r.jobId, t);
-          }
-        };
-        poll();
+          };
+          poll();
+        });
       } catch (e: any) {
         setBulkJobs((prev) => {
           const next = [...prev];
@@ -754,11 +761,12 @@ function UploadPanel() {
       }
     };
 
-    // Worker: each worker picks the next URL from the queue until exhausted
+    // Each worker processes one URL at a time and immediately picks the next
+    // once the current one finishes — keeps exactly ≤5 running at all times.
     const worker = async () => {
       while (cursor < lines.length) {
         const idx = cursor++;
-        await startOne(idx, lines[idx]);
+        await runOne(idx, lines[idx]);
       }
     };
 
