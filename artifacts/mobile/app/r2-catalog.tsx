@@ -562,6 +562,7 @@ function UploadPanel() {
 
   // Bulk upload state
   const [bulkUrls, setBulkUrls] = useState("");
+  const [bulkParsed, setBulkParsed] = useState<{ url: string; selected: boolean }[]>([]);
   const [bulkFolder, setBulkFolder] = useState("");
   const [showBulkFolderPicker, setShowBulkFolderPicker] = useState(false);
   const [bulkJobs, setBulkJobs] = useState<BulkJobItem[]>([]);
@@ -576,11 +577,27 @@ function UploadPanel() {
     if (t) { clearTimeout(t); bulkPollRefs.current.delete(id); }
   };
 
-  const startBulkDownload = async () => {
-    const lines = bulkUrls
+  const onBulkUrlsChange = (v: string) => {
+    setBulkUrls(v);
+    const parsed = v
       .split("\n")
       .map((l) => l.trim())
-      .filter((l) => l.startsWith("http://") || l.startsWith("https://"));
+      .filter((l) => l.startsWith("http://") || l.startsWith("https://"))
+      .map((url) => ({ url, selected: true }));
+    setBulkParsed(parsed);
+  };
+
+  const toggleBulkSelect = (idx: number) => {
+    setBulkParsed((prev) => prev.map((item, i) => i === idx ? { ...item, selected: !item.selected } : item));
+  };
+
+  const toggleBulkAll = () => {
+    const allSelected = bulkParsed.every((p) => p.selected);
+    setBulkParsed((prev) => prev.map((item) => ({ ...item, selected: !allSelected })));
+  };
+
+  const startBulkDownload = async () => {
+    const lines = bulkParsed.filter((p) => p.selected).map((p) => p.url);
     if (lines.length === 0) return;
     const folderBase = bulkFolder
       ? (bulkFolder.endsWith("/") ? bulkFolder : `${bulkFolder}/`)
@@ -649,6 +666,7 @@ function UploadPanel() {
     bulkPollRefs.current.clear();
     setBulkJobs([]);
     setBulkUrls("");
+    setBulkParsed([]);
   };
 
   // Auto-detect filename from URL — only if it looks like a real video file path
@@ -840,22 +858,85 @@ function UploadPanel() {
             <Text style={[styles.sectionTitle, { color: "#f59e0b" }]}>Upload em lote</Text>
           </View>
           <Text style={styles.sectionHint}>
-            Cole várias URLs (uma por linha) — o servidor baixa todas de uma vez. O nome do arquivo é detectado automaticamente.
+            Cole as URLs (uma por linha). Escolha quais enviar e toque em iniciar.
           </Text>
 
-          <Text style={styles.fieldLabel}>URLs (uma por linha)</Text>
-          <TextInput
-            style={[styles.input, { height: 140, textAlignVertical: "top" }, bulkRunning && { opacity: 0.5 }]}
-            placeholder={"https://exemplo.com/ep01.aspx\nhttps://exemplo.com/ep02.aspx\nhttps://exemplo.com/ep03.aspx"}
-            placeholderTextColor="rgba(255,255,255,0.2)"
-            value={bulkUrls}
-            onChangeText={setBulkUrls}
-            autoCapitalize="none"
-            autoCorrect={false}
-            multiline
-            editable={!bulkRunning}
-          />
+          {/* Text input — only shown before upload starts */}
+          {bulkJobs.length === 0 && (
+            <>
+              <Text style={styles.fieldLabel}>URLs (uma por linha)</Text>
+              <TextInput
+                style={[styles.input, { height: 130, textAlignVertical: "top" }, bulkRunning && { opacity: 0.5 }]}
+                placeholder={"https://exemplo.com/ep01.aspx\nhttps://exemplo.com/ep02.aspx\nhttps://exemplo.com/ep03.aspx"}
+                placeholderTextColor="rgba(255,255,255,0.2)"
+                value={bulkUrls}
+                onChangeText={onBulkUrlsChange}
+                autoCapitalize="none"
+                autoCorrect={false}
+                multiline
+                editable={!bulkRunning}
+              />
 
+              {/* Parsed URL selection list */}
+              {bulkParsed.length > 0 && (
+                <View style={{ marginTop: 10 }}>
+                  {/* Header with count + select all */}
+                  <Pressable
+                    style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}
+                    onPress={toggleBulkAll}
+                  >
+                    <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 12 }}>
+                      {bulkParsed.filter((p) => p.selected).length} de {bulkParsed.length} selecionadas
+                    </Text>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                      <Text style={{ color: "#f59e0b", fontSize: 12 }}>
+                        {bulkParsed.every((p) => p.selected) ? "Desmarcar todas" : "Selecionar todas"}
+                      </Text>
+                      <Feather
+                        name={bulkParsed.every((p) => p.selected) ? "check-square" : "square"}
+                        size={16}
+                        color="#f59e0b"
+                      />
+                    </View>
+                  </Pressable>
+
+                  {/* Checkbox list */}
+                  {bulkParsed.map((item, i) => (
+                    <Pressable
+                      key={i}
+                      onPress={() => toggleBulkSelect(i)}
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 10,
+                        paddingVertical: 8,
+                        paddingHorizontal: 10,
+                        marginBottom: 4,
+                        borderRadius: 8,
+                        backgroundColor: item.selected ? "rgba(245,158,11,0.1)" : "rgba(255,255,255,0.04)",
+                        borderWidth: 1,
+                        borderColor: item.selected ? "rgba(245,158,11,0.3)" : "rgba(255,255,255,0.06)",
+                      }}
+                    >
+                      <Feather
+                        name={item.selected ? "check-square" : "square"}
+                        size={18}
+                        color={item.selected ? "#f59e0b" : "rgba(255,255,255,0.3)"}
+                      />
+                      <Text
+                        style={{ flex: 1, color: item.selected ? "#fff" : "rgba(255,255,255,0.35)", fontSize: 11 }}
+                        numberOfLines={1}
+                      >
+                        {item.url.replace(/^https?:\/\//, "").slice(0, 60)}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+            </>
+          )}
+
+          {/* Pasta de destino */}
           <Text style={[styles.fieldLabel, { marginTop: 12 }]}>Pasta de destino</Text>
           <Pressable
             style={[styles.input, { flexDirection: "row", alignItems: "center", gap: 10 }, bulkRunning && { opacity: 0.5 }]}
@@ -874,43 +955,59 @@ function UploadPanel() {
             )}
           </Pressable>
 
-          {/* Job list */}
+          {/* Job progress list (during/after upload) */}
           {bulkJobs.length > 0 && (
-            <View style={{ marginTop: 12, gap: 8 }}>
+            <View style={{ marginTop: 12, gap: 6 }}>
+              <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11, marginBottom: 4 }}>
+                {bulkJobs.filter((j) => j.status === "done").length} concluídos · {bulkJobs.filter((j) => j.status === "error").length} com erro · {bulkJobs.filter((j) => j.status !== "done" && j.status !== "error").length} em andamento
+              </Text>
               {bulkJobs.map((bj, i) => {
-                const shortUrl = bj.url.length > 50 ? `${bj.url.slice(0, 47)}…` : bj.url;
+                const shortUrl = bj.url.replace(/^https?:\/\//, "").slice(0, 55);
                 const shortKey = bj.key ? bj.key.split("/").pop() || bj.key : "";
                 const isDone = bj.status === "done";
                 const isErr = bj.status === "error";
                 return (
-                  <View key={i} style={{ backgroundColor: "rgba(255,255,255,0.05)", borderRadius: 8, padding: 10 }}>
-                    <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 10, marginBottom: 4 }} numberOfLines={1}>{shortUrl}</Text>
-                    {shortKey && isDone ? (
-                      <Text style={{ color: "#4ade80", fontSize: 11, marginBottom: 4 }} numberOfLines={1}>✅ {shortKey}</Text>
-                    ) : null}
-                    {isErr ? (
+                  <View
+                    key={i}
+                    style={{
+                      backgroundColor: isDone ? "rgba(34,197,94,0.07)" : isErr ? "rgba(248,113,113,0.07)" : "rgba(255,255,255,0.05)",
+                      borderRadius: 8,
+                      padding: 10,
+                      borderWidth: 1,
+                      borderColor: isDone ? "rgba(34,197,94,0.2)" : isErr ? "rgba(248,113,113,0.2)" : "rgba(255,255,255,0.06)",
+                    }}
+                  >
+                    <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 10, marginBottom: 3 }} numberOfLines={1}>{shortUrl}</Text>
+                    {isDone && shortKey ? (
+                      <Text style={{ color: "#4ade80", fontSize: 11 }} numberOfLines={1}>✅ {shortKey}</Text>
+                    ) : isErr ? (
                       <Text style={{ color: "#f87171", fontSize: 11 }}>❌ {bj.error}</Text>
-                    ) : !isDone ? (
+                    ) : (
                       <View>
-                        <View style={[styles.progressBar, { marginBottom: 4 }]}>
+                        <View style={[styles.progressBar, { marginBottom: 3 }]}>
                           <View style={[styles.progressFill, { width: `${bj.progress}%` as any, backgroundColor: "#f59e0b" }]} />
                         </View>
                         <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 10 }}>
-                          {bj.status === "queued" ? "Na fila…" : bj.status === "downloading" ? `Baixando… ${bj.progress}%` : bj.status === "uploading" ? `Enviando… ${bj.progress}%` : ""}
+                          {bj.status === "queued" ? "Na fila…" : bj.status === "downloading" ? `Baixando… ${bj.progress}%` : `Enviando… ${bj.progress}%`}
                         </Text>
                       </View>
-                    ) : null}
+                    )}
                   </View>
                 );
               })}
             </View>
           )}
 
-          <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
+          {/* Buttons */}
+          <View style={{ flexDirection: "row", gap: 8, marginTop: 14 }}>
             <Pressable
-              style={[styles.actionBtn, { flex: 1, backgroundColor: "#92400e" }, bulkRunning && { opacity: 0.5 }]}
+              style={[
+                styles.actionBtn,
+                { flex: 1, backgroundColor: "#92400e" },
+                (bulkRunning || bulkParsed.filter((p) => p.selected).length === 0) && { opacity: 0.4 },
+              ]}
               onPress={startBulkDownload}
-              disabled={bulkRunning || !bulkUrls.trim()}
+              disabled={bulkRunning || bulkParsed.filter((p) => p.selected).length === 0}
             >
               {bulkRunning
                 ? <ActivityIndicator color="#fff" size="small" />
@@ -918,11 +1015,16 @@ function UploadPanel() {
               <Text style={styles.actionBtnText}>
                 {bulkRunning
                   ? `Enviando ${bulkJobs.filter((j) => j.status === "done").length}/${bulkJobs.length}…`
-                  : "Iniciar upload em lote"}
+                  : bulkParsed.filter((p) => p.selected).length > 0
+                    ? `Enviar ${bulkParsed.filter((p) => p.selected).length} arquivo${bulkParsed.filter((p) => p.selected).length > 1 ? "s" : ""}`
+                    : "Selecione URLs acima"}
               </Text>
             </Pressable>
-            {bulkJobs.length > 0 && !bulkRunning && (
-              <Pressable style={[styles.actionBtn, { paddingHorizontal: 14, backgroundColor: "rgba(255,255,255,0.08)" }]} onPress={clearBulk}>
+            {(bulkJobs.length > 0 || bulkParsed.length > 0) && !bulkRunning && (
+              <Pressable
+                style={[styles.actionBtn, { paddingHorizontal: 14, backgroundColor: "rgba(255,255,255,0.08)" }]}
+                onPress={clearBulk}
+              >
                 <Feather name="trash-2" size={16} color="rgba(255,255,255,0.6)" />
               </Pressable>
             )}
