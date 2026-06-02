@@ -20,8 +20,14 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/lib/auth-context";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
-import { api } from "@/lib/api";
+import { api, getApiBase } from "@/lib/api";
 import type { TmdbItem } from "@/lib/api";
+
+interface R2RegItem {
+  id: string; r2Key: string; tmdbId: number; tmdbType: "movie" | "tv";
+  title: string; label: string; season: number | null; episode: number | null; addedAt: string;
+}
+
 import { useCatalog } from "@/lib/catalog-context";
 
 const { width: SW } = Dimensions.get("window");
@@ -410,6 +416,12 @@ export default function NovidadesScreen() {
   const [animes, setAnimes] = useState<TmdbItem[]>([]);
   const [doramas, setDoramas] = useState<TmdbItem[]>([]);
 
+  // R2 Acervo
+  const [r2MovieSet, setR2MovieSet] = useState<Set<number>>(new Set());
+  const [r2TvSet, setR2TvSet] = useState<Set<number>>(new Set());
+  const [r2Movies, setR2Movies] = useState<TmdbItem[]>([]);
+  const [r2EpSeries, setR2EpSeries] = useState<(TmdbItem & { last_episode_to_air: any })[]>([]);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -481,6 +493,58 @@ export default function NovidadesScreen() {
     if (!catalogLoading) load();
   }, [load, catalogLoading]);
 
+  // Load R2 registry non-blocking
+  useEffect(() => {
+    const loadR2 = async () => {
+      try {
+        const apiBase = getApiBase();
+        if (!apiBase) return;
+        const ctrl = new AbortController();
+        const tid = setTimeout(() => ctrl.abort(), 15000);
+        const res = await fetch(`${apiBase}/r2/registry`, { signal: ctrl.signal });
+        clearTimeout(tid);
+        if (!res.ok) return;
+        const data = await res.json();
+        const items: R2RegItem[] = data.items ?? [];
+        if (items.length === 0) return;
+
+        // Movies
+        const movieItems = items.filter((i) => i.tmdbType === "movie");
+        const uniqueMovieIds = [...new Set(movieItems.map((i) => i.tmdbId))];
+        const movieResults = await Promise.all(
+          uniqueMovieIds.map((id) => api.tmdb.movie(id).catch(() => null))
+        );
+        const validMovies = movieResults.filter(Boolean) as TmdbItem[];
+        setR2Movies(validMovies);
+        setR2MovieSet(new Set(uniqueMovieIds));
+
+        // TV with episodes → inject into "Novos Episódios"
+        const tvItems = items.filter((i) => i.tmdbType === "tv" && i.episode != null);
+        const uniqueTvIds = [...new Set(tvItems.map((i) => i.tmdbId))];
+        const tvResults = await Promise.all(
+          uniqueTvIds.map((id) => api.tmdb.tv(id).catch(() => null))
+        );
+        const epSeries = (tvResults.filter(Boolean) as TmdbItem[]).map((tmdbItem) => {
+          const epRegs = tvItems.filter((i) => i.tmdbId === tmdbItem.id);
+          const latest = epRegs[epRegs.length - 1];
+          return {
+            ...tmdbItem,
+            last_episode_to_air: {
+              season_number: latest.season,
+              episode_number: latest.episode,
+              name: latest.label,
+              air_date: latest.addedAt,
+              still_path: null,
+            },
+          };
+        });
+        setR2EpSeries(epSeries);
+        setR2TvSet(new Set(uniqueTvIds));
+      } catch {}
+    };
+    loadR2();
+  }, []);
+
   const navigate = (it: TmdbItem) => {
     router.push({
       pathname: "/detail",
@@ -511,11 +575,21 @@ export default function NovidadesScreen() {
     }
   };
 
+  /* Merge R2 items into catalog lists */
+  const allMovies = [
+    ...r2Movies,
+    ...movies.filter((m) => !r2MovieSet.has(m.id)),
+  ];
+  const allEpisodes = [
+    ...r2EpSeries,
+    ...series.filter((s: any) => s?.last_episode_to_air?.episode_number && !r2TvSet.has(s.id)),
+  ];
+
   /* Hero items: first 4 movies + first 2 series */
-  const heroItems = [...movies.slice(0, 4), ...series.slice(0, 2)];
+  const heroItems = [...allMovies.slice(0, 4), ...series.slice(0, 2)];
 
   /* Episodes: series that have last_episode_to_air info */
-  const withEpisodes = series.filter((s: any) => s?.last_episode_to_air?.episode_number);
+  const withEpisodes = allEpisodes;
 
   const showMovies   = filter === "Todos" || filter === "Filmes";
   const showSeries   = filter === "Todos" || filter === "Séries";
@@ -570,7 +644,7 @@ export default function NovidadesScreen() {
           </ScrollView>
 
           {/* ── Novos Filmes ── */}
-          {showMovies && movies.length > 0 && (
+          {showMovies && allMovies.length > 0 && (
             <View style={st.section}>
               <SectionHeader
                 title="🎬 Novos Filmes"
@@ -579,13 +653,18 @@ export default function NovidadesScreen() {
                 onSeeAll={() => router.push({ pathname: "/catalog-list", params: { catalog_type: "movie", title: "Novos Filmes" } } as any)}
               />
               <FlatList
-                data={movies}
+                data={allMovies}
                 keyExtractor={(it) => `m-${it.id}`}
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={{ paddingHorizontal: 20 }}
                 renderItem={({ item }) => (
-                  <PosterCard item={item} badge="NOVO" badgeColor={RED} onPress={() => navigate(item)} />
+                  <PosterCard
+                    item={item}
+                    badge={r2MovieSet.has(item.id) ? "☁ R2" : "NOVO"}
+                    badgeColor={r2MovieSet.has(item.id) ? "#2563eb" : RED}
+                    onPress={() => navigate(item)}
+                  />
                 )}
               />
             </View>
@@ -676,7 +755,7 @@ export default function NovidadesScreen() {
 
           {/* Empty state */}
           {!loading &&
-            movies.length === 0 &&
+            allMovies.length === 0 &&
             series.length === 0 &&
             animes.length === 0 &&
             doramas.length === 0 && (
