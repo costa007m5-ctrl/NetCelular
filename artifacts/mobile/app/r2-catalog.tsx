@@ -577,7 +577,10 @@ function UploadPanel() {
   };
 
   const startBulkDownload = async () => {
-    const lines = bulkUrls.split("\n").map((l) => l.trim()).filter(Boolean);
+    const lines = bulkUrls
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.startsWith("http://") || l.startsWith("https://"));
     if (lines.length === 0) return;
     const folderBase = bulkFolder
       ? (bulkFolder.endsWith("/") ? bulkFolder : `${bulkFolder}/`)
