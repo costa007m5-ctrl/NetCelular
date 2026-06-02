@@ -64,6 +64,7 @@ function fileType(key: string): "video" | "image" | "other" {
 function parseSeasonNumber(folderName: string): number | null {
   const m =
     folderName.match(/^(?:season|temporada)\s*(\d+)$/i) ??
+    folderName.match(/^(\d+)\s*(?:season|temporada)$/i) ??
     folderName.match(/^s(\d+)$/i) ??
     folderName.match(/^t(\d+)$/i);
   return m ? parseInt(m[1], 10) : null;
