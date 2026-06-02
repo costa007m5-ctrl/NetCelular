@@ -509,8 +509,11 @@ export default function NovidadesScreen() {
         const items: R2RegItem[] = data.items ?? [];
         if (items.length === 0) return;
 
+        // Reverse so newest additions come first (registry stores oldest→newest)
+        const sortedItems = [...items].reverse();
+
         // Movies
-        const movieItems = items.filter((i) => i.tmdbType === "movie");
+        const movieItems = sortedItems.filter((i) => i.tmdbType === "movie");
         const uniqueMovieIds = [...new Set(movieItems.map((i) => i.tmdbId))];
         const movieResults = await Promise.all(
           uniqueMovieIds.map((id) => api.tmdb.movie(id).catch(() => null))
@@ -520,7 +523,7 @@ export default function NovidadesScreen() {
         setR2MovieSet(new Set(uniqueMovieIds));
 
         // All TV series from R2 → "Novas Séries"
-        const allTvItems = items.filter((i) => i.tmdbType === "tv");
+        const allTvItems = sortedItems.filter((i) => i.tmdbType === "tv");
         const uniqueAllTvIds = [...new Set(allTvItems.map((i) => i.tmdbId))];
         const allTvResults = await Promise.all(
           uniqueAllTvIds.map((id) => api.tmdb.tv(id).catch(() => null))
@@ -530,7 +533,7 @@ export default function NovidadesScreen() {
         setR2TvSet(new Set(uniqueAllTvIds));
 
         // TV with specific episodes → inject into "Novos Episódios"
-        const tvItems = items.filter((i) => i.tmdbType === "tv" && i.episode != null);
+        const tvItems = sortedItems.filter((i) => i.tmdbType === "tv" && i.episode != null);
         const uniqueTvIds = [...new Set(tvItems.map((i) => i.tmdbId))];
         const epSeries = validTvSeries
           .filter((s) => uniqueTvIds.includes(s.id))

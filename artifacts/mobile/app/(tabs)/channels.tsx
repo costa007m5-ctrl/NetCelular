@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
+  Animated,
   ActivityIndicator,
   FlatList,
   Image,
@@ -39,6 +40,21 @@ export default function ChannelsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [selectedCat, setSelectedCat] = useState(0); // 0 = all
   const [search, setSearch] = useState("");
+
+  // Rotating banner
+  const [bannerIdx, setBannerIdx] = useState(0);
+  const bannerOpacity = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    if (channels.length < 2) return;
+    const timer = setInterval(() => {
+      Animated.timing(bannerOpacity, { toValue: 0, duration: 400, useNativeDriver: true }).start(() => {
+        setBannerIdx((prev) => (prev + 1) % Math.min(channels.length, 8));
+        Animated.timing(bannerOpacity, { toValue: 1, duration: 400, useNativeDriver: true }).start();
+      });
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [channels, bannerOpacity]);
 
   const load = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
@@ -98,6 +114,52 @@ export default function ChannelsScreen() {
           <Text style={[s.count, { color: colors.mutedForeground }]}>{filtered.length} canais</Text>
         )}
       </View>
+
+      {/* Rotating Banner */}
+      {!loading && !error && channels.length > 0 && (() => {
+        const bannerCh = channels[bannerIdx];
+        if (!bannerCh) return null;
+        const accent = getAccent(bannerCh.id);
+        return (
+          <Animated.View style={[s.banner, { opacity: bannerOpacity }]}>
+            <Pressable
+              onPress={() => openChannel(bannerCh)}
+              style={[s.bannerInner, { backgroundColor: accent + "22", borderColor: accent + "40" }]}
+            >
+              {bannerCh.image ? (
+                <Image source={{ uri: bannerCh.image }} style={s.bannerLogo} resizeMode="contain" />
+              ) : (
+                <View style={[s.bannerLogoFallback, { backgroundColor: accent + "30" }]}>
+                  <Feather name="tv" size={36} color={accent} />
+                </View>
+              )}
+              <View style={s.bannerInfo}>
+                <View style={s.bannerLivePill}>
+                  <View style={[s.liveDot, { backgroundColor: RED, width: 7, height: 7 }]} />
+                  <Text style={[s.liveBadgeText, { fontSize: 10 }]}>AO VIVO</Text>
+                </View>
+                <Text style={[s.bannerName, { color: colors.foreground }]} numberOfLines={2}>
+                  {bannerCh.name}
+                </Text>
+                <Text style={[s.bannerSub, { color: colors.mutedForeground }]}>
+                  Toque para assistir
+                </Text>
+              </View>
+              <View style={s.bannerDots}>
+                {Array.from({ length: Math.min(channels.length, 8) }).map((_, i) => (
+                  <View
+                    key={i}
+                    style={[
+                      s.dot,
+                      { backgroundColor: i === bannerIdx ? RED : colors.mutedForeground + "60" },
+                    ]}
+                  />
+                ))}
+              </View>
+            </Pressable>
+          </Animated.View>
+        );
+      })()}
 
       {/* Search */}
       <View style={[s.searchBar, { backgroundColor: colors.card, borderColor: colors.border + "60" }]}>
@@ -245,6 +307,41 @@ const s = StyleSheet.create({
   loadingText: { fontSize: 14 },
   errorText: { fontSize: 14, textAlign: "center" },
   retryBtn: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 18, paddingVertical: 8 },
+  banner: {
+    marginHorizontal: 12,
+    marginBottom: 12,
+    borderRadius: 16,
+    overflow: "hidden",
+  },
+  bannerInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 12,
+    gap: 12,
+    position: "relative",
+  },
+  bannerLogo: { width: 72, height: 72, borderRadius: 10 },
+  bannerLogoFallback: {
+    width: 72,
+    height: 72,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  bannerInfo: { flex: 1, gap: 4 },
+  bannerLivePill: { flexDirection: "row", alignItems: "center", gap: 5 },
+  bannerName: { fontSize: 15, fontWeight: "800", lineHeight: 20 },
+  bannerSub: { fontSize: 11 },
+  bannerDots: {
+    position: "absolute",
+    bottom: 8,
+    right: 10,
+    flexDirection: "row",
+    gap: 4,
+  },
+  dot: { width: 6, height: 6, borderRadius: 3 },
   channelCard: {
     flex: 1,
     borderRadius: 12,

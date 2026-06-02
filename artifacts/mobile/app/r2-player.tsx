@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Animated,
+  AppState,
   Platform,
   Pressable,
   ScrollView,
@@ -15,6 +16,8 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { getApiBase } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
+import { db, isSupabaseConfigured } from "@/lib/supabase";
 
 let Video: any = null;
 let ResizeMode: any = null;
@@ -109,6 +112,7 @@ export default function R2PlayerScreen() {
     r2ItemsJson?: string;
     watchSeason?: string;
     watchEpisode?: string;
+    watchProgressRatio?: string;
   }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -136,7 +140,12 @@ export default function R2PlayerScreen() {
   const videoRef = useRef<any>(null);
   const phaseRef = useRef<"loading" | "ready" | "error">("loading");
   const readyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hasSeekedRef = useRef(false);
+  const saveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const positionMsRef = useRef(0);
+  const durationMsRef = useRef(0);
 
+  const { user } = useAuth();
   const title = params.title ?? "Assistindo";
   const episodeName = params.episodeName ?? "";
   const season = params.season ? Number(params.season) : null;
@@ -146,6 +155,7 @@ export default function R2PlayerScreen() {
   const tmdbId = params.tmdbId ? Number(params.tmdbId) : null;
   const contentType = params.type ?? "movie";
   const isTV = contentType === "tv";
+  const savedProgressRatio = params.watchProgressRatio ? Number(params.watchProgressRatio) : 0;
 
   // Parse R2 items for episodes panel
   const r2Items: RegistryItem[] = (() => {
@@ -156,6 +166,8 @@ export default function R2PlayerScreen() {
   const r2Seasons = isTV
     ? [...new Set(r2Items.filter((i) => i.season != null).map((i) => i.season as number))].sort((a, b) => a - b)
     : [];
+  // Only items with specific episode numbers (exclude season-level folder items)
+  const r2EpisodeItems = isTV ? r2Items.filter((i) => i.episode != null) : [];
 
   // Current watch progress
   const watchSeason = params.watchSeason ? Number(params.watchSeason) : null;
@@ -173,12 +185,21 @@ export default function R2PlayerScreen() {
     phaseRef.current = "ready";
     if (readyTimer.current) clearTimeout(readyTimer.current);
     setDurationMs(durationMillis);
+    durationMsRef.current = durationMillis;
     fakeAnim.current?.stop();
     Animated.timing(loadProgress, { toValue: 100, duration: 400, useNativeDriver: false }).start(() => {
       setPhase("ready");
       setIsPlaying(true);
+      // Seek to saved position if available (resume watching)
+      if (!hasSeekedRef.current && savedProgressRatio > 0.02 && durationMillis > 0) {
+        hasSeekedRef.current = true;
+        const seekMs = Math.round(savedProgressRatio * durationMillis);
+        setTimeout(() => {
+          videoRef.current?.setPositionAsync(seekMs).catch(() => {});
+        }, 600);
+      }
     });
-  }, []);
+  }, [savedProgressRatio]);
 
   // ── Orientation / nav bar ──────────────────────────────────────────────────
   useEffect(() => {
@@ -300,6 +321,8 @@ export default function R2PlayerScreen() {
     setIsPlaying(status.isPlaying ?? false);
     setPositionMs(status.positionMillis ?? 0);
     setDurationMs(status.durationMillis ?? 0);
+    positionMsRef.current = status.positionMillis ?? 0;
+    durationMsRef.current = status.durationMillis ?? 0;
     if (status.didJustFinish) goToNextEpisode();
   }, [transitionToReady, goToNextEpisode]);
 
@@ -384,6 +407,44 @@ export default function R2PlayerScreen() {
     if (hideTimer.current) clearTimeout(hideTimer.current);
     if (readyTimer.current) clearTimeout(readyTimer.current);
   }, []);
+
+  // ── Save progress ───────────────────────────────────────────────────────────
+  const saveProgress = useCallback(async () => {
+    if (!user?.id || !tmdbId || !isSupabaseConfigured) return;
+    const dur = durationMsRef.current;
+    const pos = positionMsRef.current;
+    if (dur <= 0 || pos <= 0) return;
+    const ratio = Math.min(1, pos / dur);
+    if (ratio < 0.02) return;
+    try {
+      await db.progress.upsert({
+        user_id: user.id,
+        tmdb_id: tmdbId,
+        type: contentType as "movie" | "tv",
+        title,
+        poster_path: posterPath ? `https://image.tmdb.org/t/p/w500${posterPath}` : undefined,
+        backdrop_path: backdropPath ? `https://image.tmdb.org/t/p/w1280${backdropPath}` : undefined,
+        progress: ratio,
+        ...(isTV && season != null ? { season } : {}),
+        ...(isTV && episode != null ? { episode } : {}),
+      });
+    } catch {}
+  }, [user, tmdbId, contentType, title, posterPath, backdropPath, isTV, season, episode]);
+
+  // Start periodic save timer when ready
+  useEffect(() => {
+    if (phase !== "ready") return;
+    saveTimerRef.current = setInterval(() => { saveProgress(); }, 30000);
+    return () => { if (saveTimerRef.current) clearInterval(saveTimerRef.current); };
+  }, [phase, saveProgress]);
+
+  // Save on app background / unmount
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (s) => {
+      if (s === "background") saveProgress();
+    });
+    return () => { sub.remove(); saveProgress(); };
+  }, [saveProgress]);
 
   // ── Seek helpers ───────────────────────────────────────────────────────────
   const togglePlay = async () => {
@@ -548,7 +609,7 @@ export default function R2PlayerScreen() {
                       <Text style={styles.ctrlEp}>T{season} · Ep {episode}{episodeName ? ` — ${episodeName}` : ""}</Text>
                     )}
                   </View>
-                  {isTV && r2Items.length > 1 && (
+                  {isTV && r2EpisodeItems.length > 1 && (
                     <Pressable style={styles.episodesBtn} onPress={openEpisodesPanel}>
                       <Feather name="list" size={16} color="#fff" />
                       <Text style={styles.episodesBtnText}>Episódios</Text>
@@ -577,7 +638,7 @@ export default function R2PlayerScreen() {
                     <View style={[styles.seekThumb, { left: `${progress * 100}%` as any }]} />
                   </View>
                   <Text style={styles.timeText}>{formatTime(durationMs)}</Text>
-                  {isTV && r2Items.length > 1 && (
+                  {isTV && r2EpisodeItems.length > 1 && (
                     <Pressable style={[styles.iconBtn, { marginLeft: 8 }]} onPress={goToNextEpisode}>
                       <Feather name="skip-forward" size={22} color="#fff" />
                     </Pressable>
@@ -646,7 +707,7 @@ export default function R2PlayerScreen() {
         <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
           {(() => {
             const seasonItems = r2Items
-              .filter((i) => i.season === panelSeason)
+              .filter((i) => i.season === panelSeason && i.episode != null)
               .sort((a, b) => (a.episode ?? 0) - (b.episode ?? 0));
 
             if (seasonItems.length === 0) {

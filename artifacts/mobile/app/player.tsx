@@ -462,6 +462,9 @@ function NativeVideoPlayer({
             setPositionMs(status.positionMillis ?? 0);
             setDurationMs(status.durationMillis ?? 0);
             setBuffering(status.isBuffering ?? false);
+            if (status.durationMillis && status.durationMillis > 0) {
+              positionRatioRef.current = (status.positionMillis ?? 0) / status.durationMillis;
+            }
           }}
           onError={() => setLoadError(true)}
         />
@@ -765,6 +768,8 @@ export default function PlayerScreen() {
     setShowPicker(true);
   }, [season, fetchEpisodes, fetchTotalSeasons, showControls]);
 
+  const positionRatioRef = useRef(0.05);
+
   const saveProgress = async () => {
     if (!user?.id || !id || !isSupabaseConfigured || progressSaved) return;
     try {
@@ -773,7 +778,7 @@ export default function PlayerScreen() {
         user_id: user.id, tmdb_id: id, type, title,
         poster_path: TMDB_IMG(posterPath || null, "w500") ?? posterPath,
         backdrop_path: TMDB_IMG(backdropPath || null, "w1280") ?? undefined,
-        progress: 0.05,
+        progress: positionRatioRef.current,
         ...(type === "tv" ? { season, episode } : {}),
       });
     } catch (e) { setProgressSaved(false); }

@@ -760,6 +760,7 @@ export default function DetailScreen() {
         r2ItemsJson: JSON.stringify(r2Items),
         watchSeason: watchProgress?.season != null ? String(watchProgress.season) : "",
         watchEpisode: watchProgress?.episode != null ? String(watchProgress.episode) : "",
+        watchProgressRatio: watchProgress?.progress != null ? String(watchProgress.progress) : "",
       },
     });
   };
@@ -1165,9 +1166,11 @@ export default function DetailScreen() {
                     const item = r2Items.find((i) => i.season == null && i.episode == null);
                     if (item) goToR2Player(item);
                   } else {
+                    const episodeItems = r2Items.filter((i) => i.episode != null);
+                    const lastAdded = episodeItems[episodeItems.length - 1] ?? r2Items[0];
                     const resumeItem = (watchProgress?.season && watchProgress?.episode)
-                      ? r2Items.find((i) => i.season === watchProgress.season && i.episode === watchProgress.episode) ?? r2Items[0]
-                      : r2Items[0];
+                      ? r2Items.find((i) => i.season === watchProgress.season && i.episode === watchProgress.episode) ?? lastAdded
+                      : lastAdded;
                     if (resumeItem) goToR2Player(resumeItem);
                   }
                 };
