@@ -260,38 +260,56 @@ async function hasVideoFiles(client: S3Client, bucket: string, prefix: string): 
   return (data.Contents ?? []).some((o) => isVideo(o.Key ?? ""));
 }
 
-async function buildCatalog(client: S3Client, bucket: string): Promise<CatalogEntry[]> {
-  const [topPrefixes, catalogMeta] = await Promise.all([
-    listPrefixes(client, bucket, ""),
-    readCatalogMeta(client, bucket),
-  ]);
+async function buildEntriesFromPrefixes(
+  client: S3Client,
+  bucket: string,
+  prefixes: string[],
+  catalogMeta: CatalogMeta,
+  depth = 0,
+): Promise<CatalogEntry[]> {
   const entries: CatalogEntry[] = [];
+  const MAX_DEPTH = 2;
 
-  for (const titlePrefix of topPrefixes) {
-    const name = titlePrefix.replace(/\/$/, "");
-    if (name === "__registry" || name === "__catalog-meta") continue;
+  for (const titlePrefix of prefixes) {
+    // Last segment of path = folder display name
+    const segments = titlePrefix.replace(/\/$/, "").split("/");
+    const name = segments[segments.length - 1] ?? titlePrefix.replace(/\/$/, "");
+
+    // Skip internal system keys
+    if (name.startsWith("__")) continue;
 
     const subPrefixes = await listPrefixes(client, bucket, titlePrefix);
     const seasons: SeasonInfo[] = [];
+    const nonSeasonSubs: string[] = [];
 
     for (const sub of subPrefixes) {
       const subName = sub.replace(titlePrefix, "").replace(/\/$/, "");
       const seasonNum = parseSeasonNumber(subName);
       if (seasonNum !== null) {
         seasons.push({ number: seasonNum, prefix: sub, label: subName });
+      } else {
+        nonSeasonSubs.push(sub);
       }
     }
     seasons.sort((a, b) => a.number - b.number);
 
+    const hasVideos = seasons.length === 0 && await hasVideoFiles(client, bucket, titlePrefix);
+
+    // Container detection: no seasons, no direct videos, has non-season subfolders
+    // → recurse into children (e.g. a "Séries/" or "Filmes/" parent folder)
+    if (seasons.length === 0 && !hasVideos && nonSeasonSubs.length > 0 && depth < MAX_DEPTH) {
+      const childEntries = await buildEntriesFromPrefixes(client, bucket, nonSeasonSubs, catalogMeta, depth + 1);
+      entries.push(...childEntries);
+      continue;
+    }
+
     const isSeries = seasons.length > 0;
-    const hasVideos = !isSeries && await hasVideoFiles(client, bucket, titlePrefix);
 
     // Check for saved TMDB override in catalog-meta
     const override = catalogMeta.overrides[titlePrefix];
     let tmdbMatch: TmdbMatch | null = null;
 
     if (override?.tmdbId) {
-      // Use the saved TMDB ID directly — fetch details from TMDB
       try {
         const type = override.tmdbType ?? (isSeries ? "tv" : "movie");
         if (type === "tv") {
@@ -308,7 +326,6 @@ async function buildCatalog(client: S3Client, bucket: string): Promise<CatalogEn
       tmdbMatch = await searchTmdb(override?.displayName ?? name, isSeries ? "tv" : hasVideos ? "movie" : undefined);
     }
 
-    // Use TMDB media_type to correct series detection (flat episode structure)
     const type: CatalogEntry["type"] = isSeries ? "tv"
       : (override?.tmdbType === "tv" || tmdbMatch?.media_type === "tv") ? "tv"
       : (override?.tmdbType === "movie" || tmdbMatch?.media_type === "movie" || hasVideos) ? "movie"
@@ -319,6 +336,14 @@ async function buildCatalog(client: S3Client, bucket: string): Promise<CatalogEn
   }
 
   return entries;
+}
+
+async function buildCatalog(client: S3Client, bucket: string): Promise<CatalogEntry[]> {
+  const [topPrefixes, catalogMeta] = await Promise.all([
+    listPrefixes(client, bucket, ""),
+    readCatalogMeta(client, bucket),
+  ]);
+  return buildEntriesFromPrefixes(client, bucket, topPrefixes, catalogMeta, 0);
 }
 
 // ── Routes ────────────────────────────────────────────────────────────────────

@@ -619,8 +619,24 @@ function UploadPanel() {
   const startBulkDownload = async () => {
     const lines = bulkParsed.filter((p) => p.selected).map((p) => p.url);
     if (lines.length === 0) return;
-    const folderBase = bulkFolder
-      ? (bulkFolder.endsWith("/") ? bulkFolder : `${bulkFolder}/`)
+
+    if (!bulkFolder) {
+      Alert.alert(
+        "Pasta de destino não selecionada",
+        "Sem pasta selecionada os arquivos irão para a raiz do bucket de forma desorganizada.\n\nDeseja continuar mesmo assim?",
+        [
+          { text: "Cancelar", style: "cancel" },
+          { text: "Continuar", style: "destructive", onPress: () => executeBulkDownload(lines, "") },
+        ]
+      );
+      return;
+    }
+    executeBulkDownload(lines, bulkFolder);
+  };
+
+  const executeBulkDownload = async (lines: string[], folder: string) => {
+    const folderBase = folder
+      ? (folder.endsWith("/") ? folder : `${folder}/`)
       : "";
     // Key sent to API: folder path if set, else "__auto__" (server auto-detects filename)
     const baseKey = folderBase || "__auto__";
@@ -1124,7 +1140,8 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [movingKey, setMovingKey] = useState<string | null>(null);
-  const [moveDst, setMoveDst] = useState("");
+  const [movingName, setMovingName] = useState<string>("");
+  const [showMovePicker, setShowMovePicker] = useState(false);
 
   const load = useCallback(async (prefix: string) => {
     setLoading(true);
@@ -1168,12 +1185,16 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
     ]);
   };
 
-  const doMove = async () => {
-    if (!movingKey || !moveDst.trim()) return;
+  const doMove = async (destFolder: string) => {
+    if (!movingKey) return;
+    const filename = movingKey.split("/").pop() ?? movingKey;
+    const dst = destFolder
+      ? `${destFolder.endsWith("/") ? destFolder : `${destFolder}/`}${filename}`
+      : filename;
     try {
-      await apiPost("/move", { src: movingKey, dst: moveDst.trim() });
+      await apiPost("/move", { src: movingKey, dst });
       setMovingKey(null);
-      setMoveDst("");
+      setMovingName("");
       load(path);
     } catch (e: any) { setError(e.message); }
   };
@@ -1200,28 +1221,35 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
         ))}
       </ScrollView>
 
-      {/* Move modal */}
+      {/* Move banner */}
       {movingKey && (
         <View style={styles.moveBox}>
-          <Text style={styles.moveTitle}>Mover: {movingKey.split("/").pop()}</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Novo caminho (ex: Pasta/arquivo.mp4)"
-            placeholderTextColor="rgba(255,255,255,0.3)"
-            value={moveDst}
-            onChangeText={setMoveDst}
-            autoCapitalize="none"
-          />
-          <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
-            <Pressable style={[styles.actionBtn, { flex: 1, backgroundColor: "#374151" }]} onPress={() => { setMovingKey(null); setMoveDst(""); }}>
+          <Text style={styles.moveTitle} numberOfLines={1}>Mover: {movingName || movingKey.split("/").pop()}</Text>
+          <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 12, marginBottom: 10 }}>
+            Escolha a pasta de destino abaixo
+          </Text>
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <Pressable
+              style={[styles.actionBtn, { flex: 1, backgroundColor: "#374151" }]}
+              onPress={() => { setMovingKey(null); setMovingName(""); }}
+            >
               <Text style={styles.actionBtnText}>Cancelar</Text>
             </Pressable>
-            <Pressable style={[styles.actionBtn, { flex: 1 }]} onPress={doMove}>
-              <Feather name="move" size={14} color="#fff" />
-              <Text style={styles.actionBtnText}>Mover</Text>
+            <Pressable
+              style={[styles.actionBtn, { flex: 1, backgroundColor: "#1d4ed8" }]}
+              onPress={() => setShowMovePicker(true)}
+            >
+              <Feather name="folder" size={14} color="#fff" />
+              <Text style={styles.actionBtnText}>Escolher pasta</Text>
             </Pressable>
           </View>
         </View>
+      )}
+      {showMovePicker && (
+        <FolderPickerModal
+          onSelect={(folder) => { setShowMovePicker(false); doMove(folder); }}
+          onClose={() => setShowMovePicker(false)}
+        />
       )}
 
       {error && (
@@ -1266,7 +1294,7 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
                   <Feather name="link" size={15} color="#60a5fa" />
                 </Pressable>
               )}
-              <Pressable onPress={() => { setMovingKey(item.key); setMoveDst(item.key); }} style={styles.fileAction}>
+              <Pressable onPress={() => { setMovingKey(item.key); setMovingName(item.name); }} style={styles.fileAction}>
                 <Feather name="move" size={15} color="rgba(255,255,255,0.4)" />
               </Pressable>
               {item.type === "file" && (
