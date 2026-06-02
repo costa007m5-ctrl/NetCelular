@@ -217,13 +217,24 @@ function SeasonList({ entry, onBack, onSelectSeason }: {
           </View>
         </View>
         <Text style={styles.seasonHeader}>Temporadas</Text>
-        {entry.seasons.map((s) => (
-          <Pressable key={s.prefix} style={({ pressed }) => [styles.seasonRow, pressed && { opacity: 0.7 }]} onPress={() => onSelectSeason(s)}>
-            <View style={styles.seasonIcon}><Feather name="tv" size={20} color={RED} /></View>
-            <Text style={styles.seasonLabel}>{s.label}</Text>
+        {entry.seasons.length === 0 ? (
+          <Pressable
+            style={({ pressed }) => [styles.seasonRow, pressed && { opacity: 0.7 }]}
+            onPress={() => onSelectSeason({ number: 1, prefix: entry.key, label: "Todos os episódios" })}
+          >
+            <View style={styles.seasonIcon}><Feather name="play" size={20} color={RED} /></View>
+            <Text style={styles.seasonLabel}>Ver todos os episódios</Text>
             <Feather name="chevron-right" size={18} color="rgba(255,255,255,0.4)" />
           </Pressable>
-        ))}
+        ) : (
+          entry.seasons.map((s) => (
+            <Pressable key={s.prefix} style={({ pressed }) => [styles.seasonRow, pressed && { opacity: 0.7 }]} onPress={() => onSelectSeason(s)}>
+              <View style={styles.seasonIcon}><Feather name="tv" size={20} color={RED} /></View>
+              <Text style={styles.seasonLabel}>{s.label}</Text>
+              <Feather name="chevron-right" size={18} color="rgba(255,255,255,0.4)" />
+            </Pressable>
+          ))
+        )}
       </ScrollView>
     </View>
   );
@@ -641,19 +652,22 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
             ) : null
           }
           ListEmptyComponent={<View style={[styles.center, { paddingTop: 40 }]}><Text style={styles.dim}>Pasta vazia</Text></View>}
-          renderItem={({ item }) => (
+          renderItem={({ item }) => {
+            const KNOWN_NON_VIDEO = /\.(jpg|jpeg|png|gif|webp|txt|json|pdf|doc|docx|html|css|js|xml|zip|rar|keep)$/i;
+            const looksLikeVideo = item.isVideo || (item.type === "file" && (item.size ?? 0) > 5_000_000 && !KNOWN_NON_VIDEO.test(item.name));
+            return (
             <View style={styles.fileRow}>
               <Feather
-                name={item.type === "folder" ? "folder" : item.isVideo ? "film" : "file"}
+                name={item.type === "folder" ? "folder" : looksLikeVideo ? "film" : "file"}
                 size={18}
-                color={item.type === "folder" ? "#f59e0b" : item.isVideo ? RED : "rgba(255,255,255,0.4)"}
+                color={item.type === "folder" ? "#f59e0b" : looksLikeVideo ? RED : "rgba(255,255,255,0.4)"}
               />
               <Pressable style={{ flex: 1, marginLeft: 10 }} onPress={() => item.type === "folder" ? navigate(item) : undefined}>
                 <Text style={styles.fileName} numberOfLines={2}>{item.name}</Text>
                 {item.size ? <Text style={styles.fileMeta}>{formatBytes(item.size)}</Text> : null}
               </Pressable>
               {/* Actions */}
-              {item.isVideo && (
+              {looksLikeVideo && (
                 <Pressable onPress={() => onRegister(item.key)} style={styles.fileAction}>
                   <Feather name="link" size={15} color="#60a5fa" />
                 </Pressable>
@@ -667,7 +681,8 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
                 </Pressable>
               )}
             </View>
-          )}
+          );
+          }}
         />
       )}
     </View>

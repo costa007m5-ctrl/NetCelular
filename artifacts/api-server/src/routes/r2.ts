@@ -44,6 +44,13 @@ function isVideo(key: string) {
   return /\.(mp4|mkv|mov|avi|webm|m4v|ts|m3u8)$/i.test(key);
 }
 
+function isLikelyVideo(key: string, size: number): boolean {
+  if (isVideo(key)) return true;
+  const name = (key.split("/").pop() ?? key).toLowerCase();
+  const hasKnownNonVideoExt = /\.(jpg|jpeg|png|gif|webp|txt|json|pdf|doc|docx|html|css|js|xml|zip|rar|keep)$/i.test(name);
+  return !hasKnownNonVideoExt && size > 5_000_000;
+}
+
 function isImage(key: string) {
   return /\.(jpg|jpeg|png|webp|gif)$/i.test(key);
 }
@@ -240,8 +247,14 @@ async function buildCatalog(client: S3Client, bucket: string): Promise<CatalogEn
     seasons.sort((a, b) => a.number - b.number);
 
     const isSeries = seasons.length > 0;
-    const type: CatalogEntry["type"] = isSeries ? "tv" : await hasVideoFiles(client, bucket, titlePrefix) ? "movie" : "unknown";
-    const tmdbMatch = await searchTmdb(name, isSeries ? "tv" : type === "movie" ? "movie" : undefined);
+    const hasVideos = !isSeries && await hasVideoFiles(client, bucket, titlePrefix);
+    // Search TMDB without a hint first to get accurate media_type
+    const tmdbMatch = await searchTmdb(name, isSeries ? "tv" : hasVideos ? "movie" : undefined);
+    // Use TMDB media_type to correct series detection (flat episode structure)
+    const type: CatalogEntry["type"] = isSeries ? "tv"
+      : tmdbMatch?.media_type === "tv" ? "tv"
+      : (tmdbMatch?.media_type === "movie" || hasVideos) ? "movie"
+      : "unknown";
     entries.push({ key: titlePrefix, name, type, seasons, tmdb: tmdbMatch });
     await new Promise((r) => setTimeout(r, 150));
   }
@@ -283,7 +296,11 @@ router.get("/episodes", async (req, res) => {
     const data = await client.send(cmd);
 
     const episodes = (data.Contents ?? [])
-      .filter((o) => isVideo(o.Key ?? "") && o.Key !== prefix)
+      .filter((o) => {
+        if (!o.Key || o.Key === prefix) return false;
+        const size = o.Size ?? 0;
+        return isLikelyVideo(o.Key, size);
+      })
       .map((o) => {
         const fileName = o.Key!.split("/").pop() ?? o.Key!;
         return {
@@ -395,6 +412,17 @@ router.post("/download-url", async (req, res) => {
         job.total = contentLength;
         job.status = "uploading";
 
+        const contentType = response.headers.get("content-type") ?? "application/octet-stream";
+
+        // Auto-append video extension if the destination key has none
+        let finalKey = key;
+        if (!isVideo(key) && contentType.startsWith("video/")) {
+          const rawExt = contentType.split("/")[1]?.split(";")[0]?.trim() ?? "mp4";
+          const ext = rawExt === "quicktime" ? "mov" : rawExt === "x-matroska" ? "mkv" : rawExt;
+          finalKey = `${key}.${ext}`;
+          job.key = finalKey;
+        }
+
         // Convert WHATWG ReadableStream → Node Readable
         const webStream = response.body!;
         const nodeStream = Readable.fromWeb(webStream as any);
@@ -409,13 +437,11 @@ router.post("/download-url", async (req, res) => {
         });
         nodeStream.pipe(passThrough);
 
-        const contentType = response.headers.get("content-type") ?? "application/octet-stream";
-
         const uploader = new Upload({
           client,
           params: {
             Bucket: bucket,
-            Key: key,
+            Key: finalKey,
             Body: passThrough,
             ContentType: contentType,
           },
@@ -620,10 +646,10 @@ router.get("/tmdb-search", async (req, res) => {
     let results: any[] = [];
     if (type === "movie") {
       const r = await tmdb.search.movies(q, 1);
-      results = (r as any).results?.slice(0, 10) ?? [];
+      results = ((r as any).results?.slice(0, 10) ?? []).map((x: any) => ({ ...x, media_type: "movie" }));
     } else if (type === "tv") {
       const r = await tmdb.search.tv(q, 1);
-      results = ((r as any).results?.slice(0, 10) ?? []).map((x: any) => ({ ...x, title: x.name }));
+      results = ((r as any).results?.slice(0, 10) ?? []).map((x: any) => ({ ...x, title: x.name, media_type: "tv" }));
     } else {
       const r = await tmdb.search.multi(q, 1);
       results = ((r as any).results ?? [])
