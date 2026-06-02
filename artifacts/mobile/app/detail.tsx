@@ -63,6 +63,7 @@ function EpisodeRow({
   watched,
   current,
   colors,
+  fallbackImage,
   onPress,
   onGstreamPress,
   onR2Press,
@@ -71,21 +72,42 @@ function EpisodeRow({
   watched: boolean;
   current: boolean;
   colors: ReturnType<typeof import("@/hooks/useColors").useColors>;
+  fallbackImage?: string | null;
   onPress?: () => void;
   onGstreamPress?: () => void;
   onR2Press?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [imgFailed, setImgFailed] = useState(false);
+
+  const thumbUri = !imgFailed && ep.still_path
+    ? (TMDB_IMG(ep.still_path, "w500") ?? null)
+    : null;
+
+  // Use series backdrop as styled fallback when no episode still is available
+  const showFallback = !thumbUri && fallbackImage;
 
   return (
     <View style={[styles.episodeRow, { backgroundColor: colors.card, borderColor: current ? colors.primary : colors.border }]}>
       {/* Thumbnail */}
-      {ep.still_path ? (
+      {thumbUri ? (
         <Image
-          source={{ uri: TMDB_IMG(ep.still_path, "w500") ?? "" }}
+          source={{ uri: thumbUri }}
           style={styles.episodeThumb}
           resizeMode="cover"
+          onError={() => setImgFailed(true)}
         />
+      ) : showFallback ? (
+        <View style={[styles.episodeThumb, { overflow: "hidden" }]}>
+          <Image
+            source={{ uri: TMDB_IMG(fallbackImage!, "w500") ?? fallbackImage! }}
+            style={[styles.episodeThumb, { position: "absolute", opacity: 0.45 }]}
+            resizeMode="cover"
+          />
+          <View style={[StyleSheet.absoluteFill, { alignItems: "center", justifyContent: "center" }]}>
+            <Feather name="play" size={16} color="rgba(255,255,255,0.8)" />
+          </View>
+        </View>
       ) : (
         <View style={[styles.episodeThumb, { backgroundColor: colors.border, alignItems: "center", justifyContent: "center" }]}>
           <Feather name="film" size={18} color={colors.mutedForeground} />
@@ -1415,6 +1437,7 @@ export default function DetailScreen() {
                           watched={watched}
                           current={current}
                           colors={colors}
+                          fallbackImage={details?.backdrop_path ?? details?.poster_path ?? null}
                           onPress={!r2Ep ? () => goToPlayer(selectedSeason, ep.episode_number) : undefined}
                           onGstreamPress={gstreamAvailable ? () => goToGstreamPlayer(selectedSeason, ep.episode_number) : undefined}
                           onR2Press={r2Ep ? () => goToR2Player(r2Ep, selectedSeason, ep.episode_number) : undefined}
