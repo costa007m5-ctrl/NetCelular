@@ -269,7 +269,7 @@ async function buildEntriesFromPrefixes(
   depth = 0,
 ): Promise<CatalogEntry[]> {
   const entries: CatalogEntry[] = [];
-  const MAX_DEPTH = 2;
+  const MAX_DEPTH = 4;
 
   for (const titlePrefix of prefixes) {
     // Last segment of path = folder display name
