@@ -17,9 +17,12 @@ import { Image } from "expo-image";
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/lib/auth-context";
 import { getApiBase } from "@/lib/api";
+
+const UPLOADED_URLS_KEY = "r2_uploaded_urls_v1";
 
 const RED = "#e50914";
 const { width: W } = Dimensions.get("window");
@@ -568,6 +571,23 @@ function UploadPanel() {
   const [bulkJobs, setBulkJobs] = useState<BulkJobItem[]>([]);
   const [bulkRunning, setBulkRunning] = useState(false);
   const bulkPollRefs = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const [uploadedUrls, setUploadedUrls] = useState<Set<string>>(new Set());
+
+  // Load previously uploaded URLs from storage
+  useEffect(() => {
+    AsyncStorage.getItem(UPLOADED_URLS_KEY)
+      .then((val) => { if (val) setUploadedUrls(new Set(JSON.parse(val) as string[])); })
+      .catch(() => {});
+  }, []);
+
+  const markUrlAsUploaded = async (url: string) => {
+    setUploadedUrls((prev) => {
+      const next = new Set(prev);
+      next.add(url);
+      AsyncStorage.setItem(UPLOADED_URLS_KEY, JSON.stringify(Array.from(next))).catch(() => {});
+      return next;
+    });
+  };
 
   const stopPoll = () => { if (pollRef.current) clearTimeout(pollRef.current); };
 
@@ -583,7 +603,7 @@ function UploadPanel() {
       .split("\n")
       .map((l) => l.trim())
       .filter((l) => l.startsWith("http://") || l.startsWith("https://"))
-      .map((url) => ({ url, selected: true }));
+      .map((url) => ({ url, selected: !uploadedUrls.has(url) }));
     setBulkParsed(parsed);
   };
 
@@ -638,7 +658,10 @@ function UploadPanel() {
               };
               return next;
             });
-            if (j.status === "done" || j.status === "error") {
+            if (j.status === "done") {
+              stopBulkPoll(r.jobId);
+              markUrlAsUploaded(u);
+            } else if (j.status === "error") {
               stopBulkPoll(r.jobId);
             } else {
               const t = setTimeout(poll, 1500);
@@ -901,36 +924,55 @@ function UploadPanel() {
                   </Pressable>
 
                   {/* Checkbox list */}
-                  {bulkParsed.map((item, i) => (
-                    <Pressable
-                      key={i}
-                      onPress={() => toggleBulkSelect(i)}
-                      style={{
-                        flexDirection: "row",
-                        alignItems: "center",
-                        gap: 10,
-                        paddingVertical: 8,
-                        paddingHorizontal: 10,
-                        marginBottom: 4,
-                        borderRadius: 8,
-                        backgroundColor: item.selected ? "rgba(245,158,11,0.1)" : "rgba(255,255,255,0.04)",
-                        borderWidth: 1,
-                        borderColor: item.selected ? "rgba(245,158,11,0.3)" : "rgba(255,255,255,0.06)",
-                      }}
-                    >
-                      <Feather
-                        name={item.selected ? "check-square" : "square"}
-                        size={18}
-                        color={item.selected ? "#f59e0b" : "rgba(255,255,255,0.3)"}
-                      />
-                      <Text
-                        style={{ flex: 1, color: item.selected ? "#fff" : "rgba(255,255,255,0.35)", fontSize: 11 }}
-                        numberOfLines={1}
+                  {bulkParsed.map((item, i) => {
+                    const alreadyDone = uploadedUrls.has(item.url);
+                    return (
+                      <Pressable
+                        key={i}
+                        onPress={() => !alreadyDone && toggleBulkSelect(i)}
+                        style={{
+                          flexDirection: "row",
+                          alignItems: "center",
+                          gap: 10,
+                          paddingVertical: 8,
+                          paddingHorizontal: 10,
+                          marginBottom: 4,
+                          borderRadius: 8,
+                          backgroundColor: alreadyDone
+                            ? "rgba(229,9,20,0.08)"
+                            : item.selected
+                              ? "rgba(245,158,11,0.1)"
+                              : "rgba(255,255,255,0.04)",
+                          borderWidth: 1,
+                          borderColor: alreadyDone
+                            ? "rgba(229,9,20,0.35)"
+                            : item.selected
+                              ? "rgba(245,158,11,0.3)"
+                              : "rgba(255,255,255,0.06)",
+                        }}
                       >
-                        {item.url.replace(/^https?:\/\//, "").slice(0, 60)}
-                      </Text>
-                    </Pressable>
-                  ))}
+                        <Feather
+                          name={alreadyDone ? "check-circle" : item.selected ? "check-square" : "square"}
+                          size={18}
+                          color={alreadyDone ? "#e50914" : item.selected ? "#f59e0b" : "rgba(255,255,255,0.3)"}
+                        />
+                        <View style={{ flex: 1 }}>
+                          <Text
+                            style={{
+                              color: alreadyDone ? "#f87171" : item.selected ? "#fff" : "rgba(255,255,255,0.35)",
+                              fontSize: 11,
+                            }}
+                            numberOfLines={1}
+                          >
+                            {item.url.replace(/^https?:\/\//, "").slice(0, 60)}
+                          </Text>
+                          {alreadyDone && (
+                            <Text style={{ color: "#e50914", fontSize: 10, marginTop: 1 }}>Já enviado ao servidor</Text>
+                          )}
+                        </View>
+                      </Pressable>
+                    );
+                  })}
                 </View>
               )}
             </>

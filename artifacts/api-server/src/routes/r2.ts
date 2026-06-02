@@ -500,7 +500,19 @@ router.post("/download-url", async (req, res) => {
     // Background: download + upload
     (async () => {
       try {
-        const response = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
+        // Retry on transient DNS/network errors (EAI_AGAIN, ENOTFOUND)
+        let response: Response | null = null;
+        for (let attempt = 1; attempt <= 4; attempt++) {
+          try {
+            response = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" } });
+            break;
+          } catch (e: any) {
+            const isTransient = e?.code === "EAI_AGAIN" || e?.code === "ENOTFOUND" || e?.code === "ECONNRESET";
+            if (!isTransient || attempt === 4) throw e;
+            await new Promise((r) => setTimeout(r, 1500 * attempt));
+          }
+        }
+        if (!response) throw new Error("Falha ao conectar à URL de origem");
         if (!response.ok) throw new Error(`HTTP ${response.status} from source URL`);
 
         const contentLength = Number(response.headers.get("content-length") ?? 0);
