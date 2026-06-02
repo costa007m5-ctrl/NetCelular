@@ -577,7 +577,9 @@ export default function DetailScreen() {
     }
   };
 
-  const goToR2Player = (item: RegistryItem) => {
+  const goToR2Player = (item: RegistryItem, overrideSeason?: number, overrideEpisode?: number) => {
+    const seasonVal = overrideSeason != null ? overrideSeason : item.season;
+    const episodeVal = overrideEpisode != null ? overrideEpisode : item.episode;
     router.push({
       pathname: "/r2-player",
       params: {
@@ -588,8 +590,8 @@ export default function DetailScreen() {
         posterPath: details?.poster_path ?? "",
         tmdbId: String(tmdbId),
         type,
-        season: item.season != null ? String(item.season) : "",
-        episode: item.episode != null ? String(item.episode) : "",
+        season: seasonVal != null ? String(seasonVal) : "",
+        episode: episodeVal != null ? String(episodeVal) : "",
         r2ItemsJson: JSON.stringify(r2Items),
         watchSeason: watchProgress?.season != null ? String(watchProgress.season) : "",
         watchEpisode: watchProgress?.episode != null ? String(watchProgress.episode) : "",
@@ -1223,10 +1225,11 @@ export default function DetailScreen() {
                   ) : (
                     episodeList.map((ep) => {
                       const { watched, current } = getEpisodeStatus(ep);
-                      // Only exact season+episode match — no fallback to first item
-                      const r2Ep = r2Items.find(
-                        (i) => i.season === selectedSeason && i.episode === ep.episode_number
-                      );
+                      // Smart R2 match: exact episode → same season folder → whole series folder
+                      const r2Ep =
+                        r2Items.find((i) => Number(i.season) === selectedSeason && Number(i.episode) === ep.episode_number) ??
+                        r2Items.find((i) => Number(i.season) === selectedSeason && i.episode == null) ??
+                        r2Items.find((i) => i.season == null && i.episode == null);
                       return (
                         <EpisodeRow
                           key={ep.episode_number}
@@ -1236,7 +1239,7 @@ export default function DetailScreen() {
                           colors={colors}
                           onPress={!r2Ep ? () => goToPlayer(selectedSeason, ep.episode_number) : undefined}
                           onGstreamPress={gstreamAvailable ? () => goToGstreamPlayer(selectedSeason, ep.episode_number) : undefined}
-                          onR2Press={r2Ep ? () => goToR2Player(r2Ep) : undefined}
+                          onR2Press={r2Ep ? () => goToR2Player(r2Ep, selectedSeason, ep.episode_number) : undefined}
                         />
                       );
                     })

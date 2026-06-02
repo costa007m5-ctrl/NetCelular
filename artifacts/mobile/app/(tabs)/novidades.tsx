@@ -593,8 +593,14 @@ export default function NovidadesScreen() {
     ...r2SeriesList,
     ...series.filter((s: any) => !r2TvSet.has(s.id)),
   ];
+  // R2 TV series that have TMDB last_episode_to_air (even folder-level registrations)
+  const r2EpSeriesIds = new Set(r2EpSeries.map((s) => s.id));
+  const r2SeriesWithLatestEp = r2SeriesList.filter(
+    (s: any) => s?.last_episode_to_air?.episode_number && !r2EpSeriesIds.has(s.id)
+  );
   const allEpisodes = [
     ...r2EpSeries,
+    ...r2SeriesWithLatestEp,
     ...series.filter((s: any) => s?.last_episode_to_air?.episode_number && !r2TvSet.has(s.id)),
   ];
 
@@ -674,8 +680,8 @@ export default function NovidadesScreen() {
                 renderItem={({ item }) => (
                   <PosterCard
                     item={item}
-                    badge={r2MovieSet.has(item.id) ? "☁ R2" : "NOVO"}
-                    badgeColor={r2MovieSet.has(item.id) ? "#2563eb" : RED}
+                    badge="NOVO"
+                    badgeColor={RED}
                     onPress={() => navigate(item)}
                   />
                 )}
@@ -701,8 +707,8 @@ export default function NovidadesScreen() {
                 renderItem={({ item }) => (
                   <PosterCard
                     item={item}
-                    badge={r2TvSet.has(item.id) ? "☁ R2" : "SÉRIE"}
-                    badgeColor={r2TvSet.has(item.id) ? "#2563eb" : "#8b5cf6"}
+                    badge="SÉRIE"
+                    badgeColor="#8b5cf6"
                     onPress={() => navigate(item)}
                   />
                 )}

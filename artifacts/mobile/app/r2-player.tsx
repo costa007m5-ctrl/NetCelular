@@ -51,7 +51,7 @@ function mkSignal(ms: number): AbortSignal {
   return ctrl.signal;
 }
 
-async function resolveVideoKey(key: string): Promise<string> {
+async function resolveVideoKey(key: string, episodeNum?: number | null): Promise<string> {
   if (!key.endsWith("/")) return key;
   const base = getApiBase();
   if (!base) throw new Error("API não configurada");
@@ -61,15 +61,31 @@ async function resolveVideoKey(key: string): Promise<string> {
   if (!res.ok) throw new Error("Erro ao listar pasta");
   const data = await res.json();
   const videoExts = /\.(mp4|mkv|mov|avi|webm|m4v|ts|m2ts|wmv|flv|ogv)$/i;
-  const vid = (data.files ?? []).find((f: any) => f.isVideo || videoExts.test(f.key));
-  if (!vid) throw new Error("Nenhum vídeo encontrado na pasta");
-  return vid.key;
+  const videos = (data.files ?? []).filter((f: any) => f.isVideo || videoExts.test(f.key));
+  if (videos.length === 0) throw new Error("Nenhum vídeo encontrado na pasta");
+
+  if (episodeNum != null) {
+    const n = episodeNum;
+    const pats = [
+      new RegExp(`[Ee]p?0*${n}(?!\\d)`, "i"),
+      new RegExp(`[Ee]p?\\s*0*${n}[^\\d]`, "i"),
+      new RegExp(`[-_.\\s]0*${n}[-_.\\s]`),
+      new RegExp(`\\b0*${n}\\b`),
+    ];
+    for (const pat of pats) {
+      const hit = videos.find((f: any) => pat.test(f.key.split("/").pop() ?? f.key));
+      if (hit) return hit.key;
+    }
+  }
+
+  const sorted = [...videos].sort((a: any, b: any) => (a.key ?? "").localeCompare(b.key ?? ""));
+  return sorted[0].key;
 }
 
-async function fetchSignedUrl(key: string): Promise<string> {
+async function fetchSignedUrl(key: string, episodeNum?: number | null): Promise<string> {
   const base = getApiBase();
   if (!base) throw new Error("API não configurada");
-  const resolvedKey = await resolveVideoKey(key);
+  const resolvedKey = await resolveVideoKey(key, episodeNum);
   const res = await fetch(`${base}/r2/signed-url?key=${encodeURIComponent(resolvedKey)}`, {
     signal: mkSignal(15000),
   });
@@ -193,7 +209,7 @@ export default function R2PlayerScreen() {
     fakeAnim.current = Animated.timing(loadProgress, { toValue: 80, duration: 4000, useNativeDriver: false });
     fakeAnim.current.start();
 
-    fetchSignedUrl(params.key)
+    fetchSignedUrl(params.key, episode)
       .then((url) => {
         setVideoUrl(url);
         if (Platform.OS === "web") {
