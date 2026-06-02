@@ -36,10 +36,27 @@ function mkSignal(ms: number): AbortSignal {
   return ctrl.signal;
 }
 
+async function resolveVideoKey(key: string): Promise<string> {
+  // If key is a folder prefix (ends with /), find the first video file inside it
+  if (!key.endsWith("/")) return key;
+  const base = getApiBase();
+  if (!base) throw new Error("API não configurada");
+  const res = await fetch(`${base}/r2/list?prefix=${encodeURIComponent(key)}&delimiter=/`, {
+    signal: mkSignal(15000),
+  });
+  if (!res.ok) throw new Error("Erro ao listar pasta");
+  const data = await res.json();
+  const videoExts = /\.(mp4|mkv|mov|avi|webm|m4v|ts|m2ts|wmv|flv|ogv)$/i;
+  const vid = (data.files ?? []).find((f: any) => videoExts.test(f.key));
+  if (!vid) throw new Error("Nenhum vídeo encontrado na pasta");
+  return vid.key;
+}
+
 async function fetchSignedUrl(key: string): Promise<string> {
   const base = getApiBase();
   if (!base) throw new Error("API não configurada");
-  const res = await fetch(`${base}/r2/signed-url?key=${encodeURIComponent(key)}`, {
+  const resolvedKey = await resolveVideoKey(key);
+  const res = await fetch(`${base}/r2/signed-url?key=${encodeURIComponent(resolvedKey)}`, {
     signal: mkSignal(15000),
   });
   if (!res.ok) throw new Error("Erro ao gerar URL de vídeo");
