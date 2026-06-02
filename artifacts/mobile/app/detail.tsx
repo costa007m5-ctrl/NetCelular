@@ -220,7 +220,6 @@ export default function DetailScreen() {
   const [gstreamResolving, setGstreamResolving] = useState(false);
 
   const [r2Items, setR2Items] = useState<RegistryItem[]>([]);
-  const [apiFlixAvailable, setApiFlixAvailable] = useState<boolean | null>(null);
 
   // Load R2 registry items for this title (non-blocking)
   useEffect(() => {
@@ -242,15 +241,6 @@ export default function DetailScreen() {
       } catch {}
     };
     loadR2();
-  }, [tmdbId, type]);
-
-  // Pre-check API Flix availability (non-blocking)
-  useEffect(() => {
-    if (!tmdbId) return;
-    setApiFlixAvailable(null);
-    tmdbApi.tmdb.checkAvailable(type, tmdbId, 1, 1)
-      .then((r) => setApiFlixAvailable(r.available ?? false))
-      .catch(() => setApiFlixAvailable(false));
   }, [tmdbId, type]);
 
   // Check GStream availability in background (non-blocking)
@@ -991,8 +981,8 @@ export default function DetailScreen() {
                 </View>
               ) : null}
 
-              {/* ASSISTIR AGORA — API Flix (only shown when available) */}
-              {apiFlixAvailable === true && (
+              {/* ASSISTIR AGORA — API Flix (shown only when no R2 content available) */}
+              {r2Items.length === 0 && (
                 <Pressable
                   style={({ pressed }) => [styles.watchBtn, { backgroundColor: colors.primary }, pressed && { opacity: 0.85 }]}
                   onPress={() => {
@@ -1027,13 +1017,13 @@ export default function DetailScreen() {
                   <Pressable
                     style={({ pressed }) => [
                       styles.watchBtn,
-                      { backgroundColor: "#1a1a2e", borderWidth: 1.5, borderColor: "#e50914", marginTop: apiFlixAvailable === true ? 8 : 0 },
+                      { backgroundColor: "#1a1a2e", borderWidth: 1.5, borderColor: "#e50914", marginTop: 0 },
                       pressed && { opacity: 0.85 },
                     ]}
                     onPress={onPressR2}
                   >
                     <Feather name="cloud" size={18} color="#e50914" />
-                    <Text style={[styles.watchBtnText, { color: "#e50914" }]}>PLAY 2 · CLOUDFLARE R2</Text>
+                    <Text style={[styles.watchBtnText, { color: "#e50914" }]}>PLAY 2</Text>
                   </Pressable>
                 );
               })()}
@@ -1202,9 +1192,11 @@ export default function DetailScreen() {
                   ) : (
                     episodeList.map((ep) => {
                       const { watched, current } = getEpisodeStatus(ep);
-                      const r2Ep = r2Items.find(
-                        (i) => i.season === selectedSeason && i.episode === ep.episode_number
-                      );
+                      // Exact episode match OR whole-series entry (season=null)
+                      const r2Ep =
+                        r2Items.find((i) => i.season === selectedSeason && i.episode === ep.episode_number) ??
+                        r2Items.find((i) => i.season == null && i.episode == null) ??
+                        (r2Items.length > 0 ? r2Items[0] : undefined);
                       return (
                         <EpisodeRow
                           key={ep.episode_number}
@@ -1212,7 +1204,7 @@ export default function DetailScreen() {
                           watched={watched}
                           current={current}
                           colors={colors}
-                          onPress={apiFlixAvailable === true ? () => goToPlayer(selectedSeason, ep.episode_number) : undefined}
+                          onPress={r2Items.length === 0 ? () => goToPlayer(selectedSeason, ep.episode_number) : undefined}
                           onGstreamPress={gstreamAvailable ? () => goToGstreamPlayer(selectedSeason, ep.episode_number) : undefined}
                           onR2Press={r2Ep ? () => goToR2Player(r2Ep) : undefined}
                         />
