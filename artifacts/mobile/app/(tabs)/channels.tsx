@@ -1,600 +1,241 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Animated,
+  Dimensions,
   FlatList,
   Pressable,
   RefreshControl,
   ScrollView,
-  StatusBar,
   StyleSheet,
   Text,
-  TextInput,
-  TouchableOpacity,
   View,
 } from "react-native";
+import { Image } from "expo-image";
+import { StatusBar } from "expo-status-bar";
 import { Feather } from "@expo/vector-icons";
-import { useRouter, useLocalSearchParams } from "expo-router";
+import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import {
-  DRIVE_ROOTS,
-  formatSize,
-  isFolder,
-  isVideo,
-  listFolderAll,
-  parseEpisodeInfo,
-} from "@/lib/gdrive-index";
-import {
-  runDriveScan,
-  groupByGenre,
-  clearCatalogCache,
-  type CatalogItem,
-} from "@/lib/drive-catalog";
-import { ContentRow } from "@/components/ContentRow";
+  liveTvApi,
+  getAccent,
+  calcProgress,
+  calcRemaining,
+  CATEGORY_LABELS,
+  MAIN_CATEGORIES,
+  type LiveChannel,
+  type EpgEntry,
+  type ChannelsResponse,
+} from "@/lib/live-tv-api";
 
 const RED = "#e50914";
-type BreadcrumbItem = { label: string; drive: 0 | 1; path: string };
-type Mode = "catalog" | "browse";
+const { width: SW } = Dimensions.get("window");
+const CARD_W = (SW - 16 * 2 - 12) / 2;
+const CARD_H = CARD_W * 0.62;
 
-// --- Catalog View ---
-function CatalogView({
-  onSwitchToBrowse,
-  insets,
-}: {
-  onSwitchToBrowse: () => void;
-  insets: ReturnType<typeof import("react-native-safe-area-context").useSafeAreaInsets>;
-}) {
-  const colors = useColors();
-  const router = useRouter();
-  const [genres, setGenres] = useState<{ genre: string; items: CatalogItem[] }[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [progress, setProgress] = useState({ loaded: 0, total: 0 });
-  const [refreshing, setRefreshing] = useState(false);
-  const progressAnim = useRef(new Animated.Value(0)).current;
-
-  const load = useCallback((isRefresh = false) => {
-    if (isRefresh) {
-      clearCatalogCache();
-      setRefreshing(true);
-    } else {
-      setLoading(true);
-    }
-    setProgress({ loaded: 0, total: 0 });
-
-    runDriveScan((loaded, total) => {
-      setProgress({ loaded, total });
-      Animated.timing(progressAnim, {
-        toValue: total > 0 ? loaded / total : 0,
-        duration: 300,
-        useNativeDriver: false,
-      }).start();
-    })
-      .then((items) => {
-        setGenres(groupByGenre(items));
-      })
-      .catch(() => setGenres([]))
-      .finally(() => {
-        setLoading(false);
-        setRefreshing(false);
-      });
-  }, []);
-
-  useEffect(() => {
-    load(false);
-  }, [load]);
-
-  const handleItemPress = (item: import("@/constants/content").ContentItem) => {
-    router.push({
-      pathname: "/detail",
-      params: {
-        type: item.type,
-        id: String(item.tmdbId),
-        title: item.title,
-      },
-    });
-  };
-
+function ProgressBar({ start, accent }: { start: string; accent: string }) {
+  const pct = calcProgress(start);
   return (
-    <View style={{ flex: 1, backgroundColor: colors.background }}>
-      <StatusBar barStyle="light-content" />
-
-      {/* Header */}
-      <View style={[s.header, { paddingTop: insets.top + 8 }]}>
-        <View style={s.headerLeft}>
-          <View style={[s.headerAccent, { backgroundColor: RED }]} />
-          <Text style={s.headerTitle}>Acervo</Text>
-        </View>
-        <TouchableOpacity
-          onPress={onSwitchToBrowse}
-          style={[s.browseBtn, { borderColor: colors.border + "80" }]}
-          activeOpacity={0.7}
-        >
-          <Feather name="folder" size={14} color={colors.mutedForeground} />
-          <Text style={[s.browseBtnText, { color: colors.mutedForeground }]}>
-            Pastas
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Progress bar while scanning */}
-      {(loading || refreshing) && (
-        <View style={s.progressWrap}>
-          <View style={[s.progressTrack, { backgroundColor: colors.border + "50" }]}>
-            <Animated.View
-              style={[
-                s.progressFill,
-                {
-                  backgroundColor: RED,
-                  width: progressAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: ["0%", "100%"],
-                  }),
-                },
-              ]}
-            />
-          </View>
-          <Text style={[s.progressText, { color: colors.mutedForeground }]}>
-            {progress.total > 0
-              ? `Buscando metadados… ${progress.loaded}/${progress.total}`
-              : "Lendo pastas do Drive…"}
-          </Text>
-        </View>
-      )}
-
-      {loading && genres.length === 0 ? (
-        <View style={s.center}>
-          <ActivityIndicator color={RED} size="large" />
-          <Text style={[s.loadingLabel, { color: colors.mutedForeground }]}>
-            Organizando por gênero…
-          </Text>
-        </View>
-      ) : genres.length === 0 ? (
-        <View style={s.center}>
-          <Feather name="inbox" size={40} color={colors.mutedForeground} />
-          <Text style={[s.emptyText, { color: colors.mutedForeground }]}>
-            Nenhum conteúdo encontrado
-          </Text>
-          <TouchableOpacity
-            onPress={() => load(true)}
-            style={[s.retryBtn, { borderColor: RED }]}
-          >
-            <Text style={{ color: RED, fontSize: 14, fontWeight: "600" }}>
-              Tentar novamente
-            </Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <ScrollView
-          contentContainerStyle={{ paddingTop: 8, paddingBottom: insets.bottom + 100 }}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={() => load(true)}
-              tintColor={RED}
-            />
-          }
-          showsVerticalScrollIndicator={false}
-        >
-          {genres.map(({ genre, items }) => (
-            <ContentRow
-              key={genre}
-              title={genre}
-              icon="dot"
-              items={items.slice(0, 10)}
-              cardWidth={110}
-              cardHeight={162}
-              seeAllLabel={items.length > 10 ? `Ver todos (${items.length})` : undefined}
-              onSeeAll={
-                items.length > 10
-                  ? () =>
-                      router.push({
-                        pathname: "/acervo-genre",
-                        params: { genre },
-                      })
-                  : undefined
-              }
-              onItemPress={handleItemPress}
-            />
-          ))}
-        </ScrollView>
-      )}
+    <View style={s.progressTrack}>
+      <View style={[s.progressFill, { width: `${pct}%` as any, backgroundColor: accent }]} />
     </View>
   );
 }
 
-// --- Browse View (file browser, unchanged logic) ---
+function ChannelCard({
+  channel,
+  epg,
+  onPress,
+}: {
+  channel: LiveChannel;
+  epg?: EpgEntry;
+  onPress: () => void;
+}) {
+  const accent = getAccent(channel.id);
+  const isLive = true;
+  const prog = epg?.epg.start_date ? calcProgress(epg.epg.start_date) : 40;
+  const remaining = epg?.epg.start_date ? calcRemaining(epg.epg.start_date) : "AO VIVO";
+
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => [s.card, pressed && { opacity: 0.8 }]}>
+      <View style={[s.cardImgWrap, { borderColor: accent + "55" }]}>
+        {channel.image ? (
+          <Image
+            source={{ uri: channel.image }}
+            style={s.cardImg}
+            contentFit="contain"
+            transition={200}
+          />
+        ) : (
+          <View style={[s.cardImgFallback, { backgroundColor: accent + "22" }]}>
+            <Feather name="tv" size={28} color={accent} />
+          </View>
+        )}
+        {isLive && (
+          <View style={[s.liveBadge, { backgroundColor: accent }]}>
+            <View style={s.liveDot} />
+            <Text style={s.liveTxt}>AO VIVO</Text>
+          </View>
+        )}
+      </View>
+
+      <View style={s.cardInfo}>
+        <Text style={s.cardName} numberOfLines={1}>{channel.name}</Text>
+        {epg?.epg.title ? (
+          <Text style={s.cardEpg} numberOfLines={1}>{epg.epg.title}</Text>
+        ) : (
+          <Text style={[s.cardEpg, { color: "rgba(255,255,255,0.3)" }]}>Ao Vivo</Text>
+        )}
+        <View style={s.progressTrack}>
+          <View style={[s.progressFill, { width: `${prog}%` as any, backgroundColor: accent }]} />
+        </View>
+        <Text style={[s.remaining, { color: accent }]}>{remaining}</Text>
+      </View>
+    </Pressable>
+  );
+}
+
 export default function ChannelsScreen() {
   const colors = useColors();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const params = useLocalSearchParams<{
-    drive?: string;
-    folderPath?: string;
-    folderLabel?: string;
-  }>();
 
-  // Default to browse if deep-linked, else catalog
-  const [mode, setMode] = useState<Mode>(params.folderPath ? "browse" : "catalog");
-
-  const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([]);
-  const [items, setItems] = useState<ReturnType<typeof Array<any>>>([]);
-  const [loading, setLoading] = useState(false);
+  const [data, setData] = useState<ChannelsResponse | null>(null);
+  const [epgMap, setEpgMap] = useState<Record<string, EpgEntry>>({});
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [search, setSearch] = useState("");
-  const [activeDrive, setActiveDrive] = useState<0 | 1 | null>(null);
-  const [activePath, setActivePath] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [selectedCat, setSelectedCat] = useState<number>(0);
 
-  const fetchFolder = useCallback(
-    async (drive: 0 | 1, path: string, isRefresh = false) => {
-      if (isRefresh) setRefreshing(true);
-      else setLoading(true);
-      const result = await listFolderAll(drive, path);
-      setItems(result);
-      setActiveDrive(drive);
-      setActivePath(path);
-      if (isRefresh) setRefreshing(false);
-      else setLoading(false);
-    },
-    []
-  );
-
-  const navigateTo = useCallback(
-    (drive: 0 | 1, path: string, label: string) => {
-      setSearch("");
-      setBreadcrumbs((prev) => {
-        if (path === "") return [];
-        return [...prev, { label, drive, path }];
-      });
-      fetchFolder(drive, path);
-    },
-    [fetchFolder]
-  );
-
-  const goBack = useCallback(() => {
-    if (breadcrumbs.length === 0) {
-      setMode("catalog");
-      return;
+  const load = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true); else setLoading(true);
+    setError(null);
+    try {
+      const [chRes, epgRes] = await Promise.all([
+        liveTvApi.getChannels(),
+        liveTvApi.getEpgs().catch(() => [] as EpgEntry[]),
+      ]);
+      setData(chRes);
+      const map: Record<string, EpgEntry> = {};
+      for (const e of epgRes) { map[e.id] = e; }
+      setEpgMap(map);
+    } catch (e: any) {
+      setError(e?.message ?? "Erro ao carregar canais");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
-    const newCrumbs = breadcrumbs.slice(0, -1);
-    setBreadcrumbs(newCrumbs);
-    setSearch("");
-    if (newCrumbs.length === 0) {
-      setItems([]);
-      setActiveDrive(null);
-      setActivePath("");
-    } else {
-      const prev = newCrumbs[newCrumbs.length - 1];
-      fetchFolder(prev.drive, prev.path);
-    }
-  }, [breadcrumbs, fetchFolder]);
+  }, []);
 
-  const jumpToCrumb = useCallback(
-    (index: number) => {
-      setSearch("");
-      if (index === 0) {
-        setBreadcrumbs([]);
-        setItems([]);
-        setActiveDrive(null);
-        setActivePath("");
-        return;
-      }
-      const newCrumbs = breadcrumbs.slice(0, index);
-      const crumb = newCrumbs[newCrumbs.length - 1];
-      setBreadcrumbs(newCrumbs);
-      fetchFolder(crumb.drive, crumb.path);
-    },
-    [breadcrumbs, fetchFolder]
-  );
+  useEffect(() => { load(false); }, [load]);
 
-  // Auto-navigate on deep-link
-  useEffect(() => {
-    const driveParam = params.drive;
-    const pathParam = params.folderPath;
-    const labelParam = params.folderLabel;
-    if (!driveParam || !pathParam) return;
-    const driveNum = parseInt(driveParam, 10) as 0 | 1;
-    if (driveNum !== 0 && driveNum !== 1) return;
-    const label = labelParam || pathParam.split("/").pop() || pathParam;
-    setMode("browse");
-    setBreadcrumbs([{ label, drive: driveNum, path: pathParam }]);
-    fetchFolder(driveNum, pathParam);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params.drive, params.folderPath]);
+  const visibleChannels = (data?.channels ?? []).filter((ch) => {
+    if (selectedCat === 0) return true;
+    return ch.categories.includes(selectedCat);
+  });
 
-  const handleItemPress = useCallback(
-    (item: any) => {
-      if (isFolder(item)) {
-        const newPath = activePath ? `${activePath}/${item.name}` : item.name;
-        navigateTo(activeDrive!, newPath, item.name);
-      } else if (isVideo(item)) {
-        const siblings = items.filter(isVideo);
-        router.push({
-          pathname: "/gdrive-player",
-          params: {
-            fileName: item.name,
-            fileLink: item.link ?? "",
-            drive: String(activeDrive),
-            folderPath: activePath,
-            playlist: JSON.stringify(
-              siblings.map((s: any) => ({ name: s.name, link: s.link ?? "" }))
-            ),
-            currentIndex: String(siblings.findIndex((s: any) => s.id === item.id)),
-          },
-        });
-      }
-    },
-    [activeDrive, activePath, navigateTo, items, router]
-  );
+  const navigate = (ch: LiveChannel) => {
+    const epg = epgMap[ch.id];
+    router.push({
+      pathname: "/channel-detail",
+      params: {
+        channelId: ch.id,
+        channelName: ch.name,
+        channelImage: ch.image,
+        channelPreview: ch.preview,
+        channelUrl: ch.url,
+        channelCategories: JSON.stringify(ch.categories),
+        epgTitle: epg?.epg.title ?? "",
+        epgDesc: epg?.epg.desc ?? "",
+        epgStart: epg?.epg.start_date ?? "",
+      },
+    });
+  };
 
-  // Render catalog mode
-  if (mode === "catalog") {
-    return (
-      <CatalogView
-        onSwitchToBrowse={() => {
-          setBreadcrumbs([]);
-          setItems([]);
-          setActiveDrive(null);
-          setActivePath("");
-          setMode("browse");
-        }}
-        insets={insets}
-      />
-    );
-  }
-
-  // Browse mode
-  const filtered = search.trim()
-    ? items.filter((it: any) =>
-        it.name.toLowerCase().includes(search.toLowerCase())
-      )
-    : items;
-  const isRoot = breadcrumbs.length === 0;
+  const availableCats = MAIN_CATEGORIES.filter((catId) => {
+    if (catId === 0) return true;
+    return (data?.channels ?? []).some((ch) => ch.categories.includes(catId));
+  });
 
   return (
     <View style={[s.container, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle="light-content" backgroundColor="#000" />
+      <StatusBar style="light" />
 
       {/* Header */}
-      <View style={[s.header, { paddingTop: insets.top + 8 }]}>
-        <TouchableOpacity onPress={goBack} style={s.backBtn}>
-          <Feather name="chevron-left" size={26} color="#fff" />
-        </TouchableOpacity>
-        <View style={s.headerTitleWrap}>
-          <Text style={s.headerTitle} numberOfLines={1}>
-            {isRoot
-              ? "Pastas"
-              : breadcrumbs[breadcrumbs.length - 1]?.label ?? "Acervo"}
-          </Text>
-          {!isRoot && activeDrive !== null && (
-            <Text style={[s.headerSub, { color: colors.mutedForeground }]}>
-              {DRIVE_ROOTS[activeDrive].name}
-            </Text>
-          )}
+      <View style={[s.header, { paddingTop: insets.top + 12 }]}>
+        <View style={s.headerLeft}>
+          <Feather name="tv" size={20} color={RED} />
+          <Text style={s.headerTitle}>Canais de TV</Text>
+        </View>
+        <View style={[s.livePill, { backgroundColor: RED }]}>
+          <View style={s.liveDot} />
+          <Text style={s.livePillTxt}>AO VIVO</Text>
         </View>
       </View>
 
-      {/* Breadcrumbs */}
-      {breadcrumbs.length > 0 && (
-        <FlatList
+      {/* Category filters */}
+      {!loading && !error && (
+        <ScrollView
           horizontal
-          data={[{ label: "Início", drive: 0 as const, path: "" }, ...breadcrumbs]}
-          keyExtractor={(_, i) => String(i)}
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={s.breadcrumbRow}
-          renderItem={({ item: crumb, index }) => (
-            <TouchableOpacity
-              onPress={() => jumpToCrumb(index)}
-              style={s.crumbBtn}
-            >
-              <Text
-                style={[
-                  s.crumbText,
-                  {
-                    color:
-                      index === breadcrumbs.length
-                        ? colors.foreground
-                        : colors.mutedForeground,
-                    fontWeight: index === breadcrumbs.length ? "700" : "400",
-                  },
-                ]}
-                numberOfLines={1}
-              >
-                {crumb.label}
-              </Text>
-              {index < breadcrumbs.length && (
-                <Feather
-                  name="chevron-right"
-                  size={12}
-                  color={colors.mutedForeground}
-                  style={{ marginHorizontal: 2 }}
-                />
-              )}
-            </TouchableOpacity>
-          )}
-        />
-      )}
-
-      {/* Search bar */}
-      {!isRoot && (
-        <View
-          style={[
-            s.searchBar,
-            { backgroundColor: colors.card, borderColor: colors.border + "60" },
-          ]}
+          contentContainerStyle={s.filterRow}
+          style={{ marginBottom: 12 }}
         >
-          <Feather name="search" size={15} color={colors.mutedForeground} />
-          <TextInput
-            style={[s.searchInput, { color: colors.foreground }]}
-            placeholder="Filtrar..."
-            placeholderTextColor={colors.mutedForeground}
-            value={search}
-            onChangeText={setSearch}
-          />
-          {search.length > 0 && (
-            <TouchableOpacity onPress={() => setSearch("")}>
-              <Feather name="x" size={15} color={colors.mutedForeground} />
-            </TouchableOpacity>
-          )}
-        </View>
+          {availableCats.map((catId) => (
+            <Pressable
+              key={catId}
+              onPress={() => setSelectedCat(catId)}
+              style={[s.pill, selectedCat === catId && { backgroundColor: RED, borderColor: RED }]}
+            >
+              <Text style={[s.pillTxt, selectedCat === catId && { color: "#fff", fontWeight: "700" }]}>
+                {CATEGORY_LABELS[catId] ?? `Cat ${catId}`}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
       )}
 
+      {/* Content */}
       {loading ? (
         <View style={s.center}>
           <ActivityIndicator color={RED} size="large" />
-          <Text style={[s.loadingLabel, { color: colors.mutedForeground }]}>
-            Carregando…
+          <Text style={[s.loadTxt, { color: colors.mutedForeground }]}>
+            Carregando canais...
           </Text>
         </View>
-      ) : isRoot ? (
-        <FlatList
-          data={DRIVE_ROOTS}
-          keyExtractor={(_, i) => String(i)}
-          contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 100 }}
-          renderItem={({ item: root }) => (
-            <View style={{ marginBottom: 20 }}>
-              <View style={s.driveTitleRow}>
-                <Text style={s.driveEmoji}>{root.icon}</Text>
-                <Text style={[s.driveTitle, { color: colors.foreground }]}>
-                  {root.name}
-                </Text>
-              </View>
-              {root.folders.map((folder) => (
-                <Pressable
-                  key={folder}
-                  onPress={() => navigateTo(root.drive, folder, folder)}
-                  style={({ pressed }) => [
-                    s.folderCard,
-                    {
-                      backgroundColor: pressed
-                        ? colors.border + "50"
-                        : colors.card,
-                      borderColor: colors.border + "50",
-                    },
-                  ]}
-                >
-                  <View style={[s.folderIconWrap, { backgroundColor: RED + "20" }]}>
-                    <Feather name="folder" size={20} color={RED} />
-                  </View>
-                  <Text style={[s.folderName, { color: colors.foreground }]}>
-                    {folder}
-                  </Text>
-                  <Feather
-                    name="chevron-right"
-                    size={16}
-                    color={colors.mutedForeground}
-                  />
-                </Pressable>
-              ))}
-            </View>
-          )}
-          ListHeaderComponent={
-            <View
-              style={[s.heroBanner, { backgroundColor: RED + "15", borderColor: RED + "40" }]}
-            >
-              <Feather name="hard-drive" size={22} color={RED} />
-              <View style={{ flex: 1 }}>
-                <Text style={[s.heroTitle, { color: "#fff" }]}>Acervo Drive</Text>
-                <Text style={[s.heroSub, { color: colors.mutedForeground }]}>
-                  Animes · Desenhos · Filmes · Séries · Novelas
-                </Text>
-              </View>
-            </View>
-          }
-        />
+      ) : error ? (
+        <View style={s.center}>
+          <Feather name="wifi-off" size={40} color={colors.mutedForeground} />
+          <Text style={[s.loadTxt, { color: colors.mutedForeground }]}>{error}</Text>
+          <Pressable onPress={() => load(false)} style={[s.retryBtn, { borderColor: RED }]}>
+            <Text style={{ color: RED, fontWeight: "600" }}>Tentar novamente</Text>
+          </Pressable>
+        </View>
+      ) : visibleChannels.length === 0 ? (
+        <View style={s.center}>
+          <Feather name="tv" size={40} color={colors.mutedForeground} />
+          <Text style={[s.loadTxt, { color: colors.mutedForeground }]}>
+            Nenhum canal nesta categoria
+          </Text>
+        </View>
       ) : (
         <FlatList
-          data={filtered}
-          keyExtractor={(item: any) => item.id}
+          data={visibleChannels}
+          keyExtractor={(ch) => ch.id}
+          numColumns={2}
+          columnWrapperStyle={s.row}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 110 }}
+          showsVerticalScrollIndicator={false}
           refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={() => fetchFolder(activeDrive!, activePath, true)}
-              tintColor={RED}
+            <RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={RED} />
+          }
+          renderItem={({ item }) => (
+            <ChannelCard
+              channel={item}
+              epg={epgMap[item.id]}
+              onPress={() => navigate(item)}
             />
-          }
-          contentContainerStyle={{
-            paddingBottom: insets.bottom + 100,
-            paddingHorizontal: 12,
-            paddingTop: 4,
-          }}
-          ListEmptyComponent={
-            <View style={s.center}>
-              <Feather name="inbox" size={40} color={colors.mutedForeground} />
-              <Text style={[s.emptyText, { color: colors.mutedForeground }]}>
-                {search ? "Nenhum resultado encontrado" : "Pasta vazia"}
-              </Text>
-            </View>
-          }
-          renderItem={({ item }: { item: any }) => {
-            const folder = isFolder(item);
-            const video = isVideo(item);
-            const ep = !folder ? parseEpisodeInfo(item.name) : null;
-            const displayName = ep
-              ? item.name.replace(/\.[^.]+$/, "")
-              : item.name;
-
-            return (
-              <Pressable
-                onPress={() => handleItemPress(item)}
-                style={({ pressed }) => [
-                  s.itemRow,
-                  {
-                    backgroundColor: pressed ? colors.border + "40" : colors.card,
-                    borderColor: colors.border + "40",
-                  },
-                ]}
-              >
-                <View
-                  style={[
-                    s.itemIcon,
-                    {
-                      backgroundColor: folder
-                        ? RED + "20"
-                        : video
-                        ? "#16a34a22"
-                        : colors.border + "30",
-                    },
-                  ]}
-                >
-                  <Feather
-                    name={folder ? "folder" : video ? "play-circle" : "file"}
-                    size={18}
-                    color={folder ? RED : video ? "#4ade80" : colors.mutedForeground}
-                  />
-                </View>
-                <View style={{ flex: 1, marginRight: 6 }}>
-                  {ep?.season !== undefined && ep?.episode !== undefined && (
-                    <View style={s.epBadgeRow}>
-                      <View style={[s.epBadge, { backgroundColor: RED + "22" }]}>
-                        <Text style={[s.epBadgeText, { color: RED }]}>
-                          S{String(ep.season).padStart(2, "0")}E
-                          {String(ep.episode).padStart(2, "0")}
-                        </Text>
-                      </View>
-                    </View>
-                  )}
-                  <Text
-                    style={[s.itemName, { color: colors.foreground }]}
-                    numberOfLines={2}
-                  >
-                    {displayName}
-                  </Text>
-                  {!folder && (
-                    <Text style={[s.itemMeta, { color: colors.mutedForeground }]}>
-                      {item.fileExtension?.toUpperCase() ?? ""}
-                      {item.size ? `  ·  ${formatSize(item.size)}` : ""}
-                    </Text>
-                  )}
-                </View>
-                <Feather
-                  name={folder ? "chevron-right" : video ? "play" : "download"}
-                  size={15}
-                  color={colors.mutedForeground}
-                />
-              </Pressable>
-            );
-          }}
+          )}
         />
       )}
     </View>
@@ -606,114 +247,76 @@ const s = StyleSheet.create({
   header: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: 16,
     paddingBottom: 12,
   },
-  headerLeft: { flexDirection: "row", alignItems: "center", flex: 1, gap: 10 },
-  headerAccent: { width: 3, height: 22, borderRadius: 2 },
+  headerLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
   headerTitle: { fontSize: 22, fontWeight: "800", color: "#fff" },
-  headerTitleWrap: { flex: 1 },
-  headerSub: { fontSize: 11, marginTop: 1 },
-  backBtn: { marginRight: 8, padding: 4 },
-  browseBtn: {
+  livePill: {
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
-    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  livePillTxt: { fontSize: 11, fontWeight: "800", color: "#fff", letterSpacing: 0.5 },
+  filterRow: { paddingHorizontal: 16, gap: 8, paddingBottom: 4 },
+  pill: {
     borderRadius: 20,
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
     paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.15)",
+    backgroundColor: "rgba(255,255,255,0.05)",
   },
-  browseBtnText: { fontSize: 13, fontWeight: "500" },
-  progressWrap: { paddingHorizontal: 16, paddingBottom: 10, gap: 4 },
-  progressTrack: {
-    height: 3,
-    borderRadius: 2,
+  pillTxt: { fontSize: 13, color: "rgba(255,255,255,0.7)", fontWeight: "500" },
+  row: { gap: 12, marginBottom: 12 },
+  card: {
+    width: CARD_W,
+    borderRadius: 12,
     overflow: "hidden",
+    backgroundColor: "#111",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
   },
-  progressFill: { height: "100%", borderRadius: 2 },
-  progressText: { fontSize: 11 },
-  center: {
-    flex: 1,
+  cardImgWrap: {
+    width: "100%",
+    height: CARD_H,
+    backgroundColor: "#1a1a1a",
+    borderBottomWidth: 1,
     alignItems: "center",
     justifyContent: "center",
-    gap: 12,
-    padding: 40,
   },
-  loadingLabel: { fontSize: 14 },
-  emptyText: { fontSize: 14, textAlign: "center" },
-  retryBtn: {
-    borderWidth: 1,
+  cardImg: { width: "80%", height: "80%" },
+  cardImgFallback: { flex: 1, width: "100%", alignItems: "center", justifyContent: "center" },
+  liveBadge: {
+    position: "absolute",
+    top: 8,
+    left: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
     borderRadius: 8,
-    paddingHorizontal: 18,
-    paddingVertical: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+  },
+  liveDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: "#fff" },
+  liveTxt: { fontSize: 9, fontWeight: "800", color: "#fff", letterSpacing: 0.5 },
+  cardInfo: { padding: 8, gap: 3 },
+  cardName: { fontSize: 13, fontWeight: "700", color: "#fff" },
+  cardEpg: { fontSize: 11, color: "rgba(255,255,255,0.55)" },
+  progressTrack: {
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    overflow: "hidden",
     marginTop: 4,
   },
-  breadcrumbRow: { paddingHorizontal: 16, paddingBottom: 6, alignItems: "center" },
-  crumbBtn: { flexDirection: "row", alignItems: "center" },
-  crumbText: { fontSize: 12 },
-  searchBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginHorizontal: 12,
-    marginBottom: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
-    borderWidth: 1,
-    gap: 8,
-  },
-  searchInput: { flex: 1, fontSize: 14, padding: 0 },
-  heroBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderRadius: 14,
-    borderWidth: 1,
-    padding: 14,
-    marginBottom: 20,
-    gap: 12,
-  },
-  heroTitle: { fontSize: 16, fontWeight: "800" },
-  heroSub: { fontSize: 12, marginTop: 2 },
-  driveTitleRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 },
-  driveEmoji: { fontSize: 18 },
-  driveTitle: { fontSize: 15, fontWeight: "700" },
-  folderCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderRadius: 12,
-    borderWidth: 1,
-    padding: 13,
-    marginBottom: 8,
-    gap: 12,
-  },
-  folderIconWrap: {
-    width: 38,
-    height: 38,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  folderName: { flex: 1, fontSize: 15, fontWeight: "600" },
-  itemRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderRadius: 10,
-    borderWidth: 1,
-    padding: 11,
-    marginBottom: 6,
-    gap: 10,
-  },
-  itemIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  epBadgeRow: { flexDirection: "row", marginBottom: 3 },
-  epBadge: { borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2 },
-  epBadgeText: { fontSize: 10, fontWeight: "700" },
-  itemName: { fontSize: 13, fontWeight: "500", lineHeight: 18 },
-  itemMeta: { fontSize: 11, marginTop: 2 },
+  progressFill: { height: "100%", borderRadius: 1 },
+  remaining: { fontSize: 10, fontWeight: "600", marginTop: 2 },
+  center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, padding: 40 },
+  loadTxt: { fontSize: 14, textAlign: "center" },
+  retryBtn: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 18, paddingVertical: 8, marginTop: 4 },
 });

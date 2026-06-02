@@ -64,7 +64,6 @@ function EpisodeRow({
   current,
   colors,
   onPress,
-  onDrivePress,
   onGstreamPress,
   onR2Press,
 }: {
@@ -72,8 +71,7 @@ function EpisodeRow({
   watched: boolean;
   current: boolean;
   colors: ReturnType<typeof import("@/hooks/useColors").useColors>;
-  onPress: () => void;
-  onDrivePress?: () => void;
+  onPress?: () => void;
   onGstreamPress?: () => void;
   onR2Press?: () => void;
 }) {
@@ -153,21 +151,18 @@ function EpisodeRow({
 
       {/* Play buttons column */}
       <View style={styles.epPlayCol}>
-        <Pressable onPress={onPress} style={styles.epPlayBtn}>
-          <Feather name="play-circle" size={28} color={current ? colors.primary : colors.foreground} />
-        </Pressable>
+        {onPress && (
+          <Pressable onPress={onPress} style={styles.epPlayBtn}>
+            <Feather name="play-circle" size={28} color={current ? colors.primary : colors.foreground} />
+          </Pressable>
+        )}
         {onGstreamPress && (
           <Pressable onPress={onGstreamPress} style={[styles.epPlayBtn, { backgroundColor: "#7c3aed", borderRadius: 8, padding: 4, marginTop: 4 }]}>
             <Feather name="zap" size={16} color="#fff" />
           </Pressable>
         )}
-        {onDrivePress && (
-          <Pressable onPress={onDrivePress} style={[styles.epPlayBtn, styles.epDriveBtn]}>
-            <Feather name="hard-drive" size={18} color="#fff" />
-          </Pressable>
-        )}
         {onR2Press && (
-          <Pressable onPress={onR2Press} style={[styles.epPlayBtn, { backgroundColor: "#e50914", borderRadius: 8, padding: 4, marginTop: 4 }]}>
+          <Pressable onPress={onR2Press} style={[styles.epPlayBtn, { backgroundColor: "#c0392b", borderRadius: 8, padding: 4, marginTop: onPress ? 4 : 0 }]}>
             <Feather name="cloud" size={16} color="#fff" />
           </Pressable>
         )}
@@ -225,6 +220,7 @@ export default function DetailScreen() {
   const [gstreamResolving, setGstreamResolving] = useState(false);
 
   const [r2Items, setR2Items] = useState<RegistryItem[]>([]);
+  const [apiFlixAvailable, setApiFlixAvailable] = useState<boolean | null>(null);
 
   // Load R2 registry items for this title (non-blocking)
   useEffect(() => {
@@ -246,6 +242,15 @@ export default function DetailScreen() {
       } catch {}
     };
     loadR2();
+  }, [tmdbId, type]);
+
+  // Pre-check API Flix availability (non-blocking)
+  useEffect(() => {
+    if (!tmdbId) return;
+    setApiFlixAvailable(null);
+    tmdbApi.tmdb.checkAvailable(type, tmdbId, 1, 1)
+      .then((r) => setApiFlixAvailable(r.available ?? false))
+      .catch(() => setApiFlixAvailable(false));
   }, [tmdbId, type]);
 
   // Check GStream availability in background (non-blocking)
@@ -986,60 +991,54 @@ export default function DetailScreen() {
                 </View>
               ) : null}
 
-              {/* Watch button */}
-              <Pressable
-                style={({ pressed }) => [styles.watchBtn, { backgroundColor: colors.primary }, pressed && { opacity: 0.85 }]}
-                onPress={() => goToPlayer(1, 1)}
-                disabled={checking}
-              >
-                {checking ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Feather name="play" size={18} color="#fff" />
-                )}
-                <Text style={styles.watchBtnText}>
-                  {checking ? "Verificando..." : "ASSISTIR AGORA"}
-                </Text>
-              </Pressable>
-
-              {/* Play 2 — Acervo Drive */}
-              {driveMatches.length > 0 && (
+              {/* ASSISTIR AGORA — API Flix (only shown when available) */}
+              {apiFlixAvailable === true && (
                 <Pressable
-                  style={({ pressed }) => [
-                    styles.watchBtn,
-                    { backgroundColor: "#16a34a", marginTop: 8 },
-                    pressed && { opacity: 0.85 },
-                  ]}
+                  style={({ pressed }) => [styles.watchBtn, { backgroundColor: colors.primary }, pressed && { opacity: 0.85 }]}
                   onPress={() => {
-                    const match = driveMatches[0];
-                    if (match.isFolder) {
-                      router.push({
-                        pathname: "/(tabs)/channels",
-                        params: {
-                          drive: String(match.drive),
-                          folderPath: match.path,
-                          folderLabel: match.name,
-                        },
-                      });
-                    } else {
-                      router.push({
-                        pathname: "/gdrive-player",
-                        params: {
-                          fileName: match.name,
-                          fileLink: match.link ?? "",
-                          drive: String(match.drive),
-                          folderPath: match.path,
-                        },
-                      });
-                    }
+                    const s = (type === "tv" && watchProgress?.season) ? watchProgress.season : 1;
+                    const e = (type === "tv" && watchProgress?.episode) ? watchProgress.episode : 1;
+                    goToPlayer(s, e);
                   }}
+                  disabled={checking}
                 >
-                  <Feather name="hard-drive" size={18} color="#fff" />
-                  <Text style={styles.watchBtnText}>PLAY 2 · ACERVO DRIVE</Text>
+                  {checking ? <ActivityIndicator size="small" color="#fff" /> : <Feather name="play" size={18} color="#fff" />}
+                  <Text style={styles.watchBtnText}>{checking ? "Verificando..." : "ASSISTIR AGORA"}</Text>
                 </Pressable>
               )}
 
-              {/* Play 3 — GStream Native */}
+              {/* PLAY 2 · CLOUDFLARE R2 */}
+              {(() => {
+                const hasR2Movie = type === "movie" && r2Items.some((i) => i.season == null && i.episode == null);
+                const hasR2Tv = type === "tv" && r2Items.length > 0;
+                if (!hasR2Movie && !hasR2Tv) return null;
+                const onPressR2 = () => {
+                  if (type === "movie") {
+                    const item = r2Items.find((i) => i.season == null && i.episode == null);
+                    if (item) goToR2Player(item);
+                  } else {
+                    const resumeItem = (watchProgress?.season && watchProgress?.episode)
+                      ? r2Items.find((i) => i.season === watchProgress.season && i.episode === watchProgress.episode) ?? r2Items[0]
+                      : r2Items[0];
+                    if (resumeItem) goToR2Player(resumeItem);
+                  }
+                };
+                return (
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.watchBtn,
+                      { backgroundColor: "#1a1a2e", borderWidth: 1.5, borderColor: "#e50914", marginTop: apiFlixAvailable === true ? 8 : 0 },
+                      pressed && { opacity: 0.85 },
+                    ]}
+                    onPress={onPressR2}
+                  >
+                    <Feather name="cloud" size={18} color="#e50914" />
+                    <Text style={[styles.watchBtnText, { color: "#e50914" }]}>PLAY 2 · CLOUDFLARE R2</Text>
+                  </Pressable>
+                );
+              })()}
+
+              {/* GStream */}
               {gstreamAvailable && (
                 <Pressable
                   disabled={gstreamResolving}
@@ -1058,26 +1057,10 @@ export default function DetailScreen() {
                   <Text style={styles.watchBtnText}>
                     {gstreamResolving
                       ? "Buscando stream..."
-                      : `PLAY 3 · GSTREAM${type === "tv" ? `  ·  ${gstreamLang.toUpperCase()}` : ""}`}
+                      : `GSTREAM${type === "tv" ? `  ·  ${gstreamLang.toUpperCase()}` : ""}`}
                   </Text>
                 </Pressable>
               )}
-
-              {/* Play R2 — Acervo Cloudflare */}
-              {r2Items.filter((i) => i.season == null && i.episode == null).map((item) => (
-                <Pressable
-                  key={item.id}
-                  style={({ pressed }) => [
-                    styles.watchBtn,
-                    { backgroundColor: "#e50914", marginTop: 8 },
-                    pressed && { opacity: 0.85 },
-                  ]}
-                  onPress={() => goToR2Player(item)}
-                >
-                  <Feather name="cloud" size={18} color="#fff" />
-                  <Text style={styles.watchBtnText}>PLAY R2 · {item.label.toUpperCase()}</Text>
-                </Pressable>
-              ))}
 
               {/* Trailer button */}
               {trailerKey ? (
@@ -1219,7 +1202,9 @@ export default function DetailScreen() {
                   ) : (
                     episodeList.map((ep) => {
                       const { watched, current } = getEpisodeStatus(ep);
-                      const hasDrive = !!driveEpisodeMap[ep.episode_number];
+                      const r2Ep = r2Items.find(
+                        (i) => i.season === selectedSeason && i.episode === ep.episode_number
+                      );
                       return (
                         <EpisodeRow
                           key={ep.episode_number}
@@ -1227,15 +1212,9 @@ export default function DetailScreen() {
                           watched={watched}
                           current={current}
                           colors={colors}
-                          onPress={() => goToPlayer(selectedSeason, ep.episode_number)}
+                          onPress={apiFlixAvailable === true ? () => goToPlayer(selectedSeason, ep.episode_number) : undefined}
                           onGstreamPress={gstreamAvailable ? () => goToGstreamPlayer(selectedSeason, ep.episode_number) : undefined}
-                          onDrivePress={hasDrive ? () => goToDriveEpisode(ep) : undefined}
-                          onR2Press={(() => {
-                            const r2 = r2Items.find(
-                              (i) => i.season === selectedSeason && i.episode === ep.episode_number
-                            );
-                            return r2 ? () => goToR2Player(r2) : undefined;
-                          })()}
+                          onR2Press={r2Ep ? () => goToR2Player(r2Ep) : undefined}
                         />
                       );
                     })

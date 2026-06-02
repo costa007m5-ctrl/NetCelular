@@ -421,6 +421,7 @@ export default function NovidadesScreen() {
   const [r2TvSet, setR2TvSet] = useState<Set<number>>(new Set());
   const [r2Movies, setR2Movies] = useState<TmdbItem[]>([]);
   const [r2EpSeries, setR2EpSeries] = useState<(TmdbItem & { last_episode_to_air: any })[]>([]);
+  const [r2SeriesList, setR2SeriesList] = useState<TmdbItem[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -518,28 +519,36 @@ export default function NovidadesScreen() {
         setR2Movies(validMovies);
         setR2MovieSet(new Set(uniqueMovieIds));
 
-        // TV with episodes → inject into "Novos Episódios"
+        // All TV series from R2 → "Novas Séries"
+        const allTvItems = items.filter((i) => i.tmdbType === "tv");
+        const uniqueAllTvIds = [...new Set(allTvItems.map((i) => i.tmdbId))];
+        const allTvResults = await Promise.all(
+          uniqueAllTvIds.map((id) => api.tmdb.tv(id).catch(() => null))
+        );
+        const validTvSeries = allTvResults.filter(Boolean) as TmdbItem[];
+        setR2SeriesList(validTvSeries);
+        setR2TvSet(new Set(uniqueAllTvIds));
+
+        // TV with specific episodes → inject into "Novos Episódios"
         const tvItems = items.filter((i) => i.tmdbType === "tv" && i.episode != null);
         const uniqueTvIds = [...new Set(tvItems.map((i) => i.tmdbId))];
-        const tvResults = await Promise.all(
-          uniqueTvIds.map((id) => api.tmdb.tv(id).catch(() => null))
-        );
-        const epSeries = (tvResults.filter(Boolean) as TmdbItem[]).map((tmdbItem) => {
-          const epRegs = tvItems.filter((i) => i.tmdbId === tmdbItem.id);
-          const latest = epRegs[epRegs.length - 1];
-          return {
-            ...tmdbItem,
-            last_episode_to_air: {
-              season_number: latest.season,
-              episode_number: latest.episode,
-              name: latest.label,
-              air_date: latest.addedAt,
-              still_path: null,
-            },
-          };
-        });
+        const epSeries = validTvSeries
+          .filter((s) => uniqueTvIds.includes(s.id))
+          .map((tmdbItem) => {
+            const epRegs = tvItems.filter((i) => i.tmdbId === tmdbItem.id);
+            const latest = epRegs[epRegs.length - 1];
+            return {
+              ...tmdbItem,
+              last_episode_to_air: {
+                season_number: latest.season,
+                episode_number: latest.episode,
+                name: latest.label,
+                air_date: latest.addedAt,
+                still_path: null,
+              },
+            };
+          });
         setR2EpSeries(epSeries);
-        setR2TvSet(new Set(uniqueTvIds));
       } catch {}
     };
     loadR2();
@@ -579,6 +588,10 @@ export default function NovidadesScreen() {
   const allMovies = [
     ...r2Movies,
     ...movies.filter((m) => !r2MovieSet.has(m.id)),
+  ];
+  const allSeries = [
+    ...r2SeriesList,
+    ...series.filter((s: any) => !r2TvSet.has(s.id)),
   ];
   const allEpisodes = [
     ...r2EpSeries,
@@ -671,7 +684,7 @@ export default function NovidadesScreen() {
           )}
 
           {/* ── Novas Séries ── */}
-          {showSeries && series.length > 0 && (
+          {showSeries && allSeries.length > 0 && (
             <View style={st.section}>
               <SectionHeader
                 title="📺 Novas Séries"
@@ -680,13 +693,18 @@ export default function NovidadesScreen() {
                 onSeeAll={() => router.push({ pathname: "/catalog-list", params: { catalog_type: "tv", title: "Novas Séries" } } as any)}
               />
               <FlatList
-                data={series}
+                data={allSeries}
                 keyExtractor={(it) => `t-${it.id}`}
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={{ paddingHorizontal: 20 }}
                 renderItem={({ item }) => (
-                  <PosterCard item={item} badge="SÉRIE" badgeColor="#8b5cf6" onPress={() => navigate(item)} />
+                  <PosterCard
+                    item={item}
+                    badge={r2TvSet.has(item.id) ? "☁ R2" : "SÉRIE"}
+                    badgeColor={r2TvSet.has(item.id) ? "#2563eb" : "#8b5cf6"}
+                    onPress={() => navigate(item)}
+                  />
                 )}
               />
             </View>
