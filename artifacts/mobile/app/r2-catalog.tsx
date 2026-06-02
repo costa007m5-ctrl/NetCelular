@@ -198,6 +198,36 @@ function SeasonList({ entry, onBack, onSelectSeason, onEdit }: {
   onEdit: (entry: CatalogEntry) => void;
 }) {
   const insets = useSafeAreaInsets();
+  const [registering, setRegistering] = useState<string | null>(null);
+  const [registered, setRegisteredSeasons] = useState<Set<string>>(new Set());
+
+  const quickRegisterSeason = async (s: SeasonInfo) => {
+    if (!entry.tmdb) {
+      Alert.alert("Sem TMDB", "Vincule o título ao TMDB primeiro (botão de editar) para poder registrar automaticamente.");
+      return;
+    }
+    setRegistering(s.prefix);
+    try {
+      await apiPost("/registry/add", {
+        item: {
+          r2Key: s.prefix,
+          tmdbId: entry.tmdb.id,
+          tmdbType: entry.tmdb.media_type,
+          title: entry.tmdb.title,
+          label: s.label,
+          season: s.number,
+          episode: null,
+        },
+      });
+      setRegisteredSeasons((prev) => new Set([...prev, s.prefix]));
+      Alert.alert("Registrado!", `Temporada ${s.number} registrada. Todos os episódios desta temporada já aparecem com botão R2 no app.`);
+    } catch (e: any) {
+      Alert.alert("Erro", e.message ?? "Falha ao registrar");
+    } finally {
+      setRegistering(null);
+    }
+  };
+
   return (
     <View style={styles.subScreen}>
       {entry.tmdb?.backdrop_path && (
@@ -235,13 +265,36 @@ function SeasonList({ entry, onBack, onSelectSeason, onEdit }: {
             <Feather name="chevron-right" size={18} color="rgba(255,255,255,0.4)" />
           </Pressable>
         ) : (
-          entry.seasons.map((s) => (
-            <Pressable key={s.prefix} style={({ pressed }) => [styles.seasonRow, pressed && { opacity: 0.7 }]} onPress={() => onSelectSeason(s)}>
-              <View style={styles.seasonIcon}><Feather name="tv" size={20} color={RED} /></View>
-              <Text style={styles.seasonLabel}>{s.label}</Text>
-              <Feather name="chevron-right" size={18} color="rgba(255,255,255,0.4)" />
-            </Pressable>
-          ))
+          entry.seasons.map((s) => {
+            const isRegistering = registering === s.prefix;
+            const isRegistered = registered.has(s.prefix);
+            return (
+              <View key={s.prefix} style={styles.seasonRow}>
+                <Pressable style={{ flexDirection: "row", alignItems: "center", flex: 1, gap: 12 }} onPress={() => onSelectSeason(s)}>
+                  <View style={styles.seasonIcon}><Feather name="tv" size={20} color={RED} /></View>
+                  <Text style={styles.seasonLabel}>{s.label}</Text>
+                  <Feather name="chevron-right" size={18} color="rgba(255,255,255,0.4)" />
+                </Pressable>
+                <Pressable
+                  onPress={() => quickRegisterSeason(s)}
+                  disabled={isRegistering}
+                  style={[
+                    styles.registerSeasonBtn,
+                    isRegistered && { backgroundColor: "rgba(74,222,128,0.15)", borderColor: "#4ade80" },
+                  ]}
+                >
+                  {isRegistering ? (
+                    <ActivityIndicator size="small" color={RED} />
+                  ) : (
+                    <Feather name={isRegistered ? "check" : "cloud"} size={15} color={isRegistered ? "#4ade80" : "rgba(255,255,255,0.6)"} />
+                  )}
+                  <Text style={[styles.registerSeasonBtnText, isRegistered && { color: "#4ade80" }]}>
+                    {isRegistered ? "Registrado" : "Registrar"}
+                  </Text>
+                </Pressable>
+              </View>
+            );
+          })
         )}
       </ScrollView>
     </View>
@@ -1801,9 +1854,11 @@ const styles = StyleSheet.create({
   detailRating: { color: "#f5a623", fontSize: 13, marginBottom: 8 },
   detailOverview: { color: "rgba(255,255,255,0.55)", fontSize: 13, lineHeight: 19 },
   seasonHeader: { color: "rgba(255,255,255,0.5)", fontSize: 11, fontWeight: "700", letterSpacing: 1, paddingHorizontal: 16, marginBottom: 8 },
-  seasonRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)" },
+  seasonRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)" },
   seasonIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(229,9,20,0.15)", alignItems: "center", justifyContent: "center" },
   seasonLabel: { flex: 1, color: "#fff", fontSize: 15, fontWeight: "600" },
+  registerSeasonBtn: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 8, borderWidth: 1, borderColor: "rgba(255,255,255,0.15)", backgroundColor: "rgba(255,255,255,0.06)" },
+  registerSeasonBtnText: { color: "rgba(255,255,255,0.6)", fontSize: 12, fontWeight: "600" },
 
   epRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.05)" },
   epNumBadge: { width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.08)", alignItems: "center", justifyContent: "center" },
