@@ -384,10 +384,12 @@ router.get("/list", async (req, res) => {
     const client = getClient();
     const bucket = getBucket(req.query);
     const prefix = (req.query["prefix"] as string) ?? "";
-    const delimiter = (req.query["delimiter"] as string) ?? "/";
+    const rawDelimiter = req.query["delimiter"] as string | undefined;
+    // Empty string = recursive listing (no grouping); undefined = default "/"
+    const delimiter = rawDelimiter === "" ? undefined : (rawDelimiter ?? "/");
     const continuationToken = (req.query["token"] as string) ?? undefined;
 
-    const cmd = new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, Delimiter: delimiter, MaxKeys: 500, ContinuationToken: continuationToken });
+    const cmd = new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, Delimiter: delimiter, MaxKeys: 1000, ContinuationToken: continuationToken });
     const data = await client.send(cmd);
 
     const folders = (data.CommonPrefixes ?? []).map((p) => ({
@@ -405,7 +407,7 @@ router.get("/list", async (req, res) => {
         size: o.Size ?? 0,
         lastModified: o.LastModified?.toISOString() ?? null,
         fileType: fileType(o.Key!),
-        isVideo: isVideo(o.Key!),
+        isVideo: isLikelyVideo(o.Key!, o.Size ?? 0),
       }));
 
     res.json({ bucket, prefix, folders, files, isTruncated: data.IsTruncated ?? false, nextToken: data.NextContinuationToken ?? null });

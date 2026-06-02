@@ -50,7 +50,7 @@ interface FileItem {
 }
 interface Job {
   status: "queued" | "downloading" | "uploading" | "done" | "error";
-  progress: number; downloaded: number; total: number; error?: string;
+  progress: number; downloaded: number; total: number; error?: string; key?: string;
 }
 interface RegistryItem {
   id: string; r2Key: string; tmdbId: number; tmdbType: "movie" | "tv";
@@ -537,6 +537,15 @@ function FolderPickerModal({ onSelect, onClose }: {
 
 // ── Upload Panel ───────────────────────────────────────────────────────────────
 
+interface BulkJobItem {
+  url: string;
+  jobId: string | null;
+  status: "queued" | "downloading" | "uploading" | "done" | "error";
+  progress: number;
+  key: string;
+  error?: string;
+}
+
 function UploadPanel() {
   const insets = useSafeAreaInsets();
   const [url, setUrl] = useState("");
@@ -551,7 +560,93 @@ function UploadPanel() {
   const [creatingFolder, setCreatingFolder] = useState(false);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Bulk upload state
+  const [bulkUrls, setBulkUrls] = useState("");
+  const [bulkFolder, setBulkFolder] = useState("");
+  const [showBulkFolderPicker, setShowBulkFolderPicker] = useState(false);
+  const [bulkJobs, setBulkJobs] = useState<BulkJobItem[]>([]);
+  const [bulkRunning, setBulkRunning] = useState(false);
+  const bulkPollRefs = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
   const stopPoll = () => { if (pollRef.current) clearTimeout(pollRef.current); };
+
+  // ── Bulk upload ──
+  const stopBulkPoll = (id: string) => {
+    const t = bulkPollRefs.current.get(id);
+    if (t) { clearTimeout(t); bulkPollRefs.current.delete(id); }
+  };
+
+  const startBulkDownload = async () => {
+    const lines = bulkUrls.split("\n").map((l) => l.trim()).filter(Boolean);
+    if (lines.length === 0) return;
+    const folderBase = bulkFolder
+      ? (bulkFolder.endsWith("/") ? bulkFolder : `${bulkFolder}/`)
+      : "";
+    // Key sent to API: folder path if set, else "__auto__" (server auto-detects filename)
+    const baseKey = folderBase || "__auto__";
+    // Initialize job list
+    const initial: BulkJobItem[] = lines.map((u) => ({
+      url: u, jobId: null, status: "queued", progress: 0, key: folderBase,
+    }));
+    setBulkJobs(initial);
+    setBulkRunning(true);
+
+    // Start all downloads in parallel
+    await Promise.all(lines.map(async (u, idx) => {
+      try {
+        const r = await apiPost<{ jobId: string; key: string }>("/download-url", {
+          url: u,
+          key: baseKey,
+        });
+        setBulkJobs((prev) => {
+          const next = [...prev];
+          next[idx] = { ...next[idx], jobId: r.jobId, status: "downloading", key: r.key };
+          return next;
+        });
+
+        const poll = async () => {
+          try {
+            const j = await apiFetch<Job>(`/job/${r.jobId}`);
+            setBulkJobs((prev) => {
+              const next = [...prev];
+              next[idx] = {
+                ...next[idx],
+                status: j.status,
+                progress: j.progress,
+                key: j.key ?? next[idx].key,
+                error: j.error,
+              };
+              return next;
+            });
+            if (j.status === "done" || j.status === "error") {
+              stopBulkPoll(r.jobId);
+            } else {
+              const t = setTimeout(poll, 1500);
+              bulkPollRefs.current.set(r.jobId, t);
+            }
+          } catch {
+            const t = setTimeout(poll, 2500);
+            bulkPollRefs.current.set(r.jobId, t);
+          }
+        };
+        poll();
+      } catch (e: any) {
+        setBulkJobs((prev) => {
+          const next = [...prev];
+          next[idx] = { ...next[idx], status: "error", error: e.message ?? "Erro" };
+          return next;
+        });
+      }
+    }));
+    setBulkRunning(false);
+  };
+
+  const clearBulk = () => {
+    bulkPollRefs.current.forEach((t) => clearTimeout(t));
+    bulkPollRefs.current.clear();
+    setBulkJobs([]);
+    setBulkUrls("");
+  };
 
   // Auto-detect filename from URL — only if it looks like a real video file path
   const VIDEO_EXT = /\.(mp4|mkv|mov|avi|webm|m4v|ts|wmv|flv|ogv)$/i;
@@ -621,7 +716,10 @@ function UploadPanel() {
     } finally { setCreatingFolder(false); }
   };
 
-  useEffect(() => () => stopPoll(), []);
+  useEffect(() => () => {
+    stopPoll();
+    bulkPollRefs.current.forEach((t) => clearTimeout(t));
+  }, []);
 
   const progress = job?.progress ?? 0;
   const downloaded = job?.downloaded ?? 0;
@@ -732,6 +830,102 @@ function UploadPanel() {
           </Pressable>
         </View>
 
+        {/* Upload em lote */}
+        <View style={[styles.sectionCard, { marginTop: 16 }]}>
+          <View style={styles.sectionTitleRow}>
+            <Feather name="list" size={18} color="#f59e0b" />
+            <Text style={[styles.sectionTitle, { color: "#f59e0b" }]}>Upload em lote</Text>
+          </View>
+          <Text style={styles.sectionHint}>
+            Cole várias URLs (uma por linha) — o servidor baixa todas de uma vez. O nome do arquivo é detectado automaticamente.
+          </Text>
+
+          <Text style={styles.fieldLabel}>URLs (uma por linha)</Text>
+          <TextInput
+            style={[styles.input, { height: 140, textAlignVertical: "top" }, bulkRunning && { opacity: 0.5 }]}
+            placeholder={"https://exemplo.com/ep01.aspx\nhttps://exemplo.com/ep02.aspx\nhttps://exemplo.com/ep03.aspx"}
+            placeholderTextColor="rgba(255,255,255,0.2)"
+            value={bulkUrls}
+            onChangeText={setBulkUrls}
+            autoCapitalize="none"
+            autoCorrect={false}
+            multiline
+            editable={!bulkRunning}
+          />
+
+          <Text style={[styles.fieldLabel, { marginTop: 12 }]}>Pasta de destino</Text>
+          <Pressable
+            style={[styles.input, { flexDirection: "row", alignItems: "center", gap: 10 }, bulkRunning && { opacity: 0.5 }]}
+            onPress={() => !bulkRunning && setShowBulkFolderPicker(true)}
+          >
+            <Feather name="folder" size={16} color={bulkFolder ? "#f59e0b" : "rgba(255,255,255,0.25)"} />
+            <Text style={{ flex: 1, color: bulkFolder ? "#fff" : "rgba(255,255,255,0.3)", fontSize: 14 }} numberOfLines={1}>
+              {bulkFolder ? bulkFolder.replace(/\/$/, "") : "Toque para escolher pasta…"}
+            </Text>
+            {bulkFolder ? (
+              <Pressable onPress={() => setBulkFolder("")}>
+                <Feather name="x" size={14} color="rgba(255,255,255,0.4)" />
+              </Pressable>
+            ) : (
+              <Feather name="chevron-right" size={14} color="rgba(255,255,255,0.3)" />
+            )}
+          </Pressable>
+
+          {/* Job list */}
+          {bulkJobs.length > 0 && (
+            <View style={{ marginTop: 12, gap: 8 }}>
+              {bulkJobs.map((bj, i) => {
+                const shortUrl = bj.url.length > 50 ? `${bj.url.slice(0, 47)}…` : bj.url;
+                const shortKey = bj.key ? bj.key.split("/").pop() || bj.key : "";
+                const isDone = bj.status === "done";
+                const isErr = bj.status === "error";
+                return (
+                  <View key={i} style={{ backgroundColor: "rgba(255,255,255,0.05)", borderRadius: 8, padding: 10 }}>
+                    <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 10, marginBottom: 4 }} numberOfLines={1}>{shortUrl}</Text>
+                    {shortKey && isDone ? (
+                      <Text style={{ color: "#4ade80", fontSize: 11, marginBottom: 4 }} numberOfLines={1}>✅ {shortKey}</Text>
+                    ) : null}
+                    {isErr ? (
+                      <Text style={{ color: "#f87171", fontSize: 11 }}>❌ {bj.error}</Text>
+                    ) : !isDone ? (
+                      <View>
+                        <View style={[styles.progressBar, { marginBottom: 4 }]}>
+                          <View style={[styles.progressFill, { width: `${bj.progress}%` as any, backgroundColor: "#f59e0b" }]} />
+                        </View>
+                        <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 10 }}>
+                          {bj.status === "queued" ? "Na fila…" : bj.status === "downloading" ? `Baixando… ${bj.progress}%` : bj.status === "uploading" ? `Enviando… ${bj.progress}%` : ""}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
+                );
+              })}
+            </View>
+          )}
+
+          <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
+            <Pressable
+              style={[styles.actionBtn, { flex: 1, backgroundColor: "#92400e" }, bulkRunning && { opacity: 0.5 }]}
+              onPress={startBulkDownload}
+              disabled={bulkRunning || !bulkUrls.trim()}
+            >
+              {bulkRunning
+                ? <ActivityIndicator color="#fff" size="small" />
+                : <Feather name="download-cloud" size={16} color="#fff" />}
+              <Text style={styles.actionBtnText}>
+                {bulkRunning
+                  ? `Enviando ${bulkJobs.filter((j) => j.status === "done").length}/${bulkJobs.length}…`
+                  : "Iniciar upload em lote"}
+              </Text>
+            </Pressable>
+            {bulkJobs.length > 0 && !bulkRunning && (
+              <Pressable style={[styles.actionBtn, { paddingHorizontal: 14, backgroundColor: "rgba(255,255,255,0.08)" }]} onPress={clearBulk}>
+                <Feather name="trash-2" size={16} color="rgba(255,255,255,0.6)" />
+              </Pressable>
+            )}
+          </View>
+        </View>
+
         {/* Nova pasta */}
         <View style={[styles.sectionCard, { marginTop: 16 }]}>
           <View style={styles.sectionTitleRow}>
@@ -762,6 +956,12 @@ function UploadPanel() {
         <FolderPickerModal
           onSelect={(prefix) => setSelectedFolder(prefix)}
           onClose={() => setShowFolderPicker(false)}
+        />
+      )}
+      {showBulkFolderPicker && (
+        <FolderPickerModal
+          onSelect={(prefix) => setBulkFolder(prefix)}
+          onClose={() => setShowBulkFolderPicker(false)}
         />
       )}
     </>

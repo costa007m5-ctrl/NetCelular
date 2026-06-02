@@ -37,17 +37,19 @@ function mkSignal(ms: number): AbortSignal {
 }
 
 async function resolveVideoKey(key: string): Promise<string> {
-  // If key is a folder prefix (ends with /), find the first video file inside it
+  // If key is a direct file, return as-is
   if (!key.endsWith("/")) return key;
   const base = getApiBase();
   if (!base) throw new Error("API não configurada");
-  const res = await fetch(`${base}/r2/list?prefix=${encodeURIComponent(key)}&delimiter=/`, {
-    signal: mkSignal(15000),
+  // List recursively (empty delimiter) so videos in sub-folders are found too
+  const res = await fetch(`${base}/r2/list?prefix=${encodeURIComponent(key)}&delimiter=`, {
+    signal: mkSignal(20000),
   });
   if (!res.ok) throw new Error("Erro ao listar pasta");
   const data = await res.json();
   const videoExts = /\.(mp4|mkv|mov|avi|webm|m4v|ts|m2ts|wmv|flv|ogv)$/i;
-  const vid = (data.files ?? []).find((f: any) => videoExts.test(f.key));
+  // Accept files flagged as video by the API OR matched by extension
+  const vid = (data.files ?? []).find((f: any) => f.isVideo || videoExts.test(f.key));
   if (!vid) throw new Error("Nenhum vídeo encontrado na pasta");
   return vid.key;
 }
