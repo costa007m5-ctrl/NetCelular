@@ -17,6 +17,12 @@ import {
 
 let WebView: any = null;
 try { WebView = require("react-native-webview").WebView; } catch {}
+
+function mkSignal(ms: number): AbortSignal {
+  const ctrl = new AbortController();
+  setTimeout(() => ctrl.abort(), ms);
+  return ctrl.signal;
+}
 import { StatusBar } from "expo-status-bar";
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -355,7 +361,7 @@ export default function AdminScreen() {
     const t = Date.now();
     try {
       const base = getApiBase();
-      const res = await fetch(`${base}/gstream/status`, { signal: AbortSignal.timeout(10000) });
+      const res = await fetch(`${base}/gstream/status`, { signal: mkSignal(10000) });
       const json = await res.json().catch(() => null);
       setGApiLatency(Date.now() - t);
       setGApiStatus(json?.online ? "ok" : "error");
@@ -374,7 +380,7 @@ export default function AdminScreen() {
     else if (!overrideId) setGMovieTitle("");
     try {
       const base = getApiBase();
-      const res = await fetch(`${base}/gstream/check-movie?id=${encodeURIComponent(id)}`, { signal: AbortSignal.timeout(10000) });
+      const res = await fetch(`${base}/gstream/check-movie?id=${encodeURIComponent(id)}`, { signal: mkSignal(10000) });
       const json = await res.json().catch(() => null);
       if (json?.movie) {
         setGMovieUrl(json.url ?? `${EMBED_BASE}/${id}`);
@@ -396,7 +402,7 @@ export default function AdminScreen() {
     setGCatalogLoading(true);
     try {
       const base = getApiBase();
-      const res = await fetch(`${base}/gstream/catalog?type=filmes`, { signal: AbortSignal.timeout(15000) });
+      const res = await fetch(`${base}/gstream/catalog?type=filmes`, { signal: mkSignal(15000) });
       const arr: any[] = await res.json().catch(() => []);
       if (gCatalogTotal === null) setGCatalogTotal(arr.length);
       const q = query.toLowerCase();
@@ -420,7 +426,7 @@ export default function AdminScreen() {
       const base = getApiBase();
       const res = await fetch(
         `${base}/gstream/check-tv?id=${encodeURIComponent(id)}&season=${encodeURIComponent(season)}&episode=${encodeURIComponent(ep)}`,
-        { signal: AbortSignal.timeout(12000) }
+        { signal: mkSignal(12000) }
       );
       const json = await res.json().catch(() => null);
       const dub = !!(json?.dub);
@@ -484,7 +490,7 @@ export default function AdminScreen() {
       if (q) url += `&q=${encodeURIComponent(q)}`;
       if (genre) url += `&genero=${encodeURIComponent(genre)}`;
       if (extra) Object.entries(extra).forEach(([k, v]) => { if (v) url += `&${k}=${encodeURIComponent(v)}`; });
-      const resp = await fetch(url, { signal: AbortSignal.timeout(15000) });
+      const resp = await fetch(url, { signal: mkSignal(15000) });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const data = await resp.json();
       const items = Array.isArray(data) ? data : data?.items ?? data?.results ?? data?.channels ?? data?.events ?? [data];
@@ -642,7 +648,7 @@ export default function AdminScreen() {
 
     const t1 = Date.now();
     try {
-      const res = await fetch("https://redeflixapi.store/filme/550", { method: "HEAD", signal: AbortSignal.timeout(5000) });
+      const res = await fetch("https://redeflixapi.store/filme/550", { method: "HEAD", signal: mkSignal(5000) });
       setApis((prev) => prev.map((a) => a.name === "RedeFlixApi" ? { ...a, status: res.ok || res.status === 200 || res.status === 301 || res.status === 302 ? "ok" : "error", latency: Date.now() - t1 } : a));
     } catch {
       setApis((prev) => prev.map((a) => (a.name === "RedeFlixApi" ? { ...a, status: "ok", detail: "Inacessível via browser (normal em CORS)" } : a)));

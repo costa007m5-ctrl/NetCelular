@@ -39,9 +39,15 @@ export interface ChannelsResponse {
   channels: LiveChannel[];
 }
 
+function mkSignal(ms: number): AbortSignal {
+  const ctrl = new AbortController();
+  setTimeout(() => ctrl.abort(), ms);
+  return ctrl.signal;
+}
+
 async function fetchWithFallback(apiPath: string, directPath: string): Promise<any> {
   try {
-    const res = await fetch(`${BASE}${apiPath}`, { signal: AbortSignal.timeout(12000) });
+    const res = await fetch(`${BASE}${apiPath}`, { signal: mkSignal(12000) });
     if (res.ok) {
       const data = await res.json();
       const valid = Array.isArray(data) ? data.length > 0 : data?.channels?.length > 0;

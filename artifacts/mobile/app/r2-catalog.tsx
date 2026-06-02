@@ -1,8 +1,10 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Dimensions,
   FlatList,
+  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -26,11 +28,13 @@ const POSTER_H = POSTER_W * 1.5;
 const TMDB_IMG = (path: string | null, size = "w500") =>
   path ? `https://image.tmdb.org/t/p/${size}${path}` : null;
 
+// ── Types ──────────────────────────────────────────────────────────────────────
+
 interface SeasonInfo { number: number; prefix: string; label: string }
 interface TmdbMatch {
   id: number; title: string; poster_path: string | null;
   backdrop_path: string | null; overview: string; vote_average: number;
-  release_date?: string; first_air_date?: string; media_type: "movie" | "tv";
+  media_type: "movie" | "tv";
 }
 interface CatalogEntry {
   key: string; name: string; type: "movie" | "tv" | "unknown";
@@ -40,16 +44,60 @@ interface Episode {
   key: string; name: string; size: number;
   lastModified: string | null; episode: number | null;
 }
+interface FileItem {
+  type: "file" | "folder"; key: string; name: string;
+  size?: number; isVideo?: boolean; fileType?: string;
+}
+interface Job {
+  status: "queued" | "downloading" | "uploading" | "done" | "error";
+  progress: number; downloaded: number; total: number; error?: string;
+}
+interface RegistryItem {
+  id: string; r2Key: string; tmdbId: number; tmdbType: "movie" | "tv";
+  title: string; label: string; season: number | null; episode: number | null;
+}
+interface TmdbSearchResult {
+  id: number; title: string; poster_path: string | null; media_type: "movie" | "tv";
+}
 
-async function apiFetch<T>(path: string): Promise<T> {
+type Tab = "catalog" | "upload" | "manage";
+type CatalogView =
+  | { screen: "catalog" }
+  | { screen: "seasons"; entry: CatalogEntry }
+  | { screen: "episodes"; entry: CatalogEntry; season: SeasonInfo };
+
+// ── API helpers ────────────────────────────────────────────────────────────────
+
+function mkAbort(ms = 60000): [AbortSignal, () => void] {
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), ms);
+  return [ctrl.signal, () => clearTimeout(tid)];
+}
+
+async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const base = getApiBase();
   if (!base) throw new Error("API não configurada");
-  const res = await fetch(`${base}/r2${path}`, { signal: AbortSignal.timeout(30000) });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error((err as any).error ?? `HTTP ${res.status}`);
+  const [signal, clear] = mkAbort(60000);
+  try {
+    const res = await fetch(`${base}/r2${path}`, { ...options, signal });
+    clear();
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error((err as any).error ?? `HTTP ${res.status}`);
+    }
+    return res.json() as Promise<T>;
+  } catch (e) {
+    clear();
+    throw e;
   }
-  return res.json() as Promise<T>;
+}
+
+async function apiPost<T>(path: string, body: any): Promise<T> {
+  return apiFetch<T>(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
 }
 
 function formatBytes(bytes: number): string {
@@ -59,20 +107,22 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1e3).toFixed(0)} KB`;
 }
 
-function EpisodeList({
-  entry, season, onBack,
-}: { entry: CatalogEntry; season: SeasonInfo; onBack: () => void }) {
+// ── Episode List ───────────────────────────────────────────────────────────────
+
+function EpisodeList({ entry, season, onBack, onRegister }: {
+  entry: CatalogEntry; season: SeasonInfo;
+  onBack: () => void; onRegister: (key: string, ep?: number) => void;
+}) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [episodes, setEpisodes] = useState<Episode[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [opening, setOpening] = useState<string | null>(null);
 
   useEffect(() => {
     apiFetch<{ episodes: Episode[] }>(`/episodes?prefix=${encodeURIComponent(season.prefix)}`)
       .then((d) => setEpisodes(d.episodes))
-      .catch((e) => setError(e.message))
+      .catch(() => {})
       .finally(() => setLoading(false));
   }, [season.prefix]);
 
@@ -93,13 +143,11 @@ function EpisodeList({
           type: "tv",
         },
       });
-    } finally {
-      setOpening(null);
-    }
+    } finally { setOpening(null); }
   };
 
   return (
-    <View style={[styles.subScreen]}>
+    <View style={styles.subScreen}>
       <View style={[styles.subHeader, { paddingTop: insets.top + 12 }]}>
         <Pressable onPress={onBack} style={styles.iconBtn}>
           <Feather name="arrow-left" size={22} color="#fff" />
@@ -109,44 +157,30 @@ function EpisodeList({
           <Text style={styles.subSeason}>{season.label}</Text>
         </View>
       </View>
-
       {loading ? (
         <View style={styles.center}><ActivityIndicator color={RED} size="large" /></View>
-      ) : error ? (
-        <View style={styles.center}>
-          <Feather name="alert-circle" size={40} color="rgba(255,255,255,0.3)" />
-          <Text style={styles.errorText}>{error}</Text>
-        </View>
       ) : (
         <FlatList
           data={episodes}
           keyExtractor={(ep) => ep.key}
           contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 100 }}
-          ListEmptyComponent={
-            <View style={[styles.center, { paddingTop: 60 }]}>
-              <Text style={styles.errorText}>Nenhum episódio encontrado</Text>
-            </View>
-          }
+          ListEmptyComponent={<View style={[styles.center, { paddingTop: 60 }]}><Text style={styles.dim}>Nenhum episódio</Text></View>}
           renderItem={({ item: ep }) => (
-            <Pressable
-              style={({ pressed }) => [styles.epRow, pressed && { opacity: 0.7 }]}
-              onPress={() => openEpisode(ep)}
-            >
+            <View style={styles.epRow}>
               <View style={styles.epNumBadge}>
-                {opening === ep.key ? (
-                  <ActivityIndicator color={RED} size="small" />
-                ) : (
-                  <Text style={styles.epNum}>{ep.episode ?? "?"}</Text>
-                )}
+                {opening === ep.key ? <ActivityIndicator color={RED} size="small" /> : <Text style={styles.epNum}>{ep.episode ?? "?"}</Text>}
               </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.epName} numberOfLines={2}>
-                  {ep.name.replace(/\.[^.]+$/, "")}
-                </Text>
+              <Pressable style={{ flex: 1 }} onPress={() => openEpisode(ep)}>
+                <Text style={styles.epName} numberOfLines={2}>{ep.name.replace(/\.[^.]+$/, "")}</Text>
                 {ep.size > 0 && <Text style={styles.epMeta}>{formatBytes(ep.size)}</Text>}
-              </View>
-              <Feather name="play-circle" size={22} color={RED} />
-            </Pressable>
+              </Pressable>
+              <Pressable onPress={() => openEpisode(ep)} style={{ padding: 8 }}>
+                <Feather name="play-circle" size={22} color={RED} />
+              </Pressable>
+              <Pressable onPress={() => onRegister(ep.key, ep.episode ?? undefined)} style={{ padding: 8 }}>
+                <Feather name="link" size={18} color="rgba(255,255,255,0.4)" />
+              </Pressable>
+            </View>
           )}
         />
       )}
@@ -154,60 +188,38 @@ function EpisodeList({
   );
 }
 
-function SeasonList({
-  entry, onBack, onSelectSeason,
-}: { entry: CatalogEntry; onBack: () => void; onSelectSeason: (s: SeasonInfo) => void }) {
-  const insets = useSafeAreaInsets();
+// ── Season List ────────────────────────────────────────────────────────────────
 
+function SeasonList({ entry, onBack, onSelectSeason }: {
+  entry: CatalogEntry; onBack: () => void; onSelectSeason: (s: SeasonInfo) => void;
+}) {
+  const insets = useSafeAreaInsets();
   return (
     <View style={styles.subScreen}>
       {entry.tmdb?.backdrop_path && (
         <>
-          <Image
-            source={{ uri: TMDB_IMG(entry.tmdb.backdrop_path, "w1280") ?? "" }}
-            style={styles.detailBackdrop}
-            contentFit="cover"
-          />
+          <Image source={{ uri: TMDB_IMG(entry.tmdb.backdrop_path, "w1280") ?? "" }} style={styles.detailBackdrop} contentFit="cover" />
           <View style={styles.backdropGrad} />
         </>
       )}
-
       <View style={[styles.subHeader, { paddingTop: insets.top + 12 }]}>
-        <Pressable onPress={onBack} style={styles.iconBtn}>
-          <Feather name="arrow-left" size={22} color="#fff" />
-        </Pressable>
+        <Pressable onPress={onBack} style={styles.iconBtn}><Feather name="arrow-left" size={22} color="#fff" /></Pressable>
       </View>
-
       <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 100 }}>
         <View style={styles.detailMeta}>
           {entry.tmdb?.poster_path && (
-            <Image
-              source={{ uri: TMDB_IMG(entry.tmdb.poster_path, "w500") ?? "" }}
-              style={styles.detailPoster}
-              contentFit="cover"
-            />
+            <Image source={{ uri: TMDB_IMG(entry.tmdb.poster_path, "w500") ?? "" }} style={styles.detailPoster} contentFit="cover" />
           )}
           <View style={{ flex: 1 }}>
             <Text style={styles.detailTitle}>{entry.tmdb?.title ?? entry.name}</Text>
-            {entry.tmdb?.vote_average ? (
-              <Text style={styles.detailRating}>⭐ {entry.tmdb.vote_average.toFixed(1)}</Text>
-            ) : null}
-            {entry.tmdb?.overview ? (
-              <Text style={styles.detailOverview} numberOfLines={4}>{entry.tmdb.overview}</Text>
-            ) : null}
+            {entry.tmdb?.vote_average ? <Text style={styles.detailRating}>⭐ {entry.tmdb.vote_average.toFixed(1)}</Text> : null}
+            {entry.tmdb?.overview ? <Text style={styles.detailOverview} numberOfLines={4}>{entry.tmdb.overview}</Text> : null}
           </View>
         </View>
-
         <Text style={styles.seasonHeader}>Temporadas</Text>
         {entry.seasons.map((s) => (
-          <Pressable
-            key={s.prefix}
-            style={({ pressed }) => [styles.seasonRow, pressed && { opacity: 0.7 }]}
-            onPress={() => onSelectSeason(s)}
-          >
-            <View style={styles.seasonIcon}>
-              <Feather name="tv" size={20} color={RED} />
-            </View>
+          <Pressable key={s.prefix} style={({ pressed }) => [styles.seasonRow, pressed && { opacity: 0.7 }]} onPress={() => onSelectSeason(s)}>
+            <View style={styles.seasonIcon}><Feather name="tv" size={20} color={RED} /></View>
             <Text style={styles.seasonLabel}>{s.label}</Text>
             <Feather name="chevron-right" size={18} color="rgba(255,255,255,0.4)" />
           </Pressable>
@@ -217,7 +229,12 @@ function SeasonList({
   );
 }
 
-function CatalogGrid({ onSelect }: { onSelect: (entry: CatalogEntry) => void }) {
+// ── Catalog Grid ───────────────────────────────────────────────────────────────
+
+function CatalogGrid({ onSelect, onRegister }: {
+  onSelect: (entry: CatalogEntry) => void;
+  onRegister: (key: string) => void;
+}) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const [entries, setEntries] = useState<CatalogEntry[]>([]);
@@ -236,10 +253,7 @@ function CatalogGrid({ onSelect }: { onSelect: (entry: CatalogEntry) => void }) 
       setEntries(data.catalog);
     } catch (e: any) {
       setError(e.message ?? "Erro ao carregar catálogo");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
+    } finally { setLoading(false); setRefreshing(false); }
   }, []);
 
   useEffect(() => { load(); }, []);
@@ -247,14 +261,9 @@ function CatalogGrid({ onSelect }: { onSelect: (entry: CatalogEntry) => void }) 
   const openMovie = async (entry: CatalogEntry) => {
     setOpening(entry.key);
     try {
-      const data = await apiFetch<{ files: { key: string; isVideo: boolean }[] }>(
-        `/list?prefix=${encodeURIComponent(entry.key)}&delimiter=/`
-      );
+      const data = await apiFetch<{ files: FileItem[] }>(`/list?prefix=${encodeURIComponent(entry.key)}&delimiter=/`);
       const vid = data.files.find((f) => f.isVideo);
-      if (!vid) {
-        setError("Nenhum arquivo de vídeo encontrado nesta pasta");
-        return;
-      }
+      if (!vid) { setError("Nenhum arquivo de vídeo nesta pasta"); return; }
       router.push({
         pathname: "/r2-player",
         params: {
@@ -266,25 +275,16 @@ function CatalogGrid({ onSelect }: { onSelect: (entry: CatalogEntry) => void }) 
           type: "movie",
         },
       });
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setOpening(null);
-    }
+    } catch (e: any) { setError(e.message); }
+    finally { setOpening(null); }
   };
 
-  const filtered = search
-    ? entries.filter((e) =>
-        (e.tmdb?.title ?? e.name).toLowerCase().includes(search.toLowerCase())
-      )
-    : entries;
+  const filtered = search ? entries.filter((e) => (e.tmdb?.title ?? e.name).toLowerCase().includes(search.toLowerCase())) : entries;
 
   if (loading) return (
     <View style={styles.center}>
       <ActivityIndicator color={RED} size="large" />
-      <Text style={[styles.errorText, { marginTop: 12, color: "rgba(255,255,255,0.4)" }]}>
-        Carregando catálogo e buscando no TMDB…
-      </Text>
+      <Text style={[styles.dim, { marginTop: 12 }]}>Carregando e buscando no TMDB…</Text>
     </View>
   );
 
@@ -292,24 +292,13 @@ function CatalogGrid({ onSelect }: { onSelect: (entry: CatalogEntry) => void }) 
     <View style={{ flex: 1 }}>
       <View style={styles.searchRow}>
         <Feather name="search" size={15} color="rgba(255,255,255,0.4)" />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Buscar título..."
-          placeholderTextColor="rgba(255,255,255,0.3)"
-          value={search}
-          onChangeText={setSearch}
-        />
-        {search.length > 0 && (
-          <Pressable onPress={() => setSearch("")}>
-            <Feather name="x" size={15} color="rgba(255,255,255,0.4)" />
-          </Pressable>
-        )}
+        <TextInput style={styles.searchInput} placeholder="Buscar título..." placeholderTextColor="rgba(255,255,255,0.3)" value={search} onChangeText={setSearch} />
+        {search.length > 0 && <Pressable onPress={() => setSearch("")}><Feather name="x" size={15} color="rgba(255,255,255,0.4)" /></Pressable>}
       </View>
-
       {error ? (
         <View style={styles.center}>
           <Feather name="cloud-off" size={40} color="rgba(255,255,255,0.3)" />
-          <Text style={[styles.errorText, { marginTop: 12 }]}>{error}</Text>
+          <Text style={[styles.dim, { marginTop: 12 }]}>{error}</Text>
           <Pressable style={[styles.actionBtn, { marginTop: 20 }]} onPress={() => load()}>
             <Text style={styles.actionBtnText}>Tentar novamente</Text>
           </Pressable>
@@ -321,48 +310,25 @@ function CatalogGrid({ onSelect }: { onSelect: (entry: CatalogEntry) => void }) 
           numColumns={3}
           contentContainerStyle={{ padding: 12, paddingBottom: insets.bottom + 100 }}
           columnWrapperStyle={{ gap: 6, marginBottom: 6 }}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={() => { setRefreshing(true); load(true); }}
-              tintColor={RED}
-            />
-          }
-          ListEmptyComponent={
-            <View style={[styles.center, { paddingTop: 60 }]}>
-              <Text style={styles.errorText}>Nenhum título no catálogo R2</Text>
-            </View>
-          }
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(true); }} tintColor={RED} />}
+          ListEmptyComponent={<View style={[styles.center, { paddingTop: 60 }]}><Text style={styles.dim}>Nenhum título</Text></View>}
           renderItem={({ item: entry }) => {
             const poster = entry.tmdb?.poster_path ? TMDB_IMG(entry.tmdb.poster_path) : null;
-            const displayTitle = entry.tmdb?.title ?? entry.name;
             const isBusy = opening === entry.key;
             return (
-              <Pressable
-                style={({ pressed }) => [styles.posterCard, pressed && { opacity: 0.8 }]}
-                onPress={() => entry.type === "movie" ? openMovie(entry) : onSelect(entry)}
-              >
+              <Pressable style={({ pressed }) => [styles.posterCard, pressed && { opacity: 0.8 }]} onPress={() => entry.type === "movie" ? openMovie(entry) : onSelect(entry)}>
                 <View style={styles.posterWrap}>
-                  {poster ? (
-                    <Image source={{ uri: poster }} style={styles.posterImg} contentFit="cover" />
-                  ) : (
-                    <View style={styles.posterPlaceholder}>
-                      <Feather name="film" size={28} color="rgba(255,255,255,0.2)" />
-                    </View>
-                  )}
+                  {poster ? <Image source={{ uri: poster }} style={styles.posterImg} contentFit="cover" /> : <View style={styles.posterPlaceholder}><Feather name="film" size={28} color="rgba(255,255,255,0.2)" /></View>}
                   <View style={[styles.typeBadge, { backgroundColor: entry.type === "tv" ? "#1a6bb5" : RED }]}>
                     <Text style={styles.typeBadgeText}>{entry.type === "tv" ? "SÉRIE" : "FILME"}</Text>
                   </View>
-                  {isBusy && (
-                    <View style={styles.posterLoading}>
-                      <ActivityIndicator color="#fff" size="small" />
-                    </View>
-                  )}
+                  {isBusy && <View style={styles.posterLoading}><ActivityIndicator color="#fff" size="small" /></View>}
+                  {/* Register button overlay */}
+                  <Pressable style={styles.registerOverlay} onPress={() => onRegister(entry.key)}>
+                    <Feather name="link" size={12} color="#fff" />
+                  </Pressable>
                 </View>
-                <Text style={styles.posterTitle} numberOfLines={2}>{displayTitle}</Text>
-                {entry.tmdb?.vote_average ? (
-                  <Text style={styles.posterRating}>⭐ {entry.tmdb.vote_average.toFixed(1)}</Text>
-                ) : null}
+                <Text style={styles.posterTitle} numberOfLines={2}>{entry.tmdb?.title ?? entry.name}</Text>
               </Pressable>
             );
           }}
@@ -372,81 +338,627 @@ function CatalogGrid({ onSelect }: { onSelect: (entry: CatalogEntry) => void }) 
   );
 }
 
-type CatalogView =
-  | { screen: "catalog" }
-  | { screen: "seasons"; entry: CatalogEntry }
-  | { screen: "episodes"; entry: CatalogEntry; season: SeasonInfo };
+// ── Upload Panel ───────────────────────────────────────────────────────────────
 
-export default function R2CatalogScreen() {
-  const colors = useColors();
+function UploadPanel() {
   const insets = useSafeAreaInsets();
-  const router = useRouter();
-  const { user } = useAuth();
-  const [view, setView] = useState<CatalogView>({ screen: "catalog" });
+  const [url, setUrl] = useState("");
+  const [destKey, setDestKey] = useState("");
+  const [downloading, setDownloading] = useState(false);
+  const [job, setJob] = useState<Job | null>(null);
+  const [jobError, setJobError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [folderName, setFolderName] = useState("");
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  if (!user || user.role !== "admin") {
-    return (
-      <View style={[styles.center, { flex: 1, backgroundColor: "#000" }]}>
-        <Feather name="lock" size={48} color="rgba(255,255,255,0.2)" />
-        <Text style={[styles.errorText, { marginTop: 16 }]}>Acesso restrito a administradores</Text>
-      </View>
-    );
-  }
+  const stopPoll = () => { if (pollRef.current) clearTimeout(pollRef.current); };
+
+  const startDownload = async () => {
+    const u = url.trim();
+    const k = destKey.trim();
+    if (!u) { setJobError("Informe a URL do vídeo"); return; }
+    if (!k) { setJobError("Informe o caminho de destino (ex: Pasta/video.mp4)"); return; }
+    setDownloading(true);
+    setJob(null);
+    setJobError(null);
+    setSuccess(null);
+    try {
+      const r = await apiPost<{ jobId: string }>("/download-url", { url: u, key: k });
+      const poll = async () => {
+        try {
+          const j = await apiFetch<Job>(`/job/${r.jobId}`);
+          setJob(j);
+          if (j.status === "done") {
+            setSuccess(`✅ Upload concluído: ${k}`);
+            setDownloading(false);
+            setUrl("");
+            setDestKey("");
+          } else if (j.status === "error") {
+            setJobError(j.error ?? "Falha no download");
+            setDownloading(false);
+          } else {
+            pollRef.current = setTimeout(poll, 1200);
+          }
+        } catch { pollRef.current = setTimeout(poll, 2000); }
+      };
+      poll();
+    } catch (e: any) {
+      setJobError(e.message ?? "Erro");
+      setDownloading(false);
+    }
+  };
+
+  const createFolder = async () => {
+    const n = folderName.trim();
+    if (!n) return;
+    setCreatingFolder(true);
+    try {
+      await apiPost("/mkdir", { prefix: n });
+      setSuccess(`📁 Pasta "${n}" criada`);
+      setFolderName("");
+    } catch (e: any) {
+      setJobError(e.message ?? "Erro ao criar pasta");
+    } finally { setCreatingFolder(false); }
+  };
+
+  useEffect(() => () => stopPoll(), []);
+
+  const progress = job?.progress ?? 0;
+  const downloaded = job?.downloaded ?? 0;
+  const total = job?.total ?? 0;
 
   return (
-    <View style={[{ flex: 1, backgroundColor: "#000" }]}>
-      {view.screen === "catalog" && (
-        <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
-          <Pressable onPress={() => router.back()} style={styles.iconBtn}>
-            <Feather name="arrow-left" size={22} color="#fff" />
-          </Pressable>
-          <View style={{ flex: 1, marginLeft: 8 }}>
-            <Text style={styles.headerTitle}>Catálogo R2</Text>
-            <Text style={styles.headerSub}>Cloudflare R2 · Acervo exclusivo</Text>
+    <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 80 }}>
+      {/* Via URL */}
+      <View style={styles.sectionCard}>
+        <View style={styles.sectionTitleRow}>
+          <Feather name="download-cloud" size={18} color={RED} />
+          <Text style={styles.sectionTitle}>Baixar via URL para o R2</Text>
+        </View>
+        <Text style={styles.sectionHint}>Cole a URL do vídeo — o servidor vai baixar e enviar para o R2 automaticamente. Sem limite de tamanho.</Text>
+
+        <Text style={styles.fieldLabel}>URL do vídeo</Text>
+        <TextInput
+          style={[styles.input, downloading && { opacity: 0.5 }]}
+          placeholder="https://exemplo.com/video.mp4"
+          placeholderTextColor="rgba(255,255,255,0.25)"
+          value={url}
+          onChangeText={setUrl}
+          autoCapitalize="none"
+          autoCorrect={false}
+          editable={!downloading}
+          multiline
+          numberOfLines={3}
+          textAlignVertical="top"
+        />
+
+        <Text style={styles.fieldLabel}>Destino no R2 (caminho/arquivo.mp4)</Text>
+        <TextInput
+          style={[styles.input, downloading && { opacity: 0.5 }]}
+          placeholder="Série X/Temporada 1/E01.mp4"
+          placeholderTextColor="rgba(255,255,255,0.25)"
+          value={destKey}
+          onChangeText={setDestKey}
+          autoCapitalize="none"
+          autoCorrect={false}
+          editable={!downloading}
+        />
+
+        {/* Progress */}
+        {downloading && job && (
+          <View style={styles.progressWrap}>
+            <View style={styles.progressBar}>
+              <View style={[styles.progressFill, { width: `${progress}%` as any }]} />
+            </View>
+            <Text style={styles.progressText}>
+              {job.status === "downloading" ? "Baixando fonte…" : "Enviando para R2…"}{" "}
+              {progress > 0 ? `${progress}%` : ""}
+              {total > 0 ? `  (${formatBytes(downloaded)} / ${formatBytes(total)})` : downloaded > 0 ? `  ${formatBytes(downloaded)}` : ""}
+            </Text>
           </View>
-          <View style={[styles.r2Badge]}>
-            <Feather name="cloud" size={14} color={RED} />
-            <Text style={styles.r2BadgeText}>R2</Text>
+        )}
+        {downloading && !job && <ActivityIndicator color={RED} style={{ marginVertical: 12 }} />}
+
+        {jobError && (
+          <View style={styles.errorBox}>
+            <Feather name="alert-circle" size={14} color="#f87171" />
+            <Text style={styles.errorBoxText}>{jobError}</Text>
+          </View>
+        )}
+        {success && (
+          <View style={[styles.errorBox, { borderColor: "#22c55e40", backgroundColor: "#22c55e10" }]}>
+            <Text style={[styles.errorBoxText, { color: "#4ade80" }]}>{success}</Text>
+          </View>
+        )}
+
+        <Pressable
+          style={[styles.actionBtn, downloading && { opacity: 0.5 }]}
+          onPress={startDownload}
+          disabled={downloading}
+        >
+          {downloading ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="download-cloud" size={16} color="#fff" />}
+          <Text style={styles.actionBtnText}>{downloading ? "Enviando…" : "Baixar e enviar para R2"}</Text>
+        </Pressable>
+      </View>
+
+      {/* Nova pasta */}
+      <View style={[styles.sectionCard, { marginTop: 16 }]}>
+        <View style={styles.sectionTitleRow}>
+          <Feather name="folder-plus" size={18} color={RED} />
+          <Text style={styles.sectionTitle}>Criar nova pasta</Text>
+        </View>
+        <Text style={styles.sectionHint}>Crie a estrutura antes de enviar os vídeos. Use "/" para sub-pastas.</Text>
+
+        <Text style={styles.fieldLabel}>Nome da pasta</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="Série X/Temporada 1"
+          placeholderTextColor="rgba(255,255,255,0.25)"
+          value={folderName}
+          onChangeText={setFolderName}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+
+        <Pressable style={[styles.actionBtn, { backgroundColor: "#1d4ed8" }]} onPress={createFolder} disabled={creatingFolder}>
+          {creatingFolder ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="folder-plus" size={16} color="#fff" />}
+          <Text style={styles.actionBtnText}>Criar pasta</Text>
+        </Pressable>
+      </View>
+    </ScrollView>
+  );
+}
+
+// ── Manage Panel ───────────────────────────────────────────────────────────────
+
+function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
+  const insets = useSafeAreaInsets();
+  const [path, setPath] = useState("");
+  const [items, setItems] = useState<FileItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [movingKey, setMovingKey] = useState<string | null>(null);
+  const [moveDst, setMoveDst] = useState("");
+
+  const load = useCallback(async (prefix: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await apiFetch<{ folders: FileItem[]; files: FileItem[] }>(
+        `/list?prefix=${encodeURIComponent(prefix)}&delimiter=/`
+      );
+      setItems([...data.folders, ...data.files]);
+    } catch (e: any) { setError(e.message); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(""); }, []);
+
+  const navigate = (folder: FileItem) => {
+    const newPath = folder.key;
+    setPath(newPath);
+    load(newPath);
+  };
+
+  const goUp = () => {
+    const parts = path.replace(/\/$/, "").split("/");
+    parts.pop();
+    const newPath = parts.length ? `${parts.join("/")}/` : "";
+    setPath(newPath);
+    load(newPath);
+  };
+
+  const deleteItem = (item: FileItem) => {
+    Alert.alert("Deletar", `Deletar "${item.name}"?`, [
+      { text: "Cancelar", style: "cancel" },
+      {
+        text: "Deletar", style: "destructive", onPress: async () => {
+          try {
+            await apiFetch(`/delete?key=${encodeURIComponent(item.key)}`, { method: "DELETE" });
+            load(path);
+          } catch (e: any) { setError(e.message); }
+        },
+      },
+    ]);
+  };
+
+  const doMove = async () => {
+    if (!movingKey || !moveDst.trim()) return;
+    try {
+      await apiPost("/move", { src: movingKey, dst: moveDst.trim() });
+      setMovingKey(null);
+      setMoveDst("");
+      load(path);
+    } catch (e: any) { setError(e.message); }
+  };
+
+  const pathParts = path ? path.replace(/\/$/, "").split("/") : [];
+
+  return (
+    <View style={{ flex: 1 }}>
+      {/* Breadcrumb */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.breadcrumb} contentContainerStyle={{ alignItems: "center", paddingHorizontal: 12, gap: 4 }}>
+        <Pressable onPress={() => { setPath(""); load(""); }} style={styles.breadcrumbItem}>
+          <Feather name="home" size={13} color={RED} />
+        </Pressable>
+        {pathParts.map((p, i) => (
+          <React.Fragment key={i}>
+            <Text style={styles.breadcrumbSep}>/</Text>
+            <Pressable onPress={() => {
+              const np = pathParts.slice(0, i + 1).join("/") + "/";
+              setPath(np); load(np);
+            }} style={styles.breadcrumbItem}>
+              <Text style={styles.breadcrumbText} numberOfLines={1}>{p}</Text>
+            </Pressable>
+          </React.Fragment>
+        ))}
+      </ScrollView>
+
+      {/* Move modal */}
+      {movingKey && (
+        <View style={styles.moveBox}>
+          <Text style={styles.moveTitle}>Mover: {movingKey.split("/").pop()}</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Novo caminho (ex: Pasta/arquivo.mp4)"
+            placeholderTextColor="rgba(255,255,255,0.3)"
+            value={moveDst}
+            onChangeText={setMoveDst}
+            autoCapitalize="none"
+          />
+          <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
+            <Pressable style={[styles.actionBtn, { flex: 1, backgroundColor: "#374151" }]} onPress={() => { setMovingKey(null); setMoveDst(""); }}>
+              <Text style={styles.actionBtnText}>Cancelar</Text>
+            </Pressable>
+            <Pressable style={[styles.actionBtn, { flex: 1 }]} onPress={doMove}>
+              <Feather name="move" size={14} color="#fff" />
+              <Text style={styles.actionBtnText}>Mover</Text>
+            </Pressable>
           </View>
         </View>
       )}
 
-      {view.screen === "catalog" && (
-        <CatalogGrid onSelect={(entry) => setView({ screen: "seasons", entry })} />
+      {error && (
+        <View style={[styles.errorBox, { margin: 12 }]}>
+          <Text style={styles.errorBoxText}>{error}</Text>
+        </View>
       )}
 
-      {view.screen === "seasons" && (
-        <SeasonList
-          entry={(view as any).entry}
-          onBack={() => setView({ screen: "catalog" })}
-          onSelectSeason={(season) =>
-            setView({ screen: "episodes", entry: (view as any).entry, season })
+      {loading ? (
+        <View style={styles.center}><ActivityIndicator color={RED} size="large" /></View>
+      ) : (
+        <FlatList
+          data={items}
+          keyExtractor={(i) => i.key}
+          contentContainerStyle={{ padding: 12, paddingBottom: insets.bottom + 100 }}
+          ListHeaderComponent={
+            path ? (
+              <Pressable style={styles.upRow} onPress={goUp}>
+                <Feather name="corner-left-up" size={16} color="rgba(255,255,255,0.5)" />
+                <Text style={styles.upText}>.. (pasta acima)</Text>
+              </Pressable>
+            ) : null
           }
-        />
-      )}
-
-      {view.screen === "episodes" && (
-        <EpisodeList
-          entry={(view as any).entry}
-          season={(view as any).season}
-          onBack={() => setView({ screen: "seasons", entry: (view as any).entry })}
+          ListEmptyComponent={<View style={[styles.center, { paddingTop: 40 }]}><Text style={styles.dim}>Pasta vazia</Text></View>}
+          renderItem={({ item }) => (
+            <View style={styles.fileRow}>
+              <Feather
+                name={item.type === "folder" ? "folder" : item.isVideo ? "film" : "file"}
+                size={18}
+                color={item.type === "folder" ? "#f59e0b" : item.isVideo ? RED : "rgba(255,255,255,0.4)"}
+              />
+              <Pressable style={{ flex: 1, marginLeft: 10 }} onPress={() => item.type === "folder" ? navigate(item) : undefined}>
+                <Text style={styles.fileName} numberOfLines={2}>{item.name}</Text>
+                {item.size ? <Text style={styles.fileMeta}>{formatBytes(item.size)}</Text> : null}
+              </Pressable>
+              {/* Actions */}
+              {item.isVideo && (
+                <Pressable onPress={() => onRegister(item.key)} style={styles.fileAction}>
+                  <Feather name="link" size={15} color="#60a5fa" />
+                </Pressable>
+              )}
+              <Pressable onPress={() => { setMovingKey(item.key); setMoveDst(item.key); }} style={styles.fileAction}>
+                <Feather name="move" size={15} color="rgba(255,255,255,0.4)" />
+              </Pressable>
+              {item.type === "file" && (
+                <Pressable onPress={() => deleteItem(item)} style={styles.fileAction}>
+                  <Feather name="trash-2" size={15} color="#f87171" />
+                </Pressable>
+              )}
+            </View>
+          )}
         />
       )}
     </View>
   );
 }
 
+// ── Register Modal ─────────────────────────────────────────────────────────────
+
+function RegisterModal({ r2Key, episode, onClose, onDone }: {
+  r2Key: string; episode?: number; onClose: () => void; onDone: () => void;
+}) {
+  const [q, setQ] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [results, setResults] = useState<TmdbSearchResult[]>([]);
+  const [selected, setSelected] = useState<TmdbSearchResult | null>(null);
+  const [label, setLabel] = useState("Dublado 1080p");
+  const [season, setSeason] = useState("");
+  const [ep, setEp] = useState(episode != null ? String(episode) : "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const search = async () => {
+    if (!q.trim()) return;
+    setSearching(true);
+    try {
+      const data = await apiFetch<{ results: TmdbSearchResult[] }>(`/tmdb-search?q=${encodeURIComponent(q)}&type=multi`);
+      setResults(data.results);
+    } catch (e: any) { setError(e.message); }
+    finally { setSearching(false); }
+  };
+
+  const save = async () => {
+    if (!selected) { setError("Selecione um título"); return; }
+    setSaving(true);
+    try {
+      await apiPost("/registry/add", {
+        item: {
+          r2Key,
+          tmdbId: selected.id,
+          tmdbType: selected.media_type,
+          title: selected.title,
+          label: label.trim() || "Padrão",
+          season: season ? Number(season) : null,
+          episode: ep ? Number(ep) : null,
+        },
+      });
+      onDone();
+    } catch (e: any) { setError(e.message); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <View style={[styles.modalWrap, { backgroundColor: "#111" }]}>
+        <View style={styles.modalHeader}>
+          <Text style={styles.modalTitle}>Registrar como Play Option</Text>
+          <Pressable onPress={onClose}><Feather name="x" size={22} color="rgba(255,255,255,0.6)" /></Pressable>
+        </View>
+
+        <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 80 }}>
+          <Text style={styles.dim} numberOfLines={2}>Arquivo: {r2Key}</Text>
+
+          {/* TMDB search */}
+          <Text style={[styles.fieldLabel, { marginTop: 16 }]}>Buscar título no TMDB</Text>
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <TextInput
+              style={[styles.input, { flex: 1 }]}
+              placeholder="Nome do filme ou série..."
+              placeholderTextColor="rgba(255,255,255,0.25)"
+              value={q}
+              onChangeText={setQ}
+              onSubmitEditing={search}
+              returnKeyType="search"
+            />
+            <Pressable style={[styles.actionBtn, { paddingHorizontal: 14 }]} onPress={search} disabled={searching}>
+              {searching ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="search" size={16} color="#fff" />}
+            </Pressable>
+          </View>
+
+          {/* Results */}
+          {results.map((r) => (
+            <Pressable
+              key={r.id}
+              style={[styles.tmdbResult, selected?.id === r.id && { borderColor: RED, backgroundColor: `${RED}18` }]}
+              onPress={() => { setSelected(r); setResults([]); }}
+            >
+              {r.poster_path ? (
+                <Image source={{ uri: TMDB_IMG(r.poster_path, "w92") ?? "" }} style={styles.tmdbPoster} contentFit="cover" />
+              ) : (
+                <View style={[styles.tmdbPoster, { backgroundColor: "rgba(255,255,255,0.08)", alignItems: "center", justifyContent: "center" }]}>
+                  <Feather name="film" size={16} color="rgba(255,255,255,0.3)" />
+                </View>
+              )}
+              <View style={{ flex: 1, marginLeft: 10 }}>
+                <Text style={styles.tmdbTitle}>{r.title}</Text>
+                <Text style={styles.dim}>{r.media_type === "tv" ? "Série" : "Filme"}</Text>
+              </View>
+              {selected?.id === r.id && <Feather name="check-circle" size={18} color={RED} />}
+            </Pressable>
+          ))}
+
+          {selected && (
+            <View style={[styles.tmdbResult, { borderColor: RED, backgroundColor: `${RED}15` }]}>
+              {selected.poster_path ? (
+                <Image source={{ uri: TMDB_IMG(selected.poster_path, "w92") ?? "" }} style={styles.tmdbPoster} contentFit="cover" />
+              ) : (
+                <View style={[styles.tmdbPoster, { backgroundColor: "rgba(255,255,255,0.08)", alignItems: "center", justifyContent: "center" }]}>
+                  <Feather name="film" size={16} color="rgba(255,255,255,0.3)" />
+                </View>
+              )}
+              <View style={{ flex: 1, marginLeft: 10 }}>
+                <Text style={styles.tmdbTitle}>{selected.title}</Text>
+                <Text style={[styles.dim, { color: RED }]}>{selected.media_type === "tv" ? "Série" : "Filme"} · Selecionado</Text>
+              </View>
+              <Pressable onPress={() => setSelected(null)}><Feather name="x" size={16} color="rgba(255,255,255,0.4)" /></Pressable>
+            </View>
+          )}
+
+          {/* If TV, season + episode */}
+          {selected?.media_type === "tv" && (
+            <View style={{ flexDirection: "row", gap: 12, marginTop: 12 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.fieldLabel}>Temporada</Text>
+                <TextInput style={styles.input} placeholder="1" placeholderTextColor="rgba(255,255,255,0.25)" value={season} onChangeText={setSeason} keyboardType="number-pad" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.fieldLabel}>Episódio</Text>
+                <TextInput style={styles.input} placeholder="1" placeholderTextColor="rgba(255,255,255,0.25)" value={ep} onChangeText={setEp} keyboardType="number-pad" />
+              </View>
+            </View>
+          )}
+
+          {/* Label */}
+          <Text style={[styles.fieldLabel, { marginTop: 12 }]}>Rótulo</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Dublado 1080p"
+            placeholderTextColor="rgba(255,255,255,0.25)"
+            value={label}
+            onChangeText={setLabel}
+          />
+
+          {error && <View style={[styles.errorBox, { marginTop: 12 }]}><Text style={styles.errorBoxText}>{error}</Text></View>}
+
+          <Pressable style={[styles.actionBtn, { marginTop: 20 }]} onPress={save} disabled={saving}>
+            {saving ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="link" size={16} color="#fff" />}
+            <Text style={styles.actionBtnText}>Registrar como opção de play</Text>
+          </Pressable>
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+}
+
+// ── Main Screen ────────────────────────────────────────────────────────────────
+
+export default function R2CatalogScreen() {
+  const colors = useColors();
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const { user } = useAuth();
+  const [activeTab, setActiveTab] = useState<Tab>("catalog");
+  const [catalogView, setCatalogView] = useState<CatalogView>({ screen: "catalog" });
+  const [registerKey, setRegisterKey] = useState<string | null>(null);
+  const [registerEp, setRegisterEp] = useState<number | undefined>(undefined);
+  const [registered, setRegistered] = useState(0); // bump to show toast
+
+  if (!user || user.role !== "admin") {
+    return (
+      <View style={[styles.center, { flex: 1, backgroundColor: "#000" }]}>
+        <Feather name="lock" size={48} color="rgba(255,255,255,0.2)" />
+        <Text style={[styles.dim, { marginTop: 16 }]}>Acesso restrito a administradores</Text>
+      </View>
+    );
+  }
+
+  const openRegister = (key: string, ep?: number) => {
+    setRegisterKey(key);
+    setRegisterEp(ep);
+  };
+
+  return (
+    <View style={{ flex: 1, backgroundColor: "#000" }}>
+      {/* Header */}
+      {catalogView.screen === "catalog" && (
+        <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+          <Pressable onPress={() => router.back()} style={styles.iconBtn}>
+            <Feather name="arrow-left" size={22} color="#fff" />
+          </Pressable>
+          <View style={{ flex: 1, marginLeft: 8 }}>
+            <Text style={styles.headerTitle}>Acervo R2</Text>
+            <Text style={styles.headerSub}>Cloudflare R2 · Gestão de conteúdo</Text>
+          </View>
+          <View style={styles.r2Badge}>
+            <Feather name="cloud" size={13} color={RED} />
+            <Text style={styles.r2BadgeText}>R2</Text>
+          </View>
+        </View>
+      )}
+
+      {/* Tab bar */}
+      {catalogView.screen === "catalog" && (
+        <View style={styles.tabBar}>
+          {(["catalog", "upload", "manage"] as Tab[]).map((t) => (
+            <Pressable key={t} style={[styles.tabItem, activeTab === t && styles.tabItemActive]} onPress={() => setActiveTab(t)}>
+              <Feather
+                name={t === "catalog" ? "grid" : t === "upload" ? "upload-cloud" : "folder"}
+                size={14}
+                color={activeTab === t ? RED : "rgba(255,255,255,0.4)"}
+              />
+              <Text style={[styles.tabLabel, activeTab === t && { color: RED }]}>
+                {t === "catalog" ? "Catálogo" : t === "upload" ? "Upload" : "Gerenciar"}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+
+      {/* Content */}
+      {activeTab === "catalog" && catalogView.screen === "catalog" && (
+        <CatalogGrid
+          onSelect={(entry) => setCatalogView({ screen: "seasons", entry })}
+          onRegister={openRegister}
+        />
+      )}
+
+      {activeTab === "catalog" && catalogView.screen === "seasons" && (
+        <SeasonList
+          entry={(catalogView as any).entry}
+          onBack={() => setCatalogView({ screen: "catalog" })}
+          onSelectSeason={(season) => setCatalogView({ screen: "episodes", entry: (catalogView as any).entry, season })}
+        />
+      )}
+
+      {activeTab === "catalog" && catalogView.screen === "episodes" && (
+        <EpisodeList
+          entry={(catalogView as any).entry}
+          season={(catalogView as any).season}
+          onBack={() => setCatalogView({ screen: "seasons", entry: (catalogView as any).entry })}
+          onRegister={openRegister}
+        />
+      )}
+
+      {activeTab === "upload" && <UploadPanel />}
+      {activeTab === "manage" && <ManagePanel onRegister={openRegister} />}
+
+      {/* Register modal */}
+      {registerKey && (
+        <RegisterModal
+          r2Key={registerKey}
+          episode={registerEp}
+          onClose={() => { setRegisterKey(null); setRegisterEp(undefined); }}
+          onDone={() => {
+            setRegisterKey(null);
+            setRegisterEp(undefined);
+            setRegistered((v) => v + 1);
+          }}
+        />
+      )}
+
+      {/* Success toast */}
+      {registered > 0 && (
+        <View style={styles.toast}>
+          <Feather name="check-circle" size={16} color="#4ade80" />
+          <Text style={styles.toastText}>Registrado! Aparecerá como opção de play no detalhe do título.</Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
+// ── Styles ─────────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
-  errorText: { color: "rgba(255,255,255,0.45)", fontSize: 14, textAlign: "center" },
-  header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)" },
-  headerTitle: { color: "#fff", fontSize: 22, fontWeight: "800" },
-  headerSub: { color: "rgba(255,255,255,0.4)", fontSize: 12, marginTop: 2 },
+  dim: { color: "rgba(255,255,255,0.4)", fontSize: 13, textAlign: "center" },
+  header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)" },
+  headerTitle: { color: "#fff", fontSize: 20, fontWeight: "800" },
+  headerSub: { color: "rgba(255,255,255,0.4)", fontSize: 11, marginTop: 1 },
   r2Badge: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: `${RED}18`, borderWidth: 1, borderColor: `${RED}40`, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 },
   r2BadgeText: { color: RED, fontSize: 12, fontWeight: "800" },
   iconBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
+
+  tabBar: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)" },
+  tabItem: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, paddingVertical: 10 },
+  tabItemActive: { borderBottomWidth: 2, borderBottomColor: RED },
+  tabLabel: { color: "rgba(255,255,255,0.4)", fontSize: 12, fontWeight: "600" },
+
   searchRow: { flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: 12, marginVertical: 10, backgroundColor: "rgba(255,255,255,0.07)", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 },
   searchInput: { flex: 1, color: "#fff", fontSize: 14 },
+
   posterCard: { width: POSTER_W },
   posterWrap: { width: POSTER_W, height: POSTER_H, borderRadius: 8, overflow: "hidden", backgroundColor: "rgba(255,255,255,0.06)", marginBottom: 5 },
   posterImg: { width: "100%", height: "100%" },
@@ -454,9 +966,10 @@ const styles = StyleSheet.create({
   posterLoading: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.55)", alignItems: "center", justifyContent: "center" },
   typeBadge: { position: "absolute", top: 6, left: 6, borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2 },
   typeBadgeText: { color: "#fff", fontSize: 9, fontWeight: "800", letterSpacing: 0.5 },
+  registerOverlay: { position: "absolute", bottom: 6, right: 6, backgroundColor: "rgba(0,0,0,0.65)", borderRadius: 12, padding: 4 },
   posterTitle: { color: "#fff", fontSize: 11, fontWeight: "600", lineHeight: 15 },
-  posterRating: { color: "rgba(255,255,255,0.45)", fontSize: 10, marginTop: 2 },
-  actionBtn: { backgroundColor: RED, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 8 },
+
+  actionBtn: { backgroundColor: RED, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 13, paddingHorizontal: 20, borderRadius: 10, marginTop: 12 },
   actionBtnText: { color: "#fff", fontWeight: "700", fontSize: 14 },
 
   subScreen: { flex: 1, backgroundColor: "#000" },
@@ -476,9 +989,49 @@ const styles = StyleSheet.create({
   seasonIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(229,9,20,0.15)", alignItems: "center", justifyContent: "center" },
   seasonLabel: { flex: 1, color: "#fff", fontSize: 15, fontWeight: "600" },
 
-  epRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.05)" },
+  epRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.05)" },
   epNumBadge: { width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.08)", alignItems: "center", justifyContent: "center" },
   epNum: { color: "rgba(255,255,255,0.6)", fontSize: 13, fontWeight: "700" },
   epName: { color: "#fff", fontSize: 13, fontWeight: "500" },
   epMeta: { color: "rgba(255,255,255,0.35)", fontSize: 11, marginTop: 2 },
+
+  sectionCard: { backgroundColor: "rgba(255,255,255,0.05)", borderRadius: 14, padding: 16, borderWidth: 1, borderColor: "rgba(255,255,255,0.08)" },
+  sectionTitleRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
+  sectionTitle: { color: "#fff", fontSize: 15, fontWeight: "700" },
+  sectionHint: { color: "rgba(255,255,255,0.4)", fontSize: 12, lineHeight: 18, marginBottom: 14 },
+  fieldLabel: { color: "rgba(255,255,255,0.6)", fontSize: 12, fontWeight: "600", marginBottom: 6, letterSpacing: 0.5 },
+  input: { backgroundColor: "rgba(255,255,255,0.08)", borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", borderRadius: 10, paddingHorizontal: 14, paddingVertical: 11, color: "#fff", fontSize: 14 },
+  progressWrap: { marginTop: 12 },
+  progressBar: { height: 6, backgroundColor: "rgba(255,255,255,0.1)", borderRadius: 3, overflow: "hidden" },
+  progressFill: { height: "100%", backgroundColor: RED, borderRadius: 3 },
+  progressText: { color: "rgba(255,255,255,0.5)", fontSize: 12, marginTop: 6 },
+  errorBox: { flexDirection: "row", alignItems: "flex-start", gap: 8, backgroundColor: "rgba(248,113,113,0.1)", borderWidth: 1, borderColor: "rgba(248,113,113,0.3)", borderRadius: 10, padding: 12, marginTop: 10 },
+  errorBoxText: { color: "#f87171", fontSize: 13, flex: 1 },
+
+  breadcrumb: { maxHeight: 40, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)" },
+  breadcrumbItem: { paddingHorizontal: 6, paddingVertical: 8 },
+  breadcrumbSep: { color: "rgba(255,255,255,0.2)", fontSize: 12 },
+  breadcrumbText: { color: "rgba(255,255,255,0.6)", fontSize: 12 },
+
+  moveBox: { backgroundColor: "rgba(255,255,255,0.05)", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", borderRadius: 12, padding: 14, margin: 12 },
+  moveTitle: { color: "#fff", fontSize: 13, fontWeight: "600", marginBottom: 10 },
+
+  upRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)" },
+  upText: { color: "rgba(255,255,255,0.4)", fontSize: 14 },
+
+  fileRow: { flexDirection: "row", alignItems: "center", paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.05)" },
+  fileName: { color: "#fff", fontSize: 13, fontWeight: "500" },
+  fileMeta: { color: "rgba(255,255,255,0.35)", fontSize: 11, marginTop: 2 },
+  fileAction: { padding: 8 },
+
+  modalWrap: { flex: 1 },
+  modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 16, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.08)" },
+  modalTitle: { color: "#fff", fontSize: 17, fontWeight: "700" },
+
+  tmdbResult: { flexDirection: "row", alignItems: "center", padding: 12, borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", borderRadius: 10, marginTop: 8, backgroundColor: "rgba(255,255,255,0.04)" },
+  tmdbPoster: { width: 44, height: 64, borderRadius: 6 },
+  tmdbTitle: { color: "#fff", fontSize: 14, fontWeight: "600" },
+
+  toast: { position: "absolute", bottom: 30, left: 20, right: 20, backgroundColor: "#111827", borderRadius: 12, padding: 14, flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderColor: "#22c55e40" },
+  toastText: { color: "#4ade80", fontSize: 13, flex: 1 },
 });

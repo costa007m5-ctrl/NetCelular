@@ -24,7 +24,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { ContentCard } from "@/components/ContentCard";
-import { api as tmdbApi, TMDB_IMG, tmdbItemToContent } from "@/lib/api";
+import { api as tmdbApi, TMDB_IMG, tmdbItemToContent, getApiBase } from "@/lib/api";
 import type { TmdbItem, TmdbEpisode, TmdbSeason } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
@@ -32,6 +32,11 @@ import type { WatchProgress } from "@/lib/supabase";
 import type { ContentItem } from "@/constants/content";
 import { searchDriveByTitle, getDriveSeasonEpisodes, DriveMatch } from "@/lib/gdrive-search";
 import { DriveItem, parseEpisodeInfo } from "@/lib/gdrive-index";
+
+interface RegistryItem {
+  id: string; r2Key: string; tmdbId: number; tmdbType: "movie" | "tv";
+  title: string; label: string; season: number | null; episode: number | null;
+}
 
 let WebView: any = null;
 try { WebView = require("react-native-webview").WebView; } catch {}
@@ -61,6 +66,7 @@ function EpisodeRow({
   onPress,
   onDrivePress,
   onGstreamPress,
+  onR2Press,
 }: {
   ep: TmdbEpisode;
   watched: boolean;
@@ -69,6 +75,7 @@ function EpisodeRow({
   onPress: () => void;
   onDrivePress?: () => void;
   onGstreamPress?: () => void;
+  onR2Press?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -159,6 +166,11 @@ function EpisodeRow({
             <Feather name="hard-drive" size={18} color="#fff" />
           </Pressable>
         )}
+        {onR2Press && (
+          <Pressable onPress={onR2Press} style={[styles.epPlayBtn, { backgroundColor: "#e50914", borderRadius: 8, padding: 4, marginTop: 4 }]}>
+            <Feather name="cloud" size={16} color="#fff" />
+          </Pressable>
+        )}
       </View>
     </View>
   );
@@ -211,6 +223,30 @@ export default function DetailScreen() {
   const [gstreamLang, setGstreamLang] = useState<"dub" | "leg">("dub");
   const [gstreamMovieUrl, setGstreamMovieUrl] = useState<string | null>(null);
   const [gstreamResolving, setGstreamResolving] = useState(false);
+
+  const [r2Items, setR2Items] = useState<RegistryItem[]>([]);
+
+  // Load R2 registry items for this title (non-blocking)
+  useEffect(() => {
+    if (!tmdbId) return;
+    const loadR2 = async () => {
+      try {
+        const apiBase = getApiBase();
+        if (!apiBase) return;
+        const ctrl = new AbortController();
+        const tid = setTimeout(() => ctrl.abort(), 15000);
+        const res = await fetch(`${apiBase}/r2/registry`, { signal: ctrl.signal });
+        clearTimeout(tid);
+        if (!res.ok) return;
+        const data = await res.json();
+        const items: RegistryItem[] = (data.items ?? []).filter(
+          (i: RegistryItem) => i.tmdbId === tmdbId && i.tmdbType === type
+        );
+        setR2Items(items);
+      } catch {}
+    };
+    loadR2();
+  }, [tmdbId, type]);
 
   // Check GStream availability in background (non-blocking)
   useEffect(() => {
@@ -544,6 +580,23 @@ export default function DetailScreen() {
     } finally {
       setGstreamResolving(false);
     }
+  };
+
+  const goToR2Player = (item: RegistryItem) => {
+    router.push({
+      pathname: "/r2-player",
+      params: {
+        key: item.r2Key,
+        title: details?.title ?? details?.name ?? item.title,
+        label: item.label,
+        backdropPath: details?.backdrop_path ?? "",
+        posterPath: details?.poster_path ?? "",
+        tmdbId: String(tmdbId),
+        type,
+        season: item.season != null ? String(item.season) : "",
+        episode: item.episode != null ? String(item.episode) : "",
+      },
+    });
   };
 
   const goToDriveEpisode = (ep: TmdbEpisode) => {
@@ -1010,6 +1063,22 @@ export default function DetailScreen() {
                 </Pressable>
               )}
 
+              {/* Play R2 — Acervo Cloudflare */}
+              {r2Items.filter((i) => i.season == null && i.episode == null).map((item) => (
+                <Pressable
+                  key={item.id}
+                  style={({ pressed }) => [
+                    styles.watchBtn,
+                    { backgroundColor: "#e50914", marginTop: 8 },
+                    pressed && { opacity: 0.85 },
+                  ]}
+                  onPress={() => goToR2Player(item)}
+                >
+                  <Feather name="cloud" size={18} color="#fff" />
+                  <Text style={styles.watchBtnText}>PLAY R2 · {item.label.toUpperCase()}</Text>
+                </Pressable>
+              ))}
+
               {/* Trailer button */}
               {trailerKey ? (
                 <Pressable
@@ -1161,6 +1230,12 @@ export default function DetailScreen() {
                           onPress={() => goToPlayer(selectedSeason, ep.episode_number)}
                           onGstreamPress={gstreamAvailable ? () => goToGstreamPlayer(selectedSeason, ep.episode_number) : undefined}
                           onDrivePress={hasDrive ? () => goToDriveEpisode(ep) : undefined}
+                          onR2Press={(() => {
+                            const r2 = r2Items.find(
+                              (i) => i.season === selectedSeason && i.episode === ep.episode_number
+                            );
+                            return r2 ? () => goToR2Player(r2) : undefined;
+                          })()}
                         />
                       );
                     })

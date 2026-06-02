@@ -30,11 +30,17 @@ const RED = "#e50914";
 const TMDB_IMG = (path: string | null, size = "w1280") =>
   path ? `https://image.tmdb.org/t/p/${size}${path}` : null;
 
+function mkSignal(ms: number): AbortSignal {
+  const ctrl = new AbortController();
+  setTimeout(() => ctrl.abort(), ms);
+  return ctrl.signal;
+}
+
 async function fetchSignedUrl(key: string): Promise<string> {
   const base = getApiBase();
   if (!base) throw new Error("API não configurada");
   const res = await fetch(`${base}/r2/signed-url?key=${encodeURIComponent(key)}`, {
-    signal: AbortSignal.timeout(15000),
+    signal: mkSignal(15000),
   });
   if (!res.ok) throw new Error("Erro ao gerar URL de vídeo");
   const data = await res.json();
