@@ -477,19 +477,7 @@ function FolderPickerModal({ onSelect, onClose }: {
           ))}
         </ScrollView>
 
-        {/* Select current folder button */}
-        <Pressable
-          style={{ flexDirection: "row", alignItems: "center", gap: 10, marginHorizontal: 16, marginVertical: 10,
-            backgroundColor: `${RED}18`, borderWidth: 1, borderColor: `${RED}40`, borderRadius: 10, padding: 12 }}
-          onPress={() => { onSelect(path); onClose(); }}
-        >
-          <Feather name="check-circle" size={18} color={RED} />
-          <Text style={{ color: RED, fontWeight: "700", fontSize: 13, flex: 1 }}>
-            {path ? `Usar esta pasta: ${path.replace(/\/$/, "")}` : "Usar pasta raiz"}
-          </Text>
-        </Pressable>
-
-        {error && <View style={[styles.errorBox, { margin: 12 }]}><Text style={styles.errorBoxText}>{error}</Text></View>}
+        {error && <View style={[styles.errorBox, { marginHorizontal: 16, marginBottom: 8 }]}><Text style={styles.errorBoxText}>{error}</Text></View>}
 
         {loading ? (
           <View style={styles.center}><ActivityIndicator color={RED} /></View>
@@ -497,7 +485,7 @@ function FolderPickerModal({ onSelect, onClose }: {
           <FlatList
             data={folders}
             keyExtractor={(f) => f.key}
-            contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 40 }}
+            contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 16 }}
             ListHeaderComponent={path ? (
               <Pressable style={styles.upRow} onPress={goUp}>
                 <Feather name="corner-left-up" size={16} color="rgba(255,255,255,0.5)" />
@@ -523,6 +511,25 @@ function FolderPickerModal({ onSelect, onClose }: {
             )}
           />
         )}
+
+        {/* Fixed confirm button at bottom */}
+        <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.08)" }}>
+          <Pressable
+            style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10,
+              backgroundColor: RED, borderRadius: 12, paddingVertical: 15 }}
+            onPress={() => { onSelect(path); onClose(); }}
+          >
+            <Feather name="check" size={20} color="#fff" />
+            <Text style={{ color: "#fff", fontWeight: "800", fontSize: 15 }}>
+              {path ? `Confirmar: ${path.replace(/\/$/, "").split("/").pop()}` : "Usar pasta raiz"}
+            </Text>
+          </Pressable>
+          {path && (
+            <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 11, textAlign: "center", marginTop: 6 }} numberOfLines={1}>
+              📁 {path.replace(/\/$/, "")}
+            </Text>
+          )}
+        </View>
       </View>
     </Modal>
   );
@@ -546,14 +553,16 @@ function UploadPanel() {
 
   const stopPoll = () => { if (pollRef.current) clearTimeout(pollRef.current); };
 
-  // Auto-detect filename from URL
+  // Auto-detect filename from URL — only if it looks like a real video file path
+  const VIDEO_EXT = /\.(mp4|mkv|mov|avi|webm|m4v|ts|wmv|flv|ogv)$/i;
   const onUrlChange = (v: string) => {
     setUrl(v);
     if (!fileName) {
       try {
         const urlPath = new URL(v.trim()).pathname;
         const auto = urlPath.split("/").pop() ?? "";
-        if (auto && auto.includes(".")) setFileName(auto);
+        if (VIDEO_EXT.test(auto)) setFileName(auto);
+        // Non-video URLs (like download.aspx): leave filename empty for user to fill
       } catch {}
     }
   };

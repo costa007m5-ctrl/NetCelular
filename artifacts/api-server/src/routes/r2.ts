@@ -472,13 +472,30 @@ router.post("/download-url", async (req, res) => {
         job.status = "uploading";
 
         const contentType = response.headers.get("content-type") ?? "application/octet-stream";
+        const contentDisp = response.headers.get("content-disposition") ?? "";
 
-        // Auto-append video extension if the destination key has none
+        // Extract filename from Content-Disposition: attachment; filename="..."
+        const dispFilename = (() => {
+          const m = contentDisp.match(/filename\*?=(?:UTF-8'')?["']?([^"';\r\n]+)["']?/i);
+          if (!m) return null;
+          try { return decodeURIComponent(m[1].trim()); } catch { return m[1].trim(); }
+        })();
+
+        // Auto-fix destination key:
+        // 1. If key has no video extension + Content-Disposition has a filename → use that filename
+        // 2. Else if key has no video extension + content-type is video → append correct ext from mime
+        const VIDEO_EXTS = /\.(mp4|mkv|mov|avi|webm|m4v|ts|m2ts|wmv|flv|ogv)$/i;
         let finalKey = key;
-        if (!isVideo(key) && contentType.startsWith("video/")) {
-          const rawExt = contentType.split("/")[1]?.split(";")[0]?.trim() ?? "mp4";
-          const ext = rawExt === "quicktime" ? "mov" : rawExt === "x-matroska" ? "mkv" : rawExt;
-          finalKey = `${key}.${ext}`;
+        if (!VIDEO_EXTS.test(key)) {
+          const folder = key.replace(/[^/]*$/, ""); // strip any trailing non-slash filename
+          if (dispFilename && VIDEO_EXTS.test(dispFilename)) {
+            finalKey = `${folder}${dispFilename}`;
+          } else if (contentType.startsWith("video/")) {
+            const rawExt = contentType.split("/")[1]?.split(";")[0]?.trim() ?? "mp4";
+            const ext = rawExt === "quicktime" ? "mov" : rawExt === "x-matroska" ? "mkv" : rawExt === "x-msvideo" ? "avi" : rawExt;
+            const base = key.endsWith("/") ? key : `${key}.`;
+            finalKey = `${base}${ext}`;
+          }
           job.key = finalKey;
         }
 
