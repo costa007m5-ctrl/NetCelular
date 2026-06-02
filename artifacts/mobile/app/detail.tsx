@@ -410,15 +410,53 @@ export default function DetailScreen() {
     fetchAll();
   }, [tmdbId, type]);
 
-  // Load episodes when season changes
+  // Load episodes when season changes — fetches pt-BR, falls back to en-US for names/overviews
   useEffect(() => {
     if (type !== "tv" || !tmdbId) return;
     setLoadingEpisodes(true);
-    tmdbApi.tmdb
-      .tvSeason(tmdbId, selectedSeason)
-      .then((s) => setEpisodeList(s.episodes ?? []))
-      .catch(() => setEpisodeList([]))
-      .finally(() => setLoadingEpisodes(false));
+    const TMDB_KEY_LOCAL = "8f0beb08cf016ec8de49e454e09879ec";
+
+    const loadEps = async () => {
+      try {
+        const ptData = await tmdbApi.tmdb.tvSeason(tmdbId, selectedSeason);
+        const episodes = ptData.episodes ?? [];
+
+        const needsEnglish = episodes.some(
+          (ep) => !ep.name || /^Episódio\s*\d+$/i.test(ep.name) || !ep.overview
+        );
+
+        if (needsEnglish) {
+          try {
+            const enRes = await fetch(
+              `https://api.themoviedb.org/3/tv/${tmdbId}/season/${selectedSeason}?api_key=${TMDB_KEY_LOCAL}&language=en-US`
+            );
+            if (enRes.ok) {
+              const enData = await enRes.json();
+              const enEps: any[] = enData.episodes ?? [];
+              const merged = episodes.map((ep) => {
+                const enEp = enEps.find((e: any) => e.episode_number === ep.episode_number);
+                const isGeneric = !ep.name || /^Episódio\s*\d+$/i.test(ep.name);
+                return {
+                  ...ep,
+                  name: isGeneric && enEp?.name ? enEp.name : ep.name,
+                  overview: !ep.overview && enEp?.overview ? enEp.overview : ep.overview,
+                };
+              });
+              setEpisodeList(merged);
+              return;
+            }
+          } catch {}
+        }
+
+        setEpisodeList(episodes);
+      } catch {
+        setEpisodeList([]);
+      } finally {
+        setLoadingEpisodes(false);
+      }
+    };
+
+    loadEps();
   }, [tmdbId, type, selectedSeason]);
 
   const toggleList = async () => {
@@ -1218,12 +1256,25 @@ export default function DetailScreen() {
                     </View>
                   </ScrollView>
 
-                  {loadingEpisodes ? (
-                    <ActivityIndicator color={colors.primary} style={{ marginTop: 20 }} />
-                  ) : episodeList.length === 0 ? (
-                    <Text style={{ color: colors.mutedForeground }}>Nenhum episódio encontrado.</Text>
-                  ) : (
-                    episodeList.map((ep) => {
+                  {(() => {
+                    // Filter: if R2 has specific episode entries for this season, show only those
+                    const r2SpecificEps = r2Items.filter(
+                      (i) => Number(i.season) === selectedSeason && i.episode != null
+                    );
+                    const displayedEpisodes =
+                      r2SpecificEps.length > 0
+                        ? episodeList.filter((ep) =>
+                            r2SpecificEps.some((i) => Number(i.episode) === ep.episode_number)
+                          )
+                        : episodeList;
+
+                    if (loadingEpisodes) {
+                      return <ActivityIndicator color={colors.primary} style={{ marginTop: 20 }} />;
+                    }
+                    if (displayedEpisodes.length === 0) {
+                      return <Text style={{ color: colors.mutedForeground }}>Nenhum episódio encontrado.</Text>;
+                    }
+                    return displayedEpisodes.map((ep) => {
                       const { watched, current } = getEpisodeStatus(ep);
                       // Smart R2 match: exact episode → same season folder → whole series folder
                       const r2Ep =
@@ -1242,8 +1293,8 @@ export default function DetailScreen() {
                           onR2Press={r2Ep ? () => goToR2Player(r2Ep, selectedSeason, ep.episode_number) : undefined}
                         />
                       );
-                    })
-                  )}
+                    });
+                  })()}
                 </View>
               )}
 
