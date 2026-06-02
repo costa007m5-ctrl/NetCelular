@@ -379,7 +379,7 @@ function FolderPickerModal({ onSelect, onClose }: {
     setLoading(true);
     setError(null);
     try {
-      const data = await apiFetch<{ folders: FileItem[] }>(`/list?prefix=${encodeURIComponent(prefix)}&delimiter=/`);
+      const data = await apiFetch<{ folders: FileItem[] }>(`/list?prefix=${encodeURIComponent(prefix)}&delimiter=/&noFallback=true`);
       setFolders(data.folders);
     } catch (e: any) { setError(e.message); }
     finally { setLoading(false); }
@@ -1148,7 +1148,7 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
     setError(null);
     try {
       const data = await apiFetch<{ folders: FileItem[]; files: FileItem[] }>(
-        `/list?prefix=${encodeURIComponent(prefix)}&delimiter=/`
+        `/list?prefix=${encodeURIComponent(prefix)}&delimiter=/&noFallback=true`
       );
       setItems([...data.folders, ...data.files]);
     } catch (e: any) { setError(e.message); }

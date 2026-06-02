@@ -413,6 +413,8 @@ router.get("/list", async (req, res) => {
     // Empty string = recursive listing (no grouping); undefined = default "/"
     const delimiter = rawDelimiter === "" ? undefined : (rawDelimiter ?? "/");
     const continuationToken = (req.query["token"] as string) ?? undefined;
+    // noFallback=true → never do recursive fallback (used by file browsers / ManagePanel)
+    const noFallback = req.query["noFallback"] === "true";
 
     const cmd = new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, Delimiter: delimiter, MaxKeys: 1000, ContinuationToken: continuationToken });
     const data = await client.send(cmd);
@@ -424,7 +426,7 @@ router.get("/list", async (req, res) => {
     }));
 
     let files = (data.Contents ?? [])
-      .filter((o) => o.Key !== prefix && !o.Key?.endsWith("__registry.json"))
+      .filter((o) => o.Key !== prefix && !o.Key?.endsWith("__registry.json") && !o.Key?.endsWith("__catalog-meta.json"))
       .map((o) => ({
         type: "file" as const,
         key: o.Key!,
@@ -436,12 +438,13 @@ router.get("/list", async (req, res) => {
       }));
 
     // Fallback: if delimiter was used and no video found at this level,
-    // do a recursive search so older clients (APK) can still find nested videos
-    if (delimiter && !files.some((f) => f.isVideo) && folders.length > 0) {
+    // do a recursive search so older clients (APK) can still find nested videos.
+    // DISABLED when noFallback=true (file browsers must only show current-level contents).
+    if (!noFallback && delimiter && !files.some((f) => f.isVideo) && folders.length > 0) {
       const recCmd = new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, MaxKeys: 1000 });
       const recData = await client.send(recCmd);
       const recFiles = (recData.Contents ?? [])
-        .filter((o) => o.Key !== prefix && !o.Key?.endsWith("__registry.json"))
+        .filter((o) => o.Key !== prefix && !o.Key?.endsWith("__registry.json") && !o.Key?.endsWith("__catalog-meta.json"))
         .map((o) => ({
           type: "file" as const,
           key: o.Key!,
