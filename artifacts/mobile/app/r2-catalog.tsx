@@ -359,12 +359,126 @@ function CatalogGrid({ onSelect, onRegister, onEdit }: {
   );
 }
 
+// ── Folder Picker Modal ────────────────────────────────────────────────────────
+
+function FolderPickerModal({ onSelect, onClose }: {
+  onSelect: (prefix: string) => void; onClose: () => void;
+}) {
+  const [path, setPath] = useState("");
+  const [folders, setFolders] = useState<FileItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async (prefix: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await apiFetch<{ folders: FileItem[] }>(`/list?prefix=${encodeURIComponent(prefix)}&delimiter=/`);
+      setFolders(data.folders);
+    } catch (e: any) { setError(e.message); }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(""); }, []);
+
+  const navigate = (folder: FileItem) => {
+    setPath(folder.key);
+    load(folder.key);
+  };
+
+  const goUp = () => {
+    const parts = path.replace(/\/$/, "").split("/");
+    parts.pop();
+    const newPath = parts.length && parts[0] ? `${parts.join("/")}/` : "";
+    setPath(newPath);
+    load(newPath);
+  };
+
+  const pathParts = path ? path.replace(/\/$/, "").split("/") : [];
+
+  return (
+    <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <View style={[styles.modalWrap, { backgroundColor: "#0d0d0d" }]}>
+        {/* Header */}
+        <View style={styles.modalHeader}>
+          <Text style={styles.modalTitle}>Escolher pasta</Text>
+          <Pressable onPress={onClose}><Feather name="x" size={22} color="rgba(255,255,255,0.6)" /></Pressable>
+        </View>
+
+        {/* Breadcrumb */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.breadcrumb}
+          contentContainerStyle={{ alignItems: "center", paddingHorizontal: 12, gap: 4 }}>
+          <Pressable onPress={() => { setPath(""); load(""); }} style={styles.breadcrumbItem}>
+            <Feather name="home" size={13} color={RED} />
+          </Pressable>
+          {pathParts.map((p, i) => (
+            <React.Fragment key={i}>
+              <Text style={styles.breadcrumbSep}>/</Text>
+              <Pressable onPress={() => {
+                const np = pathParts.slice(0, i + 1).join("/") + "/";
+                setPath(np); load(np);
+              }} style={styles.breadcrumbItem}>
+                <Text style={styles.breadcrumbText} numberOfLines={1}>{p}</Text>
+              </Pressable>
+            </React.Fragment>
+          ))}
+        </ScrollView>
+
+        {/* Select current folder button */}
+        <Pressable
+          style={{ flexDirection: "row", alignItems: "center", gap: 10, marginHorizontal: 16, marginVertical: 10,
+            backgroundColor: `${RED}18`, borderWidth: 1, borderColor: `${RED}40`, borderRadius: 10, padding: 12 }}
+          onPress={() => { onSelect(path); onClose(); }}
+        >
+          <Feather name="check-circle" size={18} color={RED} />
+          <Text style={{ color: RED, fontWeight: "700", fontSize: 13, flex: 1 }}>
+            {path ? `Usar esta pasta: ${path.replace(/\/$/, "")}` : "Usar pasta raiz"}
+          </Text>
+        </Pressable>
+
+        {error && <View style={[styles.errorBox, { margin: 12 }]}><Text style={styles.errorBoxText}>{error}</Text></View>}
+
+        {loading ? (
+          <View style={styles.center}><ActivityIndicator color={RED} /></View>
+        ) : (
+          <FlatList
+            data={folders}
+            keyExtractor={(f) => f.key}
+            contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 40 }}
+            ListHeaderComponent={path ? (
+              <Pressable style={styles.upRow} onPress={goUp}>
+                <Feather name="corner-left-up" size={16} color="rgba(255,255,255,0.5)" />
+                <Text style={styles.upText}>.. (pasta acima)</Text>
+              </Pressable>
+            ) : null}
+            ListEmptyComponent={
+              <View style={[styles.center, { paddingTop: 40 }]}>
+                <Feather name="folder" size={32} color="rgba(255,255,255,0.15)" />
+                <Text style={[styles.dim, { marginTop: 12 }]}>Nenhuma subpasta aqui</Text>
+              </View>
+            }
+            renderItem={({ item }) => (
+              <Pressable style={styles.fileRow} onPress={() => navigate(item)}>
+                <Feather name="folder" size={18} color="#f59e0b" />
+                <Text style={[styles.fileName, { flex: 1, marginLeft: 10 }]}>{item.name}</Text>
+                <Feather name="chevron-right" size={16} color="rgba(255,255,255,0.3)" />
+              </Pressable>
+            )}
+          />
+        )}
+      </View>
+    </Modal>
+  );
+}
+
 // ── Upload Panel ───────────────────────────────────────────────────────────────
 
 function UploadPanel() {
   const insets = useSafeAreaInsets();
   const [url, setUrl] = useState("");
-  const [destKey, setDestKey] = useState("");
+  const [selectedFolder, setSelectedFolder] = useState("");
+  const [fileName, setFileName] = useState("");
+  const [showFolderPicker, setShowFolderPicker] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [job, setJob] = useState<Job | null>(null);
   const [jobError, setJobError] = useState<string | null>(null);
@@ -375,11 +489,28 @@ function UploadPanel() {
 
   const stopPoll = () => { if (pollRef.current) clearTimeout(pollRef.current); };
 
+  // Auto-detect filename from URL
+  const onUrlChange = (v: string) => {
+    setUrl(v);
+    if (!fileName) {
+      try {
+        const urlPath = new URL(v.trim()).pathname;
+        const auto = urlPath.split("/").pop() ?? "";
+        if (auto && auto.includes(".")) setFileName(auto);
+      } catch {}
+    }
+  };
+
+  const destKey = selectedFolder
+    ? `${selectedFolder.endsWith("/") ? selectedFolder : `${selectedFolder}/`}${fileName.trim()}`
+    : fileName.trim();
+
   const startDownload = async () => {
     const u = url.trim();
-    const k = destKey.trim();
+    const fn = fileName.trim();
     if (!u) { setJobError("Informe a URL do vídeo"); return; }
-    if (!k) { setJobError("Informe o caminho de destino (ex: Pasta/video.mp4)"); return; }
+    if (!fn) { setJobError("Informe o nome do arquivo (ex: E01.mp4)"); return; }
+    const k = destKey;
     setDownloading(true);
     setJob(null);
     setJobError(null);
@@ -391,10 +522,11 @@ function UploadPanel() {
           const j = await apiFetch<Job>(`/job/${r.jobId}`);
           setJob(j);
           if (j.status === "done") {
-            setSuccess(`✅ Upload concluído: ${k}`);
+            setSuccess(`✅ Upload concluído: ${j.key ?? k}`);
             setDownloading(false);
             setUrl("");
-            setDestKey("");
+            setFileName("");
+            setSelectedFolder("");
           } else if (j.status === "error") {
             setJobError(j.error ?? "Falha no download");
             setDownloading(false);
@@ -430,104 +562,143 @@ function UploadPanel() {
   const total = job?.total ?? 0;
 
   return (
-    <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 80 }}>
-      {/* Via URL */}
-      <View style={styles.sectionCard}>
-        <View style={styles.sectionTitleRow}>
-          <Feather name="download-cloud" size={18} color={RED} />
-          <Text style={styles.sectionTitle}>Baixar via URL para o R2</Text>
-        </View>
-        <Text style={styles.sectionHint}>Cole a URL do vídeo — o servidor vai baixar e enviar para o R2 automaticamente. Sem limite de tamanho.</Text>
+    <>
+      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 80 }}>
+        {/* Via URL */}
+        <View style={styles.sectionCard}>
+          <View style={styles.sectionTitleRow}>
+            <Feather name="download-cloud" size={18} color={RED} />
+            <Text style={styles.sectionTitle}>Baixar via URL para o R2</Text>
+          </View>
+          <Text style={styles.sectionHint}>Cole a URL do vídeo — o servidor baixa e envia para o R2. Sem limite de tamanho.</Text>
 
-        <Text style={styles.fieldLabel}>URL do vídeo</Text>
-        <TextInput
-          style={[styles.input, downloading && { opacity: 0.5 }]}
-          placeholder="https://exemplo.com/video.mp4"
-          placeholderTextColor="rgba(255,255,255,0.25)"
-          value={url}
-          onChangeText={setUrl}
-          autoCapitalize="none"
-          autoCorrect={false}
-          editable={!downloading}
-          multiline
-          numberOfLines={3}
-          textAlignVertical="top"
-        />
+          <Text style={styles.fieldLabel}>URL do vídeo</Text>
+          <TextInput
+            style={[styles.input, downloading && { opacity: 0.5 }]}
+            placeholder="https://exemplo.com/video.mp4"
+            placeholderTextColor="rgba(255,255,255,0.25)"
+            value={url}
+            onChangeText={onUrlChange}
+            autoCapitalize="none"
+            autoCorrect={false}
+            editable={!downloading}
+            multiline
+            numberOfLines={3}
+            textAlignVertical="top"
+          />
 
-        <Text style={styles.fieldLabel}>Destino no R2 (caminho/arquivo.mp4)</Text>
-        <TextInput
-          style={[styles.input, downloading && { opacity: 0.5 }]}
-          placeholder="Série X/Temporada 1/E01.mp4"
-          placeholderTextColor="rgba(255,255,255,0.25)"
-          value={destKey}
-          onChangeText={setDestKey}
-          autoCapitalize="none"
-          autoCorrect={false}
-          editable={!downloading}
-        />
-
-        {/* Progress */}
-        {downloading && job && (
-          <View style={styles.progressWrap}>
-            <View style={styles.progressBar}>
-              <View style={[styles.progressFill, { width: `${progress}%` as any }]} />
-            </View>
-            <Text style={styles.progressText}>
-              {job.status === "downloading" ? "Baixando fonte…" : "Enviando para R2…"}{" "}
-              {progress > 0 ? `${progress}%` : ""}
-              {total > 0 ? `  (${formatBytes(downloaded)} / ${formatBytes(total)})` : downloaded > 0 ? `  ${formatBytes(downloaded)}` : ""}
+          {/* Folder picker */}
+          <Text style={[styles.fieldLabel, { marginTop: 12 }]}>Pasta de destino</Text>
+          <Pressable
+            style={[styles.input, { flexDirection: "row", alignItems: "center", gap: 10 }, downloading && { opacity: 0.5 }]}
+            onPress={() => !downloading && setShowFolderPicker(true)}
+          >
+            <Feather name="folder" size={16} color={selectedFolder ? "#f59e0b" : "rgba(255,255,255,0.25)"} />
+            <Text style={{ flex: 1, color: selectedFolder ? "#fff" : "rgba(255,255,255,0.3)", fontSize: 14 }} numberOfLines={1}>
+              {selectedFolder ? selectedFolder.replace(/\/$/, "") : "Toque para escolher pasta…"}
             </Text>
-          </View>
-        )}
-        {downloading && !job && <ActivityIndicator color={RED} style={{ marginVertical: 12 }} />}
+            {selectedFolder ? (
+              <Pressable onPress={() => setSelectedFolder("")}>
+                <Feather name="x" size={14} color="rgba(255,255,255,0.4)" />
+              </Pressable>
+            ) : (
+              <Feather name="chevron-right" size={14} color="rgba(255,255,255,0.3)" />
+            )}
+          </Pressable>
 
-        {jobError && (
-          <View style={styles.errorBox}>
-            <Feather name="alert-circle" size={14} color="#f87171" />
-            <Text style={styles.errorBoxText}>{jobError}</Text>
-          </View>
-        )}
-        {success && (
-          <View style={[styles.errorBox, { borderColor: "#22c55e40", backgroundColor: "#22c55e10" }]}>
-            <Text style={[styles.errorBoxText, { color: "#4ade80" }]}>{success}</Text>
-          </View>
-        )}
+          {/* Filename */}
+          <Text style={[styles.fieldLabel, { marginTop: 12 }]}>Nome do arquivo</Text>
+          <TextInput
+            style={[styles.input, downloading && { opacity: 0.5 }]}
+            placeholder="E01.mp4"
+            placeholderTextColor="rgba(255,255,255,0.25)"
+            value={fileName}
+            onChangeText={setFileName}
+            autoCapitalize="none"
+            autoCorrect={false}
+            editable={!downloading}
+          />
 
-        <Pressable
-          style={[styles.actionBtn, downloading && { opacity: 0.5 }]}
-          onPress={startDownload}
-          disabled={downloading}
-        >
-          {downloading ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="download-cloud" size={16} color="#fff" />}
-          <Text style={styles.actionBtnText}>{downloading ? "Enviando…" : "Baixar e enviar para R2"}</Text>
-        </Pressable>
-      </View>
+          {/* Full path preview */}
+          {(selectedFolder || fileName) && (
+            <View style={{ marginTop: 8, backgroundColor: "rgba(255,255,255,0.04)", borderRadius: 8, padding: 10 }}>
+              <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 11, marginBottom: 2 }}>Caminho completo:</Text>
+              <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 12, fontFamily: "monospace" }} numberOfLines={2}>
+                {destKey || "—"}
+              </Text>
+            </View>
+          )}
 
-      {/* Nova pasta */}
-      <View style={[styles.sectionCard, { marginTop: 16 }]}>
-        <View style={styles.sectionTitleRow}>
-          <Feather name="folder-plus" size={18} color={RED} />
-          <Text style={styles.sectionTitle}>Criar nova pasta</Text>
+          {/* Progress */}
+          {downloading && job && (
+            <View style={styles.progressWrap}>
+              <View style={styles.progressBar}>
+                <View style={[styles.progressFill, { width: `${progress}%` as any }]} />
+              </View>
+              <Text style={styles.progressText}>
+                {job.status === "downloading" ? "Baixando fonte…" : "Enviando para R2…"}{" "}
+                {progress > 0 ? `${progress}%` : ""}
+                {total > 0 ? `  (${formatBytes(downloaded)} / ${formatBytes(total)})` : downloaded > 0 ? `  ${formatBytes(downloaded)}` : ""}
+              </Text>
+            </View>
+          )}
+          {downloading && !job && <ActivityIndicator color={RED} style={{ marginVertical: 12 }} />}
+
+          {jobError && (
+            <View style={styles.errorBox}>
+              <Feather name="alert-circle" size={14} color="#f87171" />
+              <Text style={styles.errorBoxText}>{jobError}</Text>
+            </View>
+          )}
+          {success && (
+            <View style={[styles.errorBox, { borderColor: "#22c55e40", backgroundColor: "#22c55e10" }]}>
+              <Text style={[styles.errorBoxText, { color: "#4ade80" }]}>{success}</Text>
+            </View>
+          )}
+
+          <Pressable
+            style={[styles.actionBtn, downloading && { opacity: 0.5 }]}
+            onPress={startDownload}
+            disabled={downloading}
+          >
+            {downloading ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="download-cloud" size={16} color="#fff" />}
+            <Text style={styles.actionBtnText}>{downloading ? "Enviando…" : "Baixar e enviar para R2"}</Text>
+          </Pressable>
         </View>
-        <Text style={styles.sectionHint}>Crie a estrutura antes de enviar os vídeos. Use "/" para sub-pastas.</Text>
 
-        <Text style={styles.fieldLabel}>Nome da pasta</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Série X/Temporada 1"
-          placeholderTextColor="rgba(255,255,255,0.25)"
-          value={folderName}
-          onChangeText={setFolderName}
-          autoCapitalize="none"
-          autoCorrect={false}
+        {/* Nova pasta */}
+        <View style={[styles.sectionCard, { marginTop: 16 }]}>
+          <View style={styles.sectionTitleRow}>
+            <Feather name="folder-plus" size={18} color={RED} />
+            <Text style={styles.sectionTitle}>Criar nova pasta</Text>
+          </View>
+          <Text style={styles.sectionHint}>Crie a estrutura antes de enviar os vídeos. Use "/" para sub-pastas.</Text>
+
+          <Text style={styles.fieldLabel}>Nome da pasta</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Série X/Temporada 1"
+            placeholderTextColor="rgba(255,255,255,0.25)"
+            value={folderName}
+            onChangeText={setFolderName}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+
+          <Pressable style={[styles.actionBtn, { backgroundColor: "#1d4ed8" }]} onPress={createFolder} disabled={creatingFolder}>
+            {creatingFolder ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="folder-plus" size={16} color="#fff" />}
+            <Text style={styles.actionBtnText}>Criar pasta</Text>
+          </Pressable>
+        </View>
+      </ScrollView>
+
+      {showFolderPicker && (
+        <FolderPickerModal
+          onSelect={(prefix) => setSelectedFolder(prefix)}
+          onClose={() => setShowFolderPicker(false)}
         />
-
-        <Pressable style={[styles.actionBtn, { backgroundColor: "#1d4ed8" }]} onPress={createFolder} disabled={creatingFolder}>
-          {creatingFolder ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="folder-plus" size={16} color="#fff" />}
-          <Text style={styles.actionBtnText}>Criar pasta</Text>
-        </Pressable>
-      </View>
-    </ScrollView>
+      )}
+    </>
   );
 }
 
