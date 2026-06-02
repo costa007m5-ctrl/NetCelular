@@ -1336,6 +1336,22 @@ export default function AdminScreen() {
               </View>
             )}
 
+            {/* ── R2 Cloudflare ── */}
+            <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginTop: 24, marginBottom: 10 }]}>CLOUDFLARE R2 · ACERVO EXCLUSIVO</Text>
+            <Pressable
+              onPress={() => router.push("/r2-catalog")}
+              style={[styles.apiCard, { backgroundColor: RED + "18", borderColor: RED + "40", flexDirection: "row", alignItems: "center", gap: 14, paddingVertical: 16 }]}
+            >
+              <View style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: RED, alignItems: "center", justifyContent: "center" }}>
+                <Feather name="cloud" size={22} color="#fff" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.apiName, { color: colors.foreground, fontSize: 15 }]}>Catálogo R2</Text>
+                <Text style={[styles.apiLatency, { color: colors.mutedForeground }]}>Filmes e séries armazenados no R2</Text>
+              </View>
+              <Feather name="chevron-right" size={18} color={RED} />
+            </Pressable>
+
             {driveTestResults.length === 0 && driveTestQuery.length > 0 && !driveTestLoading && (
               <View style={[styles.infoCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
                 <Feather name="search" size={16} color={colors.mutedForeground} />

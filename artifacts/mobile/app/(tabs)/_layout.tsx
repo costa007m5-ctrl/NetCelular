@@ -35,12 +35,6 @@ function NativeTabLayout({ isAdmin }: { isAdmin: boolean }) {
         <Icon sf={{ default: "externaldrive", selected: "externaldrive.fill" }} />
         <Label>Acervo</Label>
       </NativeTabs.Trigger>
-      {isAdmin && (
-        <NativeTabs.Trigger name="admin">
-          <Icon sf={{ default: "shield", selected: "shield.fill" }} />
-          <Label>Admin</Label>
-        </NativeTabs.Trigger>
-      )}
       <NativeTabs.Trigger name="profile">
         <Icon sf={{ default: "person", selected: "person.fill" }} />
         <Label>Perfil</Label>
@@ -158,14 +152,7 @@ function ClassicTabLayout({ isAdmin }: { isAdmin: boolean }) {
             isIOS ? <SymbolView name="externaldrive" tintColor={color} size={22} /> : <Feather name="hard-drive" size={22} color={color} />,
         }}
       />
-      <Tabs.Screen
-        name="admin"
-        options={isAdmin ? {
-          title: "Admin",
-          tabBarIcon: ({ color }) =>
-            isIOS ? <SymbolView name="shield" tintColor={color} size={22} /> : <Feather name="shield" size={22} color={color} />,
-        } : { href: null }}
-      />
+      <Tabs.Screen name="admin" options={{ href: null }} />
       <Tabs.Screen
         name="profile"
         options={{
