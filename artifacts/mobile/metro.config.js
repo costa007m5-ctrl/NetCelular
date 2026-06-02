@@ -13,8 +13,12 @@ const monorepoRoot = path.resolve(projectRoot, "../..");
 
 const config = getDefaultConfig(projectRoot);
 
-// Watch the entire monorepo root so Metro can resolve pnpm symlinks
-config.watchFolders = [monorepoRoot];
+// Only watch the shared lib folder (not the entire monorepo root).
+// Watching the whole monorepo caused Metro to react to API server changes,
+// triggering unnecessary hot-reloads and slow restarts.
+config.watchFolders = [
+  path.resolve(monorepoRoot, "lib"),
+];
 
 // Tell Metro where to find node_modules (project-level and workspace-level)
 config.resolver.nodeModulesPaths = [
