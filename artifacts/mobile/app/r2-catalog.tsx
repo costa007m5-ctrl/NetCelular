@@ -368,6 +368,9 @@ function FolderPickerModal({ onSelect, onClose }: {
   const [folders, setFolders] = useState<FileItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [saving, setSaving] = useState(false);
 
   const load = useCallback(async (prefix: string) => {
     setLoading(true);
@@ -383,6 +386,7 @@ function FolderPickerModal({ onSelect, onClose }: {
 
   const navigate = (folder: FileItem) => {
     setPath(folder.key);
+    setCreating(false);
     load(folder.key);
   };
 
@@ -391,7 +395,22 @@ function FolderPickerModal({ onSelect, onClose }: {
     parts.pop();
     const newPath = parts.length && parts[0] ? `${parts.join("/")}/` : "";
     setPath(newPath);
+    setCreating(false);
     load(newPath);
+  };
+
+  const createFolder = async () => {
+    const n = newName.trim();
+    if (!n) return;
+    const fullPrefix = path ? `${path}${n}/` : `${n}/`;
+    setSaving(true);
+    try {
+      await apiPost("/mkdir", { prefix: fullPrefix });
+      setNewName("");
+      setCreating(false);
+      await load(path);
+    } catch (e: any) { setError(e.message); }
+    finally { setSaving(false); }
   };
 
   const pathParts = path ? path.replace(/\/$/, "").split("/") : [];
@@ -402,13 +421,47 @@ function FolderPickerModal({ onSelect, onClose }: {
         {/* Header */}
         <View style={styles.modalHeader}>
           <Text style={styles.modalTitle}>Escolher pasta</Text>
-          <Pressable onPress={onClose}><Feather name="x" size={22} color="rgba(255,255,255,0.6)" /></Pressable>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
+            <Pressable
+              onPress={() => { setCreating((v) => !v); setNewName(""); }}
+              style={{ backgroundColor: creating ? `${RED}30` : "rgba(255,255,255,0.08)", borderRadius: 8, padding: 6 }}
+            >
+              <Feather name={creating ? "minus" : "plus"} size={18} color={creating ? RED : "#fff"} />
+            </Pressable>
+            <Pressable onPress={onClose}><Feather name="x" size={22} color="rgba(255,255,255,0.6)" /></Pressable>
+          </View>
         </View>
+
+        {/* Inline create folder form */}
+        {creating && (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: 16, marginBottom: 10 }}>
+            <Feather name="folder-plus" size={16} color="#f59e0b" />
+            <TextInput
+              style={[styles.input, { flex: 1, marginBottom: 0, paddingVertical: 8 }]}
+              placeholder={path ? `Nova subpasta em "${path.replace(/\/$/, "").split("/").pop()}"` : "Nome da nova pasta"}
+              placeholderTextColor="rgba(255,255,255,0.25)"
+              value={newName}
+              onChangeText={setNewName}
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoFocus
+              onSubmitEditing={createFolder}
+              returnKeyType="done"
+            />
+            <Pressable
+              style={{ backgroundColor: RED, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8 }}
+              onPress={createFolder}
+              disabled={saving || !newName.trim()}
+            >
+              {saving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>Criar</Text>}
+            </Pressable>
+          </View>
+        )}
 
         {/* Breadcrumb */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.breadcrumb}
           contentContainerStyle={{ alignItems: "center", paddingHorizontal: 12, gap: 4 }}>
-          <Pressable onPress={() => { setPath(""); load(""); }} style={styles.breadcrumbItem}>
+          <Pressable onPress={() => { setPath(""); setCreating(false); load(""); }} style={styles.breadcrumbItem}>
             <Feather name="home" size={13} color={RED} />
           </Pressable>
           {pathParts.map((p, i) => (
@@ -416,7 +469,7 @@ function FolderPickerModal({ onSelect, onClose }: {
               <Text style={styles.breadcrumbSep}>/</Text>
               <Pressable onPress={() => {
                 const np = pathParts.slice(0, i + 1).join("/") + "/";
-                setPath(np); load(np);
+                setPath(np); setCreating(false); load(np);
               }} style={styles.breadcrumbItem}>
                 <Text style={styles.breadcrumbText} numberOfLines={1}>{p}</Text>
               </Pressable>
@@ -455,6 +508,10 @@ function FolderPickerModal({ onSelect, onClose }: {
               <View style={[styles.center, { paddingTop: 40 }]}>
                 <Feather name="folder" size={32} color="rgba(255,255,255,0.15)" />
                 <Text style={[styles.dim, { marginTop: 12 }]}>Nenhuma subpasta aqui</Text>
+                <Pressable onPress={() => setCreating(true)} style={{ marginTop: 16, flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <Feather name="plus-circle" size={14} color={RED} />
+                  <Text style={{ color: RED, fontSize: 13 }}>Criar pasta aqui</Text>
+                </Pressable>
               </View>
             }
             renderItem={({ item }) => (
