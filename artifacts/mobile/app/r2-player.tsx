@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Animated,
-  Dimensions,
   Platform,
   Pressable,
   ScrollView,
@@ -10,6 +9,7 @@ import {
   Text,
   View,
   Image,
+  useWindowDimensions,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -26,7 +26,6 @@ try { ScreenOrientation = require("expo-screen-orientation"); } catch {}
 let NavBar: any = null;
 try { NavBar = require("expo-navigation-bar"); } catch {}
 
-const { width: W, height: H } = Dimensions.get("window");
 const RED = "#e50914";
 const TMDB_IMG = (path: string | null | undefined, size = "w1280") =>
   path ? `https://image.tmdb.org/t/p/${size}${path}` : null;
@@ -95,6 +94,8 @@ async function fetchSignedUrl(key: string, episodeNum?: number | null): Promise<
 }
 
 export default function R2PlayerScreen() {
+  const { width: W, height: H } = useWindowDimensions();
+
   const params = useLocalSearchParams<{
     key: string;
     title: string;
