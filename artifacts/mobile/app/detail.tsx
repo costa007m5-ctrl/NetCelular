@@ -220,6 +220,8 @@ export default function DetailScreen() {
   const [gstreamResolving, setGstreamResolving] = useState(false);
 
   const [r2Items, setR2Items] = useState<RegistryItem[]>([]);
+  // Episode numbers (parsed from R2 filenames) for the current season's folder item
+  const [r2EpisodeNums, setR2EpisodeNums] = useState<Set<number>>(new Set());
 
   // Load R2 registry items for this title (non-blocking)
   useEffect(() => {
@@ -242,6 +244,46 @@ export default function DetailScreen() {
     };
     loadR2();
   }, [tmdbId, type]);
+
+  // When a season-level R2 item exists (episode=null), scan its folder to find
+  // which specific episode files are uploaded — used to filter the episode list
+  // and assign R2 play buttons only to episodes that actually exist in R2.
+  useEffect(() => {
+    if (type !== "tv") return;
+    const seasonItem = r2Items.find(
+      (i) => Number(i.season) === selectedSeason && i.episode == null
+    );
+    if (!seasonItem) { setR2EpisodeNums(new Set()); return; }
+
+    const EP_REGEX = /[Ee](\d{1,4})/;
+    const VIDEO_EXT = /\.(mp4|mkv|mov|avi|webm|m4v|ts|wmv|flv|ogv)$/i;
+
+    const scanFolder = async () => {
+      try {
+        const apiBase = getApiBase();
+        if (!apiBase) return;
+        const ctrl = new AbortController();
+        const tid = setTimeout(() => ctrl.abort(), 15000);
+        // delimiter="" → recursive listing of all files under season folder
+        const res = await fetch(
+          `${apiBase}/r2/list?prefix=${encodeURIComponent(seasonItem.r2Key)}&delimiter=`,
+          { signal: ctrl.signal }
+        );
+        clearTimeout(tid);
+        if (!res.ok) return;
+        const data = await res.json();
+        const files: { name: string }[] = data.files ?? [];
+        const nums = new Set<number>();
+        for (const f of files) {
+          if (!VIDEO_EXT.test(f.name)) continue;
+          const m = f.name.match(EP_REGEX);
+          if (m) nums.add(parseInt(m[1], 10));
+        }
+        setR2EpisodeNums(nums);
+      } catch {}
+    };
+    scanFolder();
+  }, [r2Items, selectedSeason, type]);
 
   // Check GStream availability in background (non-blocking)
   useEffect(() => {
@@ -1320,15 +1362,30 @@ export default function DetailScreen() {
                   </ScrollView>
 
                   {(() => {
-                    // Filter: if R2 has specific episode entries for this season, show only those
+                    // Per-episode registry items for this season (explicit entries)
                     const r2SpecificEps = r2Items.filter(
                       (i) => Number(i.season) === selectedSeason && i.episode != null
                     );
+                    // Season-level registry item (episode=null) — exists when admin
+                    // registered the whole season folder
+                    const r2SeasonItem = r2Items.find(
+                      (i) => Number(i.season) === selectedSeason && i.episode == null
+                    );
+                    // Whether we have a real file list from the season folder scan
+                    const hasFolderScan = r2SeasonItem != null && r2EpisodeNums.size > 0;
+
+                    // Build the episode list to display:
+                    // 1. Per-episode registry entries → show only those episodes
+                    // 2. Season folder with scanned files → show only scanned episodes
+                    // 3. Season folder but scan pending/empty → show all TMDB episodes
+                    // 4. No R2 at all → show all TMDB episodes
                     const displayedEpisodes =
                       r2SpecificEps.length > 0
                         ? episodeList.filter((ep) =>
                             r2SpecificEps.some((i) => Number(i.episode) === ep.episode_number)
                           )
+                        : hasFolderScan
+                        ? episodeList.filter((ep) => r2EpisodeNums.has(ep.episode_number))
                         : episodeList;
 
                     if (loadingEpisodes) {
@@ -1339,11 +1396,18 @@ export default function DetailScreen() {
                     }
                     return displayedEpisodes.map((ep) => {
                       const { watched, current } = getEpisodeStatus(ep);
-                      // Smart R2 match: exact episode → same season folder → whole series folder
+
+                      // R2 match priority:
+                      // 1. Exact per-episode entry
+                      // 2. Season folder item — only if this episode was found in the scan
+                      // 3. Whole-series item — only if no season-specific data exists at all
                       const r2Ep =
                         r2Items.find((i) => Number(i.season) === selectedSeason && Number(i.episode) === ep.episode_number) ??
-                        r2Items.find((i) => Number(i.season) === selectedSeason && i.episode == null) ??
-                        r2Items.find((i) => i.season == null && i.episode == null);
+                        (r2SeasonItem && (hasFolderScan ? r2EpisodeNums.has(ep.episode_number) : true) ? r2SeasonItem : undefined) ??
+                        (r2SpecificEps.length === 0 && !r2SeasonItem
+                          ? r2Items.find((i) => i.season == null && i.episode == null)
+                          : undefined);
+
                       return (
                         <EpisodeRow
                           key={ep.episode_number}
