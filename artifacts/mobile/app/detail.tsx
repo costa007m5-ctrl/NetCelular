@@ -162,8 +162,8 @@ function EpisodeRow({
           </Pressable>
         )}
         {onR2Press && (
-          <Pressable onPress={onR2Press} style={[styles.epPlayBtn, { backgroundColor: "#c0392b", borderRadius: 8, padding: 4, marginTop: onPress ? 4 : 0 }]}>
-            <Feather name="cloud" size={16} color="#fff" />
+          <Pressable onPress={onR2Press} style={[styles.epPlayBtn, { backgroundColor: "#e50914", borderRadius: 8, padding: 4, marginTop: onPress ? 4 : 0 }]}>
+            <Feather name="play" size={16} color="#fff" />
           </Pressable>
         )}
       </View>
@@ -590,6 +590,9 @@ export default function DetailScreen() {
         type,
         season: item.season != null ? String(item.season) : "",
         episode: item.episode != null ? String(item.episode) : "",
+        r2ItemsJson: JSON.stringify(r2Items),
+        watchSeason: watchProgress?.season != null ? String(watchProgress.season) : "",
+        watchEpisode: watchProgress?.episode != null ? String(watchProgress.episode) : "",
       },
     });
   };
@@ -981,28 +984,16 @@ export default function DetailScreen() {
                 </View>
               ) : null}
 
-              {/* ASSISTIR AGORA — API Flix (shown only when no R2 content available) */}
-              {r2Items.length === 0 && (
-                <Pressable
-                  style={({ pressed }) => [styles.watchBtn, { backgroundColor: colors.primary }, pressed && { opacity: 0.85 }]}
-                  onPress={() => {
-                    const s = (type === "tv" && watchProgress?.season) ? watchProgress.season : 1;
-                    const e = (type === "tv" && watchProgress?.episode) ? watchProgress.episode : 1;
-                    goToPlayer(s, e);
-                  }}
-                  disabled={checking}
-                >
-                  {checking ? <ActivityIndicator size="small" color="#fff" /> : <Feather name="play" size={18} color="#fff" />}
-                  <Text style={styles.watchBtnText}>{checking ? "Verificando..." : "ASSISTIR AGORA"}</Text>
-                </Pressable>
-              )}
-
-              {/* PLAY 2 · CLOUDFLARE R2 */}
+              {/* ── Play buttons — auto-detect available sources ── */}
               {(() => {
-                const hasR2Movie = type === "movie" && r2Items.some((i) => i.season == null && i.episode == null);
-                const hasR2Tv = type === "tv" && r2Items.length > 0;
-                if (!hasR2Movie && !hasR2Tv) return null;
-                const onPressR2 = () => {
+                const resumeS = (type === "tv" && watchProgress?.season) ? watchProgress.season : 1;
+                const resumeE = (type === "tv" && watchProgress?.episode) ? watchProgress.episode : 1;
+
+                const hasR2 = type === "movie"
+                  ? r2Items.some((i) => i.season == null && i.episode == null)
+                  : r2Items.length > 0;
+
+                const pressR2 = () => {
                   if (type === "movie") {
                     const item = r2Items.find((i) => i.season == null && i.episode == null);
                     if (item) goToR2Player(item);
@@ -1013,44 +1004,84 @@ export default function DetailScreen() {
                     if (resumeItem) goToR2Player(resumeItem);
                   }
                 };
+
+                const pressGstream = () => goToGstreamPlayer(resumeS, resumeE);
+                const pressRegular = () => goToPlayer(resumeS, resumeE);
+
+                const sources = [
+                  hasR2 && { id: "r2", press: pressR2 },
+                  gstreamAvailable && { id: "gstream", press: pressGstream },
+                ].filter(Boolean) as { id: string; press: () => void }[];
+
+                if (sources.length === 0) {
+                  // Only regular player
+                  return (
+                    <Pressable
+                      style={({ pressed }) => [styles.watchBtn, { backgroundColor: colors.primary }, pressed && { opacity: 0.85 }]}
+                      onPress={pressRegular}
+                      disabled={checking}
+                    >
+                      {checking ? <ActivityIndicator size="small" color="#fff" /> : <Feather name="play" size={18} color="#fff" />}
+                      <Text style={styles.watchBtnText}>{checking ? "Verificando..." : "ASSISTIR AGORA"}</Text>
+                    </Pressable>
+                  );
+                }
+
+                if (sources.length === 1) {
+                  // Single special source — show as "ASSISTIR AGORA"
+                  return (
+                    <Pressable
+                      style={({ pressed }) => [styles.watchBtn, { backgroundColor: colors.primary }, pressed && { opacity: 0.85 }]}
+                      onPress={sources[0].press}
+                      disabled={sources[0].id === "gstream" && gstreamResolving}
+                    >
+                      {sources[0].id === "gstream" && gstreamResolving
+                        ? <ActivityIndicator size="small" color="#fff" />
+                        : <Feather name="play" size={18} color="#fff" />}
+                      <Text style={styles.watchBtnText}>
+                        {sources[0].id === "gstream" && gstreamResolving ? "Buscando stream..." : "ASSISTIR AGORA"}
+                      </Text>
+                    </Pressable>
+                  );
+                }
+
+                // Multiple sources — show individual buttons
                 return (
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.watchBtn,
-                      { backgroundColor: "#1a1a2e", borderWidth: 1.5, borderColor: "#e50914", marginTop: 0 },
-                      pressed && { opacity: 0.85 },
-                    ]}
-                    onPress={onPressR2}
-                  >
-                    <Feather name="cloud" size={18} color="#e50914" />
-                    <Text style={[styles.watchBtnText, { color: "#e50914" }]}>PLAY 2</Text>
-                  </Pressable>
+                  <>
+                    {hasR2 && (
+                      <Pressable
+                        style={({ pressed }) => [
+                          styles.watchBtn,
+                          { backgroundColor: colors.primary },
+                          pressed && { opacity: 0.85 },
+                        ]}
+                        onPress={pressR2}
+                      >
+                        <Feather name={type === "tv" ? "tv" : "film"} size={18} color="#fff" />
+                        <Text style={styles.watchBtnText}>ASSISTIR AGORA</Text>
+                      </Pressable>
+                    )}
+                    {gstreamAvailable && (
+                      <Pressable
+                        disabled={gstreamResolving}
+                        style={({ pressed }) => [
+                          styles.watchBtn,
+                          { backgroundColor: "#7c3aed", marginTop: 8 },
+                          (pressed || gstreamResolving) && { opacity: 0.7 },
+                        ]}
+                        onPress={pressGstream}
+                      >
+                        <Feather name={gstreamResolving ? "loader" : "zap"} size={18} color="#fff" />
+                        <Text style={styles.watchBtnText}>
+                          {gstreamResolving
+                            ? "Buscando stream..."
+                            : `GSTREAM${type === "tv" ? `  ·  ${gstreamLang.toUpperCase()}` : ""}`}
+                        </Text>
+                      </Pressable>
+                    )}
+                  </>
                 );
               })()}
-
-              {/* GStream */}
-              {gstreamAvailable && (
-                <Pressable
-                  disabled={gstreamResolving}
-                  style={({ pressed }) => [
-                    styles.watchBtn,
-                    { backgroundColor: "#7c3aed", marginTop: 8 },
-                    (pressed || gstreamResolving) && { opacity: 0.7 },
-                  ]}
-                  onPress={() => {
-                    const resumeSeason = (type === "tv" && watchProgress?.season) ? watchProgress.season : 1;
-                    const resumeEp = (type === "tv" && watchProgress?.episode) ? watchProgress.episode : 1;
-                    goToGstreamPlayer(resumeSeason, resumeEp);
-                  }}
-                >
-                  <Feather name={gstreamResolving ? "loader" : "zap"} size={18} color="#fff" />
-                  <Text style={styles.watchBtnText}>
-                    {gstreamResolving
-                      ? "Buscando stream..."
-                      : `GSTREAM${type === "tv" ? `  ·  ${gstreamLang.toUpperCase()}` : ""}`}
-                  </Text>
-                </Pressable>
-              )}
 
               {/* Trailer button */}
               {trailerKey ? (
@@ -1192,11 +1223,10 @@ export default function DetailScreen() {
                   ) : (
                     episodeList.map((ep) => {
                       const { watched, current } = getEpisodeStatus(ep);
-                      // Exact episode match OR whole-series entry (season=null)
-                      const r2Ep =
-                        r2Items.find((i) => i.season === selectedSeason && i.episode === ep.episode_number) ??
-                        r2Items.find((i) => i.season == null && i.episode == null) ??
-                        (r2Items.length > 0 ? r2Items[0] : undefined);
+                      // Only exact season+episode match — no fallback to first item
+                      const r2Ep = r2Items.find(
+                        (i) => i.season === selectedSeason && i.episode === ep.episode_number
+                      );
                       return (
                         <EpisodeRow
                           key={ep.episode_number}
@@ -1204,7 +1234,7 @@ export default function DetailScreen() {
                           watched={watched}
                           current={current}
                           colors={colors}
-                          onPress={r2Items.length === 0 ? () => goToPlayer(selectedSeason, ep.episode_number) : undefined}
+                          onPress={!r2Ep ? () => goToPlayer(selectedSeason, ep.episode_number) : undefined}
                           onGstreamPress={gstreamAvailable ? () => goToGstreamPlayer(selectedSeason, ep.episode_number) : undefined}
                           onR2Press={r2Ep ? () => goToR2Player(r2Ep) : undefined}
                         />

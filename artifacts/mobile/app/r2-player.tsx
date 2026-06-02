@@ -4,15 +4,16 @@ import {
   Dimensions,
   Platform,
   Pressable,
+  ScrollView,
   StatusBar,
   StyleSheet,
   Text,
   View,
+  Image,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-import { Image } from "expo-image";
 import { getApiBase } from "@/lib/api";
 
 let Video: any = null;
@@ -27,8 +28,22 @@ try { NavBar = require("expo-navigation-bar"); } catch {}
 
 const { width: W, height: H } = Dimensions.get("window");
 const RED = "#e50914";
-const TMDB_IMG = (path: string | null, size = "w1280") =>
+const TMDB_IMG = (path: string | null | undefined, size = "w1280") =>
   path ? `https://image.tmdb.org/t/p/${size}${path}` : null;
+const TMDB_KEY = "8f0beb08cf016ec8de49e454e09879ec";
+
+interface RegistryItem {
+  id: string; r2Key: string; tmdbId: number; tmdbType: "movie" | "tv";
+  title: string; label: string; season: number | null; episode: number | null;
+}
+
+interface TmdbEpisode {
+  episode_number: number;
+  name: string;
+  overview?: string;
+  still_path?: string | null;
+  runtime?: number | null;
+}
 
 function mkSignal(ms: number): AbortSignal {
   const ctrl = new AbortController();
@@ -37,18 +52,15 @@ function mkSignal(ms: number): AbortSignal {
 }
 
 async function resolveVideoKey(key: string): Promise<string> {
-  // If key is a direct file, return as-is
   if (!key.endsWith("/")) return key;
   const base = getApiBase();
   if (!base) throw new Error("API não configurada");
-  // List recursively (empty delimiter) so videos in sub-folders are found too
   const res = await fetch(`${base}/r2/list?prefix=${encodeURIComponent(key)}&delimiter=`, {
     signal: mkSignal(20000),
   });
   if (!res.ok) throw new Error("Erro ao listar pasta");
   const data = await res.json();
   const videoExts = /\.(mp4|mkv|mov|avi|webm|m4v|ts|m2ts|wmv|flv|ogv)$/i;
-  // Accept files flagged as video by the API OR matched by extension
   const vid = (data.files ?? []).find((f: any) => f.isVideo || videoExts.test(f.key));
   if (!vid) throw new Error("Nenhum vídeo encontrado na pasta");
   return vid.key;
@@ -77,6 +89,9 @@ export default function R2PlayerScreen() {
     posterPath?: string;
     tmdbId?: string;
     type?: string;
+    r2ItemsJson?: string;
+    watchSeason?: string;
+    watchEpisode?: string;
   }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -90,6 +105,13 @@ export default function R2PlayerScreen() {
   const [positionMs, setPositionMs] = useState(0);
   const [durationMs, setDurationMs] = useState(0);
 
+  // Episodes panel
+  const [showEpisodes, setShowEpisodes] = useState(false);
+  const [panelSeason, setPanelSeason] = useState<number>(1);
+  const [panelEpisodes, setPanelEpisodes] = useState<TmdbEpisode[]>([]);
+  const [panelLoading, setPanelLoading] = useState(false);
+  const panelAnim = useRef(new Animated.Value(0)).current;
+
   const loadProgress = useRef(new Animated.Value(0)).current;
   const fakeAnim = useRef<Animated.CompositeAnimation | null>(null);
   const controlsOpacity = useRef(new Animated.Value(1)).current;
@@ -98,7 +120,37 @@ export default function R2PlayerScreen() {
   const phaseRef = useRef<"loading" | "ready" | "error">("loading");
   const readyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Keep phaseRef in sync so callbacks can read it without stale closure
+  const title = params.title ?? "Assistindo";
+  const episodeName = params.episodeName ?? "";
+  const season = params.season ? Number(params.season) : null;
+  const episode = params.episode ? Number(params.episode) : null;
+  const backdropPath = params.backdropPath ?? null;
+  const posterPath = params.posterPath ?? null;
+  const tmdbId = params.tmdbId ? Number(params.tmdbId) : null;
+  const contentType = params.type ?? "movie";
+  const isTV = contentType === "tv";
+
+  // Parse R2 items for episodes panel
+  const r2Items: RegistryItem[] = (() => {
+    try { return params.r2ItemsJson ? JSON.parse(params.r2ItemsJson) : []; } catch { return []; }
+  })();
+
+  // Seasons available in R2
+  const r2Seasons = isTV
+    ? [...new Set(r2Items.filter((i) => i.season != null).map((i) => i.season as number))].sort((a, b) => a - b)
+    : [];
+
+  // Current watch progress
+  const watchSeason = params.watchSeason ? Number(params.watchSeason) : null;
+  const watchEpisode = params.watchEpisode ? Number(params.watchEpisode) : null;
+
+  // Init panel season from current episode
+  useEffect(() => {
+    if (season != null) setPanelSeason(season);
+    else if (r2Seasons.length > 0) setPanelSeason(r2Seasons[0]);
+  }, []);
+
+  // ── transitionToReady ───────────────────────────────────────────────────────
   const transitionToReady = useCallback((durationMillis = 0) => {
     if (phaseRef.current !== "loading") return;
     phaseRef.current = "ready";
@@ -110,12 +162,6 @@ export default function R2PlayerScreen() {
       setIsPlaying(true);
     });
   }, []);
-
-  const title = params.title ?? "Assistindo";
-  const episodeName = params.episodeName ?? "";
-  const season = params.season ? Number(params.season) : null;
-  const episode = params.episode ? Number(params.episode) : null;
-  const backdropPath = params.backdropPath ?? null;
 
   // ── Orientation / nav bar ──────────────────────────────────────────────────
   useEffect(() => {
@@ -133,36 +179,32 @@ export default function R2PlayerScreen() {
     };
   }, []);
 
-  // ── Fetch signed URL + fake loading animation ──────────────────────────────
+  // ── Fetch signed URL ───────────────────────────────────────────────────────
   useEffect(() => {
     if (!params.key) { setPhase("error"); setErrorMsg("Arquivo não especificado"); return; }
 
-    fakeAnim.current = Animated.timing(loadProgress, {
-      toValue: 80,
-      duration: 4000,
-      useNativeDriver: false,
-    });
+    phaseRef.current = "loading";
+    setPhase("loading");
+    setVideoUrl(null);
+    setIsPlaying(false);
+    setPositionMs(0);
+    setDurationMs(0);
+
+    fakeAnim.current = Animated.timing(loadProgress, { toValue: 80, duration: 4000, useNativeDriver: false });
     fakeAnim.current.start();
 
     fetchSignedUrl(params.key)
       .then((url) => {
         setVideoUrl(url);
-
         if (Platform.OS === "web") {
-          // Web: <video> element handles buffering natively — transition to ready immediately
           fakeAnim.current?.stop();
           Animated.timing(loadProgress, { toValue: 100, duration: 300, useNativeDriver: false }).start(() => {
             phaseRef.current = "ready";
             setPhase("ready");
+            setIsPlaying(true);
           });
         } else {
-          // Native: animate to 95%, then wait for onLoad/onPlaybackStatusUpdate
-          // Fallback: force ready after 12s if callbacks don't fire
-          fakeAnim.current = Animated.timing(loadProgress, {
-            toValue: 95,
-            duration: 1500,
-            useNativeDriver: false,
-          });
+          fakeAnim.current = Animated.timing(loadProgress, { toValue: 95, duration: 1500, useNativeDriver: false });
           fakeAnim.current.start();
           readyTimer.current = setTimeout(() => transitionToReady(0), 12000);
         }
@@ -174,23 +216,142 @@ export default function R2PlayerScreen() {
       });
   }, [params.key]);
 
-  // ── When video is ready (expo-av onLoad) — native only ────────────────────
+  // ── Next episode ───────────────────────────────────────────────────────────
+  const goToNextEpisode = useCallback(() => {
+    if (!isTV || season == null || episode == null) { router.back(); return; }
+    const sortedEps = r2Items
+      .filter((i) => i.season === season)
+      .sort((a, b) => (a.episode ?? 0) - (b.episode ?? 0));
+    const idx = sortedEps.findIndex((i) => i.episode === episode);
+    const next = sortedEps[idx + 1];
+    if (next) {
+      router.replace({
+        pathname: "/r2-player",
+        params: {
+          key: next.r2Key,
+          title,
+          episodeName: next.label,
+          season: String(next.season ?? ""),
+          episode: String(next.episode ?? ""),
+          backdropPath: backdropPath ?? "",
+          posterPath: posterPath ?? "",
+          tmdbId: String(tmdbId ?? ""),
+          type: contentType,
+          r2ItemsJson: params.r2ItemsJson ?? "",
+          watchSeason: params.watchSeason ?? "",
+          watchEpisode: params.watchEpisode ?? "",
+        },
+      });
+    } else {
+      // Try next season
+      const nextSeasonNum = season + 1;
+      const firstNextSeason = r2Items
+        .filter((i) => i.season === nextSeasonNum)
+        .sort((a, b) => (a.episode ?? 0) - (b.episode ?? 0))[0];
+      if (firstNextSeason) {
+        router.replace({
+          pathname: "/r2-player",
+          params: {
+            key: firstNextSeason.r2Key,
+            title,
+            episodeName: firstNextSeason.label,
+            season: String(firstNextSeason.season ?? ""),
+            episode: String(firstNextSeason.episode ?? ""),
+            backdropPath: backdropPath ?? "",
+            posterPath: posterPath ?? "",
+            tmdbId: String(tmdbId ?? ""),
+            type: contentType,
+            r2ItemsJson: params.r2ItemsJson ?? "",
+            watchSeason: params.watchSeason ?? "",
+            watchEpisode: params.watchEpisode ?? "",
+          },
+        });
+      } else {
+        router.back();
+      }
+    }
+  }, [season, episode, r2Items, isTV]);
+
+  // ── Video callbacks ────────────────────────────────────────────────────────
   const onVideoLoad = useCallback((status: any) => {
     transitionToReady(status?.durationMillis ?? 0);
   }, [transitionToReady]);
 
   const onPlaybackStatusUpdate = useCallback((status: any) => {
     if (!status?.isLoaded) return;
-    // Secondary ready trigger: fires more reliably than onLoad for some formats/URLs
     transitionToReady(status.durationMillis ?? 0);
     setIsPlaying(status.isPlaying ?? false);
     setPositionMs(status.positionMillis ?? 0);
     setDurationMs(status.durationMillis ?? 0);
-    if (status.didJustFinish) router.back();
-  }, [transitionToReady]);
+    if (status.didJustFinish) goToNextEpisode();
+  }, [transitionToReady, goToNextEpisode]);
+
+  // ── Go to specific episode ─────────────────────────────────────────────────
+  const goToEpisode = useCallback((item: RegistryItem) => {
+    setShowEpisodes(false);
+    Animated.timing(panelAnim, { toValue: 0, duration: 250, useNativeDriver: false }).start();
+    router.replace({
+      pathname: "/r2-player",
+      params: {
+        key: item.r2Key,
+        title,
+        episodeName: item.label,
+        season: String(item.season ?? ""),
+        episode: String(item.episode ?? ""),
+        backdropPath: backdropPath ?? "",
+        posterPath: posterPath ?? "",
+        tmdbId: String(tmdbId ?? ""),
+        type: contentType,
+        r2ItemsJson: params.r2ItemsJson ?? "",
+        watchSeason: params.watchSeason ?? "",
+        watchEpisode: params.watchEpisode ?? "",
+      },
+    });
+  }, [title, backdropPath, posterPath, tmdbId, contentType, params.r2ItemsJson]);
+
+  // ── Load TMDB episode data for panel ───────────────────────────────────────
+  const loadPanelEpisodes = useCallback(async (seasonNum: number) => {
+    if (!tmdbId) return;
+    setPanelLoading(true);
+    try {
+      const res = await fetch(
+        `https://api.themoviedb.org/3/tv/${tmdbId}/season/${seasonNum}?api_key=${TMDB_KEY}&language=pt-BR`,
+        { signal: mkSignal(10000) }
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      setPanelEpisodes(data.episodes ?? []);
+    } catch {
+      setPanelEpisodes([]);
+    } finally {
+      setPanelLoading(false);
+    }
+  }, [tmdbId]);
+
+  // ── Open/close episodes panel ──────────────────────────────────────────────
+  const openEpisodesPanel = () => {
+    setShowEpisodes(true);
+    loadPanelEpisodes(panelSeason);
+    Animated.timing(panelAnim, { toValue: 1, duration: 280, useNativeDriver: false }).start();
+    if (hideTimer.current) clearTimeout(hideTimer.current);
+    setControlsVisible(false);
+    Animated.timing(controlsOpacity, { toValue: 0, duration: 150, useNativeDriver: true }).start();
+  };
+
+  const closeEpisodesPanel = () => {
+    Animated.timing(panelAnim, { toValue: 0, duration: 250, useNativeDriver: false }).start(() => {
+      setShowEpisodes(false);
+    });
+    showControls();
+  };
+
+  useEffect(() => {
+    if (showEpisodes) loadPanelEpisodes(panelSeason);
+  }, [panelSeason]);
 
   // ── Controls auto-hide ─────────────────────────────────────────────────────
   const showControls = useCallback(() => {
+    if (showEpisodes) return;
     setControlsVisible(true);
     Animated.timing(controlsOpacity, { toValue: 1, duration: 200, useNativeDriver: true }).start();
     if (hideTimer.current) clearTimeout(hideTimer.current);
@@ -199,7 +360,7 @@ export default function R2PlayerScreen() {
         setControlsVisible(false)
       );
     }, 4000);
-  }, []);
+  }, [showEpisodes]);
 
   useEffect(() => { if (phase === "ready") showControls(); }, [phase]);
   useEffect(() => () => {
@@ -233,17 +394,32 @@ export default function R2PlayerScreen() {
 
   const progress = durationMs > 0 ? positionMs / durationMs : 0;
 
+  // ── Episode status helper ──────────────────────────────────────────────────
+  const getEpStatus = (s: number, e: number): "watching" | "watched" | "none" => {
+    if (s === season && e === episode) return "watching";
+    if (watchSeason == null || watchEpisode == null) return "none";
+    if (s < watchSeason) return "watched";
+    if (s === watchSeason && e < watchEpisode) return "watched";
+    if (s === watchSeason && e === watchEpisode) return "watching";
+    return "none";
+  };
+
+  // Animated video width for panel mode
+  const videoWidthAnim = panelAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [W, W * 0.6],
+  });
+
   // ── Web player ─────────────────────────────────────────────────────────────
   if (Platform.OS === "web") {
     return (
       <View style={{ flex: 1, backgroundColor: "#000" }}>
         <StatusBar hidden />
 
-        {/* Loading overlay — shown until URL is ready */}
         {phase === "loading" && (
           <View style={StyleSheet.absoluteFill}>
             {backdropPath ? (
-              <Image source={{ uri: TMDB_IMG(backdropPath) ?? "" }} style={StyleSheet.absoluteFill} contentFit="cover" />
+              <Image source={{ uri: TMDB_IMG(backdropPath) ?? "" }} style={StyleSheet.absoluteFill} resizeMode="cover" />
             ) : null}
             <View style={styles.loadOverlay} />
             <View style={styles.loadCenter}>
@@ -260,7 +436,6 @@ export default function R2PlayerScreen() {
           </View>
         )}
 
-        {/* Error overlay */}
         {phase === "error" && (
           <View style={[StyleSheet.absoluteFill, styles.loadOverlay, styles.loadCenter]}>
             <Feather name="alert-circle" size={48} color={RED} />
@@ -268,7 +443,6 @@ export default function R2PlayerScreen() {
           </View>
         )}
 
-        {/* HTML video — rendered as soon as URL is available */}
         {videoUrl && (
           <video
             src={videoUrl}
@@ -285,105 +459,243 @@ export default function R2PlayerScreen() {
     );
   }
 
-  // ── Native player ─────────────────────────────────────────────────────────
+  // ── Native player ──────────────────────────────────────────────────────────
   return (
-    <View style={{ flex: 1, backgroundColor: "#000" }}>
+    <View style={{ flex: 1, backgroundColor: "#000", flexDirection: "row" }}>
       <StatusBar hidden />
 
-      {/* Native Video — always mounted once URL is available so onLoad fires during loading phase */}
-      {videoUrl && Video && (
-        <Video
-          ref={videoRef}
-          source={{ uri: videoUrl }}
-          style={[StyleSheet.absoluteFill, { opacity: phase === "ready" ? 1 : 0 }]}
-          resizeMode={ResizeMode?.CONTAIN ?? "contain"}
-          shouldPlay={false}
-          onLoad={onVideoLoad}
-          onPlaybackStatusUpdate={onPlaybackStatusUpdate}
-          useNativeControls={false}
-        />
-      )}
+      {/* Video container — shrinks when episodes panel is open */}
+      <Animated.View style={{ width: videoWidthAnim, height: "100%", overflow: "hidden" }}>
+        {videoUrl && Video && (
+          <Video
+            ref={videoRef}
+            source={{ uri: videoUrl }}
+            style={[StyleSheet.absoluteFill, { opacity: phase === "ready" ? 1 : 0 }]}
+            resizeMode={ResizeMode?.CONTAIN ?? "contain"}
+            shouldPlay={phase === "ready" && isPlaying}
+            onLoad={onVideoLoad}
+            onPlaybackStatusUpdate={onPlaybackStatusUpdate}
+            useNativeControls={false}
+          />
+        )}
 
-      {/* Loading overlay — shown until video is ready */}
-      {(phase === "loading" || phase === "error") && (
-        <View style={StyleSheet.absoluteFill}>
-          {backdropPath ? (
-            <Image source={{ uri: TMDB_IMG(backdropPath) ?? "" }} style={StyleSheet.absoluteFill} contentFit="cover" />
-          ) : null}
-          <View style={styles.loadOverlay} />
+        {/* Loading / error overlay */}
+        {(phase === "loading" || phase === "error") && (
+          <View style={StyleSheet.absoluteFill}>
+            {backdropPath ? (
+              <Image source={{ uri: TMDB_IMG(backdropPath) ?? "" }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+            ) : null}
+            <View style={styles.loadOverlay} />
 
-          {phase === "error" ? (
-            <View style={styles.loadCenter}>
-              <Feather name="alert-circle" size={48} color={RED} />
-              <Text style={styles.loadTitle}>{errorMsg}</Text>
-              <Pressable style={styles.retryBtn} onPress={() => router.back()}>
-                <Text style={styles.retryText}>Voltar</Text>
-              </Pressable>
-            </View>
-          ) : (
-            <View style={styles.loadCenter}>
-              <Text style={styles.loadServiceLabel}>N E T P L A Y</Text>
-              <Text style={styles.loadTitle} numberOfLines={2}>{title}</Text>
-              {(season != null && episode != null) && (
-                <Text style={styles.loadEp}>T{season} · Ep {episode}{episodeName ? ` — ${episodeName}` : ""}</Text>
-              )}
-              <View style={styles.barTrack}>
-                <Animated.View style={[styles.barFill, { width: loadProgress.interpolate({ inputRange: [0, 100], outputRange: ["0%", "100%"] }) }]} />
-              </View>
-              <Animated.Text style={styles.barPct}><ProgressText value={loadProgress} /></Animated.Text>
-            </View>
-          )}
-
-          <Pressable style={[styles.backBtn, { top: topPad + 8 }]} onPress={() => router.back()}>
-            <Feather name="arrow-left" size={22} color="#fff" />
-          </Pressable>
-        </View>
-      )}
-
-      {/* Controls overlay — shown after video is ready */}
-      {phase === "ready" && (
-        <>
-          <Pressable style={StyleSheet.absoluteFill} onPress={showControls} />
-          {controlsVisible && (
-            <Animated.View style={[styles.controls, { opacity: controlsOpacity }]}>
-              <View style={[styles.topBar, { paddingTop: topPad + 8 }]}>
-                <Pressable style={styles.iconBtn} onPress={() => router.back()}>
-                  <Feather name="arrow-left" size={22} color="#fff" />
+            {phase === "error" ? (
+              <View style={styles.loadCenter}>
+                <Feather name="alert-circle" size={48} color={RED} />
+                <Text style={styles.loadTitle}>{errorMsg}</Text>
+                <Pressable style={styles.retryBtn} onPress={() => router.back()}>
+                  <Text style={styles.retryText}>Voltar</Text>
                 </Pressable>
-                <View style={{ flex: 1, marginHorizontal: 12 }}>
-                  <Text style={styles.ctrlTitle} numberOfLines={1}>{title}</Text>
-                  {(season != null && episode != null) && (
-                    <Text style={styles.ctrlEp}>T{season} · Ep {episode}{episodeName ? ` — ${episodeName}` : ""}</Text>
+              </View>
+            ) : (
+              <View style={styles.loadCenter}>
+                <Text style={styles.loadServiceLabel}>N E T P L A Y</Text>
+                <Text style={styles.loadTitle} numberOfLines={2}>{title}</Text>
+                {(season != null && episode != null) && (
+                  <Text style={styles.loadEp}>T{season} · Ep {episode}{episodeName ? ` — ${episodeName}` : ""}</Text>
+                )}
+                <View style={styles.barTrack}>
+                  <Animated.View style={[styles.barFill, { width: loadProgress.interpolate({ inputRange: [0, 100], outputRange: ["0%", "100%"] }) }]} />
+                </View>
+                <Animated.Text style={styles.barPct}><ProgressText value={loadProgress} /></Animated.Text>
+              </View>
+            )}
+
+            <Pressable style={[styles.backBtn, { top: topPad + 8 }]} onPress={() => router.back()}>
+              <Feather name="arrow-left" size={22} color="#fff" />
+            </Pressable>
+          </View>
+        )}
+
+        {/* Controls overlay */}
+        {phase === "ready" && !showEpisodes && (
+          <>
+            <Pressable style={StyleSheet.absoluteFill} onPress={showControls} />
+            {controlsVisible && (
+              <Animated.View style={[styles.controls, { opacity: controlsOpacity }]}>
+                <View style={[styles.topBar, { paddingTop: topPad + 8 }]}>
+                  <Pressable style={styles.iconBtn} onPress={() => router.back()}>
+                    <Feather name="arrow-left" size={22} color="#fff" />
+                  </Pressable>
+                  <View style={{ flex: 1, marginHorizontal: 12 }}>
+                    <Text style={styles.ctrlTitle} numberOfLines={1}>{title}</Text>
+                    {(season != null && episode != null) && (
+                      <Text style={styles.ctrlEp}>T{season} · Ep {episode}{episodeName ? ` — ${episodeName}` : ""}</Text>
+                    )}
+                  </View>
+                  {isTV && r2Items.length > 1 && (
+                    <Pressable style={styles.episodesBtn} onPress={openEpisodesPanel}>
+                      <Feather name="list" size={16} color="#fff" />
+                      <Text style={styles.episodesBtnText}>Episódios</Text>
+                    </Pressable>
                   )}
                 </View>
-              </View>
 
-              <View style={styles.centerRow}>
-                <Pressable style={styles.iconBtn} onPress={() => seek("back")}>
-                  <Feather name="rotate-ccw" size={28} color="#fff" />
-                  <Text style={styles.seekLabel}>10s</Text>
-                </Pressable>
-                <Pressable style={[styles.iconBtn, styles.playBtn]} onPress={togglePlay}>
-                  <Feather name={isPlaying ? "pause" : "play"} size={36} color="#fff" />
-                </Pressable>
-                <Pressable style={styles.iconBtn} onPress={() => seek("forward")}>
-                  <Feather name="rotate-cw" size={28} color="#fff" />
-                  <Text style={styles.seekLabel}>10s</Text>
-                </Pressable>
-              </View>
-
-              <View style={styles.bottomBar}>
-                <Text style={styles.timeText}>{formatTime(positionMs)}</Text>
-                <View style={styles.seekTrack}>
-                  <View style={[styles.seekFill, { width: `${progress * 100}%` }]} />
-                  <View style={[styles.seekThumb, { left: `${progress * 100}%` }]} />
+                <View style={styles.centerRow}>
+                  <Pressable style={styles.iconBtn} onPress={() => seek("back")}>
+                    <Feather name="rotate-ccw" size={28} color="#fff" />
+                    <Text style={styles.seekLabel}>10s</Text>
+                  </Pressable>
+                  <Pressable style={[styles.iconBtn, styles.playBtn]} onPress={togglePlay}>
+                    <Feather name={isPlaying ? "pause" : "play"} size={36} color="#fff" />
+                  </Pressable>
+                  <Pressable style={styles.iconBtn} onPress={() => seek("forward")}>
+                    <Feather name="rotate-cw" size={28} color="#fff" />
+                    <Text style={styles.seekLabel}>10s</Text>
+                  </Pressable>
                 </View>
-                <Text style={styles.timeText}>{formatTime(durationMs)}</Text>
-              </View>
-            </Animated.View>
-          )}
-        </>
-      )}
+
+                <View style={styles.bottomBar}>
+                  <Text style={styles.timeText}>{formatTime(positionMs)}</Text>
+                  <View style={styles.seekTrack}>
+                    <View style={[styles.seekFill, { width: `${progress * 100}%` as any }]} />
+                    <View style={[styles.seekThumb, { left: `${progress * 100}%` as any }]} />
+                  </View>
+                  <Text style={styles.timeText}>{formatTime(durationMs)}</Text>
+                  {isTV && r2Items.length > 1 && (
+                    <Pressable style={[styles.iconBtn, { marginLeft: 8 }]} onPress={goToNextEpisode}>
+                      <Feather name="skip-forward" size={22} color="#fff" />
+                    </Pressable>
+                  )}
+                </View>
+              </Animated.View>
+            )}
+          </>
+        )}
+
+        {/* Dim overlay when panel is open (left side tap to close) */}
+        {showEpisodes && (
+          <Pressable style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.45)" }]} onPress={closeEpisodesPanel} />
+        )}
+      </Animated.View>
+
+      {/* ── Episodes Panel ─────────────────────────────────────────────────── */}
+      <Animated.View
+        style={[
+          styles.episodesPanel,
+          {
+            width: panelAnim.interpolate({ inputRange: [0, 1], outputRange: [0, W * 0.4] }),
+            opacity: panelAnim,
+          },
+        ]}
+        pointerEvents={showEpisodes ? "auto" : "none"}
+      >
+        {/* Panel header: backdrop + title */}
+        <View style={styles.panelHeader}>
+          {backdropPath ? (
+            <Image source={{ uri: TMDB_IMG(backdropPath, "w780") ?? "" }} style={styles.panelBackdrop} resizeMode="cover" />
+          ) : posterPath ? (
+            <Image source={{ uri: TMDB_IMG(posterPath, "w342") ?? "" }} style={styles.panelBackdrop} resizeMode="cover" />
+          ) : null}
+          <View style={styles.panelBackdropGrad} />
+          <View style={styles.panelHeaderInfo}>
+            <Text style={styles.panelTitle} numberOfLines={2}>{title}</Text>
+            {season != null && episode != null && (
+              <Text style={styles.panelCurrentEp}>Assistindo: T{season} · Ep {episode}</Text>
+            )}
+          </View>
+          <Pressable style={styles.panelCloseBtn} onPress={closeEpisodesPanel}>
+            <Feather name="x" size={18} color="#fff" />
+          </Pressable>
+        </View>
+
+        {/* Season selector */}
+        {r2Seasons.length > 1 && (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.panelSeasonRow}>
+            {r2Seasons.map((s) => (
+              <Pressable
+                key={s}
+                onPress={() => setPanelSeason(s)}
+                style={[
+                  styles.panelSeasonBtn,
+                  panelSeason === s && { backgroundColor: RED, borderColor: RED },
+                ]}
+              >
+                <Text style={[styles.panelSeasonText, panelSeason === s && { color: "#fff" }]}>T{s}</Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        )}
+
+        {/* Episode list — only R2 available episodes */}
+        <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+          {(() => {
+            const seasonItems = r2Items
+              .filter((i) => i.season === panelSeason)
+              .sort((a, b) => (a.episode ?? 0) - (b.episode ?? 0));
+
+            if (seasonItems.length === 0) {
+              return (
+                <Text style={styles.panelEmpty}>Nenhum episódio disponível nesta temporada.</Text>
+              );
+            }
+
+            return seasonItems.map((item) => {
+              const epNum = item.episode ?? 0;
+              const status = getEpStatus(panelSeason, epNum);
+              const tmdbEp = panelEpisodes.find((e) => e.episode_number === epNum);
+              const isCurrentEp = status === "watching";
+              const isWatched = status === "watched";
+
+              return (
+                <Pressable
+                  key={item.id}
+                  style={[styles.panelEpRow, isCurrentEp && styles.panelEpRowActive]}
+                  onPress={() => goToEpisode(item)}
+                >
+                  {/* Thumbnail */}
+                  <View style={styles.panelEpThumb}>
+                    {tmdbEp?.still_path ? (
+                      <Image
+                        source={{ uri: TMDB_IMG(tmdbEp.still_path, "w300") ?? "" }}
+                        style={StyleSheet.absoluteFill}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <View style={[StyleSheet.absoluteFill, styles.panelEpThumbFallback]}>
+                        <Feather name="film" size={16} color="#555" />
+                      </View>
+                    )}
+                    {isCurrentEp && (
+                      <View style={styles.panelEpPlayOverlay}>
+                        <Feather name="pause" size={18} color="#fff" />
+                      </View>
+                    )}
+                    {isWatched && (
+                      <View style={styles.panelEpWatchedBadge}>
+                        <Feather name="check" size={10} color="#fff" />
+                      </View>
+                    )}
+                  </View>
+
+                  {/* Info */}
+                  <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                      <Text style={[styles.panelEpNum, isCurrentEp && { color: RED }]}>Ep. {epNum}</Text>
+                      {isWatched && <Text style={styles.panelEpWatchedTxt}>Assistido</Text>}
+                      {isCurrentEp && <Text style={[styles.panelEpWatchedTxt, { color: RED }]}>Em andamento</Text>}
+                    </View>
+                    <Text style={styles.panelEpName} numberOfLines={2}>
+                      {tmdbEp?.name ?? item.label}
+                    </Text>
+                    {tmdbEp?.runtime ? (
+                      <Text style={styles.panelEpRuntime}>{tmdbEp.runtime} min</Text>
+                    ) : null}
+                  </View>
+                </Pressable>
+              );
+            });
+          })()}
+        </ScrollView>
+      </Animated.View>
     </View>
   );
 }
@@ -422,4 +734,62 @@ const styles = StyleSheet.create({
   seekTrack: { flex: 1, height: 4, backgroundColor: "rgba(255,255,255,0.25)", borderRadius: 2 },
   seekFill: { height: "100%", backgroundColor: RED, borderRadius: 2 },
   seekThumb: { position: "absolute", top: -5, marginLeft: -7, width: 14, height: 14, borderRadius: 7, backgroundColor: RED },
+  episodesBtn: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    backgroundColor: "rgba(255,255,255,0.15)", paddingHorizontal: 12, paddingVertical: 7,
+    borderRadius: 20, borderWidth: 1, borderColor: "rgba(255,255,255,0.3)",
+  },
+  episodesBtnText: { color: "#fff", fontSize: 13, fontWeight: "600" },
+
+  // Episodes panel
+  episodesPanel: {
+    height: "100%", backgroundColor: "#0e0e0e", overflow: "hidden",
+    borderLeftWidth: 1, borderLeftColor: "#1e1e1e",
+  },
+  panelHeader: { height: 120, position: "relative", overflow: "hidden" },
+  panelBackdrop: { ...StyleSheet.absoluteFillObject as any, width: "100%", height: "100%" },
+  panelBackdropGrad: {
+    ...StyleSheet.absoluteFillObject as any,
+    backgroundColor: "rgba(0,0,0,0.55)",
+  },
+  panelHeaderInfo: { position: "absolute", bottom: 10, left: 12, right: 44 },
+  panelTitle: { color: "#fff", fontSize: 14, fontWeight: "800", lineHeight: 18 },
+  panelCurrentEp: { color: "rgba(255,255,255,0.55)", fontSize: 11, marginTop: 2 },
+  panelCloseBtn: {
+    position: "absolute", top: 10, right: 10,
+    width: 32, height: 32, borderRadius: 16,
+    backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center",
+  },
+  panelSeasonRow: { paddingHorizontal: 10, paddingVertical: 8, maxHeight: 50 },
+  panelSeasonBtn: {
+    paddingHorizontal: 12, paddingVertical: 5, borderRadius: 16, marginRight: 6,
+    borderWidth: 1, borderColor: "#333", backgroundColor: "#1a1a1a",
+  },
+  panelSeasonText: { color: "#aaa", fontSize: 12, fontWeight: "700" },
+  panelEmpty: { color: "#555", fontSize: 13, textAlign: "center", marginTop: 30, paddingHorizontal: 16 },
+  panelEpRow: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    paddingHorizontal: 10, paddingVertical: 8,
+    borderBottomWidth: 1, borderBottomColor: "#1a1a1a",
+  },
+  panelEpRowActive: { backgroundColor: "rgba(229,9,20,0.1)" },
+  panelEpThumb: {
+    width: 80, height: 50, borderRadius: 6, overflow: "hidden",
+    backgroundColor: "#1a1a1a", position: "relative",
+  },
+  panelEpThumbFallback: { alignItems: "center", justifyContent: "center", backgroundColor: "#1a1a1a" },
+  panelEpPlayOverlay: {
+    ...StyleSheet.absoluteFillObject as any,
+    backgroundColor: "rgba(229,9,20,0.4)",
+    alignItems: "center", justifyContent: "center",
+  },
+  panelEpWatchedBadge: {
+    position: "absolute", bottom: 4, right: 4,
+    width: 18, height: 18, borderRadius: 9,
+    backgroundColor: "#4ade80", alignItems: "center", justifyContent: "center",
+  },
+  panelEpNum: { color: "#888", fontSize: 11, fontWeight: "700" },
+  panelEpWatchedTxt: { color: "#4ade80", fontSize: 10, fontWeight: "600" },
+  panelEpName: { color: "#fff", fontSize: 12, fontWeight: "600", marginTop: 2, lineHeight: 16 },
+  panelEpRuntime: { color: "#666", fontSize: 10, marginTop: 2 },
 });
