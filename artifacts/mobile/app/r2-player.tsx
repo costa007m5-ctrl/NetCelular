@@ -93,6 +93,21 @@ export default function R2PlayerScreen() {
   const controlsOpacity = useRef(new Animated.Value(1)).current;
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const videoRef = useRef<any>(null);
+  const phaseRef = useRef<"loading" | "ready" | "error">("loading");
+  const readyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Keep phaseRef in sync so callbacks can read it without stale closure
+  const transitionToReady = useCallback((durationMillis = 0) => {
+    if (phaseRef.current !== "loading") return;
+    phaseRef.current = "ready";
+    if (readyTimer.current) clearTimeout(readyTimer.current);
+    setDurationMs(durationMillis);
+    fakeAnim.current?.stop();
+    Animated.timing(loadProgress, { toValue: 100, duration: 400, useNativeDriver: false }).start(() => {
+      setPhase("ready");
+      setIsPlaying(true);
+    });
+  }, []);
 
   const title = params.title ?? "Assistindo";
   const episodeName = params.episodeName ?? "";
@@ -135,16 +150,19 @@ export default function R2PlayerScreen() {
           // Web: <video> element handles buffering natively — transition to ready immediately
           fakeAnim.current?.stop();
           Animated.timing(loadProgress, { toValue: 100, duration: 300, useNativeDriver: false }).start(() => {
+            phaseRef.current = "ready";
             setPhase("ready");
           });
         } else {
-          // Native: continue to 95%, wait for onVideoLoad from the hidden Video component
+          // Native: animate to 95%, then wait for onLoad/onPlaybackStatusUpdate
+          // Fallback: force ready after 12s if callbacks don't fire
           fakeAnim.current = Animated.timing(loadProgress, {
             toValue: 95,
             duration: 1500,
             useNativeDriver: false,
           });
           fakeAnim.current.start();
+          readyTimer.current = setTimeout(() => transitionToReady(0), 12000);
         }
       })
       .catch((e) => {
@@ -156,21 +174,18 @@ export default function R2PlayerScreen() {
 
   // ── When video is ready (expo-av onLoad) — native only ────────────────────
   const onVideoLoad = useCallback((status: any) => {
-    setDurationMs(status?.durationMillis ?? 0);
-    fakeAnim.current?.stop();
-    Animated.timing(loadProgress, { toValue: 100, duration: 400, useNativeDriver: false }).start(() => {
-      setPhase("ready");
-      setIsPlaying(true);
-    });
-  }, []);
+    transitionToReady(status?.durationMillis ?? 0);
+  }, [transitionToReady]);
 
   const onPlaybackStatusUpdate = useCallback((status: any) => {
     if (!status?.isLoaded) return;
+    // Secondary ready trigger: fires more reliably than onLoad for some formats/URLs
+    transitionToReady(status.durationMillis ?? 0);
     setIsPlaying(status.isPlaying ?? false);
     setPositionMs(status.positionMillis ?? 0);
     setDurationMs(status.durationMillis ?? 0);
     if (status.didJustFinish) router.back();
-  }, []);
+  }, [transitionToReady]);
 
   // ── Controls auto-hide ─────────────────────────────────────────────────────
   const showControls = useCallback(() => {
@@ -185,7 +200,10 @@ export default function R2PlayerScreen() {
   }, []);
 
   useEffect(() => { if (phase === "ready") showControls(); }, [phase]);
-  useEffect(() => () => { if (hideTimer.current) clearTimeout(hideTimer.current); }, []);
+  useEffect(() => () => {
+    if (hideTimer.current) clearTimeout(hideTimer.current);
+    if (readyTimer.current) clearTimeout(readyTimer.current);
+  }, []);
 
   // ── Seek helpers ───────────────────────────────────────────────────────────
   const togglePlay = async () => {
