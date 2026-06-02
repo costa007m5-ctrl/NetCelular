@@ -700,8 +700,11 @@ function UploadPanel() {
     setBulkJobs(initial);
     setBulkRunning(true);
 
-    // Start all downloads in parallel
-    await Promise.all(lines.map(async (u, idx) => {
+    // Start downloads with controlled concurrency (3 at a time) — unlimited total
+    const MAX_CONCURRENT = 3;
+    let cursor = 0;
+
+    const startOne = async (idx: number, u: string) => {
       try {
         const r = await apiPost<{ jobId: string; key: string }>("/download-url", {
           url: u,
@@ -749,7 +752,19 @@ function UploadPanel() {
           return next;
         });
       }
-    }));
+    };
+
+    // Worker: each worker picks the next URL from the queue until exhausted
+    const worker = async () => {
+      while (cursor < lines.length) {
+        const idx = cursor++;
+        await startOne(idx, lines[idx]);
+      }
+    };
+
+    await Promise.all(
+      Array.from({ length: Math.min(MAX_CONCURRENT, lines.length) }, worker)
+    );
     setBulkRunning(false);
   };
 
