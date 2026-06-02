@@ -410,7 +410,27 @@ export default function DetailScreen() {
     fetchAll();
   }, [tmdbId, type]);
 
-  // Load episodes when season changes — fetches pt-BR, falls back to en-US for names/overviews
+  // Translate a single text (en→pt-BR) via Google Translate unofficial endpoint
+  const gtranslate = async (text: string): Promise<string> => {
+    if (!text) return text;
+    try {
+      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=pt-BR&dt=t&q=${encodeURIComponent(text)}`;
+      const res = await fetch(url);
+      if (!res.ok) return text;
+      const json = await res.json();
+      // Response format: [[[translated, original, ...], ...], ...]
+      const parts: string[] = (json[0] as any[]).map((chunk: any[]) => chunk[0] ?? "");
+      return parts.join("").trim() || text;
+    } catch {
+      return text;
+    }
+  };
+
+  // Load episodes when season changes
+  // 1. Fetch pt-BR from TMDB (via server)
+  // 2. Fetch en-US for still_path fallback + real titles/overviews when pt-BR is generic
+  // 3. Translate English text → Portuguese when pt-BR data is missing
+  // 4. Deduplicate by episode_number; remove ep.0 (specials) and future episodes
   useEffect(() => {
     if (type !== "tv" || !tmdbId) return;
     setLoadingEpisodes(true);
@@ -418,37 +438,80 @@ export default function DetailScreen() {
 
     const loadEps = async () => {
       try {
-        const ptData = await tmdbApi.tmdb.tvSeason(tmdbId, selectedSeason);
-        const episodes = ptData.episodes ?? [];
+        // Always fetch both locales in parallel — en-US needed for still_path + real names
+        const [ptData, enRes] = await Promise.all([
+          tmdbApi.tmdb.tvSeason(tmdbId, selectedSeason),
+          fetch(
+            `https://api.themoviedb.org/3/tv/${tmdbId}/season/${selectedSeason}?api_key=${TMDB_KEY_LOCAL}&language=en-US`
+          ).catch(() => null),
+        ]);
 
-        const needsEnglish = episodes.some(
-          (ep) => !ep.name || /^Episódio\s*\d+$/i.test(ep.name) || !ep.overview
-        );
+        let episodes: TmdbEpisode[] = ptData.episodes ?? [];
 
-        if (needsEnglish) {
-          try {
-            const enRes = await fetch(
-              `https://api.themoviedb.org/3/tv/${tmdbId}/season/${selectedSeason}?api_key=${TMDB_KEY_LOCAL}&language=en-US`
-            );
-            if (enRes.ok) {
-              const enData = await enRes.json();
-              const enEps: any[] = enData.episodes ?? [];
-              const merged = episodes.map((ep) => {
-                const enEp = enEps.find((e: any) => e.episode_number === ep.episode_number);
-                const isGeneric = !ep.name || /^Episódio\s*\d+$/i.test(ep.name);
-                return {
-                  ...ep,
-                  name: isGeneric && enEp?.name ? enEp.name : ep.name,
-                  overview: !ep.overview && enEp?.overview ? enEp.overview : ep.overview,
-                };
-              });
-              setEpisodeList(merged);
-              return;
-            }
-          } catch {}
+        // ── 1. Deduplicate by episode_number ──────────────────────────────────
+        const seen = new Set<number>();
+        episodes = episodes.filter((ep) => {
+          if (seen.has(ep.episode_number)) return false;
+          seen.add(ep.episode_number);
+          return true;
+        });
+
+        // ── 2. Remove special ep 0 and future unaired episodes ────────────────
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        episodes = episodes.filter((ep) => {
+          if (ep.episode_number === 0) return false;
+          if (ep.air_date) {
+            const d = new Date(ep.air_date);
+            if (!isNaN(d.getTime()) && d > today) return false;
+          }
+          return true;
+        });
+
+        // ── 3. Merge en-US: still_path fallback + English name/overview ───────
+        let enEps: any[] = [];
+        if (enRes?.ok) {
+          try { enEps = (await enRes.json()).episodes ?? []; } catch {}
         }
 
-        setEpisodeList(episodes);
+        const GENERIC = /^Episódio\s*\d+$/i;
+        const isGenericName = (n?: string) => !n || GENERIC.test(n);
+
+        let merged = episodes.map((ep) => {
+          const enEp = enEps.find((e: any) => e.episode_number === ep.episode_number);
+          return {
+            ...ep,
+            // still_path: prefer pt-BR; fallback to en-US (pt-BR often has null)
+            still_path: ep.still_path ?? enEp?.still_path ?? null,
+            // name: keep pt if real; otherwise take en (will translate below)
+            _enName: isGenericName(ep.name) && enEp?.name ? enEp.name : null,
+            _enOverview: !ep.overview && enEp?.overview ? enEp.overview : null,
+            name: isGenericName(ep.name) && enEp?.name ? enEp.name : ep.name,
+            overview: !ep.overview && enEp?.overview ? enEp.overview : ep.overview,
+          };
+        });
+
+        // ── 4. Translate English fallbacks → pt-BR ────────────────────────────
+        const needsTranslation = merged.some((ep) => ep._enName || ep._enOverview);
+        if (needsTranslation) {
+          const translateQueue = merged.map(async (ep) => {
+            const [translatedName, translatedOverview] = await Promise.all([
+              ep._enName ? gtranslate(ep._enName) : Promise.resolve(null),
+              ep._enOverview ? gtranslate(ep._enOverview) : Promise.resolve(null),
+            ]);
+            return {
+              ...ep,
+              name: translatedName ?? ep.name,
+              overview: translatedOverview ?? ep.overview,
+              _enName: undefined,
+              _enOverview: undefined,
+            };
+          });
+          const translated = await Promise.all(translateQueue);
+          setEpisodeList(translated as TmdbEpisode[]);
+        } else {
+          setEpisodeList(merged.map(({ _enName, _enOverview, ...ep }) => ep) as TmdbEpisode[]);
+        }
       } catch {
         setEpisodeList([]);
       } finally {
