@@ -54,25 +54,36 @@ interface ExpoPushMessage {
   attachments?: { url: string }[];
 }
 
+export interface TokenSendResult {
+  sent: number;
+  failed: number;
+  skipped: number;
+  errors: { token: string; error: string; message?: string }[];
+}
+
 export async function sendToTokens(
   tokens: string[],
   title: string,
   body: string,
   data?: Record<string, unknown>,
   imageUrl?: string
-): Promise<{ sent: number; failed: number; skipped: number }> {
-  if (tokens.length === 0) return { sent: 0, failed: 0, skipped: 0 };
+): Promise<TokenSendResult> {
+  if (tokens.length === 0) return { sent: 0, failed: 0, skipped: 0, errors: [] };
 
   const expoTokens = tokens.filter(
     (t) => t.startsWith("ExponentPushToken") || t.startsWith("ExpoToken")
   );
   const skipped = tokens.length - expoTokens.length;
+  const skippedErrors = tokens
+    .filter((t) => !t.startsWith("ExponentPushToken") && !t.startsWith("ExpoToken"))
+    .map((t) => ({ token: t.slice(0, 20) + "...", error: "InvalidTokenFormat", message: "Token não é Expo (ExponentPushToken). APK pode ter gerado token FCM nativo." }));
 
-  if (expoTokens.length === 0) return { sent: 0, failed: 0, skipped };
+  if (expoTokens.length === 0) return { sent: 0, failed: 0, skipped, errors: skippedErrors };
 
   const CHUNK = 100;
   let sent = 0;
   let failed = 0;
+  const errors: { token: string; error: string; message?: string }[] = [...skippedErrors];
 
   for (let i = 0; i < expoTokens.length; i += CHUNK) {
     const chunk = expoTokens.slice(i, i + CHUNK);
@@ -91,17 +102,33 @@ export async function sendToTokens(
         },
         body: JSON.stringify(messages),
       });
-      if (!res.ok) { failed += chunk.length; continue; }
-      const json = (await res.json()) as { data?: { status: string }[] };
+      if (!res.ok) {
+        const errText = await res.text().catch(() => `HTTP ${res.status}`);
+        failed += chunk.length;
+        chunk.forEach((t) => errors.push({ token: t.slice(0, 30) + "...", error: `HTTP ${res.status}`, message: errText.slice(0, 200) }));
+        continue;
+      }
+      const json = (await res.json()) as { data?: { status: string; details?: { error?: string }; message?: string }[] };
       const results = Array.isArray(json?.data) ? json.data : [json?.data].filter(Boolean);
-      const ok = results.filter((d) => (d as any)?.status === "ok").length;
-      sent += ok;
-      failed += chunk.length - ok;
-    } catch {
+      results.forEach((d: any, idx) => {
+        if (d?.status === "ok") {
+          sent++;
+        } else {
+          failed++;
+          const token = chunk[idx] ?? "unknown";
+          errors.push({
+            token: token.slice(0, 30) + "...",
+            error: d?.details?.error ?? d?.status ?? "unknown",
+            message: d?.message ?? undefined,
+          });
+        }
+      });
+    } catch (e: any) {
       failed += chunk.length;
+      chunk.forEach((t) => errors.push({ token: t.slice(0, 30) + "...", error: "NetworkError", message: e?.message ?? "Falha de rede ao chamar Expo Push API" }));
     }
   }
-  return { sent, failed, skipped };
+  return { sent, failed, skipped, errors };
 }
 
 export async function sendToAll(

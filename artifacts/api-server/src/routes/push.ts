@@ -29,7 +29,7 @@ router.post("/send", async (req, res) => {
       result = await sendToAll(title, body, data ?? {}, imageUrl);
     }
 
-    res.json({ ok: true, ...result });
+    res.json({ ok: true, ...result, errors: (result as any).errors ?? [] });
   } catch (e: any) {
     res.status(500).json({ error: e?.message ?? "Erro interno ao enviar push" });
   }

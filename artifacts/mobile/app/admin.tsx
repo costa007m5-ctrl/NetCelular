@@ -310,7 +310,7 @@ export default function AdminScreen() {
   const [fcmTestTitle, setFcmTestTitle] = useState("🔔 Teste FCM - NETPLAY");
   const [fcmTestBody, setFcmTestBody] = useState("Notificação de teste via Firebase Cloud Messaging.");
   const [fcmTestImage, setFcmTestImage] = useState("");
-  const [fcmTestResult, setFcmTestResult] = useState<{ sent: number; failed: number; skipped: number; total: number } | null>(null);
+  const [fcmTestResult, setFcmTestResult] = useState<{ sent: number; failed: number; skipped: number; total: number; errors?: { token: string; error: string; message?: string }[] } | null>(null);
   const [fcmTesting, setFcmTesting] = useState(false);
   const [contasLoading, setContasLoading] = useState(false);
   const [activatingUser, setActivatingUser] = useState<string | null>(null);
@@ -1366,13 +1366,27 @@ export default function AdminScreen() {
                 style={[{ borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 13, marginBottom: 12 }, { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.background }]}
               />
               {fcmTestResult && (
-                <View style={{ flexDirection: "row", gap: 12, backgroundColor: fcmTestResult.sent > 0 ? "#4caf5015" : "#e5091415", borderRadius: 10, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: fcmTestResult.sent > 0 ? "#4caf5040" : "#e5091440" }}>
-                  {[{ l: "Enviados", v: fcmTestResult.sent, c: "#4caf50" }, { l: "Falharam", v: fcmTestResult.failed, c: fcmTestResult.failed > 0 ? RED : colors.mutedForeground }, { l: "Total", v: fcmTestResult.total, c: colors.foreground }].map((s, i) => (
-                    <View key={i} style={{ flex: 1, alignItems: "center" }}>
-                      <Text style={{ fontSize: 22, fontWeight: "800", color: s.c }}>{s.v}</Text>
-                      <Text style={{ fontSize: 10, color: colors.mutedForeground }}>{s.l}</Text>
+                <View style={{ marginBottom: 12 }}>
+                  <View style={{ flexDirection: "row", gap: 12, backgroundColor: fcmTestResult.sent > 0 ? "#4caf5015" : "#e5091415", borderRadius: 10, padding: 12, borderWidth: 1, borderColor: fcmTestResult.sent > 0 ? "#4caf5040" : "#e5091440" }}>
+                    {[{ l: "Enviados", v: fcmTestResult.sent, c: "#4caf50" }, { l: "Falharam", v: fcmTestResult.failed, c: fcmTestResult.failed > 0 ? RED : colors.mutedForeground }, { l: "Total", v: fcmTestResult.total, c: colors.foreground }].map((s, i) => (
+                      <View key={i} style={{ flex: 1, alignItems: "center" }}>
+                        <Text style={{ fontSize: 22, fontWeight: "800", color: s.c }}>{s.v}</Text>
+                        <Text style={{ fontSize: 10, color: colors.mutedForeground }}>{s.l}</Text>
+                      </View>
+                    ))}
+                  </View>
+                  {fcmTestResult.errors && fcmTestResult.errors.length > 0 && (
+                    <View style={{ marginTop: 8, backgroundColor: "#1a0a0a", borderRadius: 10, borderWidth: 1, borderColor: "#e5091430", padding: 10, gap: 6 }}>
+                      <Text style={{ fontSize: 11, fontWeight: "700", color: RED, marginBottom: 2 }}>ERROS DETALHADOS</Text>
+                      {fcmTestResult.errors.map((e, i) => (
+                        <View key={i} style={{ backgroundColor: "#e5091410", borderRadius: 6, padding: 8 }}>
+                          <Text style={{ fontSize: 10, color: "#ff6b6b", fontWeight: "700" }}>{e.error}</Text>
+                          <Text style={{ fontSize: 10, color: colors.mutedForeground, fontFamily: "monospace" }} numberOfLines={2}>{e.token}</Text>
+                          {e.message ? <Text style={{ fontSize: 10, color: "#aaa", marginTop: 2 }} numberOfLines={3}>{e.message}</Text> : null}
+                        </View>
+                      ))}
                     </View>
-                  ))}
+                  )}
                 </View>
               )}
               <TouchableOpacity
@@ -1391,7 +1405,9 @@ export default function AdminScreen() {
                     });
                     const r = await res.json();
                     setFcmTestResult(r);
-                    Alert.alert(r.sent > 0 ? "✅ FCM OK!" : "⚠️ Aviso", `Enviados: ${r.sent}\nFalharam: ${r.failed}\nTotal: ${r.total}`);
+                    const firstErr = r.errors?.[0];
+                    const errDetail = firstErr ? `\n\n❌ Erro: ${firstErr.error}${firstErr.message ? `\n${firstErr.message}` : ""}` : "";
+                    Alert.alert(r.sent > 0 ? "✅ FCM OK!" : "⚠️ Aviso", `Enviados: ${r.sent}\nFalharam: ${r.failed}\nTotal: ${r.total}${errDetail}`);
                   } catch (e: any) {
                     Alert.alert("Erro FCM", e?.message ?? "Falha no envio");
                   } finally { setFcmTesting(false); }
