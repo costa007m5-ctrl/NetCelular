@@ -912,7 +912,7 @@ export default function AdminScreen() {
                       const base = `https://${serverDomainInput.trim().replace(/^https?:\/\//, "").replace(/\/+$/, "")}/api`;
                       const ctrl = new AbortController();
                       setTimeout(() => ctrl.abort(), 5000);
-                      const res = await fetch(`${base}/catalog/status`, { signal: ctrl.signal });
+                      const res = await fetch(`${base}/healthz`, { signal: ctrl.signal });
                       if (res.ok) {
                         Alert.alert("✅ Servidor online!", `${base} respondeu com status ${res.status}.`);
                       } else {
