@@ -19,6 +19,7 @@ interface ContentRowProps {
   showProgress?: boolean;
   showTitles?: boolean;
   seeAllLabel?: string;
+  maxItems?: number;
   onSeeAll?: () => void;
   onItemPress?: (item: ContentItem) => void;
 }
@@ -32,10 +33,13 @@ export function ContentRow({
   showProgress = false,
   showTitles = false,
   seeAllLabel = "Ver todos",
+  maxItems,
   onSeeAll,
   onItemPress,
 }: ContentRowProps) {
   const colors = useColors();
+  const displayItems = maxItems ? items.slice(0, maxItems) : items;
+  const hasMore = maxItems ? items.length > maxItems : false;
 
   return (
     <View style={styles.container}>
@@ -59,7 +63,7 @@ export function ContentRow({
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
-        {items.map((item) => (
+        {displayItems.map((item) => (
           <ContentCardWithLabel
             key={item.id}
             item={item}
@@ -70,6 +74,22 @@ export function ContentRow({
             onPress={onItemPress ? () => onItemPress(item) : undefined}
           />
         ))}
+        {hasMore && onSeeAll && (
+          <TouchableOpacity
+            onPress={onSeeAll}
+            activeOpacity={0.8}
+            style={[styles.seeMoreCard, { width: cardWidth * 0.7, height: cardHeight }]}
+          >
+            <View style={[styles.seeMoreInner, { borderColor: "rgba(255,255,255,0.12)" }]}>
+              <View style={[styles.seeMoreCircle, { backgroundColor: "rgba(255,255,255,0.08)" }]}>
+                <Text style={styles.seeMoreArrow}>›</Text>
+              </View>
+              <Text style={[styles.seeMoreLabel, { color: "rgba(255,255,255,0.6)" }]}>
+                Ver mais
+              </Text>
+            </View>
+          </TouchableOpacity>
+        )}
       </ScrollView>
     </View>
   );
@@ -109,5 +129,37 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 20,
     gap: 0,
+  },
+  seeMoreCard: {
+    marginLeft: 8,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  seeMoreInner: {
+    flex: 1,
+    width: "100%",
+    borderRadius: 10,
+    borderWidth: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 8,
+  },
+  seeMoreCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  seeMoreArrow: {
+    color: "#fff",
+    fontSize: 28,
+    fontWeight: "300",
+    lineHeight: 32,
+  },
+  seeMoreLabel: {
+    fontSize: 11,
+    fontWeight: "600",
+    letterSpacing: 0.3,
   },
 });

@@ -35,7 +35,8 @@ export function GenreRow({ genreId, type, title }: GenreRowProps) {
     <ContentRow
       title={title}
       icon="circle"
-      items={items.slice(0, 10)}
+      items={items}
+      maxItems={6}
       cardWidth={130}
       cardHeight={190}
       seeAllLabel="Ver mais"

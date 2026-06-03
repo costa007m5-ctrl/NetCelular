@@ -465,6 +465,7 @@ export default function HomeScreen() {
                   cardWidth={150}
                   cardHeight={210}
                   seeAllLabel="Ver mais"
+                  maxItems={6}
                   onSeeAll={() =>
                     router.push({
                       pathname: "/genre-browse",
@@ -486,6 +487,7 @@ export default function HomeScreen() {
                 cardWidth={150}
                 cardHeight={210}
                 seeAllLabel="Ver mais"
+                maxItems={6}
                 onSeeAll={() => router.push({ pathname: "/genre-browse", params: { genre_id: "0", type: "movie", title: "Em Alta" } })}
                 onItemPress={goToPlayer}
               />
@@ -526,6 +528,8 @@ export default function HomeScreen() {
                   cardWidth={170}
                   cardHeight={100}
                   showProgress
+                  seeAllLabel="Ver mais"
+                  maxItems={6}
                   onSeeAll={() => router.push("/(tabs)/list")}
                   onItemPress={goToPlayer}
                 />
