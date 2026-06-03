@@ -1299,7 +1299,7 @@ export default function AdminScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={[styles.infoBoxTitle, { color: "#f59e0b" }]}>Se aparecer erro "InvalidCredentials"</Text>
                 <Text style={[styles.infoBoxText, { color: colors.mutedForeground, lineHeight: 18 }]}>
-                  {`O Expo Push Service precisa da FCM Server Key cadastrada.\n\n1. Firebase Console → grupo-streaming-brasil-aa209\n   → ⚙️ Configurações → Cloud Messaging\n   → Copie a "Chave do servidor" (Legacy)\n\n2. expo.dev → sua conta → Projects\n   → Projeto aa86cc57-... → Credentials\n   → Android → FCM Server Key → cole e salve\n\nDepois disso os tokens ExponentPushToken funcionam sem rebuild.`}
+                  {`A API legada FCM está desativada. Use FCM V1 com Conta de Serviço:\n\n1. Firebase Console → grupo-streaming-brasil-aa209\n   → ⚙️ Configurações do projeto → aba "Contas de serviço"\n   → "Gerar nova chave privada" → baixe o arquivo .json\n\n2. expo.dev → sua conta → Projects\n   → Projeto aa86cc57-... → Credentials → Android\n   → "FCM V1 Service Account Key" → upload do .json\n\nDepois disso os tokens ExponentPushToken funcionam sem rebuild.`}
                 </Text>
               </View>
             </View>
