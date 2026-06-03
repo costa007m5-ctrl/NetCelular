@@ -102,6 +102,18 @@ export type PushToken = {
   created_at?: string;
 };
 
+export type DbSubscription = {
+  id?: string;
+  user_id: string;
+  plan: "trial" | "basic" | "normal" | "premium";
+  screen_limit: number;
+  trial_started_at?: string | null;
+  plan_activated_at?: string | null;
+  plan_expires_at?: string | null;
+  selected_plan?: string | null;
+  created_at?: string;
+};
+
 export type DbProfile = {
   id: string;
   user_id: string;
@@ -343,6 +355,115 @@ export const db = {
     getAll: async (): Promise<string[]> => {
       const { data } = await supabase.from("push_tokens").select("token");
       return (data ?? []).map((r: any) => r.token).filter(Boolean);
+    },
+  },
+
+  subscriptions: {
+    get: async (userId: string): Promise<DbSubscription | null> => {
+      const { data } = await supabase
+        .from("user_subscriptions")
+        .select("*")
+        .eq("user_id", userId)
+        .maybeSingle();
+      return data as DbSubscription | null;
+    },
+
+    create: async (userId: string, selectedPlan = "trial"): Promise<void> => {
+      await supabase.from("user_subscriptions").upsert(
+        {
+          user_id: userId,
+          plan: "trial",
+          screen_limit: 1,
+          trial_started_at: new Date().toISOString(),
+          selected_plan: selectedPlan,
+          created_at: new Date().toISOString(),
+        },
+        { onConflict: "user_id" }
+      );
+    },
+
+    activate: async (userId: string, plan: string, days: number): Promise<{ error?: string }> => {
+      const screenLimits: Record<string, number> = { trial: 1, basic: 1, normal: 2, premium: 4 };
+      const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+      const { error } = await supabase.from("user_subscriptions").upsert(
+        {
+          user_id: userId,
+          plan,
+          screen_limit: screenLimits[plan] ?? 1,
+          plan_activated_at: new Date().toISOString(),
+          plan_expires_at: expiresAt,
+        },
+        { onConflict: "user_id" }
+      );
+      return error ? { error: error.message } : {};
+    },
+
+    getAllWithUsers: async (): Promise<Array<{ user: DbUser; sub: DbSubscription | null }>> => {
+      const { data: users } = await supabase
+        .from("users")
+        .select("*")
+        .order("created_at", { ascending: false });
+      const { data: subs } = await supabase.from("user_subscriptions").select("*");
+      const subsMap = new Map((subs ?? []).map((s: any) => [s.user_id, s]));
+      return (users ?? []).map((u: any) => ({
+        user: u as DbUser,
+        sub: (subsMap.get(u.id) ?? null) as DbSubscription | null,
+      }));
+    },
+  },
+
+  sessions: {
+    start: async (
+      userId: string,
+      deviceId: string,
+      screenLimit: number
+    ): Promise<{ token: string; allowed: boolean }> => {
+      const staleThreshold = new Date(Date.now() - 60 * 1000).toISOString();
+      await supabase
+        .from("active_sessions")
+        .delete()
+        .eq("user_id", userId)
+        .lt("last_heartbeat", staleThreshold);
+
+      const { count } = await supabase
+        .from("active_sessions")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", userId);
+
+      if ((count ?? 0) >= screenLimit) {
+        return { token: "", allowed: false };
+      }
+
+      const token = `${userId}-${deviceId}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      await supabase.from("active_sessions").insert({
+        user_id: userId,
+        device_id: deviceId,
+        session_token: token,
+        started_at: new Date().toISOString(),
+        last_heartbeat: new Date().toISOString(),
+      });
+      return { token, allowed: true };
+    },
+
+    heartbeat: async (token: string): Promise<void> => {
+      await supabase
+        .from("active_sessions")
+        .update({ last_heartbeat: new Date().toISOString() })
+        .eq("session_token", token);
+    },
+
+    end: async (token: string): Promise<void> => {
+      await supabase.from("active_sessions").delete().eq("session_token", token);
+    },
+
+    countActive: async (userId: string): Promise<number> => {
+      const staleThreshold = new Date(Date.now() - 60 * 1000).toISOString();
+      const { count } = await supabase
+        .from("active_sessions")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", userId)
+        .gt("last_heartbeat", staleThreshold);
+      return count ?? 0;
     },
   },
 };

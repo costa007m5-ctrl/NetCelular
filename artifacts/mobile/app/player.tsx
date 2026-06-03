@@ -1,11 +1,13 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   AppState,
   Dimensions,
   FlatList,
   GestureResponderEvent,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -25,6 +27,7 @@ import { useColors } from "@/hooks/useColors";
 import { api, TMDB_IMG } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
+import { checkAndStartSession, heartbeatSession, endSession, getWhatsAppLink } from "@/lib/session-manager";
 import { getSettings } from "@/lib/user-settings";
 import { scheduleContinueWatchingReminder, cancelContinueWatchingReminder } from "@/lib/notifications";
 import type { TmdbEpisode, TmdbSeason } from "@/lib/api";
@@ -679,6 +682,7 @@ export default function PlayerScreen() {
   const [pickerEpisodes, setPickerEpisodes] = useState<TmdbEpisode[]>([]);
   const [loadingEpisodes, setLoadingEpisodes] = useState(false);
   const navigatingToEpisodeRef = useRef(false);
+  const [sessionBlocked, setSessionBlocked] = useState<"trial_expired" | "plan_expired" | "limit_exceeded" | null>(null);
 
   const EMBED_BASE = "https://embed.embedplayer.site";
   const playerUrl = directEmbed
@@ -726,6 +730,19 @@ export default function PlayerScreen() {
     if (Platform.OS !== "web" && !error) startHideTimer();
     return () => { if (hideTimerRef.current) clearTimeout(hideTimerRef.current); };
   }, []);
+
+  // ── Session limit tracking ─────────────────────────────────────────────────
+  useEffect(() => {
+    if (!user?.id) return;
+    checkAndStartSession(user.id).then((result) => {
+      if (result !== "ok") setSessionBlocked(result);
+    });
+    const hbInterval = setInterval(heartbeatSession, 20000);
+    return () => {
+      clearInterval(hbInterval);
+      endSession();
+    };
+  }, [user?.id]);
 
   const toggleFullscreen = useCallback(() => {
     const next = !isFullscreen;
@@ -997,6 +1014,36 @@ export default function PlayerScreen() {
     <View style={[styles.container, { backgroundColor: "#000" }]}>
       <StatusBar style="light" hidden />
 
+      {/* Session blocked overlay */}
+      <Modal visible={!!sessionBlocked} animationType="fade" transparent={false} onRequestClose={() => router.back()}>
+        <View style={{ flex: 1, backgroundColor: "#080808", alignItems: "center", justifyContent: "center", padding: 32 }}>
+          <Feather name={sessionBlocked === "limit_exceeded" ? "monitor" : "lock"} size={60} color="#e50914" />
+          <Text style={{ color: "#fff", fontSize: 22, fontWeight: "800", textAlign: "center", marginTop: 20, lineHeight: 28 }}>
+            {sessionBlocked === "trial_expired" ? "Período de teste encerrado" : sessionBlocked === "plan_expired" ? "Plano expirado" : "Limite de telas atingido"}
+          </Text>
+          <Text style={{ color: "#888", fontSize: 14, textAlign: "center", lineHeight: 21, marginTop: 12, marginBottom: 32 }}>
+            {sessionBlocked === "limit_exceeded"
+              ? "Você atingiu o máximo de telas simultâneas do seu plano. Pause outro dispositivo e tente novamente."
+              : "Entre em contato com o administrador para ativar ou renovar seu plano."}
+          </Text>
+          {sessionBlocked !== "limit_exceeded" && (
+            <Pressable
+              style={{ backgroundColor: "#25D366", borderRadius: 12, paddingHorizontal: 24, paddingVertical: 14, flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 }}
+              onPress={() => Linking.openURL(getWhatsAppLink("Olá! Preciso ativar meu plano NETPLAY.")).catch(() => {})}
+            >
+              <Feather name="message-circle" size={20} color="#fff" />
+              <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15 }}>Falar com administrador</Text>
+            </Pressable>
+          )}
+          <Pressable
+            style={{ paddingHorizontal: 24, paddingVertical: 12, borderRadius: 10, borderWidth: 1, borderColor: "#333" }}
+            onPress={() => router.back()}
+          >
+            <Text style={{ color: "#888", fontSize: 14 }}>Voltar</Text>
+          </Pressable>
+        </View>
+      </Modal>
+
       <WebView
         ref={webviewRef}
         source={
@@ -1129,6 +1176,16 @@ export default function PlayerScreen() {
             </Pressable>
             {title ? <Text style={styles.playerTitle} numberOfLines={1}>{title}</Text> : null}
             <View style={{ flexDirection: "row", gap: 8 }}>
+              {Platform.OS === "android" && (
+                <Pressable
+                  style={styles.iconBtn}
+                  onPress={() => {
+                    Alert.alert("Espelhar Tela", "Use a função 'Transmitir' ou 'Screen Mirror' do seu dispositivo Android para espelhar o vídeo em uma TV.", [{ text: "OK" }]);
+                  }}
+                >
+                  <Feather name="cast" size={19} color="rgba(255,255,255,0.9)" />
+                </Pressable>
+              )}
               {pipEnabled ? (
                 <Pressable onPress={triggerPiP} style={[styles.iconBtn, pipActive && styles.iconBtnActive]}>
                   <Feather name="minimize-2" size={19} color={pipActive ? "#e50914" : "rgba(255,255,255,0.9)"} />

@@ -753,7 +753,7 @@ export default function ProfileScreen() {
         <Section title="MINHA CONTA">
           <Row icon="user" label="Informações Pessoais" onPress={() => { setEditName(displayName); setShowInfoModal(true); }} />
           <Row icon="lock" label="Alterar Senha" onPress={() => { setCurrentPw(""); setNewPw(""); setConfirmPw(""); setShowPasswordModal(true); }} />
-          <Row icon="credit-card" label="Plano Premium" value="R$ 39,90/mês" accent onPress={() => setShowPlanModal(true)} />
+          <Row icon="credit-card" label="Meu Plano" value="Ver detalhes" accent onPress={() => router.push("/plan-select")} />
           <Row icon="clock" label="Histórico de Pagamentos" onPress={() => setShowPaymentsModal(true)} />
           <Row icon="monitor" label="Dispositivos Conectados" onPress={() => setShowDevicesModal(true)} last />
         </Section>

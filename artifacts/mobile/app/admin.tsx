@@ -4,6 +4,7 @@ import {
   Alert,
   Clipboard,
   Image,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -297,7 +298,10 @@ export default function AdminScreen() {
   const [userCount, setUserCount] = useState<number | null>(null);
   const [watchlistCount, setWatchlistCount] = useState<number | null>(null);
   const [ratingsCount, setRatingsCount] = useState<number | null>(null);
-  const [activeTab, setActiveTab] = useState<"sistema" | "emails" | "indicacoes" | "notifs" | "acervo" | "gstream" | "warez">("sistema");
+  const [activeTab, setActiveTab] = useState<"sistema" | "emails" | "indicacoes" | "notifs" | "acervo" | "gstream" | "warez" | "contas">("sistema");
+  const [contasData, setContasData] = useState<Array<{ user: any; sub: any }>>([]);
+  const [contasLoading, setContasLoading] = useState(false);
+  const [activatingUser, setActivatingUser] = useState<string | null>(null);
 
   // ── GStream state ──────────────────────────────────────────────────────────
   const [gSection, setGSection] = useState<"dashboard" | "filmes" | "series" | "animes" | "api">("dashboard");
@@ -745,22 +749,28 @@ export default function AdminScreen() {
       {/* ── TABS ── */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
         <View style={[styles.tabsRow, { borderBottomColor: colors.border }]}>
-          {(["sistema", "notifs", "indicacoes", "emails", "acervo", "gstream", "warez"] as const).map((tab) => {
-            const tabColor = tab === "gstream" ? "#6366f1" : tab === "warez" ? "#f97316" : RED;
+          {(["sistema", "notifs", "indicacoes", "emails", "acervo", "gstream", "warez", "contas"] as const).map((tab) => {
+            const tabColor = tab === "gstream" ? "#6366f1" : tab === "warez" ? "#f97316" : tab === "contas" ? "#22c55e" : RED;
             const isActive = activeTab === tab;
             return (
               <Pressable
                 key={tab}
-                onPress={() => setActiveTab(tab)}
+                onPress={() => {
+                  setActiveTab(tab);
+                  if (tab === "contas" && contasData.length === 0) {
+                    setContasLoading(true);
+                    db.subscriptions.getAllWithUsers().then((res) => { setContasData(res); setContasLoading(false); }).catch(() => setContasLoading(false));
+                  }
+                }}
                 style={[styles.tab, isActive && { borderBottomColor: tabColor, borderBottomWidth: 2 }]}
               >
                 <Feather
-                  name={tab === "sistema" ? "activity" : tab === "notifs" ? "send" : tab === "indicacoes" ? "inbox" : tab === "acervo" ? "hard-drive" : tab === "gstream" ? "play-circle" : tab === "warez" ? "globe" : "mail"}
+                  name={tab === "sistema" ? "activity" : tab === "notifs" ? "send" : tab === "indicacoes" ? "inbox" : tab === "acervo" ? "hard-drive" : tab === "gstream" ? "play-circle" : tab === "warez" ? "globe" : tab === "contas" ? "users" : "mail"}
                   size={14}
                   color={isActive ? tabColor : colors.mutedForeground}
                 />
                 <Text style={[styles.tabTxt, { color: isActive ? tabColor : colors.mutedForeground }]}>
-                  {tab === "sistema" ? "Sistema" : tab === "notifs" ? "Push" : tab === "indicacoes" ? "Pedidos" : tab === "acervo" ? "Acervo" : tab === "gstream" ? "GStream" : tab === "warez" ? "WarezCDN" : "E-mails"}
+                  {tab === "sistema" ? "Sistema" : tab === "notifs" ? "Push" : tab === "indicacoes" ? "Pedidos" : tab === "acervo" ? "Acervo" : tab === "gstream" ? "GStream" : tab === "warez" ? "WarezCDN" : tab === "contas" ? "Contas" : "E-mails"}
                 </Text>
                 {tab === "indicacoes" && pendingCount > 0 && (
                   <View style={[styles.badge, { backgroundColor: RED }]}>
@@ -2499,6 +2509,136 @@ export default function AdminScreen() {
                   </View>
                 )}
               </>
+            )}
+          </>
+        )}
+
+        {/* ── CONTAS TAB ── */}
+        {activeTab === "contas" && (
+          <>
+            <View style={[styles.sectionHeader, { marginTop: 16 }]}>
+              <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>GERENCIAR CONTAS</Text>
+              <Pressable
+                onPress={() => {
+                  setContasLoading(true);
+                  db.subscriptions.getAllWithUsers().then((res) => { setContasData(res); setContasLoading(false); }).catch(() => setContasLoading(false));
+                }}
+                style={[styles.refreshBtn, { backgroundColor: "#22c55e15" }]}
+              >
+                <Feather name="refresh-cw" size={12} color="#22c55e" />
+                <Text style={[styles.refreshText, { color: "#22c55e" }]}>Atualizar</Text>
+              </Pressable>
+            </View>
+
+            <View style={[styles.infoBox, { backgroundColor: "#22c55e0a", borderColor: "#22c55e20", marginBottom: 16 }]}>
+              <Feather name="database" size={14} color="#22c55e" />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.infoBoxTitle, { color: "#22c55e" }]}>SQL necessário (execute no Supabase)</Text>
+                <Text style={[styles.infoBoxText, { color: colors.mutedForeground, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace", fontSize: 10 }]}>
+                  {`CREATE TABLE IF NOT EXISTS user_subscriptions (\n  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),\n  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE UNIQUE,\n  plan TEXT NOT NULL DEFAULT 'trial',\n  screen_limit INTEGER NOT NULL DEFAULT 1,\n  trial_started_at TIMESTAMPTZ DEFAULT NOW(),\n  plan_activated_at TIMESTAMPTZ,\n  plan_expires_at TIMESTAMPTZ,\n  selected_plan TEXT,\n  created_at TIMESTAMPTZ DEFAULT NOW()\n);\nCREATE TABLE IF NOT EXISTS active_sessions (\n  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),\n  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,\n  device_id TEXT NOT NULL,\n  session_token TEXT NOT NULL UNIQUE,\n  started_at TIMESTAMPTZ DEFAULT NOW(),\n  last_heartbeat TIMESTAMPTZ DEFAULT NOW()\n);`}
+                </Text>
+              </View>
+            </View>
+
+            {contasLoading ? (
+              <View style={[styles.centered, { paddingVertical: 40 }]}>
+                <ActivityIndicator color="#22c55e" />
+                <Text style={{ color: colors.mutedForeground, marginTop: 12 }}>Carregando contas...</Text>
+              </View>
+            ) : contasData.length === 0 ? (
+              <View style={[styles.emptyBox, { borderColor: colors.border }]}>
+                <Feather name="users" size={32} color={colors.mutedForeground} />
+                <Text style={[styles.emptyTxt, { color: colors.mutedForeground }]}>Nenhum usuário encontrado</Text>
+              </View>
+            ) : (
+              contasData.map(({ user: u, sub }) => {
+                const plan = sub?.plan ?? "sem plano";
+                const planColors: Record<string, string> = { trial: "#f59e0b", basic: "#3b82f6", normal: "#8b5cf6", premium: "#e50914" };
+                const planColor = planColors[plan] ?? "#888";
+                const isTrialExpired = sub?.plan === "trial" && sub?.trial_started_at
+                  ? new Date(sub.trial_started_at).getTime() + 3 * 24 * 60 * 60 * 1000 < Date.now()
+                  : false;
+                const isPlanExpired = sub?.plan !== "trial" && sub?.plan_expires_at
+                  ? new Date(sub.plan_expires_at) < new Date()
+                  : false;
+                const expiryStr = sub?.plan_expires_at
+                  ? new Date(sub.plan_expires_at).toLocaleDateString("pt-BR")
+                  : sub?.trial_started_at
+                  ? `Trial até ${new Date(new Date(sub.trial_started_at).getTime() + 3 * 24 * 60 * 60 * 1000).toLocaleDateString("pt-BR")}`
+                  : "—";
+
+                return (
+                  <View key={u.id} style={[styles.requestCard, { backgroundColor: colors.card, borderColor: colors.border, flexDirection: "column", gap: 10 }]}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                      <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: planColor + "22", alignItems: "center", justifyContent: "center" }}>
+                        <Text style={{ color: planColor, fontSize: 16, fontWeight: "800" }}>{u.avatar_letter ?? u.name?.[0] ?? "?"}</Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.requestTitle, { color: colors.foreground, fontSize: 14 }]} numberOfLines={1}>{u.name}</Text>
+                        <Text style={{ color: colors.mutedForeground, fontSize: 11 }} numberOfLines={1}>{u.email}</Text>
+                      </View>
+                      <View style={[styles.typeBadge, { backgroundColor: planColor + "22", borderColor: planColor + "55" }]}>
+                        <Text style={[styles.typeTxt, { color: planColor }]}>{plan.toUpperCase()}</Text>
+                      </View>
+                    </View>
+
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                      <Feather name="clock" size={11} color={(isTrialExpired || isPlanExpired) ? RED : colors.mutedForeground} />
+                      <Text style={{ color: (isTrialExpired || isPlanExpired) ? RED : colors.mutedForeground, fontSize: 11 }}>
+                        {isTrialExpired ? "⚠ Trial expirado" : isPlanExpired ? "⚠ Plano expirado" : expiryStr}
+                      </Text>
+                    </View>
+
+                    <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+                      {(["basic", "normal", "premium"] as const).map((p) => {
+                        const pLabels = { basic: "Básico", normal: "Normal", premium: "Premium" };
+                        const pColors = { basic: "#3b82f6", normal: "#8b5cf6", premium: "#e50914" };
+                        return (
+                          <Pressable
+                            key={p}
+                            disabled={activatingUser === u.id}
+                            onPress={() => {
+                              Alert.alert(
+                                `Ativar ${pLabels[p]}`,
+                                `Ativar plano ${pLabels[p]} por 30 dias para ${u.name}?`,
+                                [
+                                  { text: "Cancelar", style: "cancel" },
+                                  {
+                                    text: "Ativar",
+                                    onPress: async () => {
+                                      setActivatingUser(u.id ?? "");
+                                      await db.subscriptions.activate(u.id!, p, 30);
+                                      setActivatingUser(null);
+                                      const res = await db.subscriptions.getAllWithUsers();
+                                      setContasData(res);
+                                    },
+                                  },
+                                ]
+                              );
+                            }}
+                            style={[styles.addBtn, { backgroundColor: pColors[p] + "cc", paddingHorizontal: 12, paddingVertical: 6, margin: 0 }]}
+                          >
+                            {activatingUser === u.id ? (
+                              <ActivityIndicator size="small" color="#fff" />
+                            ) : (
+                              <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>{pLabels[p]}</Text>
+                            )}
+                          </Pressable>
+                        );
+                      })}
+                      <Pressable
+                        onPress={() => {
+                          Linking.openURL(`https://wa.me/?text=${encodeURIComponent(`Olá ${u.name}, seu plano NETPLAY está pronto! Entre no app para continuar assistindo.`)}`);
+                        }}
+                        style={[styles.copyBtn, { borderColor: "#22c55e55", backgroundColor: "#22c55e15" }]}
+                      >
+                        <Feather name="message-circle" size={12} color="#22c55e" />
+                        <Text style={[styles.copyBtnTxt, { color: "#22c55e" }]}>WhatsApp</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                );
+              })
             )}
           </>
         )}
