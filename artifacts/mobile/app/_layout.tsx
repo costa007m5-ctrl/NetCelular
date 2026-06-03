@@ -150,6 +150,7 @@ function RootNavigator() {
         <Stack.Screen name="player" options={{ headerShown: false, presentation: "fullScreenModal" }} />
         <Stack.Screen name="gdrive-player" options={{ headerShown: false, presentation: "fullScreenModal" }} />
         <Stack.Screen name="admin" options={{ headerShown: false }} />
+        <Stack.Screen name="admin-user" options={{ headerShown: false }} />
         <Stack.Screen name="r2-catalog" options={{ headerShown: false }} />
         <Stack.Screen name="r2-player" options={{ headerShown: false, presentation: "fullScreenModal" }} />
         <Stack.Screen name="notification-history" options={{ headerShown: false }} />
@@ -225,7 +226,7 @@ export default function RootLayout() {
 
   const handleSplashFinish = () => setShowSplash(false);
 
-  if (!ready) return null;
+  if (!ready) return <View style={{ flex: 1, backgroundColor: "#000" }} />;
 
   return (
     <SafeAreaProvider>
