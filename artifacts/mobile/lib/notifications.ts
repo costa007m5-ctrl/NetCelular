@@ -330,7 +330,45 @@ export async function scheduleWeeklyContentReminder(): Promise<void> {
   } catch {}
 }
 
-/* ── Push (remote) notifications via Expo API ── */
+/* ── Push (remote) notifications via API server (FCM) ── */
+
+export async function sendPushViaServer(
+  title: string,
+  body: string,
+  data?: Record<string, any>,
+  imageUrl?: string,
+  tokens?: string[]
+): Promise<{ sent: number; failed: number; skipped: number; total: number }> {
+  try {
+    const { getApiBase } = await import("@/lib/api");
+    const base = getApiBase();
+    if (!base) throw new Error("API server não configurado");
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+    try {
+      const res = await fetch(`${base}/push/send`, {
+        method: "POST",
+        signal: controller.signal,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, body, data: data ?? {}, imageUrl, tokens }),
+      });
+      clearTimeout(timer);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      return {
+        sent: json.sent ?? 0,
+        failed: json.failed ?? 0,
+        skipped: json.skipped ?? 0,
+        total: json.total ?? 0,
+      };
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch (e) {
+    console.error("[Push] Erro ao enviar via servidor:", e);
+    return { sent: 0, failed: 0, skipped: 0, total: 0 };
+  }
+}
 
 export async function sendPushNotificationsToTokens(
   tokens: string[],
@@ -339,33 +377,22 @@ export async function sendPushNotificationsToTokens(
   data?: Record<string, any>,
   imageUrl?: string
 ): Promise<{ sent: number; failed: number }> {
+  const result = await sendPushViaServer(title, body, data, imageUrl, tokens);
+  if (result.sent > 0 || result.total > 0) return { sent: result.sent, failed: result.failed };
+
+  // Fallback: direct Expo Push API
   if (tokens.length === 0) return { sent: 0, failed: 0 };
-  // Expo push API only accepts ExponentPushToken/ExpoToken — filter out native FCM tokens
   const expoTokens = tokens.filter((t) => t.startsWith("ExponentPushToken") || t.startsWith("ExpoToken"));
-  const skipped = tokens.length - expoTokens.length;
-  if (skipped > 0) console.warn(`[Push] ${skipped} tokens nativos ignorados (não suportados pelo Expo Push API)`);
-  if (expoTokens.length === 0) return { sent: 0, failed: skipped };
+  if (expoTokens.length === 0) return { sent: 0, failed: tokens.length - expoTokens.length };
   try {
     const messages = expoTokens.map((to) => {
-      const msg: Record<string, any> = {
-        to,
-        title,
-        body,
-        sound: "default",
-        data: data ?? {},
-      };
-      if (imageUrl) {
-        msg.attachments = [{ url: imageUrl }];
-      }
+      const msg: Record<string, any> = { to, title, body, sound: "default", data: data ?? {} };
+      if (imageUrl) msg.attachments = [{ url: imageUrl }];
       return msg;
     });
     const res = await fetch("https://exp.host/--/api/v2/push/send", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        "Accept-Encoding": "gzip, deflate",
-      },
+      headers: { "Content-Type": "application/json", Accept: "application/json", "Accept-Encoding": "gzip, deflate" },
       body: JSON.stringify(messages),
     });
     if (!res.ok) return { sent: 0, failed: expoTokens.length };
