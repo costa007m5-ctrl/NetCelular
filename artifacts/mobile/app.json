@@ -90,7 +90,8 @@
           "sounds": []
         }
       ],
-      "expo-updates"
+      "expo-updates",
+      "./plugins/withIconBackground"
     ],
     "experiments": {
       "typedRoutes": true,
