@@ -1,4 +1,3 @@
-// Polyfill for Node 18 compat (Array.prototype.toReversed added in Node 18.16+)
 if (!Array.prototype.toReversed) {
   Array.prototype.toReversed = function () {
     return [...this].reverse();
@@ -13,13 +12,21 @@ const monorepoRoot = path.resolve(projectRoot, "../..");
 
 const config = getDefaultConfig(projectRoot);
 
-// Watch the entire monorepo root so Metro can resolve pnpm symlinks
 config.watchFolders = [monorepoRoot];
 
-// Tell Metro where to find node_modules (project-level and workspace-level)
 config.resolver.nodeModulesPaths = [
   path.resolve(projectRoot, "node_modules"),
   path.resolve(monorepoRoot, "node_modules"),
+];
+
+// Block .local from file watching — avoids crashes when skill directories are
+// created/deleted by Replit's agent tooling while Metro is running.
+const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const localDir = path.resolve(monorepoRoot, ".local");
+const existing = config.resolver.blockList;
+config.resolver.blockList = [
+  ...(Array.isArray(existing) ? existing : existing ? [existing] : []),
+  new RegExp(`^${escapeRegex(localDir)}(/.*)?$`),
 ];
 
 module.exports = config;
