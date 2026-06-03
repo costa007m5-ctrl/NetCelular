@@ -397,13 +397,28 @@ export default function R2PlayerScreen() {
     if (!tmdbId) return;
     setPanelLoading(true);
     try {
-      const res = await fetch(
-        `https://api.themoviedb.org/3/tv/${tmdbId}/season/${seasonNum}?api_key=${TMDB_KEY}&language=en-US`,
-        { signal: mkSignal(10000) }
-      );
-      if (!res.ok) return;
-      const data = await res.json();
-      setPanelEpisodes(data.episodes ?? []);
+      const [resEn, resPt] = await Promise.all([
+        fetch(`https://api.themoviedb.org/3/tv/${tmdbId}/season/${seasonNum}?api_key=${TMDB_KEY}&language=en-US`, { signal: mkSignal(10000) }),
+        fetch(`https://api.themoviedb.org/3/tv/${tmdbId}/season/${seasonNum}?api_key=${TMDB_KEY}&language=pt-BR`, { signal: mkSignal(10000) }),
+      ]);
+      const dataEn = resEn.ok ? await resEn.json() : null;
+      const dataPt = resPt.ok ? await resPt.json() : null;
+
+      const enEps: TmdbEpisode[] = dataEn?.episodes ?? [];
+      const ptEps: TmdbEpisode[] = dataPt?.episodes ?? [];
+
+      const isGeneric = (name: string) => /^Epis[oó]dio\s*\d+$/i.test(name.trim()) || /^Episode\s*\d+$/i.test(name.trim());
+
+      const merged = enEps.map((enEp) => {
+        const ptEp = ptEps.find((p) => p.episode_number === enEp.episode_number);
+        return {
+          ...enEp,
+          name: ptEp && ptEp.name && !isGeneric(ptEp.name) ? ptEp.name : enEp.name,
+          overview: ptEp?.overview?.trim() ? ptEp.overview : enEp.overview,
+        };
+      });
+
+      setPanelEpisodes(merged.length > 0 ? merged : ptEps);
     } catch {
       setPanelEpisodes([]);
     } finally {
