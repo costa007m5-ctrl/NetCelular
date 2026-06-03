@@ -30,7 +30,7 @@
       "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon.png",
-        "backgroundColor": "#000000"
+        "backgroundImage": "./assets/images/icon_background.png"
       },
       "permissions": [
         "NOTIFICATIONS",
@@ -90,8 +90,7 @@
           "sounds": []
         }
       ],
-      "expo-updates",
-      "./plugins/withIconBackground"
+      "expo-updates"
     ],
     "experiments": {
       "typedRoutes": true,
