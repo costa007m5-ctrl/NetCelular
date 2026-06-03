@@ -171,5 +171,54 @@ CREATE POLICY "auth_all_profiles"
 
 
 -- ────────────────────────────────────────────────────────────
+-- 6. ASSINATURAS E SESSÕES ATIVAS
+-- ────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS public.user_subscriptions (
+  id               UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id          UUID        NOT NULL REFERENCES public.users(id) ON DELETE CASCADE UNIQUE,
+  plan             TEXT        NOT NULL DEFAULT 'trial',
+  screen_limit     INTEGER     NOT NULL DEFAULT 1,
+  trial_started_at TIMESTAMPTZ DEFAULT NOW(),
+  plan_activated_at TIMESTAMPTZ,
+  plan_expires_at  TIMESTAMPTZ,
+  selected_plan    TEXT,
+  created_at       TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.active_sessions (
+  id             UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id        UUID        NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  device_id      TEXT        NOT NULL,
+  session_token  TEXT        NOT NULL UNIQUE,
+  started_at     TIMESTAMPTZ DEFAULT NOW(),
+  last_heartbeat TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.user_subscriptions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.active_sessions    ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "auth_all_user_subscriptions" ON public.user_subscriptions;
+DROP POLICY IF EXISTS "auth_all_active_sessions"    ON public.active_sessions;
+
+CREATE POLICY "auth_all_user_subscriptions"
+  ON public.user_subscriptions FOR ALL TO authenticated
+  USING (true) WITH CHECK (true);
+
+CREATE POLICY "auth_all_active_sessions"
+  ON public.active_sessions FOR ALL TO authenticated
+  USING (true) WITH CHECK (true);
+
+-- anon access needed for session checks before full auth
+CREATE POLICY "anon_all_user_subscriptions"
+  ON public.user_subscriptions FOR ALL TO anon
+  USING (true) WITH CHECK (true);
+
+CREATE POLICY "anon_all_active_sessions"
+  ON public.active_sessions FOR ALL TO anon
+  USING (true) WITH CHECK (true);
+
+
+-- ────────────────────────────────────────────────────────────
 -- FIM — todas as tabelas e permissoes prontas
 -- ────────────────────────────────────────────────────────────
