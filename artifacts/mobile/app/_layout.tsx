@@ -44,7 +44,17 @@ function NotificationHandler() {
       const title: string = data.title ?? "";
       const notifCategory: string = data.type ?? "";
 
-      // 1. Content deep-link: any notification that carries a real tmdbId + content type
+      // 1. New episode: navigate directly to episodes tab
+      if (notifCategory === "new_episode" && tmdbId && (contentType === "tv" || contentType === "movie")) {
+        const deepLinkTo: string = (data as any)?.deepLinkTo ?? "";
+        router.push({
+          pathname: "/detail",
+          params: { type: contentType, id: String(tmdbId), title, ...(deepLinkTo ? { tab: deepLinkTo } : {}) },
+        });
+        return;
+      }
+
+      // 2. Content deep-link: any notification that carries a real tmdbId + content type
       if (tmdbId && (contentType === "movie" || contentType === "tv")) {
         router.push({
           pathname: "/detail",
@@ -53,7 +63,7 @@ function NotificationHandler() {
         return;
       }
 
-      // 2. Continue watching: has tmdbId/contentType embedded
+      // 3. Continue watching: has tmdbId/contentType embedded
       if (notifCategory === "continue_watching" && tmdbId && contentType) {
         router.push({
           pathname: "/detail",

@@ -347,6 +347,26 @@ export const db = {
     },
   },
 
+  newEpisodes: {
+    get: async (tmdbId: number): Promise<{ season: number; episode: number; episode_title: string | null; air_date: string | null; poster_path: string | null; expires_at: string } | null> => {
+      const now = new Date().toISOString();
+      const { data } = await supabase
+        .from("new_episodes")
+        .select("season,episode,episode_title,air_date,poster_path,expires_at")
+        .eq("tmdb_id", tmdbId)
+        .gt("expires_at", now)
+        .order("notified_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      return data as any ?? null;
+    },
+    add: async (ep: { tmdb_id: number; season: number; episode: number; episode_title?: string | null; air_date?: string | null; poster_path?: string | null; expires_at: string }): Promise<void> => {
+      await supabase
+        .from("new_episodes")
+        .upsert({ ...ep, notified_at: new Date().toISOString() }, { onConflict: "tmdb_id,season,episode" });
+    },
+  },
+
   pushTokens: {
     upsert: async (userId: string, token: string): Promise<void> => {
       await supabase

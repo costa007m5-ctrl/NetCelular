@@ -115,6 +115,46 @@ export async function sendToAll(
   return { ...result, total: tokens.length };
 }
 
+async function storeNewEpisode(ep: {
+  tmdb_id: number; season: number; episode: number;
+  episode_title?: string; air_date?: string; poster_path?: string; expires_at: string;
+}): Promise<void> {
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/new_episodes`, {
+      method: "POST",
+      headers: {
+        apikey: SUPABASE_KEY,
+        Authorization: `Bearer ${SUPABASE_KEY}`,
+        "Content-Type": "application/json",
+        Prefer: "resolution=merge-duplicates",
+      },
+      body: JSON.stringify({ ...ep, notified_at: new Date().toISOString() }),
+    });
+  } catch {}
+}
+
+export async function notifyNewEpisode(
+  tmdbId: number,
+  showTitle: string,
+  season: number,
+  episode: number,
+  episodeTitle: string,
+  posterPath?: string | null
+): Promise<void> {
+  const posterUrl = posterPath
+    ? (posterPath.startsWith("http") ? posterPath : `https://image.tmdb.org/t/p/w780${posterPath}`)
+    : undefined;
+
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  await storeNewEpisode({ tmdb_id: tmdbId, season, episode, episode_title: episodeTitle, expires_at: expiresAt, poster_path: posterUrl });
+
+  const title = "📺 Novo episódio disponível!";
+  const body = `${showTitle} — T${season}:E${episode}${episodeTitle ? `: ${episodeTitle}` : ""}`;
+  const data = { type: "new_episode", tmdbId, contentType: "tv", season, episode, deepLinkTo: "episodes", title: showTitle };
+  const result = await sendToAll(title, body, data, posterUrl);
+  console.log(`[push] new-episode "${showTitle}" S${season}E${episode} → sent:${result.sent} total:${result.total}`);
+}
+
 export async function notifyNewContent(
   newCount: number,
   sampleTitle: string | null

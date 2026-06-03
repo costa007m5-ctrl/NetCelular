@@ -1,4 +1,4 @@
-import { notifyNewContent } from "./push-notifications.js";
+import { notifyNewContent, notifyNewEpisode } from "./push-notifications.js";
 
 const LISTS: Record<string, string> = {
   movie:  "https://redeflixapi.store/list-movie-ids.txt",
@@ -65,6 +65,49 @@ async function fetchSampleTitle(newIds: number[], movieIds: Set<number>, tvIds: 
   }
 }
 
+async function checkAndNotifyNewEpisode(tvId: number): Promise<void> {
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    const res = await fetch(
+      `${TMDB_BASE}/tv/${tvId}?api_key=${TMDB_KEY}&language=pt-BR`,
+      { signal: ctrl.signal }
+    );
+    clearTimeout(timer);
+    if (!res.ok) return;
+    const data = (await res.json()) as {
+      name?: string;
+      poster_path?: string | null;
+      last_episode_to_air?: {
+        episode_number: number;
+        season_number: number;
+        name?: string;
+        air_date?: string;
+        still_path?: string | null;
+      } | null;
+    };
+
+    const ep = data.last_episode_to_air;
+    if (!ep || !ep.air_date) return;
+
+    const airDate = new Date(ep.air_date);
+    const now = new Date();
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    if (airDate < sevenDaysAgo) return;
+
+    const posterPath = data.poster_path ?? ep.still_path ?? null;
+    const showTitle = data.name ?? `Série #${tvId}`;
+    await notifyNewEpisode(
+      tvId,
+      showTitle,
+      ep.season_number,
+      ep.episode_number,
+      ep.name ?? "",
+      posterPath
+    );
+  } catch {}
+}
+
 async function refresh(): Promise<void> {
   const prevAll = snapshot.allIds;
 
@@ -97,6 +140,11 @@ async function refresh(): Promise<void> {
     const tvSet    = new Set(tv);
     const sampleTitle = await fetchSampleTitle(newSinceLastCheck, movieSet, tvSet);
     notifyNewContent(newSinceLastCheck.length, sampleTitle).catch(() => {});
+
+    const newTvIds = newSinceLastCheck.filter((id) => tvSet.has(id)).slice(0, 5);
+    for (const tvId of newTvIds) {
+      checkAndNotifyNewEpisode(tvId).catch(() => {});
+    }
   }
   isFirstLoad = false;
 }

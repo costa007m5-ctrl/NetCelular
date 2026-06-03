@@ -332,6 +332,23 @@ export async function scheduleWeeklyContentReminder(): Promise<void> {
 
 /* ── Push (remote) notifications via API server (FCM) ── */
 
+export async function sendNewEpisodeNotification(
+  showTitle: string,
+  season: number,
+  episode: number,
+  episodeTitle: string,
+  tmdbId: number,
+  posterUrl?: string
+): Promise<void> {
+  const body = `${showTitle} — T${season}:E${episode}${episodeTitle ? `: ${episodeTitle}` : ""}`;
+  await sendPushViaServer(
+    "📺 Novo episódio disponível!",
+    body,
+    { type: "new_episode", tmdbId, contentType: "tv", season, episode, deepLinkTo: "episodes", title: showTitle },
+    posterUrl
+  );
+}
+
 export async function sendPushViaServer(
   title: string,
   body: string,

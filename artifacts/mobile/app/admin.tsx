@@ -298,8 +298,16 @@ export default function AdminScreen() {
   const [userCount, setUserCount] = useState<number | null>(null);
   const [watchlistCount, setWatchlistCount] = useState<number | null>(null);
   const [ratingsCount, setRatingsCount] = useState<number | null>(null);
-  const [activeTab, setActiveTab] = useState<"sistema" | "emails" | "indicacoes" | "notifs" | "acervo" | "gstream" | "warez" | "contas">("sistema");
+  const [activeTab, setActiveTab] = useState<"sistema" | "emails" | "indicacoes" | "notifs" | "acervo" | "gstream" | "warez" | "contas" | "firebase">("sistema");
   const [contasData, setContasData] = useState<Array<{ user: any; sub: any }>>([]);
+
+  const [fcmStats, setFcmStats] = useState<{ total: number; expo: number; native: number } | null>(null);
+  const [fcmStatsLoading, setFcmStatsLoading] = useState(false);
+  const [fcmTestTitle, setFcmTestTitle] = useState("🔔 Teste FCM - NETPLAY");
+  const [fcmTestBody, setFcmTestBody] = useState("Notificação de teste via Firebase Cloud Messaging.");
+  const [fcmTestImage, setFcmTestImage] = useState("");
+  const [fcmTestResult, setFcmTestResult] = useState<{ sent: number; failed: number; skipped: number; total: number } | null>(null);
+  const [fcmTesting, setFcmTesting] = useState(false);
   const [contasLoading, setContasLoading] = useState(false);
   const [activatingUser, setActivatingUser] = useState<string | null>(null);
   const [blockingUser, setBlockingUser] = useState<string | null>(null);
@@ -750,8 +758,8 @@ export default function AdminScreen() {
       {/* ── TABS ── */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
         <View style={[styles.tabsRow, { borderBottomColor: colors.border }]}>
-          {(["sistema", "notifs", "indicacoes", "emails", "acervo", "gstream", "warez", "contas"] as const).map((tab) => {
-            const tabColor = tab === "gstream" ? "#6366f1" : tab === "warez" ? "#f97316" : tab === "contas" ? "#22c55e" : RED;
+          {(["sistema", "notifs", "indicacoes", "emails", "acervo", "gstream", "warez", "contas", "firebase"] as const).map((tab) => {
+            const tabColor = tab === "gstream" ? "#6366f1" : tab === "warez" ? "#f97316" : tab === "contas" ? "#22c55e" : tab === "firebase" ? "#ff6d00" : RED;
             const isActive = activeTab === tab;
             return (
               <Pressable
@@ -762,16 +770,24 @@ export default function AdminScreen() {
                     setContasLoading(true);
                     db.subscriptions.getAllWithUsers().then((res) => { setContasData(res); setContasLoading(false); }).catch(() => setContasLoading(false));
                   }
+                  if (tab === "firebase") {
+                    setFcmStatsLoading(true);
+                    fetch(`${getApiBase()}/push/stats`, { signal: mkSignal(8000) })
+                      .then((r) => r.ok ? r.json() : null)
+                      .then((d) => { if (d) setFcmStats(d); })
+                      .catch(() => {})
+                      .finally(() => setFcmStatsLoading(false));
+                  }
                 }}
                 style={[styles.tab, isActive && { borderBottomColor: tabColor, borderBottomWidth: 2 }]}
               >
                 <Feather
-                  name={tab === "sistema" ? "activity" : tab === "notifs" ? "send" : tab === "indicacoes" ? "inbox" : tab === "acervo" ? "hard-drive" : tab === "gstream" ? "play-circle" : tab === "warez" ? "globe" : tab === "contas" ? "users" : "mail"}
+                  name={tab === "sistema" ? "activity" : tab === "notifs" ? "send" : tab === "indicacoes" ? "inbox" : tab === "acervo" ? "hard-drive" : tab === "gstream" ? "play-circle" : tab === "warez" ? "globe" : tab === "contas" ? "users" : tab === "firebase" ? "zap" : "mail"}
                   size={14}
                   color={isActive ? tabColor : colors.mutedForeground}
                 />
                 <Text style={[styles.tabTxt, { color: isActive ? tabColor : colors.mutedForeground }]}>
-                  {tab === "sistema" ? "Sistema" : tab === "notifs" ? "Push" : tab === "indicacoes" ? "Pedidos" : tab === "acervo" ? "Acervo" : tab === "gstream" ? "GStream" : tab === "warez" ? "WarezCDN" : tab === "contas" ? "Contas" : "E-mails"}
+                  {tab === "sistema" ? "Sistema" : tab === "notifs" ? "Push" : tab === "indicacoes" ? "Pedidos" : tab === "acervo" ? "Acervo" : tab === "gstream" ? "GStream" : tab === "warez" ? "WarezCDN" : tab === "contas" ? "Contas" : tab === "firebase" ? "Firebase" : "E-mails"}
                 </Text>
                 {tab === "indicacoes" && pendingCount > 0 && (
                   <View style={[styles.badge, { backgroundColor: RED }]}>
@@ -1126,6 +1142,200 @@ export default function AdminScreen() {
                 >
                   <Feather name="copy" size={13} color={GOLD} />
                   <Text style={[styles.copyBtnTxt, { color: GOLD }]}>Copiar SQL completo</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </>
+        )}
+
+        {/* ── ABA FIREBASE ── */}
+        {activeTab === "firebase" && (
+          <>
+            <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginTop: 20 }]}>PROJETO FIREBASE</Text>
+            <View style={[styles.statsRow, { marginBottom: 16 }]}>
+              <View style={[styles.statsCard, { backgroundColor: colors.card, borderColor: colors.border, flex: 1 }]}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                  <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: "#ff6d0020", alignItems: "center", justifyContent: "center" }}>
+                    <Text style={{ fontSize: 18 }}>🔥</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.statsValue, { color: colors.foreground, fontSize: 13 }]}>grupo-streaming-brasil-aa209</Text>
+                    <Text style={[styles.statsLabel, { color: colors.mutedForeground }]}>Firebase Project ID</Text>
+                  </View>
+                  <View style={[badge.wrap, { backgroundColor: "#4caf5022", borderColor: "#4caf5055" }]}>
+                    <View style={[badge.dot, { backgroundColor: "#4caf50" }]} />
+                    <Text style={[badge.text, { color: "#4caf50" }]}>Ativo</Text>
+                  </View>
+                </View>
+                {[
+                  { label: "Package Name", value: "com.netplay.app" },
+                  { label: "google-services.json", value: "✅ Configurado" },
+                  { label: "FCM via Expo Push API", value: "Ativo (roteamento automático)" },
+                ].map((item, i) => (
+                  <View key={i} style={[{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 6 }, { borderTopWidth: 1, borderTopColor: colors.border }]}>
+                    <Text style={[{ fontSize: 12 }, { color: colors.mutedForeground }]}>{item.label}</Text>
+                    <Text style={[{ fontSize: 12, fontWeight: "600" }, { color: colors.foreground }]} numberOfLines={1}>{item.value}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+
+            <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginBottom: 10 }]}>TOKENS REGISTRADOS</Text>
+            <View style={[styles.statsCard, { backgroundColor: colors.card, borderColor: colors.border, marginBottom: 16 }]}>
+              {fcmStats ? (
+                <>
+                  <View style={{ flexDirection: "row", gap: 10, marginBottom: 12 }}>
+                    {[
+                      { label: "Total", value: fcmStats.total, color: RED },
+                      { label: "Expo", value: fcmStats.expo, color: "#6366f1" },
+                      { label: "Nativos FCM", value: fcmStats.native, color: "#f59e0b" },
+                    ].map((s, i) => (
+                      <View key={i} style={{ flex: 1, backgroundColor: `${s.color}18`, borderRadius: 10, padding: 10, alignItems: "center" }}>
+                        <Text style={[styles.statsValue, { color: s.color, fontSize: 24 }]}>{s.value}</Text>
+                        <Text style={[styles.statsLabel, { color: colors.mutedForeground }]}>{s.label}</Text>
+                      </View>
+                    ))}
+                  </View>
+                  <Text style={[{ fontSize: 11, lineHeight: 16 }, { color: colors.mutedForeground }]}>
+                    Tokens Expo são enviados via serviço Expo → FCM automaticamente. Tokens FCM nativos exigem Firebase Admin SDK para envio direto (premium).
+                  </Text>
+                </>
+              ) : (
+                <View style={{ flexDirection: "row", gap: 10, alignItems: "center" }}>
+                  {fcmStatsLoading
+                    ? <ActivityIndicator size="small" color={RED} />
+                    : <Feather name="wifi-off" size={16} color={colors.mutedForeground} />}
+                  <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>
+                    {fcmStatsLoading ? "Carregando..." : "Sem dados — servidor pode estar offline"}
+                  </Text>
+                </View>
+              )}
+              <TouchableOpacity
+                style={{ flexDirection: "row", gap: 6, alignItems: "center", alignSelf: "flex-end", marginTop: 10, padding: 6 }}
+                onPress={() => {
+                  setFcmStatsLoading(true);
+                  fetch(`${getApiBase()}/push/stats`, { signal: mkSignal(8000) })
+                    .then((r) => r.ok ? r.json() : null)
+                    .then((d) => { if (d) setFcmStats(d); })
+                    .catch(() => {})
+                    .finally(() => setFcmStatsLoading(false));
+                }}
+              >
+                <Feather name="refresh-cw" size={13} color={colors.mutedForeground} />
+                <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>Atualizar</Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginBottom: 10 }]}>TESTAR NOTIFICAÇÃO FCM</Text>
+            <View style={[styles.statsCard, { backgroundColor: colors.card, borderColor: colors.border, marginBottom: 16 }]}>
+              <TextInput
+                value={fcmTestTitle}
+                onChangeText={setFcmTestTitle}
+                placeholder="Título"
+                placeholderTextColor={colors.border}
+                style={[{ borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, marginBottom: 10 }, { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.background }]}
+              />
+              <TextInput
+                value={fcmTestBody}
+                onChangeText={setFcmTestBody}
+                placeholder="Mensagem de teste..."
+                placeholderTextColor={colors.border}
+                multiline
+                numberOfLines={2}
+                style={[{ borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, marginBottom: 10, textAlignVertical: "top" }, { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.background }]}
+              />
+              <TextInput
+                value={fcmTestImage}
+                onChangeText={setFcmTestImage}
+                placeholder="URL da imagem (opcional)"
+                placeholderTextColor={colors.border}
+                style={[{ borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 13, marginBottom: 12 }, { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.background }]}
+              />
+              {fcmTestResult && (
+                <View style={{ flexDirection: "row", gap: 12, backgroundColor: fcmTestResult.sent > 0 ? "#4caf5015" : "#e5091415", borderRadius: 10, padding: 12, marginBottom: 12, borderWidth: 1, borderColor: fcmTestResult.sent > 0 ? "#4caf5040" : "#e5091440" }}>
+                  {[{ l: "Enviados", v: fcmTestResult.sent, c: "#4caf50" }, { l: "Falharam", v: fcmTestResult.failed, c: fcmTestResult.failed > 0 ? RED : colors.mutedForeground }, { l: "Total", v: fcmTestResult.total, c: colors.foreground }].map((s, i) => (
+                    <View key={i} style={{ flex: 1, alignItems: "center" }}>
+                      <Text style={{ fontSize: 22, fontWeight: "800", color: s.c }}>{s.v}</Text>
+                      <Text style={{ fontSize: 10, color: colors.mutedForeground }}>{s.l}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+              <TouchableOpacity
+                style={{ borderRadius: 12, paddingVertical: 14, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8, backgroundColor: fcmTesting ? colors.border : "#ff6d00", opacity: fcmTesting ? 0.7 : 1 }}
+                onPress={async () => {
+                  if (!fcmTestBody.trim()) { Alert.alert("Informe a mensagem"); return; }
+                  setFcmTesting(true);
+                  setFcmTestResult(null);
+                  try {
+                    const base = getApiBase();
+                    const res = await fetch(`${base}/push/send`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ title: fcmTestTitle || "🔔 NETPLAY FCM", body: fcmTestBody, data: { type: "mass_push" }, imageUrl: fcmTestImage || undefined }),
+                      signal: mkSignal(15000),
+                    });
+                    const r = await res.json();
+                    setFcmTestResult(r);
+                    Alert.alert(r.sent > 0 ? "✅ FCM OK!" : "⚠️ Aviso", `Enviados: ${r.sent}\nFalharam: ${r.failed}\nTotal: ${r.total}`);
+                  } catch (e: any) {
+                    Alert.alert("Erro FCM", e?.message ?? "Falha no envio");
+                  } finally { setFcmTesting(false); }
+                }}
+                disabled={fcmTesting}
+              >
+                <Text style={{ fontSize: 18 }}>🔥</Text>
+                <Text style={{ fontSize: 14, fontWeight: "700", color: "#fff" }}>
+                  {fcmTesting ? "Enviando..." : "Enviar teste FCM para todos"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginBottom: 10 }]}>NOTIFICAÇÕES AUTOMÁTICAS</Text>
+            <View style={[{ backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1, borderRadius: 16, overflow: "hidden", marginBottom: 16 }]}>
+              {[
+                { e: "📺", t: "Novos episódios", s: "Novo ep. estreia → poster + deep link para aba EPISÓDIOS", c: "#6366f1" },
+                { e: "🔥", t: "Novo conteúdo", s: "Novos filmes/séries chegam ao catálogo (verifica a cada 1h)", c: RED },
+                { e: "⏸", t: "Inatividade", s: "15 min sem atividade → lembra do conteúdo assistido por último", c: "#f59e0b" },
+                { e: "📅", t: "Plano expirando", s: "3 dias antes de expirar — convite para renovar", c: "#3b82f6" },
+                { e: "⭐", t: "Upgrade de convidado", s: "2 dias após cadastro como guest", c: "#8b5cf6" },
+                { e: "📊", t: "Resumo semanal", s: "Sábados às 19h — destaques da semana", c: "#10b981" },
+              ].map((item, i) => (
+                <View key={i} style={[{ flexDirection: "row", alignItems: "center", gap: 12, padding: 14 }, i > 0 && { borderTopWidth: 1, borderTopColor: colors.border }]}>
+                  <View style={{ width: 38, height: 38, borderRadius: 10, backgroundColor: `${item.c}20`, alignItems: "center", justifyContent: "center" }}>
+                    <Text style={{ fontSize: 16 }}>{item.e}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 13, fontWeight: "700", color: colors.foreground }}>{item.t}</Text>
+                    <Text style={{ fontSize: 11, marginTop: 2, color: colors.mutedForeground }}>{item.s}</Text>
+                  </View>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: "#4caf50" }} />
+                </View>
+              ))}
+            </View>
+
+            <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginBottom: 10 }]}>SETUP — TABELA NOVOS EPISÓDIOS</Text>
+            <View style={[styles.infoBox, { backgroundColor: "#6366f110", borderColor: "#6366f130", marginBottom: 24 }]}>
+              <Feather name="database" size={16} color="#6366f1" />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.infoBoxTitle, { color: "#6366f1" }]}>new_episodes no Supabase</Text>
+                <Text style={[styles.infoBoxText, { color: colors.mutedForeground }]}>
+                  Execute este SQL para ativar detecção automática de novos episódios com notificação push + banner:
+                </Text>
+                <TouchableOpacity
+                  style={[styles.copyBtn, { backgroundColor: colors.card, borderColor: colors.border, marginTop: 8 }]}
+                  onPress={() => {
+                    const sql = `CREATE TABLE IF NOT EXISTS new_episodes (\n  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,\n  tmdb_id INTEGER NOT NULL,\n  season INTEGER NOT NULL,\n  episode INTEGER NOT NULL,\n  episode_title TEXT,\n  air_date TEXT,\n  poster_path TEXT,\n  notified_at TIMESTAMPTZ DEFAULT NOW(),\n  expires_at TIMESTAMPTZ NOT NULL,\n  UNIQUE(tmdb_id, season, episode)\n);\nALTER TABLE new_episodes ENABLE ROW LEVEL SECURITY;\nDROP POLICY IF EXISTS "public_new_episodes" ON new_episodes;\nCREATE POLICY "public_new_episodes"\n  ON new_episodes FOR ALL\n  USING (true) WITH CHECK (true);`;
+                    if (Platform.OS === "web") {
+                      navigator.clipboard?.writeText(sql).catch(() => {});
+                    } else {
+                      Clipboard.setString(sql);
+                    }
+                    Alert.alert("SQL copiado!", "Cole no Supabase → SQL Editor → Run.");
+                  }}
+                >
+                  <Feather name="copy" size={13} color="#6366f1" />
+                  <Text style={[styles.copyBtnTxt, { color: "#6366f1" }]}>Copiar SQL</Text>
                 </TouchableOpacity>
               </View>
             </View>

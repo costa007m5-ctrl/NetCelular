@@ -194,6 +194,16 @@ export default function ChannelDetailScreen() {
   try { categories = JSON.parse(channelCategories); } catch { categories = []; }
   const genreLabel = categories.length > 0 ? (CATEGORY_LABELS[categories[0]] ?? "Ao Vivo") : "Ao Vivo";
 
+  const safeChannelUrl = (() => {
+    try {
+      if (!channelUrl) return "";
+      const u = new URL(channelUrl);
+      return (u.protocol === "http:" || u.protocol === "https:") ? channelUrl : "";
+    } catch {
+      return "";
+    }
+  })();
+
   const [isPlaying, setIsPlaying] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [favorited, setFavorited] = useState(false);
@@ -299,7 +309,7 @@ export default function ChannelDetailScreen() {
           /* ── Web iframe Player ── */
           <>
             <iframe
-              src={channelUrl}
+              src={safeChannelUrl}
               style={{ width: "100%", height: "100%", border: "none", backgroundColor: "#000" } as any}
               allowFullScreen
               allow="autoplay; fullscreen; encrypted-media"
@@ -315,9 +325,9 @@ export default function ChannelDetailScreen() {
           </>
         ) : WebView ? (
           /* ── Native WebView Player ── */
-          <>
+          safeChannelUrl ? <>
             <WebView
-              source={{ uri: channelUrl }}
+              source={{ uri: safeChannelUrl }}
               style={{ flex: 1, width: "100%", height: "100%", backgroundColor: "#000" }}
               allowsFullscreenVideo
               mediaPlaybackRequiresUserAction={false}
@@ -410,6 +420,15 @@ export default function ChannelDetailScreen() {
               </Pressable>
             )}
           </>
+          : (
+            <View style={{ flex: 1, backgroundColor: "#000", alignItems: "center", justifyContent: "center" }}>
+              <Feather name="wifi-off" size={40} color="#444" />
+              <Text style={{ color: "#666", marginTop: 16, fontSize: 15, fontWeight: "600" }}>Canal indisponível</Text>
+              <Text style={{ color: "#444", marginTop: 6, fontSize: 12, textAlign: "center", paddingHorizontal: 40 }}>
+                URL do canal inválida ou temporariamente fora do ar.
+              </Text>
+            </View>
+          )
         ) : null}
       </View>
 

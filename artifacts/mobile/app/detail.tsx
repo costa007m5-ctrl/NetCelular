@@ -198,7 +198,7 @@ export default function DetailScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
-  const params = useLocalSearchParams<{ type: string; id: string; title?: string }>();
+  const params = useLocalSearchParams<{ type: string; id: string; title?: string; tab?: string }>();
 
   const type = (params.type ?? "movie") as "movie" | "tv";
   const tmdbId = Number(params.id ?? 0);
@@ -208,7 +208,9 @@ export default function DetailScreen() {
   const [seasons, setSeasons] = useState<TmdbSeason[]>([]);
   const [selectedSeason, setSelectedSeason] = useState(1);
   const [episodeList, setEpisodeList] = useState<TmdbEpisode[]>([]);
-  const [activeTab, setActiveTab] = useState<Tab>("about");
+  const [activeTab, setActiveTab] = useState<Tab>(
+    params.tab === "episodes" ? "episodes" : "about"
+  );
   const [loadingEpisodes, setLoadingEpisodes] = useState(false);
   const [loading, setLoading] = useState(true);
   const [imgError, setImgError] = useState(false);
@@ -226,6 +228,7 @@ export default function DetailScreen() {
   const [trailerControlsVisible, setTrailerControlsVisible] = useState(true);
   const trailerWebViewRef = useRef<any>(null);
   const trailerHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [newEpisodeInfo, setNewEpisodeInfo] = useState<{ season: number; episode: number; episode_title: string | null; expires_at: string } | null>(null);
 
   const userId = user?.id ?? "";
   const [inList, setInList] = useState(false);
@@ -456,6 +459,17 @@ export default function DetailScreen() {
       }
     };
     fetchAll();
+  }, [tmdbId, type]);
+
+  useEffect(() => {
+    if (type !== "tv" || !tmdbId) return;
+    db.newEpisodes.get(tmdbId).then((ep) => {
+      if (ep) {
+        const now = new Date();
+        const expires = new Date(ep.expires_at);
+        if (expires > now) setNewEpisodeInfo(ep);
+      }
+    }).catch(() => {});
   }, [tmdbId, type]);
 
   // Translate a single text (en→pt-BR) via Google Translate unofficial endpoint
@@ -1287,14 +1301,19 @@ export default function DetailScreen() {
                     onPress={() => setActiveTab(t.key)}
                     style={[styles.tab, activeTab === t.key && { borderBottomColor: colors.primary, borderBottomWidth: 2 }]}
                   >
-                    <Text
-                      style={[
-                        styles.tabText,
-                        { color: activeTab === t.key ? colors.foreground : colors.mutedForeground },
-                      ]}
-                    >
-                      {t.label}
-                    </Text>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+                      <Text
+                        style={[
+                          styles.tabText,
+                          { color: activeTab === t.key ? colors.foreground : colors.mutedForeground },
+                        ]}
+                      >
+                        {t.label}
+                      </Text>
+                      {t.key === "episodes" && newEpisodeInfo && (
+                        <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: "#e50914", marginBottom: 6 }} />
+                      )}
+                    </View>
                   </Pressable>
                 ))}
               </ScrollView>
@@ -1303,6 +1322,24 @@ export default function DetailScreen() {
               {/* Tab content */}
               {activeTab === "about" && (
                 <View style={styles.tabContent}>
+                  {newEpisodeInfo && type === "tv" && (
+                    <Pressable
+                      onPress={() => setActiveTab("episodes")}
+                      style={{ flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: "#e5091412", borderWidth: 1, borderColor: "#e5091440", borderRadius: 12, padding: 12, marginBottom: 16 }}
+                    >
+                      <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: "#e5091425", alignItems: "center", justifyContent: "center" }}>
+                        <Text style={{ fontSize: 18 }}>📺</Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 11, fontWeight: "700", color: "#e50914", letterSpacing: 0.8, marginBottom: 2 }}>NOVO EPISÓDIO</Text>
+                        <Text style={{ fontSize: 13, color: colors.foreground, fontWeight: "600" }}>
+                          T{newEpisodeInfo.season}:E{newEpisodeInfo.episode}
+                          {newEpisodeInfo.episode_title ? ` — ${newEpisodeInfo.episode_title}` : ""}
+                        </Text>
+                      </View>
+                      <Feather name="chevron-right" size={16} color="#e50914" />
+                    </Pressable>
+                  )}
                   {overview ? (
                     <Text style={[styles.description, { color: colors.foreground }]}>{overview}</Text>
                   ) : (
