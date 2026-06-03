@@ -15,19 +15,26 @@ interface ServiceAccount {
   private_key: string;
 }
 
+const DEFAULT_SERVICE_ACCOUNT: ServiceAccount = {
+  project_id: "grupo-streaming-brasil-aa209",
+  client_email: "firebase-adminsdk-fbsvc@grupo-streaming-brasil-aa209.iam.gserviceaccount.com",
+  private_key: "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDqU7DnUtleaVmb\n5CmzM2O2Gxhx7yKupoVQO8T79IuKwJUP+W0DPHBxcfIcuXaC/a8k0yTZS0xG4dvK\noQOQI8BrLojfaBaFElfvTXyvqJk1/KcQ4bNQJlwwvsZDyXZTqHt8atlVDmbjjPI8\nP7t8Fu+BOIDOUMQow1Y9E3CRALZm7HexDaRP+vMiOw6wkLRTUz239sikc25KqfgE\nqD3rpIkiSly3E0UDYloZpIFkdAl8agnDGKqCpgOLXQLTTNmXJ7wVNQ1Z3YDH0DJl\ngVk3qYxreU7jf9HbXbh89lLu/jLQ0jPBU32GyG9QhytEUNZnc45y+q2MV+ps2bDq\nmqEuJbcXAgMBAAECggEAOXeR7IFQhstuawFvSqABRbFqctKzXkK/chhebG4iZMJr\nLDI/DmqdpuzLdEj1rBVcBTt1D4dcawvME+seDRT/hSmx7pw/3Z3MjAckW44NGQTf\n0g+QIsltlZTL2ecICmdI9Y/cwfPYvtibtbPpnnqffUDmsfJz0Q1q0mq4kg8rLJ08\nbhmfS1h82OUubRPVqvEe1bBaIhPMpj6m5DpXXa7o4Sc94zv6iCVweVkran0F+rSc\n9o8YBOJm2qsLYlmkjf/QxtIraPCqcjf4CQegrGhm4B1NjnCzoFFUpaF84g0EFTDC\nTgSBbUhc0fBowPWTxm/l2S/GMYmrkKhICAV9vfxpqQKBgQD4ahvNuS1SYuV+JcXa\ns0xxLrCQ1An0xvXxhGSuP20ttf2KdvMGtX39wZiocx8qwbnn82COZymd43hrGiXZ\nn2MVpRqnUCSso/dtKVd1eWgF2Nm7BgKarxw6I3yoaoyquw1eKepx2K2MCCCjPGtL\n3lL+/Cjq9PMF2advKG/+A2RZGQKBgQDxe3U4eVss6gU2Kd4OHmrQN/WynmhdM7mM\n2KC2sAK4/XTW3KqxGBikUz3jcdB2aANeQ0I8Eyo2sxFji50/5FSPx0Td0EDQdmj2\nBZ/IvrVtjs5IgbuWfBQt8ED+obBG8eTbeO1wSJu59Aj9/Ijqx4F6CCqz+P55rZlg\n6ptg2AonrwKBgQDPpfLDzmyiF2T6Q5zVqVbWrU6OYZBI+h8P2blHJmGe+ieLnM6c\n5w0AFtoCxOhilzlNOFWX84gIIOLBtEO7W845g596CDX/0be7mfkvi2J2sMOf3/BB\nWOrhdlR3e0lGVcFg2uzMaXD4Qrr1eEXAT4FU/3c8n7CdTUj2U/j5feBd0QKBgDzM\nDHMvepkQQkekutdrKRFLRXy3DSeKAklHsQ7NuaHBjk0aOY9kta+JladR3F4zScXN\nwTtGx/YFl3csi2auoeuhC+GcsPTLGxn1yIjOGvd+YMk4gHYevyXhuztgkfUKqcfn\n5j/CyBJFMo5fqkkR+bMzoyy0n70ay+buqjfzrHrZAoGBAJqUnTuIphswC0rFy4wh\nOYWJna5wbs4D4ENBHUYdHliXvh8zssLNA7iBTT2aG8Foy8SCU7J8xaOaH++QVrp7\njGh7PwlWy753y3EObqsBwaDONuB3axvEIu8ukt/jp+AolEDs9zJyKHGliXwDqnjk\ny5iFGXvhBAS8XEzRhZ6/zzjH\n-----END PRIVATE KEY-----\n",
+};
+
 let _serviceAccount: ServiceAccount | null | undefined = undefined;
 function getServiceAccount(): ServiceAccount | null {
   if (_serviceAccount !== undefined) return _serviceAccount;
   const raw = process.env["FIREBASE_SERVICE_ACCOUNT_JSON"];
-  if (!raw) { _serviceAccount = null; return null; }
-  try {
-    _serviceAccount = JSON.parse(raw) as ServiceAccount;
-    return _serviceAccount;
-  } catch {
-    console.error("[FCM] FIREBASE_SERVICE_ACCOUNT_JSON inválido");
-    _serviceAccount = null;
-    return null;
+  if (raw) {
+    try {
+      _serviceAccount = JSON.parse(raw) as ServiceAccount;
+      return _serviceAccount;
+    } catch {
+      console.error("[FCM] FIREBASE_SERVICE_ACCOUNT_JSON inválido, usando padrão embutido");
+    }
   }
+  _serviceAccount = DEFAULT_SERVICE_ACCOUNT;
+  return _serviceAccount;
 }
 
 let _fcmAccessToken: string | null = null;
