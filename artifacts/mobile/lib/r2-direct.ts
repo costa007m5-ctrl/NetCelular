@@ -429,12 +429,175 @@ export async function apiCatalogMeta(key: string, tmdbId?: number, tmdbType?: st
   return { ok: true };
 }
 
-export async function apiCatalog() {
-  const r = await listObjectsRaw("", "/");
-  const entries = r.prefixes
-    .filter((p) => !p.replace(/\/$/, "").startsWith("__"))
-    .map((p) => ({ key: p, name: p.replace(/\/$/, ""), type: "unknown" as const, seasons: [], tmdb: null }));
-  return { catalog: entries, cached: false, builtAt: new Date().toISOString() };
+// ─── Catalog builder (mirrors API server logic) ───────────────────────────────
+
+interface TmdbMatch {
+  id: number; title: string; poster_path: string | null; backdrop_path: string | null;
+  overview: string; vote_average: number; release_date?: string; first_air_date?: string;
+  media_type: "movie" | "tv";
+}
+interface SeasonInfo { number: number; prefix: string; label: string }
+interface CatalogEntry {
+  key: string; name: string; type: "movie" | "tv" | "unknown";
+  seasons: SeasonInfo[]; tmdb: TmdbMatch | null;
+}
+
+// In-memory catalog cache (reset on app restart)
+let _catalogCache: { entries: CatalogEntry[]; builtAt: number } | null = null;
+const CATALOG_TTL_MS = 30 * 60 * 1000;
+
+function parseSeasonNumber(folderName: string): number | null {
+  const m =
+    folderName.match(/^(?:season|temporada|temp)\s*(\d+)$/i) ??
+    folderName.match(/^(\d+)\s*(?:season|temporada)$/i) ??
+    folderName.match(/^s(\d+)$/i) ??
+    folderName.match(/^t(\d+)$/i);
+  return m ? parseInt(m[1], 10) : null;
+}
+
+function cleanTitle(name: string): string {
+  return name
+    .replace(/\s*\(\d{4}\)\s*/g, " ")
+    .replace(/\s*\[\d{4}\]\s*/g, " ")
+    .replace(/\s*\[.*?\]\s*/g, " ")
+    .replace(/\s*\(.*?\)\s*/g, " ")
+    .trim();
+}
+
+async function listPrefixesOnly(prefix: string): Promise<string[]> {
+  const r = await listObjectsRaw(prefix, "/", undefined, 200);
+  return r.prefixes;
+}
+
+async function hasVideoFilesInFolder(prefix: string): Promise<boolean> {
+  const r = await listObjectsRaw(prefix, "/", undefined, 50);
+  return r.objects.some((o) => isVideo(o.key));
+}
+
+async function searchTmdbByName(name: string, hint?: "movie" | "tv"): Promise<TmdbMatch | null> {
+  try {
+    const cleaned = cleanTitle(name);
+    if (!cleaned) return null;
+    const lang = TMDB_LANG;
+
+    if (hint === "tv") {
+      const res = await fetch(`${TMDB_BASE}/search/tv?api_key=${TMDB_KEY}&language=${lang}&query=${encodeURIComponent(cleaned)}&page=1`);
+      if (res.ok) {
+        const d = await res.json();
+        const hit = d.results?.[0];
+        if (hit) return { id: hit.id, title: hit.name, poster_path: hit.poster_path, backdrop_path: hit.backdrop_path, overview: hit.overview ?? "", vote_average: hit.vote_average ?? 0, first_air_date: hit.first_air_date, media_type: "tv" };
+      }
+    }
+    if (hint === "movie") {
+      const res = await fetch(`${TMDB_BASE}/search/movie?api_key=${TMDB_KEY}&language=${lang}&query=${encodeURIComponent(cleaned)}&page=1`);
+      if (res.ok) {
+        const d = await res.json();
+        const hit = d.results?.[0];
+        if (hit) return { id: hit.id, title: hit.title, poster_path: hit.poster_path, backdrop_path: hit.backdrop_path, overview: hit.overview ?? "", vote_average: hit.vote_average ?? 0, release_date: hit.release_date, media_type: "movie" };
+      }
+    }
+    const res = await fetch(`${TMDB_BASE}/search/multi?api_key=${TMDB_KEY}&language=${lang}&query=${encodeURIComponent(cleaned)}&page=1`);
+    if (!res.ok) return null;
+    const d = await res.json();
+    const hit = d.results?.find((x: any) => x.media_type === "tv" || x.media_type === "movie");
+    if (!hit) return null;
+    const isMovie = hit.media_type === "movie";
+    return { id: hit.id, title: isMovie ? hit.title : hit.name, poster_path: hit.poster_path, backdrop_path: hit.backdrop_path, overview: hit.overview ?? "", vote_average: hit.vote_average ?? 0, release_date: hit.release_date, first_air_date: hit.first_air_date, media_type: hit.media_type };
+  } catch {
+    return null;
+  }
+}
+
+async function buildEntriesFromPrefixes(
+  prefixes: string[],
+  catalogMeta: { version: number; overrides: Record<string, { tmdbId?: number; tmdbType?: "movie" | "tv"; displayName?: string }> },
+  depth = 0,
+): Promise<CatalogEntry[]> {
+  const entries: CatalogEntry[] = [];
+  const MAX_DEPTH = 4;
+
+  for (const titlePrefix of prefixes) {
+    const segments = titlePrefix.replace(/\/$/, "").split("/");
+    const name = segments[segments.length - 1] ?? titlePrefix.replace(/\/$/, "");
+    if (name.startsWith("__")) continue;
+
+    const subPrefixes = await listPrefixesOnly(titlePrefix);
+    const seasons: SeasonInfo[] = [];
+    const nonSeasonSubs: string[] = [];
+
+    for (const sub of subPrefixes) {
+      const subName = sub.replace(titlePrefix, "").replace(/\/$/, "");
+      const seasonNum = parseSeasonNumber(subName);
+      if (seasonNum !== null) {
+        seasons.push({ number: seasonNum, prefix: sub, label: subName });
+      } else {
+        nonSeasonSubs.push(sub);
+      }
+    }
+    seasons.sort((a, b) => a.number - b.number);
+
+    const hasVideos = seasons.length === 0 && (await hasVideoFilesInFolder(titlePrefix));
+
+    // Container: no seasons, no direct videos, has subfolders → recurse
+    if (seasons.length === 0 && !hasVideos && nonSeasonSubs.length > 0 && depth < MAX_DEPTH) {
+      const childEntries = await buildEntriesFromPrefixes(nonSeasonSubs, catalogMeta, depth + 1);
+      entries.push(...childEntries);
+      continue;
+    }
+
+    const isSeries = seasons.length > 0;
+    const override = catalogMeta.overrides[titlePrefix];
+    let tmdbMatch: TmdbMatch | null = null;
+
+    if (override?.tmdbId) {
+      try {
+        const type = override.tmdbType ?? (isSeries ? "tv" : "movie");
+        const endpoint = type === "tv"
+          ? `${TMDB_BASE}/tv/${override.tmdbId}?api_key=${TMDB_KEY}&language=${TMDB_LANG}`
+          : `${TMDB_BASE}/movie/${override.tmdbId}?api_key=${TMDB_KEY}&language=${TMDB_LANG}`;
+        const res = await fetch(endpoint);
+        if (res.ok) {
+          const r = await res.json();
+          tmdbMatch = type === "tv"
+            ? { id: r.id, title: r.name, poster_path: r.poster_path, backdrop_path: r.backdrop_path, overview: r.overview ?? "", vote_average: r.vote_average ?? 0, first_air_date: r.first_air_date, media_type: "tv" }
+            : { id: r.id, title: r.title, poster_path: r.poster_path, backdrop_path: r.backdrop_path, overview: r.overview ?? "", vote_average: r.vote_average ?? 0, release_date: r.release_date, media_type: "movie" };
+        }
+      } catch {}
+      if (!tmdbMatch) {
+        tmdbMatch = await searchTmdbByName(override.displayName ?? name, override.tmdbType ?? (isSeries ? "tv" : undefined));
+      }
+    } else {
+      tmdbMatch = await searchTmdbByName(override?.displayName ?? name, isSeries ? "tv" : hasVideos ? "movie" : undefined);
+    }
+
+    const type: CatalogEntry["type"] = isSeries ? "tv"
+      : (override?.tmdbType === "tv" || tmdbMatch?.media_type === "tv") ? "tv"
+      : (override?.tmdbType === "movie" || tmdbMatch?.media_type === "movie" || hasVideos) ? "movie"
+      : "unknown";
+
+    entries.push({ key: titlePrefix, name: override?.displayName ?? name, type, seasons, tmdb: tmdbMatch });
+
+    // Small delay to avoid rate-limiting TMDB
+    await new Promise((res) => setTimeout(res, 120));
+  }
+
+  return entries;
+}
+
+export async function apiCatalog(forceRefresh = false) {
+  if (!forceRefresh && _catalogCache && Date.now() - _catalogCache.builtAt < CATALOG_TTL_MS) {
+    return { catalog: _catalogCache.entries, cached: true, builtAt: new Date(_catalogCache.builtAt).toISOString() };
+  }
+
+  let catalogMeta: { version: number; overrides: Record<string, any> };
+  try { catalogMeta = JSON.parse(await getRaw("__catalog-meta.json")); }
+  catch { catalogMeta = { version: 1, overrides: {} }; }
+
+  const topPrefixes = await listPrefixesOnly("");
+  const entries = await buildEntriesFromPrefixes(topPrefixes, catalogMeta, 0);
+
+  _catalogCache = { entries, builtAt: Date.now() };
+  return { catalog: entries, cached: false, builtAt: new Date(_catalogCache.builtAt).toISOString() };
 }
 
 // ─── Universal router (drop-in para apiFetch / apiPost) ───────────────────────
@@ -448,7 +611,7 @@ export async function r2Route<T>(path: string, options?: RequestInit): Promise<T
   let result: unknown;
 
   if (route === "/catalog") {
-    result = await apiCatalog();
+    result = await apiCatalog(q("refresh") === "true");
   } else if (route === "/episodes") {
     result = await apiEpisodes(q("prefix"));
   } else if (route === "/list") {
