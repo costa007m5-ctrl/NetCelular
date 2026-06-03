@@ -85,6 +85,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
 
 DO $$ BEGIN ALTER TABLE public.users ADD COLUMN avatar_url TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE public.users ADD COLUMN profile_banner TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
+DO $$ BEGIN ALTER TABLE public.users ADD COLUMN blocked BOOLEAN NOT NULL DEFAULT false; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
 
 DO $$ BEGIN ALTER TABLE public.user_settings ADD COLUMN stream_quality TEXT NOT NULL DEFAULT 'Auto'; EXCEPTION WHEN duplicate_column THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE public.user_settings ADD COLUMN audio_lang TEXT NOT NULL DEFAULT 'Português (BR)'; EXCEPTION WHEN duplicate_column THEN NULL; END $$;

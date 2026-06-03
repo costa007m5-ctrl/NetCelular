@@ -43,6 +43,9 @@ async function buildAuthUser(supabaseUserId: string, email: string): Promise<Aut
 
     if (!profile) return null;
 
+    // Block access for blocked users
+    if (profile.blocked === true) return null;
+
     // Use the ID stored in the users table (may be old custom UUID),
     // so existing profiles/watchlist/etc. remain associated correctly.
     return {

@@ -302,6 +302,7 @@ export default function AdminScreen() {
   const [contasData, setContasData] = useState<Array<{ user: any; sub: any }>>([]);
   const [contasLoading, setContasLoading] = useState(false);
   const [activatingUser, setActivatingUser] = useState<string | null>(null);
+  const [blockingUser, setBlockingUser] = useState<string | null>(null);
 
   // ── GStream state ──────────────────────────────────────────────────────────
   const [gSection, setGSection] = useState<"dashboard" | "filmes" | "series" | "animes" | "api">("dashboard");
@@ -2593,10 +2594,11 @@ export default function AdminScreen() {
                       {(["basic", "normal", "premium"] as const).map((p) => {
                         const pLabels = { basic: "Básico", normal: "Normal", premium: "Premium" };
                         const pColors = { basic: "#3b82f6", normal: "#8b5cf6", premium: "#e50914" };
+                        const isActive = sub?.plan === p;
                         return (
                           <Pressable
                             key={p}
-                            disabled={activatingUser === u.id}
+                            disabled={activatingUser === u.id || blockingUser === u.id}
                             onPress={() => {
                               Alert.alert(
                                 `Ativar ${pLabels[p]}`,
@@ -2607,28 +2609,88 @@ export default function AdminScreen() {
                                     text: "Ativar",
                                     onPress: async () => {
                                       setActivatingUser(u.id ?? "");
-                                      await db.subscriptions.activate(u.id!, p, 30);
+                                      const result = await db.subscriptions.activate(u.id!, p, 30);
                                       setActivatingUser(null);
-                                      const res = await db.subscriptions.getAllWithUsers();
-                                      setContasData(res);
+                                      if (result.error) {
+                                        Alert.alert("Erro ao ativar plano", result.error);
+                                      } else {
+                                        const res = await db.subscriptions.getAllWithUsers();
+                                        setContasData(res);
+                                      }
                                     },
                                   },
                                 ]
                               );
                             }}
-                            style={[styles.addBtn, { backgroundColor: pColors[p] + "cc", paddingHorizontal: 12, paddingVertical: 6, margin: 0 }]}
+                            style={[styles.addBtn, {
+                              backgroundColor: pColors[p] + (isActive ? "ff" : "55"),
+                              paddingHorizontal: 12, paddingVertical: 6, margin: 0,
+                              borderWidth: isActive ? 2 : 0,
+                              borderColor: isActive ? "#fff" : "transparent",
+                            }]}
                           >
                             {activatingUser === u.id ? (
                               <ActivityIndicator size="small" color="#fff" />
                             ) : (
-                              <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>{pLabels[p]}</Text>
+                              <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>
+                                {isActive ? "✓ " : ""}{pLabels[p]}
+                              </Text>
                             )}
                           </Pressable>
                         );
                       })}
+
+                      {/* Bloquear / Desbloquear */}
+                      <Pressable
+                        disabled={blockingUser === u.id || activatingUser === u.id}
+                        onPress={() => {
+                          const isBlocked = u.blocked === true;
+                          Alert.alert(
+                            isBlocked ? "Desbloquear conta" : "Bloquear conta",
+                            isBlocked
+                              ? `Desbloquear ${u.name}? O usuário voltará a ter acesso ao app.`
+                              : `Bloquear ${u.name}? O usuário não conseguirá mais fazer login.`,
+                            [
+                              { text: "Cancelar", style: "cancel" },
+                              {
+                                text: isBlocked ? "Desbloquear" : "Bloquear",
+                                style: isBlocked ? "default" : "destructive",
+                                onPress: async () => {
+                                  setBlockingUser(u.id ?? "");
+                                  const result = await db.users.setBlocked(u.id!, !isBlocked);
+                                  setBlockingUser(null);
+                                  if (result.error) {
+                                    Alert.alert("Erro", result.error);
+                                  } else {
+                                    const res = await db.subscriptions.getAllWithUsers();
+                                    setContasData(res);
+                                  }
+                                },
+                              },
+                            ]
+                          );
+                        }}
+                        style={[styles.copyBtn, {
+                          borderColor: u.blocked ? "#22c55e55" : "#ef444455",
+                          backgroundColor: u.blocked ? "#22c55e15" : "#ef444415",
+                        }]}
+                      >
+                        {blockingUser === u.id ? (
+                          <ActivityIndicator size="small" color={u.blocked ? "#22c55e" : "#ef4444"} />
+                        ) : (
+                          <>
+                            <Feather name={u.blocked ? "unlock" : "lock"} size={12} color={u.blocked ? "#22c55e" : "#ef4444"} />
+                            <Text style={[styles.copyBtnTxt, { color: u.blocked ? "#22c55e" : "#ef4444" }]}>
+                              {u.blocked ? "Desbloquear" : "Bloquear"}
+                            </Text>
+                          </>
+                        )}
+                      </Pressable>
+
+                      {/* WhatsApp */}
                       <Pressable
                         onPress={() => {
-                          Linking.openURL(`https://wa.me/?text=${encodeURIComponent(`Olá ${u.name}, seu plano NETPLAY está pronto! Entre no app para continuar assistindo.`)}`);
+                          Linking.openURL(`https://wa.me/5596991718167?text=${encodeURIComponent(`Olá ${u.name}, seu plano NETPLAY está pronto! Entre no app para continuar assistindo.`)}`);
                         }}
                         style={[styles.copyBtn, { borderColor: "#22c55e55", backgroundColor: "#22c55e15" }]}
                       >

@@ -28,6 +28,7 @@ export type DbUser = {
   avatar_url?: string;
   profile_banner?: string;
   created_at?: string;
+  blocked?: boolean;
 };
 
 export type DbUserSettings = {
@@ -169,6 +170,11 @@ export const db = {
     countAll: async (): Promise<number> => {
       const { count } = await supabase.from("users").select("*", { count: "exact", head: true });
       return count ?? 0;
+    },
+
+    setBlocked: async (id: string, blocked: boolean): Promise<{ error?: string }> => {
+      const { error } = await supabase.from("users").update({ blocked }).eq("id", id);
+      return error ? { error: error.message } : {};
     },
   },
 
