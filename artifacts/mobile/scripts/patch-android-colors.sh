@@ -3,18 +3,17 @@
 # ADICIONE ESTE SCRIPT NO CODEMAGIC como um passo de Script
 # ENTRE "Expo Prebuild" e "Build AAB"
 #
-# Nome do passo: "Corrigir cor do ícone Android"
+# Nome do passo: "Patch Android (cor do ícone + BuildConfig)"
 # Comando: bash artifacts/mobile/scripts/patch-android-colors.sh
 # ============================================================
 
 set -e
 
-# Detecta o root do projeto (onde o script é chamado)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 ANDROID_ROOT="$PROJECT_ROOT/android"
 
-echo "==> [patch-android-colors] Iniciando patch..."
+echo "==> [patch-android] Iniciando patch..."
 echo "    Project root: $PROJECT_ROOT"
 echo "    Android root: $ANDROID_ROOT"
 
@@ -22,6 +21,7 @@ RES="$ANDROID_ROOT/app/src/main/res"
 VALUES="$RES/values"
 DRAWABLE="$RES/drawable"
 MIPMAP="$RES/mipmap-anydpi-v26"
+BUILD_GRADLE="$ANDROID_ROOT/app/build.gradle"
 
 # ── 1. Cria arquivo de cor separado ─────────────────────────
 mkdir -p "$VALUES"
@@ -51,7 +51,7 @@ cat > "$DRAWABLE/ic_launcher_background.xml" << 'XMLEOF'
 XMLEOF
 echo "    ✓ ic_launcher_background drawable criado"
 
-# ── 4. Substitui @color/iconBackground → @drawable ──────────
+# ── 4. Patcha ic_launcher*.xml ─────────────────────────────
 if [ -d "$MIPMAP" ]; then
   for f in "$MIPMAP/ic_launcher.xml" "$MIPMAP/ic_launcher_round.xml"; do
     if [ -f "$f" ] && grep -q '@color/iconBackground' "$f"; then
@@ -61,4 +61,15 @@ if [ -d "$MIPMAP" ]; then
   done
 fi
 
-echo "==> [patch-android-colors] Concluído com sucesso!"
+# ── 5. Garante buildConfig=true no app/build.gradle ─────────
+if [ -f "$BUILD_GRADLE" ]; then
+  if ! grep -q "buildConfig true" "$BUILD_GRADLE" && ! grep -q "buildConfig = true" "$BUILD_GRADLE"; then
+    # Insere buildFeatures { buildConfig true } logo após "android {"
+    sed -i.bak 's|android {|android {\n    buildFeatures {\n        buildConfig true\n    }|' "$BUILD_GRADLE"
+    echo "    ✓ buildConfig habilitado em app/build.gradle"
+  else
+    echo "    ✓ buildConfig já está habilitado"
+  fi
+fi
+
+echo "==> [patch-android] Concluído com sucesso!"
