@@ -398,7 +398,7 @@ export default function R2PlayerScreen() {
     setPanelLoading(true);
     try {
       const res = await fetch(
-        `https://api.themoviedb.org/3/tv/${tmdbId}/season/${seasonNum}?api_key=${TMDB_KEY}&language=pt-BR`,
+        `https://api.themoviedb.org/3/tv/${tmdbId}/season/${seasonNum}?api_key=${TMDB_KEY}&language=en-US`,
         { signal: mkSignal(10000) }
       );
       if (!res.ok) return;
@@ -858,6 +858,7 @@ export default function R2PlayerScreen() {
                       </View>
                       <Text style={styles.panelEpName} numberOfLines={2}>{tmdbEp.name}</Text>
                       {tmdbEp.runtime ? <Text style={styles.panelEpRuntime}>{tmdbEp.runtime} min</Text> : null}
+                      {tmdbEp.overview ? <Text style={styles.panelEpOverview} numberOfLines={2}>{tmdbEp.overview}</Text> : null}
                     </View>
                   </Pressable>
                 );
@@ -920,6 +921,9 @@ export default function R2PlayerScreen() {
                     </Text>
                     {tmdbEp?.runtime ? (
                       <Text style={styles.panelEpRuntime}>{tmdbEp.runtime} min</Text>
+                    ) : null}
+                    {tmdbEp?.overview ? (
+                      <Text style={styles.panelEpOverview} numberOfLines={2}>{tmdbEp.overview}</Text>
                     ) : null}
                   </View>
                 </Pressable>
@@ -1024,4 +1028,5 @@ const styles = StyleSheet.create({
   panelEpWatchedTxt: { color: "#4ade80", fontSize: 10, fontWeight: "600" },
   panelEpName: { color: "#fff", fontSize: 12, fontWeight: "600", marginTop: 2, lineHeight: 16 },
   panelEpRuntime: { color: "#666", fontSize: 10, marginTop: 2 },
+  panelEpOverview: { color: "rgba(255,255,255,0.4)", fontSize: 10, lineHeight: 14, marginTop: 3 },
 });
