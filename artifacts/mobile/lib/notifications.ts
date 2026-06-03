@@ -115,28 +115,30 @@ export async function registerPushToken(userId: string): Promise<void> {
       return;
     }
 
-    let tokenData: any;
+    let token: string | null = null;
+
+    // 1. Try Expo push token with projectId (works in Expo Go + EAS + Codemagic with google-services.json)
     try {
-      tokenData = await Notifications.getExpoPushTokenAsync({ projectId: EXPO_PROJECT_ID });
+      const tokenData = await Notifications.getExpoPushTokenAsync({ projectId: EXPO_PROJECT_ID });
+      token = tokenData?.data ?? null;
+      console.log("[Push] Token Expo obtido:", token ? token.slice(0, 30) + "..." : "vazio");
     } catch (e1) {
-      console.warn("[Push] Falha com projectId, tentando sem:", e1);
+      console.warn("[Push] getExpoPushTokenAsync falhou (APK sem google-services.json?):", e1);
+    }
+
+    // 2. Fallback: get native device push token (FCM raw token on Android)
+    if (!token) {
       try {
-        tokenData = await Notifications.getExpoPushTokenAsync();
+        const deviceToken = await Notifications.getDevicePushTokenAsync();
+        token = deviceToken?.data ?? null;
+        console.log("[Push] Token nativo obtido como fallback:", token ? String(token).slice(0, 30) + "..." : "vazio");
       } catch (e2) {
-        console.error("[Push] Falha ao obter token:", e2);
-        return;
+        console.error("[Push] Falha ao obter token nativo também:", e2);
       }
     }
 
-    const token: string = tokenData?.data;
     if (!token) {
-      console.warn("[Push] Token vazio retornado para userId:", userId);
-      return;
-    }
-
-    const isValidToken = token.startsWith("ExponentPushToken") || token.startsWith("ExpoToken");
-    if (!isValidToken) {
-      console.warn("[Push] Formato de token inesperado:", token);
+      console.warn("[Push] Nenhum token obtido para userId:", userId, "— Verifique se google-services.json está no build.");
       return;
     }
 
@@ -338,8 +340,13 @@ export async function sendPushNotificationsToTokens(
   imageUrl?: string
 ): Promise<{ sent: number; failed: number }> {
   if (tokens.length === 0) return { sent: 0, failed: 0 };
+  // Expo push API only accepts ExponentPushToken/ExpoToken — filter out native FCM tokens
+  const expoTokens = tokens.filter((t) => t.startsWith("ExponentPushToken") || t.startsWith("ExpoToken"));
+  const skipped = tokens.length - expoTokens.length;
+  if (skipped > 0) console.warn(`[Push] ${skipped} tokens nativos ignorados (não suportados pelo Expo Push API)`);
+  if (expoTokens.length === 0) return { sent: 0, failed: skipped };
   try {
-    const messages = tokens.map((to) => {
+    const messages = expoTokens.map((to) => {
       const msg: Record<string, any> = {
         to,
         title,
@@ -361,12 +368,12 @@ export async function sendPushNotificationsToTokens(
       },
       body: JSON.stringify(messages),
     });
-    if (!res.ok) return { sent: 0, failed: tokens.length };
+    if (!res.ok) return { sent: 0, failed: expoTokens.length };
     const json = await res.json();
     const resultData: any[] = Array.isArray(json?.data) ? json.data : [json?.data].filter(Boolean);
     const sent = resultData.filter((d) => d?.status === "ok").length;
-    return { sent, failed: tokens.length - sent };
+    return { sent, failed: expoTokens.length - sent };
   } catch {
-    return { sent: 0, failed: tokens.length };
+    return { sent: 0, failed: expoTokens.length };
   }
 }

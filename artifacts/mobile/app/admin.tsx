@@ -285,7 +285,7 @@ export default function AdminScreen() {
   const colors = useColors();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const topPad = Platform.OS === "web" ? 67 : insets.top;
 
   const [apis, setApis] = useState<ApiStatus[]>([
@@ -702,6 +702,14 @@ export default function AdminScreen() {
   useEffect(() => {
     if (activeTab === "acervo" && !driveStatus) loadDriveInfo();
   }, [activeTab, driveStatus, loadDriveInfo]);
+
+  if (authLoading) {
+    return (
+      <View style={[styles.container, { backgroundColor: colors.background, alignItems: "center", justifyContent: "center" }]}>
+        <ActivityIndicator color="#e50914" size="large" />
+      </View>
+    );
+  }
 
   if (!user || user.role !== "admin") {
     return (

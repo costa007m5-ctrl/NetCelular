@@ -27,6 +27,7 @@
       "package": "com.netplay.app",
       "versionCode": 4,
       "usesCleartextTraffic": true,
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#000000"
