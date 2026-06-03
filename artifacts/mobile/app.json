@@ -91,6 +91,14 @@
         }
       ],
       "expo-updates",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "buildConfig": true
+          }
+        }
+      ],
       "./plugins/withBuildConfig"
     ],
     "experiments": {
