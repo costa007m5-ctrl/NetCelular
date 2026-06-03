@@ -38,6 +38,14 @@ workflows:
           npx expo prebuild --clean --platform android --no-install
           npm install --legacy-peer-deps
 
+      - name: Garantir buildConfig no build.gradle
+        script: |
+          node artifacts/mobile/scripts/ensure-build-config.js
+
+      - name: Patch Android (ícone + cores)
+        script: |
+          bash artifacts/mobile/scripts/patch-android-colors.sh
+
       - name: Configurar keystore de assinatura
         script: |
           cd artifacts/mobile/android
