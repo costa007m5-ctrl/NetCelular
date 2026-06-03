@@ -1,14 +1,14 @@
 /**
  * lib/r2-direct.ts
- * Cloudflare R2 client direto - sem API server.
- * Credenciais embutidas no APK via EXPO_PUBLIC_ vars (baked at Codemagic build time).
+ * Cloudflare R2 client direto - sem API server, sem crypto.subtle.
+ * Usa SHA-256 / HMAC-SHA256 puro em JS (compatível com Hermes/Android).
  */
 
 // ─── Credenciais ─────────────────────────────────────────────────────────────
-const ACCOUNT_ID = process.env.EXPO_PUBLIC_R2_ACCOUNT_ID    ?? "9827b92a6b3a621e8c6f50274e68f37b";
-const ACCESS_KEY  = process.env.EXPO_PUBLIC_R2_ACCESS_KEY_ID  ?? "9e96806804e8815dfd9580ec062fa0c5";
+const ACCOUNT_ID = process.env.EXPO_PUBLIC_R2_ACCOUNT_ID      ?? "9827b92a6b3a621e8c6f50274e68f37b";
+const ACCESS_KEY  = process.env.EXPO_PUBLIC_R2_ACCESS_KEY_ID   ?? "9e96806804e8815dfd9580ec062fa0c5";
 const SECRET_KEY  = process.env.EXPO_PUBLIC_R2_SECRET_ACCESS_KEY ?? "854a8ee198112f783b99b870ac9f3299340a88176d5a8c198e35269e8cd3cd3a";
-const BUCKET      = process.env.EXPO_PUBLIC_R2_BUCKET_NAME   ?? "netplay-media-storage";
+const BUCKET      = process.env.EXPO_PUBLIC_R2_BUCKET_NAME     ?? "netplay-media-storage";
 const ENDPOINT    = `https://${ACCOUNT_ID}.r2.cloudflarestorage.com`;
 const REGION      = "auto";
 const SERVICE     = "s3";
@@ -18,46 +18,126 @@ const TMDB_KEY  = "8f0beb08cf016ec8de49e454e09879ec";
 const TMDB_BASE = "https://api.themoviedb.org/3";
 const TMDB_LANG = "pt-BR";
 
-// ─── AWS Sig V4 ───────────────────────────────────────────────────────────────
+// ─── Pure JS SHA-256 (FIPS 180-4) ────────────────────────────────────────────
+
+const SHA256_K = new Uint32Array([
+  0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+  0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+  0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+  0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+  0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+  0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+  0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+  0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2,
+]);
+
+const SHA256_H0 = new Uint32Array([
+  0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,
+  0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19,
+]);
+
+function rotr32(x: number, n: number): number {
+  return (x >>> n) | (x << (32 - n));
+}
+
+function sha256Block(w: Uint32Array, h: Uint32Array): void {
+  for (let i = 16; i < 64; i++) {
+    const s0 = rotr32(w[i-15],7) ^ rotr32(w[i-15],18) ^ (w[i-15] >>> 3);
+    const s1 = rotr32(w[i-2],17) ^ rotr32(w[i-2],19)  ^ (w[i-2]  >>> 10);
+    w[i] = (w[i-16] + s0 + w[i-7] + s1) | 0;
+  }
+  let [a,b,c,d,e,f,g,hh] = [h[0],h[1],h[2],h[3],h[4],h[5],h[6],h[7]];
+  for (let i = 0; i < 64; i++) {
+    const S1  = rotr32(e,6) ^ rotr32(e,11) ^ rotr32(e,25);
+    const ch  = (e & f) ^ (~e & g);
+    const t1  = (hh + S1 + ch + SHA256_K[i] + w[i]) | 0;
+    const S0  = rotr32(a,2) ^ rotr32(a,13) ^ rotr32(a,22);
+    const maj = (a & b) ^ (a & c) ^ (b & c);
+    const t2  = (S0 + maj) | 0;
+    hh = g; g = f; f = e; e = (d + t1) | 0;
+    d  = c; c = b; b = a; a  = (t1 + t2) | 0;
+  }
+  h[0] = (h[0]+a)|0; h[1]=(h[1]+b)|0; h[2]=(h[2]+c)|0; h[3]=(h[3]+d)|0;
+  h[4] = (h[4]+e)|0; h[5]=(h[5]+f)|0; h[6]=(h[6]+g)|0; h[7]=(h[7]+hh)|0;
+}
+
+function sha256Bytes(data: Uint8Array): Uint8Array {
+  const len = data.length;
+  const bitLen = len * 8;
+  const padLen = ((len + 9 + 63) & ~63);
+  const padded = new Uint8Array(padLen);
+  padded.set(data);
+  padded[len] = 0x80;
+  // Write 64-bit big-endian bit length at end
+  const view = new DataView(padded.buffer);
+  view.setUint32(padLen - 4, bitLen >>> 0, false);
+  view.setUint32(padLen - 8, Math.floor(bitLen / 0x100000000), false);
+
+  const h = new Uint32Array(SHA256_H0);
+  const w = new Uint32Array(64);
+  for (let off = 0; off < padded.length; off += 64) {
+    for (let i = 0; i < 16; i++) {
+      w[i] = view.getUint32(off + i * 4, false);
+    }
+    sha256Block(w, h);
+  }
+
+  const out = new Uint8Array(32);
+  const ov = new DataView(out.buffer);
+  for (let i = 0; i < 8; i++) ov.setUint32(i * 4, h[i], false);
+  return out;
+}
 
 const _enc = new TextEncoder();
 
-function toHex(buf: ArrayBuffer): string {
-  return Array.from(new Uint8Array(buf))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+function sha256(s: string): Uint8Array {
+  return sha256Bytes(_enc.encode(s));
 }
 
-async function sha256str(s: string): Promise<string> {
-  return toHex(await crypto.subtle.digest("SHA-256", _enc.encode(s)));
+function sha256Hex(s: string): string {
+  return toHex(sha256(s));
 }
 
-async function hmacSha256(key: ArrayBuffer | Uint8Array<ArrayBuffer>, msg: string): Promise<ArrayBuffer> {
-  const ck = await crypto.subtle.importKey(
-    "raw", key instanceof Uint8Array ? key.buffer as ArrayBuffer : key,
-    { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
-  );
-  return crypto.subtle.sign("HMAC", ck, _enc.encode(msg));
+function hmacSha256(key: Uint8Array, msg: string): Uint8Array {
+  const BLOCK = 64;
+  let k = key.length > BLOCK ? sha256Bytes(key) : key;
+  const keyPad = new Uint8Array(BLOCK);
+  keyPad.set(k);
+  const ipad = new Uint8Array(BLOCK); const opad = new Uint8Array(BLOCK);
+  for (let i = 0; i < BLOCK; i++) { ipad[i] = keyPad[i] ^ 0x36; opad[i] = keyPad[i] ^ 0x5c; }
+  const msgBytes = _enc.encode(msg);
+  const inner = new Uint8Array(BLOCK + msgBytes.length);
+  inner.set(ipad); inner.set(msgBytes, BLOCK);
+  const innerHash = sha256Bytes(inner);
+  const outer = new Uint8Array(BLOCK + 32);
+  outer.set(opad); outer.set(innerHash, BLOCK);
+  return sha256Bytes(outer);
 }
 
-async function getDerivedKey(dateStamp: string): Promise<ArrayBuffer> {
-  const k0 = _enc.encode(`AWS4${SECRET_KEY}`);
-  const k1 = await hmacSha256(k0, dateStamp);
-  const k2 = await hmacSha256(k1, REGION);
-  const k3 = await hmacSha256(k2, SERVICE);
-  return hmacSha256(k3, "aws4_request");
+function toHex(bytes: Uint8Array): string {
+  return Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
+
+// ─── AWS Sig V4 ───────────────────────────────────────────────────────────────
 
 function nowDt(): { dt: string; d: string } {
   const iso = new Date().toISOString().replace(/[:-]/g, "");
   return { dt: iso.split(".")[0] + "Z", d: iso.slice(0, 8) };
 }
 
+function getDerivedKey(dateStamp: string): Uint8Array {
+  const k0 = _enc.encode(`AWS4${SECRET_KEY}`);
+  const k1 = hmacSha256(k0, dateStamp);
+  const k2 = hmacSha256(k1, REGION);
+  const k3 = hmacSha256(k2, SERVICE);
+  return hmacSha256(k3, "aws4_request");
+}
+
 function encodePathKey(key: string): string {
   return key.split("/").map(encodeURIComponent).join("/");
 }
 
-// ─── Core fetch (signed) ──────────────────────────────────────────────────────
+// ─── Core S3 fetch (signed) ───────────────────────────────────────────────────
 
 async function s3Fetch(
   method: string,
@@ -72,7 +152,7 @@ async function s3Fetch(
     ? `/${BUCKET}/${encodePathKey(objectKey)}`
     : `/${BUCKET}/`;
 
-  const payloadHash = await sha256str(body);
+  const payloadHash = sha256Hex(body);
 
   const hdrs: Record<string, string> = {
     host,
@@ -96,10 +176,9 @@ async function s3Fetch(
 
   const canonical = [method, rawPath, sortedQS, canonHdrs, signedHdrs, payloadHash].join("\n");
   const credScope = `${d}/${REGION}/${SERVICE}/aws4_request`;
-  const sts = ["AWS4-HMAC-SHA256", dt, credScope, await sha256str(canonical)].join("\n");
-
-  const dk = await getDerivedKey(d);
-  const sig = toHex(await hmacSha256(dk, sts));
+  const sts = ["AWS4-HMAC-SHA256", dt, credScope, sha256Hex(canonical)].join("\n");
+  const dk = getDerivedKey(d);
+  const sig = toHex(hmacSha256(dk, sts));
   const auth = `AWS4-HMAC-SHA256 Credential=${ACCESS_KEY}/${credScope}, SignedHeaders=${signedHdrs}, Signature=${sig}`;
 
   const url = sortedQS ? `${ENDPOINT}${rawPath}?${sortedQS}` : `${ENDPOINT}${rawPath}`;
@@ -118,7 +197,6 @@ interface S3ListResult { objects: S3Obj[]; prefixes: string[]; isTruncated: bool
 function parseListXml(xml: string): S3ListResult {
   const objects: S3Obj[] = [];
   const prefixes: string[] = [];
-
   for (const m of xml.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g)) {
     const b = m[1];
     const key = b.match(/<Key>([^<]*)<\/Key>/)?.[1] ?? "";
@@ -126,14 +204,11 @@ function parseListXml(xml: string): S3ListResult {
     const lm = b.match(/<LastModified>([^<]*)<\/LastModified>/)?.[1] ?? "";
     if (key) objects.push({ key, size, lastModified: lm });
   }
-
   for (const m of xml.matchAll(/<CommonPrefixes>[\s\S]*?<Prefix>([^<]+)<\/Prefix>[\s\S]*?<\/CommonPrefixes>/g)) {
     if (m[1]) prefixes.push(m[1]);
   }
-
   return {
-    objects,
-    prefixes,
+    objects, prefixes,
     isTruncated: /<IsTruncated>true<\/IsTruncated>/i.test(xml),
     nextToken: xml.match(/<NextContinuationToken>([^<]*)<\/NextContinuationToken>/)?.[1],
   };
@@ -142,10 +217,7 @@ function parseListXml(xml: string): S3ListResult {
 // ─── Core S3 ops ─────────────────────────────────────────────────────────────
 
 async function listObjectsRaw(
-  prefix = "",
-  delimiter?: string,
-  continuationToken?: string,
-  maxKeys = 1000,
+  prefix = "", delimiter?: string, continuationToken?: string, maxKeys = 1000,
 ): Promise<S3ListResult> {
   const qp: Record<string, string> = { "list-type": "2", "max-keys": String(maxKeys) };
   if (prefix) qp.prefix = prefix;
@@ -192,18 +264,15 @@ export async function getPresignedUrl(key: string, expiresIn = 3600): Promise<st
     "X-Amz-Expires": String(expiresIn),
     "X-Amz-SignedHeaders": "host",
   };
-
   const sortedQS = Object.entries(qp)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
     .join("&");
 
   const canonical = ["GET", rawPath, sortedQS, `host:${host}\n`, "host", "UNSIGNED-PAYLOAD"].join("\n");
-  const credScope2 = `${d}/${REGION}/${SERVICE}/aws4_request`;
-  const sts = ["AWS4-HMAC-SHA256", dt, credScope2, await sha256str(canonical)].join("\n");
-  const dk = await getDerivedKey(d);
-  const sig = toHex(await hmacSha256(dk, sts));
-
+  const sts = ["AWS4-HMAC-SHA256", dt, credScope, sha256Hex(canonical)].join("\n");
+  const dk = getDerivedKey(d);
+  const sig = toHex(hmacSha256(dk, sts));
   return `${ENDPOINT}${rawPath}?${sortedQS}&X-Amz-Signature=${sig}`;
 }
 
@@ -234,7 +303,7 @@ function parseEpNum(name: string): number | null {
   return m ? parseInt(m[1], 10) : null;
 }
 
-// ─── API-level operations (match API server endpoints) ────────────────────────
+// ─── API-level operations ─────────────────────────────────────────────────────
 
 export async function apiEpisodes(prefix: string) {
   const r = await listObjectsRaw(prefix, undefined, undefined, 500);
@@ -250,13 +319,11 @@ export async function apiEpisodes(prefix: string) {
 
 export async function apiList(prefix: string, delimiter?: string, noFallback = false, token?: string) {
   const r = await listObjectsRaw(prefix, delimiter, token);
-
   const folders = r.prefixes.map((p) => ({
     type: "folder" as const,
     key: p,
     name: p.replace(prefix, "").replace(/\/$/, "") || p,
   }));
-
   let files = r.objects
     .filter((o) => o.key !== prefix && !o.key.endsWith("__registry.json") && !o.key.endsWith("__catalog-meta.json"))
     .map((o) => ({
@@ -268,7 +335,6 @@ export async function apiList(prefix: string, delimiter?: string, noFallback = f
       fileType: fType(o.key),
       isVideo: isLikelyVideo(o.key, o.size),
     }));
-
   if (!noFallback && delimiter && !files.some((f) => f.isVideo) && folders.length > 0) {
     const rec = await listObjectsRaw(prefix, undefined, undefined);
     const rf = rec.objects
@@ -284,7 +350,6 @@ export async function apiList(prefix: string, delimiter?: string, noFallback = f
       }));
     if (rf.some((f) => f.isVideo)) files = rf;
   }
-
   return { bucket: BUCKET, prefix, folders, files, isTruncated: r.isTruncated, nextToken: r.nextToken ?? null };
 }
 
@@ -340,10 +405,7 @@ export async function apiTmdbSearch(q: string, type: string) {
   if (!res.ok) throw new Error(`TMDB ${res.status}`);
   const data = await res.json();
   const results = (data.results ?? []).slice(0, 10).map((r: any) => ({
-    id: r.id,
-    title: r.title ?? r.name,
-    poster_path: r.poster_path,
-    media_type: r.media_type ?? ep,
+    id: r.id, title: r.title ?? r.name, poster_path: r.poster_path, media_type: r.media_type ?? ep,
   }));
   return { results };
 }
@@ -375,7 +437,7 @@ export async function apiCatalog() {
   return { catalog: entries, cached: false, builtAt: new Date().toISOString() };
 }
 
-// ─── Universal router (drop-in replacement for apiFetch / apiPost) ────────────
+// ─── Universal router (drop-in para apiFetch / apiPost) ───────────────────────
 
 export async function r2Route<T>(path: string, options?: RequestInit): Promise<T> {
   const u = new URL(`http://r2${path}`);
