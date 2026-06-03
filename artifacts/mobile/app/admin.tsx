@@ -1294,6 +1294,16 @@ export default function AdminScreen() {
               </View>
             </View>
 
+            <View style={[styles.infoBox, { backgroundColor: "#f59e0b10", borderColor: "#f59e0b40", marginBottom: 16 }]}>
+              <Feather name="alert-triangle" size={15} color="#f59e0b" />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.infoBoxTitle, { color: "#f59e0b" }]}>Se aparecer erro "InvalidCredentials"</Text>
+                <Text style={[styles.infoBoxText, { color: colors.mutedForeground, lineHeight: 18 }]}>
+                  {`O Expo Push Service precisa da FCM Server Key cadastrada.\n\n1. Firebase Console → grupo-streaming-brasil-aa209\n   → ⚙️ Configurações → Cloud Messaging\n   → Copie a "Chave do servidor" (Legacy)\n\n2. expo.dev → sua conta → Projects\n   → Projeto aa86cc57-... → Credentials\n   → Android → FCM Server Key → cole e salve\n\nDepois disso os tokens ExponentPushToken funcionam sem rebuild.`}
+                </Text>
+              </View>
+            </View>
+
             <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginBottom: 10 }]}>TOKENS REGISTRADOS</Text>
             <View style={[styles.statsCard, { backgroundColor: colors.card, borderColor: colors.border, marginBottom: 16 }]}>
               {fcmStats ? (
