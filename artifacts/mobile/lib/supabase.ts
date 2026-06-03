@@ -369,7 +369,7 @@ export const db = {
     },
 
     create: async (userId: string, selectedPlan = "trial"): Promise<void> => {
-      await supabase.from("user_subscriptions").upsert(
+      const { error } = await supabase.from("user_subscriptions").upsert(
         {
           user_id: userId,
           plan: "trial",
@@ -380,6 +380,7 @@ export const db = {
         },
         { onConflict: "user_id" }
       );
+      if (error) throw new Error(error.message);
     },
 
     activate: async (userId: string, plan: string, days: number): Promise<{ error?: string }> => {

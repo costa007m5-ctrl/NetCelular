@@ -37,13 +37,16 @@ export default function PlanSelectScreen() {
   const [saving, setSaving] = useState(false);
 
   const handleConfirm = async () => {
-    if (!user?.id) return;
+    if (!user?.id) {
+      Alert.alert("Erro", "Usuário não autenticado. Faça login novamente.");
+      return;
+    }
     setSaving(true);
     try {
       await db.subscriptions.create(user.id, selected);
       router.replace("/(tabs)");
-    } catch {
-      Alert.alert("Erro", "Não foi possível salvar sua escolha. Tente novamente.");
+    } catch (err: any) {
+      Alert.alert("Erro ao salvar plano", err?.message ?? "Não foi possível salvar sua escolha. Tente novamente.");
     } finally {
       setSaving(false);
     }
