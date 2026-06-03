@@ -656,7 +656,8 @@ export default function AdminScreen() {
 
     const t0 = Date.now();
     try {
-      const res = await fetch("/api/tmdb/trending");
+      const base = getApiBase();
+      const res = await fetch(`${base}/tmdb/trending`, { signal: mkSignal(8000) });
       const ok = res.ok;
       setApis((prev) => prev.map((a) => a.name === "TMDB API" ? { ...a, status: ok ? "ok" : "error", latency: Date.now() - t0, detail: ok ? undefined : `HTTP ${res.status}` } : a));
     } catch (e: any) {
