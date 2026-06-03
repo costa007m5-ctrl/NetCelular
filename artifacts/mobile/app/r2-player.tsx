@@ -57,6 +57,28 @@ function mkSignal(ms: number): AbortSignal {
   return ctrl.signal;
 }
 
+// ── Auto-translation (MyMemory, free, no key) ─────────────────────────────────
+const _translateCache = new Map<string, string>();
+
+async function translateToPtBr(text: string): Promise<string> {
+  if (!text?.trim()) return text;
+  const key = text.trim();
+  if (_translateCache.has(key)) return _translateCache.get(key)!;
+  try {
+    const res = await fetch(
+      `https://api.mymemory.translated.net/get?q=${encodeURIComponent(key)}&langpair=en|pt-BR`,
+      { signal: mkSignal(8000) }
+    );
+    if (!res.ok) return text;
+    const data = await res.json();
+    const translated: string = data?.responseData?.translatedText ?? text;
+    _translateCache.set(key, translated);
+    return translated;
+  } catch {
+    return text;
+  }
+}
+
 async function resolveVideoKey(key: string, episodeNum?: number | null): Promise<string> {
   if (!key.endsWith("/")) return key;
   const base = getApiBase();
@@ -415,10 +437,26 @@ export default function R2PlayerScreen() {
           ...enEp,
           name: ptEp && ptEp.name && !isGeneric(ptEp.name) ? ptEp.name : enEp.name,
           overview: ptEp?.overview?.trim() ? ptEp.overview : enEp.overview,
+          _needsNameTranslation: !(ptEp && ptEp.name && !isGeneric(ptEp.name)),
+          _needsOverviewTranslation: !(ptEp?.overview?.trim()),
         };
       });
 
-      setPanelEpisodes(merged.length > 0 ? merged : ptEps);
+      const base = merged.length > 0 ? merged : ptEps.map((ep) => ({ ...ep, _needsNameTranslation: true, _needsOverviewTranslation: true }));
+      setPanelEpisodes(base);
+
+      // Auto-translate texts that TMDB didn't have in pt-BR
+      const needTranslation = base.filter((ep: any) => ep._needsNameTranslation || ep._needsOverviewTranslation);
+      if (needTranslation.length > 0) {
+        const translated = await Promise.all(
+          base.map(async (ep: any) => {
+            const name = ep._needsNameTranslation && ep.name ? await translateToPtBr(ep.name) : ep.name;
+            const overview = ep._needsOverviewTranslation && ep.overview ? await translateToPtBr(ep.overview) : ep.overview;
+            return { ...ep, name, overview };
+          })
+        );
+        setPanelEpisodes(translated);
+      }
     } catch {
       setPanelEpisodes([]);
     } finally {
