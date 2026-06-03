@@ -24,6 +24,7 @@ import { CatalogProvider } from "@/lib/catalog-context";
 import { requestPermissionsAndSetup, scheduleNewContentNotification, saveNotificationToHistory } from "@/lib/notifications";
 import { checkAndPromptUpdate } from "@/lib/app-updater";
 import { supabase } from "@/lib/supabase";
+import { initApiDomain } from "@/lib/api";
 
 SystemUI.setBackgroundColorAsync("#000000");
 SplashScreen.preventAutoHideAsync();
@@ -222,6 +223,10 @@ export default function RootLayout() {
   useEffect(() => {
     if (ready) SplashScreen.hideAsync();
   }, [ready]);
+
+  useEffect(() => {
+    initApiDomain().catch(() => {});
+  }, []);
 
   useEffect(() => {
     requestPermissionsAndSetup().then((granted) => {

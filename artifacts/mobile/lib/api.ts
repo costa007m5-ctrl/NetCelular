@@ -5,9 +5,47 @@ const TMDB_KEY = "8f0beb08cf016ec8de49e454e09879ec";
 const TMDB_BASE = "https://api.themoviedb.org/3";
 const TMDB_LANG = "pt-BR";
 
+const STORAGE_KEY = "@netplay_api_domain";
+
+let _dynamicDomain: string | null = null;
+
+export async function initApiDomain(): Promise<void> {
+  try {
+    const AsyncStorage = require("@react-native-async-storage/async-storage").default;
+    const saved = await AsyncStorage.getItem(STORAGE_KEY);
+    if (saved && saved.trim()) {
+      _dynamicDomain = saved.trim();
+    }
+  } catch {}
+}
+
+export async function setApiDomain(domain: string): Promise<void> {
+  const clean = domain.trim().replace(/^https?:\/\//, "").replace(/\/+$/, "");
+  try {
+    const AsyncStorage = require("@react-native-async-storage/async-storage").default;
+    if (clean) {
+      await AsyncStorage.setItem(STORAGE_KEY, clean);
+    } else {
+      await AsyncStorage.removeItem(STORAGE_KEY);
+    }
+  } catch {}
+  _dynamicDomain = clean || null;
+}
+
+export function getApiDomainDisplay(): string {
+  if (_dynamicDomain) return _dynamicDomain;
+  if (Platform.OS === "web") return "(web — /api)";
+  return (
+    process.env.EXPO_PUBLIC_DOMAIN ||
+    (Constants.expoConfig?.extra as any)?.apiDomain ||
+    "(não configurado)"
+  );
+}
+
 export function getApiBase(): string {
   if (Platform.OS === "web") return "/api";
   const domain =
+    _dynamicDomain ||
     process.env.EXPO_PUBLIC_DOMAIN ||
     (Constants.expoConfig?.extra as any)?.apiDomain ||
     null;

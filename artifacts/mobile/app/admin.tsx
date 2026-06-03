@@ -33,7 +33,7 @@ import { db, isSupabaseConfigured } from "@/lib/supabase";
 import type { ContentRequest } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { sendPushNotificationsToTokens, sendContentAddedNotification } from "@/lib/notifications";
-import { TMDB_IMG, getApiBase } from "@/lib/api";
+import { TMDB_IMG, getApiBase, setApiDomain, getApiDomainDisplay } from "@/lib/api";
 import { checkDriveApi, searchDriveByTitle, DriveMatch } from "@/lib/gdrive-search";
 import { listFolderAll, DRIVE_ROOTS, isFolder, isVideo, formatSize } from "@/lib/gdrive-index";
 
@@ -300,6 +300,10 @@ export default function AdminScreen() {
   const [ratingsCount, setRatingsCount] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<"sistema" | "emails" | "indicacoes" | "notifs" | "acervo" | "gstream" | "warez" | "contas" | "firebase">("sistema");
   const [contasData, setContasData] = useState<Array<{ user: any; sub: any }>>([]);
+
+  const [serverDomainInput, setServerDomainInput] = useState(() => getApiDomainDisplay().replace(/^\(.*\)$/, ""));
+  const [serverSaving, setServerSaving] = useState(false);
+  const [serverSaved, setServerSaved] = useState(false);
 
   const [fcmStats, setFcmStats] = useState<{ total: number; expo: number; native: number } | null>(null);
   const [fcmStatsLoading, setFcmStatsLoading] = useState(false);
@@ -845,6 +849,93 @@ export default function AdminScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={[styles.infoTitle, { color: colors.foreground }]}>Conta Admin</Text>
                 <Text style={[styles.infoSub, { color: colors.mutedForeground }]}>{user.email}</Text>
+              </View>
+            </View>
+
+            {/* ── Servidor API ── */}
+            <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginTop: 8 }]}>SERVIDOR API</Text>
+            <View style={[{ backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1, borderRadius: 16, padding: 16, marginBottom: 8 }]}>
+              <Text style={[{ fontSize: 12, color: colors.mutedForeground, marginBottom: 6 }]}>
+                Domínio atual: <Text style={{ color: colors.foreground, fontWeight: "600" }}>{getApiDomainDisplay()}</Text>
+              </Text>
+              <Text style={[{ fontSize: 11, color: colors.mutedForeground, marginBottom: 10, lineHeight: 16 }]}>
+                Informe o domínio do servidor uma vez após instalar o APK. Fica salvo no dispositivo — sem precisar de variáveis nem rebuild.
+              </Text>
+              <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+                <TextInput
+                  value={serverDomainInput}
+                  onChangeText={(t) => { setServerDomainInput(t); setServerSaved(false); }}
+                  placeholder="ex: meu-replit.replit.dev"
+                  placeholderTextColor={colors.border}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="url"
+                  style={[{
+                    flex: 1, borderWidth: 1, borderRadius: 10,
+                    paddingHorizontal: 12, paddingVertical: 10, fontSize: 13,
+                  }, { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.background }]}
+                />
+                <TouchableOpacity
+                  style={{
+                    paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10,
+                    backgroundColor: serverSaved ? "#4caf50" : RED,
+                    opacity: serverSaving ? 0.7 : 1,
+                    minWidth: 72, alignItems: "center",
+                  }}
+                  disabled={serverSaving}
+                  onPress={async () => {
+                    setServerSaving(true);
+                    try {
+                      await setApiDomain(serverDomainInput);
+                      setServerSaved(true);
+                      Alert.alert(
+                        "✅ Servidor salvo!",
+                        `Domínio "${serverDomainInput.trim()}" configurado. Feche e reabra o app para aplicar em todas as telas.`
+                      );
+                    } catch {
+                      Alert.alert("Erro", "Não foi possível salvar o domínio.");
+                    } finally { setServerSaving(false); }
+                  }}
+                >
+                  <Text style={{ color: "#fff", fontSize: 13, fontWeight: "700" }}>
+                    {serverSaving ? "..." : serverSaved ? "Salvo" : "Salvar"}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              {serverDomainInput.trim() !== "" && (
+                <TouchableOpacity
+                  style={{ marginTop: 10, alignSelf: "flex-start" }}
+                  onPress={async () => {
+                    setServerSaving(true);
+                    try {
+                      const base = `https://${serverDomainInput.trim().replace(/^https?:\/\//, "").replace(/\/+$/, "")}/api`;
+                      const ctrl = new AbortController();
+                      setTimeout(() => ctrl.abort(), 5000);
+                      const res = await fetch(`${base}/catalog/status`, { signal: ctrl.signal });
+                      if (res.ok) {
+                        Alert.alert("✅ Servidor online!", `${base} respondeu com status ${res.status}.`);
+                      } else {
+                        Alert.alert("⚠️ Aviso", `Servidor respondeu com status ${res.status}.`);
+                      }
+                    } catch (e: any) {
+                      Alert.alert("❌ Inacessível", `Não foi possível alcançar o servidor.\n${e?.message ?? ""}`);
+                    } finally { setServerSaving(false); }
+                  }}
+                >
+                  <Text style={{ color: colors.mutedForeground, fontSize: 12, textDecorationLine: "underline" }}>
+                    Testar conexão
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            <View style={[styles.infoBox, { backgroundColor: "#6366f110", borderColor: "#6366f130", marginBottom: 16 }]}>
+              <Feather name="info" size={15} color="#6366f1" />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.infoBoxTitle, { color: "#6366f1" }]}>Como funciona</Text>
+                <Text style={[styles.infoBoxText, { color: colors.mutedForeground, lineHeight: 17 }]}>
+                  {`• Após build no Codemagic, instale o APK e abra o Painel Admin\n• Cole o domínio do servidor Replit aqui e salve\n• O app usa este domínio permanentemente neste dispositivo\n• Se hospedar em outra conta Replit, basta atualizar este campo`}
+                </Text>
               </View>
             </View>
           </>
