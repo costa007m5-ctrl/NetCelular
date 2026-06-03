@@ -135,6 +135,7 @@ export default function R2PlayerScreen() {
   const [panelSeason, setPanelSeason] = useState<number>(1);
   const [panelEpisodes, setPanelEpisodes] = useState<TmdbEpisode[]>([]);
   const [panelLoading, setPanelLoading] = useState(false);
+  const [tmdbTotalSeasons, setTmdbTotalSeasons] = useState<number>(1);
   const panelAnim = useRef(new Animated.Value(0)).current;
   const [sessionBlocked, setSessionBlocked] = useState<"trial_expired" | "plan_expired" | "limit_exceeded" | null>(null);
 
@@ -179,11 +180,34 @@ export default function R2PlayerScreen() {
   const watchSeason = params.watchSeason ? Number(params.watchSeason) : null;
   const watchEpisode = params.watchEpisode ? Number(params.watchEpisode) : null;
 
+  // R2 season-folder items (season entries without per-episode entries)
+  const r2SeasonFolders = isTV ? r2Items.filter((i) => i.season != null && i.episode == null) : [];
+
+  // All seasons we can display: prefer explicit per-episode R2 seasons, else fall back to folder seasons, else TMDB
+  const displaySeasons: number[] = (() => {
+    if (r2Seasons.length > 0) return r2Seasons;
+    const folderSeasons = [...new Set(r2SeasonFolders.map((i) => i.season as number))].sort((a, b) => a - b);
+    if (folderSeasons.length > 0) return folderSeasons;
+    return Array.from({ length: tmdbTotalSeasons }, (_, i) => i + 1);
+  })();
+
   // Init panel season from current episode
   useEffect(() => {
     if (season != null) setPanelSeason(season);
     else if (r2Seasons.length > 0) setPanelSeason(r2Seasons[0]);
+    else if (r2SeasonFolders.length > 0) setPanelSeason(r2SeasonFolders[0].season as number);
   }, []);
+
+  // Fetch TMDB total seasons on mount for TV shows
+  useEffect(() => {
+    if (!isTV || !tmdbId) return;
+    const ctrl = new AbortController();
+    fetch(`https://api.themoviedb.org/3/tv/${tmdbId}?api_key=${TMDB_KEY}&language=pt-BR`, { signal: ctrl.signal })
+      .then((r) => r.json())
+      .then((data) => { if (data.number_of_seasons > 0) setTmdbTotalSeasons(data.number_of_seasons); })
+      .catch(() => {});
+    return () => ctrl.abort();
+  }, [tmdbId, isTV]);
 
   // ── Session limit tracking ─────────────────────────────────────────────────
   useEffect(() => {
@@ -764,9 +788,9 @@ export default function R2PlayerScreen() {
         </View>
 
         {/* Season selector */}
-        {r2Seasons.length > 1 && (
+        {displaySeasons.length > 1 && (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.panelSeasonRow}>
-            {r2Seasons.map((s) => (
+            {displaySeasons.map((s) => (
               <Pressable
                 key={s}
                 onPress={() => setPanelSeason(s)}
@@ -781,12 +805,64 @@ export default function R2PlayerScreen() {
           </ScrollView>
         )}
 
-        {/* Episode list — only R2 available episodes */}
+        {/* Episode list */}
         <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
           {(() => {
             const seasonItems = r2Items
               .filter((i) => i.season === panelSeason && i.episode != null)
               .sort((a, b) => (a.episode ?? 0) - (b.episode ?? 0));
+
+            // Fallback: if no per-episode R2 items, use TMDB episodes + season-folder key
+            const useTmdbFallback = seasonItems.length === 0 && panelEpisodes.length > 0;
+            const folderItem = r2Items.find((i) => i.season === panelSeason && i.episode == null)
+              ?? r2Items[0] ?? null;
+
+            if (panelLoading) {
+              return (
+                <Text style={styles.panelEmpty}>Carregando episódios...</Text>
+              );
+            }
+
+            if (useTmdbFallback) {
+              return panelEpisodes.map((tmdbEp) => {
+                const epNum = tmdbEp.episode_number;
+                const status = getEpStatus(panelSeason, epNum);
+                const isCurrentEp = status === "watching";
+                const isWatched = status === "watched";
+                const targetItem: RegistryItem | null = folderItem
+                  ? { ...folderItem, episode: epNum, season: panelSeason }
+                  : null;
+
+                return (
+                  <Pressable
+                    key={epNum}
+                    style={[styles.panelEpRow, isCurrentEp && styles.panelEpRowActive]}
+                    onPress={() => targetItem && goToEpisode(targetItem)}
+                  >
+                    <View style={styles.panelEpThumb}>
+                      {tmdbEp.still_path ? (
+                        <Image source={{ uri: TMDB_IMG(tmdbEp.still_path, "w300") ?? "" }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+                      ) : (
+                        <View style={[StyleSheet.absoluteFill, styles.panelEpThumbFallback]}>
+                          <Feather name="film" size={16} color="#555" />
+                        </View>
+                      )}
+                      {isCurrentEp && <View style={styles.panelEpPlayOverlay}><Feather name="pause" size={18} color="#fff" /></View>}
+                      {isWatched && <View style={styles.panelEpWatchedBadge}><Feather name="check" size={10} color="#fff" /></View>}
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                        <Text style={[styles.panelEpNum, isCurrentEp && { color: RED }]}>Ep. {epNum}</Text>
+                        {isWatched && <Text style={styles.panelEpWatchedTxt}>Assistido</Text>}
+                        {isCurrentEp && <Text style={[styles.panelEpWatchedTxt, { color: RED }]}>Em andamento</Text>}
+                      </View>
+                      <Text style={styles.panelEpName} numberOfLines={2}>{tmdbEp.name}</Text>
+                      {tmdbEp.runtime ? <Text style={styles.panelEpRuntime}>{tmdbEp.runtime} min</Text> : null}
+                    </View>
+                  </Pressable>
+                );
+              });
+            }
 
             if (seasonItems.length === 0) {
               return (
