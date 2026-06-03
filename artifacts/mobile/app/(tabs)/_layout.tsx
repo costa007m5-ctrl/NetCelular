@@ -152,7 +152,6 @@ function ClassicTabLayout({ isAdmin }: { isAdmin: boolean }) {
             isIOS ? <SymbolView name="tv" tintColor={color} size={22} /> : <Feather name="tv" size={22} color={color} />,
         }}
       />
-      <Tabs.Screen name="admin" options={{ href: null }} />
       <Tabs.Screen
         name="profile"
         options={{
