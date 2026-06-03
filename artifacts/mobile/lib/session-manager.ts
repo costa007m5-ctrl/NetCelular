@@ -11,7 +11,7 @@ export const PLANS = {
 export type PlanKey = keyof typeof PLANS;
 export type SessionCheckResult = "ok" | "trial_expired" | "plan_expired" | "limit_exceeded";
 
-const WHATSAPP_NUMBER = "5511999999999";
+const WHATSAPP_NUMBER = "5596991718167";
 
 export function getWhatsAppLink(message: string) {
   return `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(message)}`;
