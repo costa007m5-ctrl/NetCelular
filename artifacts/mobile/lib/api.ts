@@ -6,15 +6,66 @@ const TMDB_BASE = "https://api.themoviedb.org/3";
 const TMDB_LANG = "pt-BR";
 
 const STORAGE_KEY = "@netplay_api_domain";
+const SUPABASE_URL = "https://pjzfsbdcjyhcoptbrlhh.supabase.co";
+const SUPABASE_ANON_KEY =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBqemZzYmRjanloY29wdGJybGhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAwOTA4MjUsImV4cCI6MjA5NTY2NjgyNX0.SB-NiDEKp4RtVr9MSv255IPWoU2rp7td7b5ejccBG8Q";
 
 let _dynamicDomain: string | null = null;
 
+async function _fetchDomainFromSupabase(): Promise<string | null> {
+  try {
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 4000);
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/app_config?key=eq.api_domain&select=value&limit=1`,
+      {
+        signal: ctrl.signal,
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        },
+      }
+    );
+    clearTimeout(tid);
+    if (!res.ok) return null;
+    const data: Array<{ value: string }> = await res.json();
+    if (data.length > 0 && data[0].value?.trim()) return data[0].value.trim();
+  } catch {}
+  return null;
+}
+
+async function _saveDomainToSupabase(domain: string): Promise<void> {
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), 6000);
+  await fetch(`${SUPABASE_URL}/rest/v1/app_config`, {
+    method: "POST",
+    signal: ctrl.signal,
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      "Content-Type": "application/json",
+      Prefer: "resolution=merge-duplicates",
+    },
+    body: JSON.stringify({ key: "api_domain", value: domain }),
+  });
+  clearTimeout(tid);
+}
+
 export async function initApiDomain(): Promise<void> {
+  if (Platform.OS === "web") return;
   try {
     const AsyncStorage = require("@react-native-async-storage/async-storage").default;
-    const saved = await AsyncStorage.getItem(STORAGE_KEY);
-    if (saved && saved.trim()) {
-      _dynamicDomain = saved.trim();
+
+    const [fromSupabase, fromStorage] = await Promise.all([
+      _fetchDomainFromSupabase(),
+      AsyncStorage.getItem(STORAGE_KEY),
+    ]);
+
+    if (fromSupabase) {
+      _dynamicDomain = fromSupabase;
+      await AsyncStorage.setItem(STORAGE_KEY, fromSupabase);
+    } else if (fromStorage?.trim()) {
+      _dynamicDomain = fromStorage.trim();
     }
   } catch {}
 }
@@ -25,6 +76,7 @@ export async function setApiDomain(domain: string): Promise<void> {
     const AsyncStorage = require("@react-native-async-storage/async-storage").default;
     if (clean) {
       await AsyncStorage.setItem(STORAGE_KEY, clean);
+      await _saveDomainToSupabase(clean);
     } else {
       await AsyncStorage.removeItem(STORAGE_KEY);
     }
@@ -53,7 +105,7 @@ export function getApiBase(): string {
   return null as any;
 }
 
-const API_BASE = getApiBase();
+// ─── TMDB ────────────────────────────────────────────────────────────────────
 
 function tmdbUrl(path: string, params: Record<string, string> = {}): string {
   const url = new URL(`${TMDB_BASE}${path}`);
@@ -70,11 +122,12 @@ async function tmdbFetch<T>(path: string, params: Record<string, string> = {}): 
 }
 
 async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
-  if (!API_BASE) throw new Error("No API server configured");
+  const base = getApiBase();
+  if (!base) throw new Error("No API server configured");
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 5000);
   try {
-    const res = await fetch(`${API_BASE}${path}`, {
+    const res = await fetch(`${base}${path}`, {
       ...opts,
       signal: controller.signal,
       headers: { "Content-Type": "application/json", ...(opts?.headers ?? {}) },
@@ -92,7 +145,8 @@ async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
 }
 
 async function apiFetchOrDirect<T>(apiPath: string, directFn: () => Promise<T>): Promise<T> {
-  if (API_BASE) {
+  const base = getApiBase();
+  if (base) {
     try { return await apiFetch<T>(apiPath); } catch {}
   }
   return directFn();

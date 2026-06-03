@@ -859,7 +859,7 @@ export default function AdminScreen() {
                 Domínio atual: <Text style={{ color: colors.foreground, fontWeight: "600" }}>{getApiDomainDisplay()}</Text>
               </Text>
               <Text style={[{ fontSize: 11, color: colors.mutedForeground, marginBottom: 10, lineHeight: 16 }]}>
-                Informe o domínio do servidor uma vez após instalar o APK. Fica salvo no dispositivo — sem precisar de variáveis nem rebuild.
+                Configure uma vez — salva no Supabase e <Text style={{ color: "#4caf50", fontWeight: "700" }}>todos os usuários recebem automaticamente</Text> na próxima abertura do app. Sem rebuild, sem variáveis de ambiente.
               </Text>
               <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
                 <TextInput
@@ -929,13 +929,35 @@ export default function AdminScreen() {
               )}
             </View>
 
-            <View style={[styles.infoBox, { backgroundColor: "#6366f110", borderColor: "#6366f130", marginBottom: 16 }]}>
+            <View style={[styles.infoBox, { backgroundColor: "#6366f110", borderColor: "#6366f130", marginBottom: 8 }]}>
               <Feather name="info" size={15} color="#6366f1" />
               <View style={{ flex: 1 }}>
                 <Text style={[styles.infoBoxTitle, { color: "#6366f1" }]}>Como funciona</Text>
                 <Text style={[styles.infoBoxText, { color: colors.mutedForeground, lineHeight: 17 }]}>
-                  {`• Após build no Codemagic, instale o APK e abra o Painel Admin\n• Cole o domínio do servidor Replit aqui e salve\n• O app usa este domínio permanentemente neste dispositivo\n• Se hospedar em outra conta Replit, basta atualizar este campo`}
+                  {`• Admin salva o domínio aqui → vai pro Supabase\n• Todos os usuários buscam do Supabase ao abrir o app\n• Se mudar de conta Replit, atualiza uma vez aqui e todos recebem\n• Funciona sem rebuild do APK`}
                 </Text>
+              </View>
+            </View>
+            <View style={[styles.infoBox, { backgroundColor: "#f5a62310", borderColor: "#f5a62330", marginBottom: 16 }]}>
+              <Feather name="alert-triangle" size={15} color="#f5a623" />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.infoBoxTitle, { color: "#f5a623" }]}>Pré-requisito: tabela no Supabase</Text>
+                <Text style={[styles.infoBoxText, { color: colors.mutedForeground, lineHeight: 17 }]}>
+                  {`Execute este SQL no Supabase → SQL Editor:`}
+                </Text>
+                <TouchableOpacity
+                  style={{ marginTop: 8, backgroundColor: colors.background, borderRadius: 8, padding: 10, borderWidth: 1, borderColor: colors.border }}
+                  onPress={() => {
+                    const sql = `CREATE TABLE IF NOT EXISTS public.app_config (\n  key   TEXT PRIMARY KEY,\n  value TEXT NOT NULL\n);\nALTER TABLE public.app_config ENABLE ROW LEVEL SECURITY;\nCREATE POLICY "anon read" ON public.app_config FOR SELECT USING (true);\nCREATE POLICY "service write" ON public.app_config FOR INSERT WITH CHECK (true);\nCREATE POLICY "service update" ON public.app_config FOR UPDATE USING (true);`;
+                    Clipboard.setString(sql);
+                    Alert.alert("✅ Copiado!", "Cole no SQL Editor do Supabase e execute.");
+                  }}
+                >
+                  <Text style={{ fontFamily: "monospace", fontSize: 10, color: colors.mutedForeground, lineHeight: 15 }}>
+                    {"CREATE TABLE IF NOT EXISTS public.app_config (\n  key   TEXT PRIMARY KEY,\n  value TEXT NOT NULL\n);\n-- + políticas RLS (toque para copiar tudo)"}
+                  </Text>
+                  <Text style={{ color: "#f5a623", fontSize: 11, marginTop: 6, fontWeight: "600" }}>📋 Toque para copiar SQL completo</Text>
+                </TouchableOpacity>
               </View>
             </View>
           </>

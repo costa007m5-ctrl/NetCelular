@@ -80,3 +80,13 @@ CREATE POLICY "anon_all_user_settings" ON public.user_settings  FOR ALL TO anon 
 CREATE POLICY "anon_all_watchlist"     ON public.watchlist      FOR ALL TO anon USING (true) WITH CHECK (true);
 CREATE POLICY "anon_all_progress"      ON public.watch_progress FOR ALL TO anon USING (true) WITH CHECK (true);
 CREATE POLICY "anon_all_ratings"       ON public.ratings        FOR ALL TO anon USING (true) WITH CHECK (true);
+
+-- Tabela de configuração global do app (domínio do servidor, etc.)
+CREATE TABLE IF NOT EXISTS public.app_config (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+ALTER TABLE public.app_config ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "anon read"     ON public.app_config FOR SELECT USING (true);
+CREATE POLICY "service write" ON public.app_config FOR INSERT WITH CHECK (true);
+CREATE POLICY "service update" ON public.app_config FOR UPDATE USING (true);
