@@ -117,28 +117,44 @@ export async function registerPushToken(userId: string): Promise<void> {
 
     let token: string | null = null;
 
-    // 1. Try Expo push token with projectId (works in Expo Go + EAS + Codemagic with google-services.json)
+    // Detect if running in Expo Go (development) or production APK
+    let isExpoGo = false;
     try {
-      const tokenData = await Notifications.getExpoPushTokenAsync({ projectId: EXPO_PROJECT_ID });
-      token = tokenData?.data ?? null;
-      console.log("[Push] Token Expo obtido:", token ? token.slice(0, 30) + "..." : "vazio");
-    } catch (e1) {
-      console.warn("[Push] getExpoPushTokenAsync falhou (APK sem google-services.json?):", e1);
-    }
+      const Constants = require("expo-constants").default;
+      isExpoGo = Constants.appOwnership === "expo";
+    } catch {}
 
-    // 2. Fallback: get native device push token (FCM raw token on Android)
-    if (!token) {
+    if (isExpoGo) {
+      // Expo Go: use Expo push token (for development testing only)
+      try {
+        const tokenData = await Notifications.getExpoPushTokenAsync({ projectId: EXPO_PROJECT_ID });
+        token = tokenData?.data ?? null;
+        console.log("[Push] Expo Go — Token Expo obtido:", token ? token.slice(0, 30) + "..." : "vazio");
+      } catch (e1) {
+        console.warn("[Push] getExpoPushTokenAsync falhou:", e1);
+      }
+    } else {
+      // Production APK (Codemagic/EAS): use native FCM device token directly
+      // This bypasses Expo Push API and works with FCM V1 service account on the server
       try {
         const deviceToken = await Notifications.getDevicePushTokenAsync();
-        token = deviceToken?.data ?? null;
-        console.log("[Push] Token nativo obtido como fallback:", token ? String(token).slice(0, 30) + "..." : "vazio");
-      } catch (e2) {
-        console.error("[Push] Falha ao obter token nativo também:", e2);
+        token = typeof deviceToken?.data === "string" ? deviceToken.data : null;
+        console.log("[Push] APK — Token FCM nativo obtido:", token ? token.slice(0, 30) + "..." : "vazio");
+      } catch (e1) {
+        console.warn("[Push] getDevicePushTokenAsync falhou, tentando Expo token:", e1);
+        // Fallback to Expo token if native fails
+        try {
+          const tokenData = await Notifications.getExpoPushTokenAsync({ projectId: EXPO_PROJECT_ID });
+          token = tokenData?.data ?? null;
+          console.log("[Push] APK fallback — Token Expo obtido:", token ? token.slice(0, 30) + "..." : "vazio");
+        } catch (e2) {
+          console.error("[Push] Falha total ao obter token:", e2);
+        }
       }
     }
 
     if (!token) {
-      console.warn("[Push] Nenhum token obtido para userId:", userId, "— Verifique se google-services.json está no build.");
+      console.warn("[Push] Nenhum token obtido para userId:", userId);
       return;
     }
 

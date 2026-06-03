@@ -41,9 +41,11 @@ router.get("/stats", async (_req, res) => {
     const expoCount = tokens.filter(
       (t) => t.startsWith("ExponentPushToken") || t.startsWith("ExpoToken")
     ).length;
-    res.json({ total: tokens.length, expo: expoCount, native: tokens.length - expoCount });
+    const nativeCount = tokens.length - expoCount;
+    const fcmV1Active = !!process.env["FIREBASE_SERVICE_ACCOUNT_JSON"];
+    res.json({ total: tokens.length, expo: expoCount, native: nativeCount, fcmV1Active });
   } catch {
-    res.json({ total: 0, expo: 0, native: 0 });
+    res.json({ total: 0, expo: 0, native: 0, fcmV1Active: false });
   }
 });
 

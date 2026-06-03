@@ -305,7 +305,7 @@ export default function AdminScreen() {
   const [serverSaving, setServerSaving] = useState(false);
   const [serverSaved, setServerSaved] = useState(false);
 
-  const [fcmStats, setFcmStats] = useState<{ total: number; expo: number; native: number } | null>(null);
+  const [fcmStats, setFcmStats] = useState<{ total: number; expo: number; native: number; fcmV1Active?: boolean } | null>(null);
   const [fcmStatsLoading, setFcmStatsLoading] = useState(false);
   const [fcmTestTitle, setFcmTestTitle] = useState("🔔 Teste FCM - NETPLAY");
   const [fcmTestBody, setFcmTestBody] = useState("Notificação de teste via Firebase Cloud Messaging.");
@@ -1284,7 +1284,7 @@ export default function AdminScreen() {
                 {[
                   { label: "Package Name", value: "com.netplay.app" },
                   { label: "google-services.json", value: "✅ Configurado" },
-                  { label: "FCM via Expo Push API", value: "Ativo (roteamento automático)" },
+                  { label: "FCM V1 Service Account", value: fcmStats?.fcmV1Active ? "✅ Configurado" : "⚠️ Não configurado" },
                 ].map((item, i) => (
                   <View key={i} style={[{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 6 }, { borderTopWidth: 1, borderTopColor: colors.border }]}>
                     <Text style={[{ fontSize: 12 }, { color: colors.mutedForeground }]}>{item.label}</Text>
@@ -1297,9 +1297,11 @@ export default function AdminScreen() {
             <View style={[styles.infoBox, { backgroundColor: "#f59e0b10", borderColor: "#f59e0b40", marginBottom: 16 }]}>
               <Feather name="alert-triangle" size={15} color="#f59e0b" />
               <View style={{ flex: 1 }}>
-                <Text style={[styles.infoBoxTitle, { color: "#f59e0b" }]}>Se aparecer erro "InvalidCredentials"</Text>
+                <Text style={[styles.infoBoxTitle, { color: fcmStats?.fcmV1Active ? "#4caf50" : "#f59e0b" }]}>{fcmStats?.fcmV1Active ? "✅ FCM V1 configurado" : "⚙️ Configure o FCM V1 para o APK funcionar"}</Text>
                 <Text style={[styles.infoBoxText, { color: colors.mutedForeground, lineHeight: 18 }]}>
-                  {`A API legada FCM está desativada. Use FCM V1 com Conta de Serviço:\n\n1. Firebase Console → grupo-streaming-brasil-aa209\n   → ⚙️ Configurações do projeto → aba "Contas de serviço"\n   → "Gerar nova chave privada" → baixe o arquivo .json\n\n2. expo.dev → sua conta → Projects\n   → Projeto aa86cc57-... → Credentials → Android\n   → "FCM V1 Service Account Key" → upload do .json\n\nDepois disso os tokens ExponentPushToken funcionam sem rebuild.`}
+                  {fcmStats?.fcmV1Active
+                    ? `O servidor envia via FCM V1 direto usando o Service Account. Tokens FCM nativos do APK (Codemagic) funcionam sem depender do expo.dev.`
+                    : `O APK do Codemagic usa tokens FCM nativos. Para o servidor enviar, adicione o secret:\n\n1. Firebase Console → grupo-streaming-brasil-aa209\n   → ⚙️ Configurações → Contas de serviço\n   → "Gerar nova chave privada" → baixe .json\n\n2. No Replit → Secrets → adicione:\n   Nome: FIREBASE_SERVICE_ACCOUNT_JSON\n   Valor: conteúdo completo do arquivo .json\n\n3. Reinicie o servidor (já feito automaticamente)`}
                 </Text>
               </View>
             </View>
