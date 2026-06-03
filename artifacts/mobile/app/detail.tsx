@@ -24,7 +24,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { ContentCard } from "@/components/ContentCard";
-import { api as tmdbApi, TMDB_IMG, tmdbItemToContent, getApiBase } from "@/lib/api";
+import { api as tmdbApi, TMDB_IMG, tmdbItemToContent } from "@/lib/api";
 import type { TmdbItem, TmdbEpisode, TmdbSeason } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
@@ -250,14 +250,8 @@ export default function DetailScreen() {
     if (!tmdbId) return;
     const loadR2 = async () => {
       try {
-        const apiBase = getApiBase();
-        if (!apiBase) return;
-        const ctrl = new AbortController();
-        const tid = setTimeout(() => ctrl.abort(), 15000);
-        const res = await fetch(`${apiBase}/r2/registry`, { signal: ctrl.signal });
-        clearTimeout(tid);
-        if (!res.ok) return;
-        const data = await res.json();
+        const { apiGetRegistry } = await import("@/lib/r2-direct");
+        const data = await apiGetRegistry();
         const items: RegistryItem[] = (data.items ?? []).filter(
           (i: RegistryItem) => i.tmdbId === tmdbId && i.tmdbType === type
         );
@@ -282,18 +276,8 @@ export default function DetailScreen() {
 
     const scanFolder = async () => {
       try {
-        const apiBase = getApiBase();
-        if (!apiBase) return;
-        const ctrl = new AbortController();
-        const tid = setTimeout(() => ctrl.abort(), 15000);
-        // delimiter="" → recursive listing of all files under season folder
-        const res = await fetch(
-          `${apiBase}/r2/list?prefix=${encodeURIComponent(seasonItem.r2Key)}&delimiter=`,
-          { signal: ctrl.signal }
-        );
-        clearTimeout(tid);
-        if (!res.ok) return;
-        const data = await res.json();
+        const { apiList } = await import("@/lib/r2-direct");
+        const data = await apiList(seasonItem.r2Key, undefined, false, undefined);
         const files: { name: string }[] = data.files ?? [];
         const nums = new Set<number>();
         for (const f of files) {

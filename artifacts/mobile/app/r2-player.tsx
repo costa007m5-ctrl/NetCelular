@@ -18,7 +18,7 @@ import {
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-import { getApiBase } from "@/lib/api";
+import { apiList, apiSignedUrl } from "@/lib/r2-direct";
 import { useAuth } from "@/lib/auth-context";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
 import { checkAndStartSession, heartbeatSession, endSession, getWhatsAppLink } from "@/lib/session-manager";
@@ -81,13 +81,7 @@ async function translateToPtBr(text: string): Promise<string> {
 
 async function resolveVideoKey(key: string, episodeNum?: number | null): Promise<string> {
   if (!key.endsWith("/")) return key;
-  const base = getApiBase();
-  if (!base) throw new Error("API não configurada");
-  const res = await fetch(`${base}/r2/list?prefix=${encodeURIComponent(key)}&delimiter=`, {
-    signal: mkSignal(20000),
-  });
-  if (!res.ok) throw new Error("Erro ao listar pasta");
-  const data = await res.json();
+  const data = await apiList(key, undefined, false, undefined);
   const videoExts = /\.(mp4|mkv|mov|avi|webm|m4v|ts|m2ts|wmv|flv|ogv)$/i;
   const videos = (data.files ?? []).filter((f: any) => f.isVideo || videoExts.test(f.key));
   if (videos.length === 0) throw new Error("Nenhum vídeo encontrado na pasta");
@@ -111,14 +105,8 @@ async function resolveVideoKey(key: string, episodeNum?: number | null): Promise
 }
 
 async function fetchSignedUrl(key: string, episodeNum?: number | null): Promise<string> {
-  const base = getApiBase();
-  if (!base) throw new Error("API não configurada");
   const resolvedKey = await resolveVideoKey(key, episodeNum);
-  const res = await fetch(`${base}/r2/signed-url?key=${encodeURIComponent(resolvedKey)}`, {
-    signal: mkSignal(15000),
-  });
-  if (!res.ok) throw new Error("Erro ao gerar URL de vídeo");
-  const data = await res.json();
+  const data = await apiSignedUrl(resolvedKey);
   return data.url;
 }
 
@@ -518,8 +506,8 @@ export default function R2PlayerScreen() {
         tmdb_id: tmdbId,
         type: contentType as "movie" | "tv",
         title,
-        poster_path: posterPath ? `https://image.tmdb.org/t/p/w500${posterPath}` : undefined,
-        backdrop_path: backdropPath ? `https://image.tmdb.org/t/p/w1280${backdropPath}` : undefined,
+        poster_path: posterPath ? `https://image.tmdb.org/t/p/w500${posterPath}` : "",
+        backdrop_path: backdropPath ? `https://image.tmdb.org/t/p/w1280${backdropPath}` : "",
         progress: ratio,
         ...(isTV && season != null ? { season } : {}),
         ...(isTV && episode != null ? { episode } : {}),

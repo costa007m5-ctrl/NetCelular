@@ -20,7 +20,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/lib/auth-context";
-import { getApiBase } from "@/lib/api";
+import { r2Route } from "@/lib/r2-direct";
 
 const UPLOADED_URLS_KEY = "r2_uploaded_urls_v1";
 
@@ -78,25 +78,11 @@ function mkAbort(ms = 60000): [AbortSignal, () => void] {
 }
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const base = getApiBase();
-  if (!base) throw new Error("API não configurada");
-  const [signal, clear] = mkAbort(60000);
-  try {
-    const res = await fetch(`${base}/r2${path}`, { ...options, signal });
-    clear();
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: res.statusText }));
-      throw new Error((err as any).error ?? `HTTP ${res.status}`);
-    }
-    return res.json() as Promise<T>;
-  } catch (e) {
-    clear();
-    throw e;
-  }
+  return r2Route<T>(path, options);
 }
 
 async function apiPost<T>(path: string, body: any): Promise<T> {
-  return apiFetch<T>(path, {
+  return r2Route<T>(path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
