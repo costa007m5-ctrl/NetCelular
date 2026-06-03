@@ -2687,6 +2687,15 @@ export default function AdminScreen() {
                         )}
                       </Pressable>
 
+                      {/* Ver Detalhes */}
+                      <Pressable
+                        onPress={() => router.push(`/admin-user?userId=${u.id}`)}
+                        style={[styles.copyBtn, { borderColor: colors.primary + "55", backgroundColor: colors.primary + "12" }]}
+                      >
+                        <Feather name="user" size={12} color={colors.primary} />
+                        <Text style={[styles.copyBtnTxt, { color: colors.primary }]}>Ver Detalhes</Text>
+                      </Pressable>
+
                       {/* WhatsApp */}
                       <Pressable
                         onPress={() => {

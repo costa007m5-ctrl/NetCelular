@@ -168,12 +168,12 @@ export default function R2PlayerScreen() {
     try { return params.r2ItemsJson ? JSON.parse(params.r2ItemsJson) : []; } catch { return []; }
   })();
 
-  // Seasons available in R2
-  const r2Seasons = isTV
-    ? [...new Set(r2Items.filter((i) => i.season != null).map((i) => i.season as number))].sort((a, b) => a - b)
-    : [];
   // Only items with specific episode numbers (exclude season-level folder items)
   const r2EpisodeItems = isTV ? r2Items.filter((i) => i.episode != null) : [];
+  // Seasons available in R2 — only seasons that have at least one per-episode entry
+  const r2Seasons = isTV
+    ? [...new Set(r2EpisodeItems.filter((i) => i.season != null).map((i) => i.season as number))].sort((a, b) => a - b)
+    : [];
 
   // Current watch progress
   const watchSeason = params.watchSeason ? Number(params.watchSeason) : null;

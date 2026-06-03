@@ -221,5 +221,32 @@ CREATE POLICY "anon_all_active_sessions"
 
 
 -- ────────────────────────────────────────────────────────────
+-- SUPPORT TICKETS
+-- ────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS public.support_tickets (
+  id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id      UUID        NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  subject      TEXT        NOT NULL,
+  message      TEXT        NOT NULL,
+  status       TEXT        NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'closed')),
+  admin_reply  TEXT,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE public.support_tickets ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "auth_all_support_tickets" ON public.support_tickets;
+CREATE POLICY "auth_all_support_tickets"
+  ON public.support_tickets FOR ALL TO authenticated
+  USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "anon_all_support_tickets" ON public.support_tickets;
+CREATE POLICY "anon_all_support_tickets"
+  ON public.support_tickets FOR ALL TO anon
+  USING (true) WITH CHECK (true);
+
+
+-- ────────────────────────────────────────────────────────────
 -- FIM — todas as tabelas e permissoes prontas
 -- ────────────────────────────────────────────────────────────

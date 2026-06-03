@@ -1,10 +1,13 @@
 import React, { useState } from "react";
 import {
+  ActivityIndicator,
+  Alert,
   Animated,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
@@ -12,6 +15,8 @@ import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
+import { db } from "@/lib/supabase";
+import { useAuth } from "@/lib/auth-context";
 
 const FAQS = [
   {
@@ -78,6 +83,36 @@ export default function HelpScreen() {
   const colors = useColors();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
+
+  const [ticketSubject, setTicketSubject] = useState("");
+  const [ticketMessage, setTicketMessage] = useState("");
+  const [sendingTicket, setSendingTicket] = useState(false);
+
+  const handleSendTicket = async () => {
+    if (!user?.id) {
+      Alert.alert("Atenção", "Você precisa estar logado para enviar um ticket.");
+      return;
+    }
+    if (!ticketSubject.trim()) {
+      Alert.alert("Atenção", "Informe o assunto do ticket.");
+      return;
+    }
+    if (!ticketMessage.trim()) {
+      Alert.alert("Atenção", "Escreva uma mensagem.");
+      return;
+    }
+    setSendingTicket(true);
+    const result = await db.tickets.create(user.id, ticketSubject.trim(), ticketMessage.trim());
+    setSendingTicket(false);
+    if (result.error) {
+      Alert.alert("Erro", result.error);
+    } else {
+      setTicketSubject("");
+      setTicketMessage("");
+      Alert.alert("Ticket enviado!", "Nossa equipe responderá em breve. Você pode acompanhar o status no seu perfil.");
+    }
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -105,6 +140,56 @@ export default function HelpScreen() {
         {FAQS.map((item) => (
           <FAQItem key={item.q} q={item.q} a={item.a} />
         ))}
+
+        {/* ── Enviar Ticket ── */}
+        <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginTop: 28 }]}>ENVIAR TICKET</Text>
+        <View style={[styles.ticketCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={styles.ticketIconRow}>
+            <View style={[styles.ticketIconWrap, { backgroundColor: colors.primary + "18" }]}>
+              <Feather name="send" size={18} color={colors.primary} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.ticketCardTitle, { color: colors.foreground }]}>Fale com o suporte</Text>
+              <Text style={[styles.ticketCardSub, { color: colors.mutedForeground }]}>
+                Descreva o problema e nossa equipe responderá em breve.
+              </Text>
+            </View>
+          </View>
+
+          <Text style={[styles.inputLabel, { color: colors.mutedForeground }]}>Assunto</Text>
+          <TextInput
+            value={ticketSubject}
+            onChangeText={setTicketSubject}
+            placeholder="Ex: Problema ao assistir, dúvida sobre assinatura..."
+            placeholderTextColor={colors.mutedForeground + "88"}
+            style={[styles.input, { color: colors.foreground, backgroundColor: colors.background, borderColor: colors.border }]}
+          />
+
+          <Text style={[styles.inputLabel, { color: colors.mutedForeground }]}>Mensagem</Text>
+          <TextInput
+            value={ticketMessage}
+            onChangeText={setTicketMessage}
+            placeholder="Descreva o que aconteceu com o máximo de detalhes..."
+            placeholderTextColor={colors.mutedForeground + "88"}
+            multiline
+            style={[styles.inputMulti, { color: colors.foreground, backgroundColor: colors.background, borderColor: colors.border }]}
+          />
+
+          <Pressable
+            disabled={sendingTicket}
+            onPress={handleSendTicket}
+            style={[styles.sendBtn, { backgroundColor: colors.primary, opacity: sendingTicket ? 0.7 : 1 }]}
+          >
+            {sendingTicket ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <>
+                <Feather name="send" size={15} color="#fff" />
+                <Text style={styles.sendBtnTxt}>Enviar Ticket</Text>
+              </>
+            )}
+          </Pressable>
+        </View>
 
         <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginTop: 28 }]}>CONTATO</Text>
         {CONTACTS.map((c) => (
@@ -173,6 +258,50 @@ const styles = StyleSheet.create({
   },
   faqQ: { flex: 1, fontSize: 14, fontWeight: "600", lineHeight: 20 },
   faqA: { fontSize: 13, lineHeight: 19 },
+  ticketCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 16,
+    gap: 12,
+    marginBottom: 0,
+  },
+  ticketIconRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+  ticketIconWrap: {
+    width: 42, height: 42, borderRadius: 12,
+    alignItems: "center", justifyContent: "center",
+  },
+  ticketCardTitle: { fontSize: 15, fontWeight: "700" },
+  ticketCardSub: { fontSize: 12, lineHeight: 17, marginTop: 2 },
+  inputLabel: { fontSize: 12, fontWeight: "600", marginBottom: -4 },
+  input: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    fontSize: 14,
+  },
+  inputMulti: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    fontSize: 14,
+    minHeight: 100,
+    textAlignVertical: "top",
+  },
+  sendBtn: {
+    borderRadius: 12,
+    paddingVertical: 13,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 8,
+  },
+  sendBtnTxt: { color: "#fff", fontSize: 15, fontWeight: "700" },
   contactCard: {
     flexDirection: "row",
     alignItems: "center",

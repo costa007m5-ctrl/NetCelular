@@ -176,6 +176,11 @@ export const db = {
       const { error } = await supabase.from("users").update({ blocked }).eq("id", id);
       return error ? { error: error.message } : {};
     },
+
+    deleteAccount: async (id: string): Promise<{ error?: string }> => {
+      const { error } = await supabase.from("users").delete().eq("id", id);
+      return error ? { error: error.message } : {};
+    },
   },
 
   userSettings: {
@@ -416,6 +421,52 @@ export const db = {
         user: u as DbUser,
         sub: (subsMap.get(u.id) ?? null) as DbSubscription | null,
       }));
+    },
+  },
+
+  tickets: {
+    getByUser: async (userId: string): Promise<any[]> => {
+      const { data } = await supabase
+        .from("support_tickets")
+        .select("*")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false });
+      return data ?? [];
+    },
+
+    create: async (userId: string, subject: string, message: string): Promise<{ error?: string }> => {
+      const { error } = await supabase.from("support_tickets").insert({
+        user_id: userId,
+        subject,
+        message,
+        status: "open",
+        created_at: new Date().toISOString(),
+      });
+      return error ? { error: error.message } : {};
+    },
+
+    adminReply: async (ticketId: string, reply: string): Promise<{ error?: string }> => {
+      const { error } = await supabase
+        .from("support_tickets")
+        .update({ admin_reply: reply })
+        .eq("id", ticketId);
+      return error ? { error: error.message } : {};
+    },
+
+    closeTicket: async (ticketId: string): Promise<{ error?: string }> => {
+      const { error } = await supabase
+        .from("support_tickets")
+        .update({ status: "closed" })
+        .eq("id", ticketId);
+      return error ? { error: error.message } : {};
+    },
+
+    getAll: async (): Promise<any[]> => {
+      const { data } = await supabase
+        .from("support_tickets")
+        .select("*, users(name, email, avatar_letter)")
+        .order("created_at", { ascending: false });
+      return data ?? [];
     },
   },
 
