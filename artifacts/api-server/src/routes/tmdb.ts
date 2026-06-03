@@ -6,10 +6,6 @@ const router = Router();
 const handle = (fn: (req: any, res: any) => Promise<any>) =>
   async (req: any, res: any) => {
     try {
-      if (!process.env["TMDB_API_KEY"]) {
-        res.status(503).json({ error: "TMDB_API_KEY not configured" });
-        return;
-      }
       const data = await fn(req, res);
       res.json(data);
     } catch (err: any) {

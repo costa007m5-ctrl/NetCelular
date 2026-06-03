@@ -539,7 +539,7 @@ export default function NovidadesScreen() {
           .filter((s) => uniqueTvIds.includes(s.id))
           .map((tmdbItem) => {
             const epRegs = tvItems.filter((i) => i.tmdbId === tmdbItem.id);
-            const latest = epRegs[epRegs.length - 1];
+            const latest = epRegs[0]; // sortedItems is reversed (newest first), so [0] is newest
             return {
               ...tmdbItem,
               last_episode_to_air: {

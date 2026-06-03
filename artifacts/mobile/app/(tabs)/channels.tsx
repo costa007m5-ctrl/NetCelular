@@ -54,7 +54,7 @@ export default function ChannelsScreen() {
       });
     }, 5000);
     return () => clearInterval(timer);
-  }, [channels, bannerOpacity]);
+  }, [channels]); // bannerOpacity is a stable ref value — no need in deps
 
   const load = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
