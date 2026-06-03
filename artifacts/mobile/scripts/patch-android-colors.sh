@@ -36,7 +36,14 @@ echo "    ✓ netplay_icon_colors.xml criado"
 # ── 2. Patcha colors.xml se necessário ──────────────────────
 if [ -f "$VALUES/colors.xml" ]; then
   if ! grep -q 'name="iconBackground"' "$VALUES/colors.xml"; then
-    sed -i.bak 's|</resources>|    <color name="iconBackground">#000000</color>\n</resources>|' "$VALUES/colors.xml"
+    python3 -c "
+path = '$VALUES/colors.xml'
+with open(path, 'r') as f:
+    c = f.read()
+c = c.replace('</resources>', '    <color name=\"iconBackground\">#000000</color>\n</resources>')
+with open(path, 'w') as f:
+    f.write(c)
+"
     echo "    ✓ colors.xml patchado"
   fi
 fi
@@ -55,7 +62,14 @@ echo "    ✓ ic_launcher_background drawable criado"
 if [ -d "$MIPMAP" ]; then
   for f in "$MIPMAP/ic_launcher.xml" "$MIPMAP/ic_launcher_round.xml"; do
     if [ -f "$f" ] && grep -q '@color/iconBackground' "$f"; then
-      sed -i.bak 's|@color/iconBackground|@drawable/ic_launcher_background|g' "$f"
+      python3 -c "
+path = '$f'
+with open(path, 'r') as file:
+    c = file.read()
+c = c.replace('@color/iconBackground', '@drawable/ic_launcher_background')
+with open(path, 'w') as file:
+    file.write(c)
+"
       echo "    ✓ $(basename $f) patchado"
     fi
   done
@@ -63,13 +77,39 @@ fi
 
 # ── 5. Garante buildConfig=true no app/build.gradle ─────────
 if [ -f "$BUILD_GRADLE" ]; then
-  if ! grep -q "buildConfig true" "$BUILD_GRADLE" && ! grep -q "buildConfig = true" "$BUILD_GRADLE"; then
-    # Insere buildFeatures { buildConfig true } logo após "android {"
-    sed -i.bak 's|android {|android {\n    buildFeatures {\n        buildConfig true\n    }|' "$BUILD_GRADLE"
-    echo "    ✓ buildConfig habilitado em app/build.gradle"
-  else
-    echo "    ✓ buildConfig já está habilitado"
-  fi
+  python3 -c "
+import re, sys
+
+path = '$BUILD_GRADLE'
+
+with open(path, 'r') as f:
+    contents = f.read()
+
+if 'buildConfig true' in contents or 'buildConfig = true' in contents:
+    print('    ✓ buildConfig ja esta habilitado')
+    sys.exit(0)
+
+if 'buildFeatures' in contents:
+    contents = re.sub(
+        r'(buildFeatures\s*\{)([^}]*?)(\})',
+        lambda m: m.group(1) + m.group(2) + '        buildConfig true\n    ' + m.group(3),
+        contents,
+        flags=re.DOTALL
+    )
+    print('    ✓ buildConfig adicionado dentro do buildFeatures existente')
+else:
+    contents = contents.replace(
+        'android {',
+        'android {\n    buildFeatures {\n        buildConfig true\n    }',
+        1
+    )
+    print('    ✓ buildFeatures { buildConfig true } injetado')
+
+with open(path, 'w') as f:
+    f.write(contents)
+"
+else
+  echo "    ⚠ build.gradle nao encontrado em: $BUILD_GRADLE"
 fi
 
-echo "==> [patch-android] Concluído com sucesso!"
+echo "==> [patch-android] Concluido com sucesso!"
