@@ -108,7 +108,8 @@
     "extra": {
       "eas": {
         "projectId": "aa86cc57-e8c0-4ce7-806c-0d1e5e345991"
-      }
+      },
+      "apiDomain": "SEU-DOMINIO-AQUI.replit.app"
     }
   }
 }

@@ -1,11 +1,15 @@
 import { Platform } from "react-native";
+import Constants from "expo-constants";
 
 const DRIVE_WORKER = "https://1.animezey23112022.workers.dev";
 const DOWNLOAD_DOMAIN = "https://animezey16082023.animezey16082023.workers.dev";
 
 function getDriveProxyBase(): string {
   if (Platform.OS === "web") return "/api/drive";
-  const domain = process.env.EXPO_PUBLIC_DOMAIN;
+  const domain =
+    process.env.EXPO_PUBLIC_DOMAIN ||
+    (Constants.expoConfig?.extra as any)?.apiDomain ||
+    null;
   if (domain) return `https://${domain}/api/drive`;
   return DRIVE_WORKER;
 }

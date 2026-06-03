@@ -1,10 +1,14 @@
 import { Platform } from "react-native";
+import Constants from "expo-constants";
 
 const EMBEDTV_DIRECT = "https://embedtv.lat/api";
 
 function getBase(): string {
-  const domain = process.env.EXPO_PUBLIC_DOMAIN;
   if (Platform.OS === "web") return "/api";
+  const domain =
+    process.env.EXPO_PUBLIC_DOMAIN ||
+    (Constants.expoConfig?.extra as any)?.apiDomain ||
+    null;
   if (domain) return `https://${domain}/api`;
   return "http://localhost:8080/api";
 }

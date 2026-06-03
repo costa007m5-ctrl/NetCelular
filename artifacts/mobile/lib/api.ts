@@ -1,12 +1,16 @@
 import { Platform } from "react-native";
+import Constants from "expo-constants";
 
 const TMDB_KEY = "8f0beb08cf016ec8de49e454e09879ec";
 const TMDB_BASE = "https://api.themoviedb.org/3";
 const TMDB_LANG = "pt-BR";
 
 export function getApiBase(): string {
-  const domain = process.env.EXPO_PUBLIC_DOMAIN;
   if (Platform.OS === "web") return "/api";
+  const domain =
+    process.env.EXPO_PUBLIC_DOMAIN ||
+    (Constants.expoConfig?.extra as any)?.apiDomain ||
+    null;
   if (domain) return `https://${domain}/api`;
   return null as any;
 }
