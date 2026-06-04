@@ -323,7 +323,18 @@ function CatalogGrid({ onSelect, onRegister, onEdit }: {
 
   useEffect(() => { load(); }, []);
 
+  const isTeraboxEntry = (entry: CatalogEntry) => entry.key.startsWith("__tb__/");
+
+  const openTeraboxEntry = (entry: CatalogEntry) => {
+    if (!entry.tmdb?.id) return;
+    router.push({
+      pathname: "/detail",
+      params: { type: entry.type, id: String(entry.tmdb.id), title: entry.tmdb.title ?? entry.name },
+    });
+  };
+
   const openMovie = async (entry: CatalogEntry) => {
+    if (isTeraboxEntry(entry)) { openTeraboxEntry(entry); return; }
     setOpening(entry.key);
     try {
       const data = await apiFetch<{ files: FileItem[] }>(`/list?prefix=${encodeURIComponent(entry.key)}&delimiter=/`);
@@ -380,22 +391,34 @@ function CatalogGrid({ onSelect, onRegister, onEdit }: {
           renderItem={({ item: entry }) => {
             const poster = entry.tmdb?.poster_path ? TMDB_IMG(entry.tmdb.poster_path) : null;
             const isBusy = opening === entry.key;
+            const isTB = isTeraboxEntry(entry);
+            const onPressEntry = () => {
+              if (isTB) { openTeraboxEntry(entry); return; }
+              if (entry.type === "movie") { openMovie(entry); } else { onSelect(entry); }
+            };
             return (
-              <Pressable style={({ pressed }) => [styles.posterCard, pressed && { opacity: 0.8 }]} onPress={() => entry.type === "movie" ? openMovie(entry) : onSelect(entry)}>
+              <Pressable style={({ pressed }) => [styles.posterCard, pressed && { opacity: 0.8 }]} onPress={onPressEntry}>
                 <View style={styles.posterWrap}>
                   {poster ? <Image source={{ uri: poster }} style={styles.posterImg} contentFit="cover" /> : <View style={styles.posterPlaceholder}><Feather name="film" size={28} color="rgba(255,255,255,0.2)" /></View>}
                   <View style={[styles.typeBadge, { backgroundColor: entry.type === "tv" ? "#1a6bb5" : RED }]}>
                     <Text style={styles.typeBadgeText}>{entry.type === "tv" ? "SÉRIE" : "FILME"}</Text>
                   </View>
+                  {isTB && (
+                    <View style={{ position: "absolute", top: 6, right: 6, backgroundColor: "#f59e0b", borderRadius: 4, paddingHorizontal: 4, paddingVertical: 2 }}>
+                      <Text style={{ color: "#000", fontSize: 8, fontWeight: "900" }}>TB</Text>
+                    </View>
+                  )}
                   {isBusy && <View style={styles.posterLoading}><ActivityIndicator color="#fff" size="small" /></View>}
-                  {/* Edit button overlay */}
-                  <Pressable style={[styles.registerOverlay, { right: 28 }]} onPress={() => onEdit(entry)}>
-                    <Feather name="edit-2" size={11} color="#fff" />
-                  </Pressable>
-                  {/* Register button overlay */}
-                  <Pressable style={styles.registerOverlay} onPress={() => onRegister(entry.key)}>
-                    <Feather name="link" size={12} color="#fff" />
-                  </Pressable>
+                  {!isTB && (
+                    <>
+                      <Pressable style={[styles.registerOverlay, { right: 28 }]} onPress={() => onEdit(entry)}>
+                        <Feather name="edit-2" size={11} color="#fff" />
+                      </Pressable>
+                      <Pressable style={styles.registerOverlay} onPress={() => onRegister(entry.key)}>
+                        <Feather name="link" size={12} color="#fff" />
+                      </Pressable>
+                    </>
+                  )}
                 </View>
                 <Text style={styles.posterTitle} numberOfLines={2}>{entry.tmdb?.title ?? entry.name}</Text>
               </Pressable>
@@ -1847,6 +1870,7 @@ function TeraBoxRegisterTab() {
         await apiPost("/terabox/register", {
           teraboxUrl: inputUrl.trim(),
           fileIndex: idx,
+          fileName: files[idx]?.name,
           tmdbId: selectedTmdb.id,
           tmdbType: mediaKind,
           title: selectedTmdb.title,

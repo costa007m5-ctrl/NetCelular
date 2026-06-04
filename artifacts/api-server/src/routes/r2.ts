@@ -146,6 +146,7 @@ export interface RegistryItem {
   r2Key: string;
   teraboxUrl?: string;
   fileIndex?: number;
+  fileName?: string;
   tmdbId: number;
   tmdbType: "movie" | "tv";
   title: string;
@@ -899,7 +900,7 @@ router.get("/terabox/play", async (req, res) => {
     if (!item.teraboxUrl) { res.status(400).json({ error: "Item does not have a teraboxUrl" }); return; }
 
     const ctrl = new AbortController();
-    const tid = setTimeout(() => ctrl.abort(), 30_000);
+    const tid = setTimeout(() => ctrl.abort(), 60_000);
     let r: Response;
     try {
       r = await fetch("https://xapiverse.com/api/terabox-pro", {
@@ -922,8 +923,15 @@ router.get("/terabox/play", async (req, res) => {
     const list: any[] = data.list ?? [];
     if (list.length === 0) { res.status(404).json({ error: "Nenhum arquivo encontrado no link TeraBox" }); return; }
 
-    const idx = typeof item.fileIndex === "number" && item.fileIndex < list.length ? item.fileIndex : 0;
-    const file = list[idx];
+    // Try to find file by stored fileName first (stable), then fall back to fileIndex
+    let file: any;
+    if (item.fileName) {
+      file = list.find((f: any) => f.name === item.fileName);
+    }
+    if (!file) {
+      const idx = typeof item.fileIndex === "number" && item.fileIndex < list.length ? item.fileIndex : 0;
+      file = list[idx];
+    }
     const streamUrl = file.fast_dlink ?? file.stream_url ?? null;
     if (!streamUrl) { res.status(404).json({ error: "URL de stream não disponível" }); return; }
 
@@ -942,12 +950,13 @@ router.get("/terabox/play", async (req, res) => {
 });
 
 // ── NEW: TeraBox register (save link to registry without downloading) ──────────
-// POST /terabox/register { teraboxUrl, fileIndex?, tmdbId, tmdbType, title, label, season?, episode?, r2Folder? }
+// POST /terabox/register { teraboxUrl, fileIndex?, fileName?, tmdbId, tmdbType, title, label, season?, episode?, r2Folder? }
 router.post("/terabox/register", async (req, res) => {
   try {
-    const { teraboxUrl, fileIndex, tmdbId, tmdbType, title, label, season, episode, r2Folder } = req.body as {
+    const { teraboxUrl, fileIndex, fileName, tmdbId, tmdbType, title, label, season, episode, r2Folder } = req.body as {
       teraboxUrl: string;
       fileIndex?: number;
+      fileName?: string;
       tmdbId: number;
       tmdbType: "movie" | "tv";
       title: string;
@@ -965,11 +974,17 @@ router.post("/terabox/register", async (req, res) => {
     const bucket = getBucket();
     const registry = await readRegistry(client, bucket);
 
+    // Deduplicate: if an item with same teraboxUrl + fileIndex already exists, update it
+    const existingIdx = registry.items.findIndex(
+      (i) => i.teraboxUrl === teraboxUrl && i.fileIndex === fileIndex && i.tmdbId === tmdbId
+    );
+
     const newItem: RegistryItem = {
-      id: crypto.randomUUID(),
+      id: existingIdx >= 0 ? registry.items[existingIdx].id : crypto.randomUUID(),
       r2Key: "",
       teraboxUrl,
       fileIndex: typeof fileIndex === "number" ? fileIndex : undefined,
+      fileName: fileName || undefined,
       tmdbId,
       tmdbType,
       title: title ?? "",
@@ -980,7 +995,12 @@ router.post("/terabox/register", async (req, res) => {
       addedAt: new Date().toISOString(),
     };
 
-    registry.items.push(newItem);
+    if (existingIdx >= 0) {
+      registry.items[existingIdx] = newItem;
+    } else {
+      registry.items.push(newItem);
+    }
+
     await writeRegistry(client, bucket, registry);
     res.json({ ok: true, item: newItem });
 

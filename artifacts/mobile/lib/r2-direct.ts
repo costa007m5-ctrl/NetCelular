@@ -593,8 +593,69 @@ export async function apiCatalog(forceRefresh = false) {
   try { catalogMeta = JSON.parse(await getRaw("__catalog-meta.json")); }
   catch { catalogMeta = { version: 1, overrides: {} }; }
 
+  // Build entries from actual R2 bucket prefixes
   const topPrefixes = await listPrefixesOnly("");
   const entries = await buildEntriesFromPrefixes(topPrefixes, catalogMeta, 0);
+
+  // Also add TeraBox-only registry items (teraboxUrl set, not already in catalog)
+  try {
+    const regRaw = await getRaw("__registry.json");
+    const registry = JSON.parse(regRaw);
+    const regItems: any[] = registry.items ?? [];
+
+    // Track which tmdbIds are already in the catalog (from R2 bucket entries)
+    const seenTmdbIds = new Set<number>(
+      entries.map((e) => e.tmdb?.id).filter((id): id is number => typeof id === "number")
+    );
+
+    // Group TeraBox-only items by tmdbId
+    const tbGroups = new Map<number, { tmdbType: "movie" | "tv"; title: string }>();
+    for (const item of regItems) {
+      if (item.teraboxUrl && item.tmdbId && !seenTmdbIds.has(item.tmdbId)) {
+        tbGroups.set(item.tmdbId, { tmdbType: item.tmdbType ?? "movie", title: item.title ?? "" });
+      }
+    }
+
+    // For each unique tmdbId, fetch TMDB data and add a catalog entry
+    for (const [tmdbId, info] of tbGroups) {
+      try {
+        const endpoint = info.tmdbType === "tv"
+          ? `${TMDB_BASE}/tv/${tmdbId}?api_key=${TMDB_KEY}&language=${TMDB_LANG}`
+          : `${TMDB_BASE}/movie/${tmdbId}?api_key=${TMDB_KEY}&language=${TMDB_LANG}`;
+        const res = await fetch(endpoint);
+        if (!res.ok) continue;
+        const r = await res.json();
+        const tmdbMatch: TmdbMatch = info.tmdbType === "tv"
+          ? { id: r.id, title: r.name ?? info.title, poster_path: r.poster_path ?? null, backdrop_path: r.backdrop_path ?? null, overview: r.overview ?? "", vote_average: r.vote_average ?? 0, first_air_date: r.first_air_date, media_type: "tv" }
+          : { id: r.id, title: r.title ?? info.title, poster_path: r.poster_path ?? null, backdrop_path: r.backdrop_path ?? null, overview: r.overview ?? "", vote_average: r.vote_average ?? 0, release_date: r.release_date, media_type: "movie" };
+
+        // For TV: build seasons list from registry items
+        const seasons: SeasonInfo[] = [];
+        if (info.tmdbType === "tv") {
+          const seasonNums = [
+            ...new Set(
+              regItems
+                .filter((i: any) => i.tmdbId === tmdbId && i.season != null)
+                .map((i: any) => i.season as number)
+            ),
+          ].sort((a, b) => a - b);
+          for (const sn of seasonNums) {
+            seasons.push({ number: sn, prefix: `__tb__/${tmdbId}/s${sn}/`, label: `Temporada ${sn}` });
+          }
+        }
+
+        entries.push({
+          key: `__tb__/${tmdbId}/`,
+          name: tmdbMatch.title || info.title,
+          type: info.tmdbType,
+          seasons,
+          tmdb: tmdbMatch,
+        });
+        seenTmdbIds.add(tmdbId);
+        await new Promise((res) => setTimeout(res, 80));
+      } catch { /* skip failed TMDB fetches */ }
+    }
+  } catch { /* registry not found or malformed — skip */ }
 
   _catalogCache = { entries, builtAt: Date.now() };
   return { catalog: entries, cached: false, builtAt: new Date(_catalogCache.builtAt).toISOString() };
