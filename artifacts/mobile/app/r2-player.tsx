@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Animated,
   AppState,
@@ -250,6 +251,15 @@ export default function R2PlayerScreen() {
   const teraboxResolveCallbackRef = useRef<((url: string) => void) | null>(null);
   const teraboxRejectCallbackRef = useRef<((err: string) => void) | null>(null);
 
+  // ── Buffering state ──────────────────────────────────────────────────────────
+  const [isBuffering, setIsBuffering] = useState(false);
+
+  // ── TMDB content logo + loading tips ────────────────────────────────────────
+  const [contentLogo, setContentLogo] = useState<string | null>(null);
+  const [loadingTips, setLoadingTips] = useState<string[]>([]);
+  const [tipIdx, setTipIdx] = useState(0);
+  const tipTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   // ── Animated refs ───────────────────────────────────────────────────────────
   const panelAnim = useRef(new Animated.Value(0)).current;
   const loadProgress = useRef(new Animated.Value(0)).current;
@@ -344,6 +354,52 @@ export default function R2PlayerScreen() {
       .catch(() => {});
     return () => ctrl.abort();
   }, [tmdbId, isTV]);
+
+  // ── TMDB content logo + loading tips ────────────────────────────────────────
+  useEffect(() => {
+    if (!tmdbId) return;
+    const ctrl = new AbortController();
+    const type = contentType === "tv" ? "tv" : "movie";
+    Promise.all([
+      fetch(`https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${TMDB_KEY}&language=pt-BR&append_to_response=credits`, { signal: ctrl.signal }),
+      fetch(`https://api.themoviedb.org/3/${type}/${tmdbId}/images?api_key=${TMDB_KEY}&include_image_language=en,pt,null`, { signal: ctrl.signal }),
+    ]).then(async ([detailsRes, imagesRes]) => {
+      const details = detailsRes.ok ? await detailsRes.json() : null;
+      const images = imagesRes.ok ? await imagesRes.json() : null;
+      const logos: any[] = images?.logos ?? [];
+      const best = logos.find((l) => l.iso_639_1 === "pt") ?? logos.find((l) => l.iso_639_1 === "en") ?? logos[0];
+      if (best?.file_path) setContentLogo(`https://image.tmdb.org/t/p/w500${best.file_path}`);
+      if (details) {
+        const tips: string[] = [];
+        if (details.tagline) tips.push(`"${details.tagline}"`);
+        if (details.vote_average > 0) tips.push(`⭐ ${details.vote_average.toFixed(1)} de 10 — ${(details.vote_count ?? 0).toLocaleString("pt-BR")} avaliações`);
+        const genres = (details.genres ?? []).slice(0, 3).map((g: any) => g.name).join(" · ");
+        if (genres) tips.push(`Gênero: ${genres}`);
+        if (type === "movie" && details.runtime) tips.push(`Duração: ${Math.floor(details.runtime / 60)}h ${details.runtime % 60}min`);
+        if (type === "tv" && details.number_of_seasons) tips.push(`${details.number_of_seasons} temporada${details.number_of_seasons > 1 ? "s" : ""} · ${details.number_of_episodes ?? 0} episódios`);
+        const cast = (details.credits?.cast ?? []).slice(0, 3).map((c: any) => c.name).join(", ");
+        if (cast) tips.push(`Com ${cast}`);
+        const director = (details.credits?.crew ?? []).find((c: any) => c.job === "Director");
+        if (director) tips.push(`Dirigido por ${director.name}`);
+        if (details.overview) tips.push(details.overview.length > 130 ? details.overview.slice(0, 130) + "…" : details.overview);
+        const country = details.production_countries?.[0]?.name;
+        if (country) tips.push(`Produção: ${country}`);
+        if (tips.length > 0) setLoadingTips(tips);
+      }
+    }).catch(() => {});
+    return () => ctrl.abort();
+  }, [tmdbId, contentType]);
+
+  // ── Tip rotation ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (loadingTips.length === 0 || phase !== "loading") {
+      if (tipTimerRef.current) { clearInterval(tipTimerRef.current); tipTimerRef.current = null; }
+      return;
+    }
+    setTipIdx(0);
+    tipTimerRef.current = setInterval(() => setTipIdx((i) => (i + 1) % loadingTips.length), 3500);
+    return () => { if (tipTimerRef.current) { clearInterval(tipTimerRef.current); tipTimerRef.current = null; } };
+  }, [loadingTips, phase]);
 
   // ── Fetch video URL (with cache) ────────────────────────────────────────────
   const loadVideoUrl = useCallback(async () => {
@@ -515,7 +571,12 @@ export default function R2PlayerScreen() {
   const onPlaybackStatusUpdate = useCallback((status: any) => {
     if (!status?.isLoaded) return;
     transitionToReady(status.durationMillis ?? 0);
-    setIsPlaying(status.isPlaying ?? false);
+    const buffering = !!(status.isBuffering);
+    setIsBuffering(buffering);
+    // Don't sync isPlaying from status while buffering — prevents seek→buffer→pause loop
+    if (!buffering) {
+      setIsPlaying(status.isPlaying ?? false);
+    }
     const pos = status.positionMillis ?? 0;
     const dur = status.durationMillis ?? 0;
     setPositionMs(pos);
@@ -973,6 +1034,13 @@ export default function R2PlayerScreen() {
           />
         )}
 
+        {/* Buffering spinner — appears when video is buffering mid-playback */}
+        {isBuffering && phase === "ready" && (
+          <View style={styles.bufferingOverlay} pointerEvents="none">
+            <ActivityIndicator size="large" color="rgba(255,255,255,0.75)" />
+          </View>
+        )}
+
         {/* ── Loading screen ─────────────────────────────────────────────────── */}
         {(phase === "loading" || phase === "error") && (
           <View style={StyleSheet.absoluteFill}>
@@ -1003,14 +1071,31 @@ export default function R2PlayerScreen() {
               </View>
             ) : (
               <View style={styles.loadCenter}>
-                {posterPath && (
-                  <Image source={{ uri: TMDB_IMG(posterPath, "w342") ?? "" }} style={styles.loadPoster} resizeMode="cover" />
-                )}
+                {/* NETPLAY wordmark */}
                 <Text style={styles.loadServiceLabel}>N E T P L A Y</Text>
-                <Text style={styles.loadTitle} numberOfLines={2}>{title}</Text>
+
+                {/* Content logo or title */}
+                {contentLogo ? (
+                  <Image
+                    source={{ uri: contentLogo }}
+                    style={styles.loadContentLogo}
+                    resizeMode="contain"
+                  />
+                ) : (
+                  <Text style={styles.loadTitle} numberOfLines={2}>{title}</Text>
+                )}
+
                 {(season != null && episode != null) && (
                   <Text style={styles.loadEp}>T{season} · Ep {episode}{episodeName ? ` — ${episodeName}` : ""}</Text>
                 )}
+
+                {/* Rotating TMDB tip */}
+                {loadingTips.length > 0 && (
+                  <View style={styles.tipBox}>
+                    <Text style={styles.tipText} numberOfLines={3}>{loadingTips[tipIdx]}</Text>
+                  </View>
+                )}
+
                 <View style={styles.barTrack}>
                   <Animated.View style={[styles.barFill, { width: loadProgress.interpolate({ inputRange: [0, 100], outputRange: ["0%", "100%"] }) }]} />
                 </View>
@@ -1139,7 +1224,15 @@ export default function R2PlayerScreen() {
                     <Feather name="arrow-left" size={22} color="#fff" />
                   </Pressable>
                   <View style={{ flex: 1, marginHorizontal: 10 }}>
-                    <Text style={styles.ctrlTitle} numberOfLines={1}>{title}</Text>
+                    {contentLogo ? (
+                      <Image
+                        source={{ uri: contentLogo }}
+                        style={styles.ctrlContentLogo}
+                        resizeMode="contain"
+                      />
+                    ) : (
+                      <Text style={styles.ctrlTitle} numberOfLines={1}>{title}</Text>
+                    )}
                     {(season != null && episode != null) && (
                       <Text style={styles.ctrlEp}>T{season} · Ep {episode}{episodeName ? ` — ${episodeName}` : ""}</Text>
                     )}
@@ -1403,9 +1496,14 @@ const styles = StyleSheet.create({
   loadCenter: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 40 },
   loadPoster: { width: 80, height: 120, borderRadius: 8, marginBottom: 20, shadowColor: "#000", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.6, shadowRadius: 16, elevation: 12 },
   errorPoster: { width: 60, height: 90, borderRadius: 6, marginBottom: 16, opacity: 0.6 },
-  loadServiceLabel: { color: RED, fontSize: 12, fontWeight: "900", letterSpacing: 6, marginBottom: 12 },
+  loadServiceLabel: { color: RED, fontSize: 12, fontWeight: "900", letterSpacing: 6, marginBottom: 16 },
+  loadContentLogo: { width: 220, height: 70, marginBottom: 8 },
   loadTitle: { color: "#fff", fontSize: 20, fontWeight: "700", textAlign: "center", marginBottom: 6 },
-  loadEp: { color: "rgba(255,255,255,0.5)", fontSize: 13, marginBottom: 28, textAlign: "center" },
+  loadEp: { color: "rgba(255,255,255,0.5)", fontSize: 13, marginBottom: 16, textAlign: "center" },
+  tipBox: { marginBottom: 24, paddingHorizontal: 8, alignItems: "center", minHeight: 48, justifyContent: "center" },
+  tipText: { color: "rgba(255,255,255,0.45)", fontSize: 12, textAlign: "center", lineHeight: 18, fontStyle: "italic" },
+  bufferingOverlay: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.25)" },
+  ctrlContentLogo: { width: 120, height: 32 },
   barTrack: { width: "100%", height: 3, backgroundColor: "rgba(255,255,255,0.2)", borderRadius: 2, overflow: "hidden", marginBottom: 8 },
   barFill: { height: "100%", backgroundColor: RED, borderRadius: 2 },
   barPct: { color: "rgba(255,255,255,0.5)", fontSize: 12 },
