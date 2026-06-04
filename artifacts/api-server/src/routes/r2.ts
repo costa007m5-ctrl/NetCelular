@@ -144,12 +144,14 @@ export interface RegistryItem {
   id: string;
   r2Key: string;
   teraboxUrl?: string;
+  fileIndex?: number;
   tmdbId: number;
   tmdbType: "movie" | "tv";
   title: string;
   label: string;
   season: number | null;
   episode: number | null;
+  r2Folder?: string;
   addedAt: string;
 }
 
@@ -901,7 +903,8 @@ router.get("/terabox/play", async (req, res) => {
     const list: any[] = data.list ?? [];
     if (list.length === 0) { res.status(404).json({ error: "Nenhum arquivo encontrado no link TeraBox" }); return; }
 
-    const file = list[0];
+    const idx = typeof item.fileIndex === "number" && item.fileIndex < list.length ? item.fileIndex : 0;
+    const file = list[idx];
     const streamUrl = file.fast_dlink ?? file.stream_url ?? null;
     if (!streamUrl) { res.status(404).json({ error: "URL de stream não disponível" }); return; }
 
@@ -920,17 +923,19 @@ router.get("/terabox/play", async (req, res) => {
 });
 
 // ── NEW: TeraBox register (save link to registry without downloading) ──────────
-// POST /terabox/register { teraboxUrl, tmdbId, tmdbType, title, label, season?, episode? }
+// POST /terabox/register { teraboxUrl, fileIndex?, tmdbId, tmdbType, title, label, season?, episode?, r2Folder? }
 router.post("/terabox/register", async (req, res) => {
   try {
-    const { teraboxUrl, tmdbId, tmdbType, title, label, season, episode } = req.body as {
+    const { teraboxUrl, fileIndex, tmdbId, tmdbType, title, label, season, episode, r2Folder } = req.body as {
       teraboxUrl: string;
+      fileIndex?: number;
       tmdbId: number;
       tmdbType: "movie" | "tv";
       title: string;
       label: string;
       season?: number | null;
       episode?: number | null;
+      r2Folder?: string;
     };
     if (!teraboxUrl || !tmdbId || !tmdbType) {
       res.status(400).json({ error: "teraboxUrl, tmdbId and tmdbType are required" });
@@ -945,12 +950,14 @@ router.post("/terabox/register", async (req, res) => {
       id: crypto.randomUUID(),
       r2Key: "",
       teraboxUrl,
+      fileIndex: typeof fileIndex === "number" ? fileIndex : undefined,
       tmdbId,
       tmdbType,
       title: title ?? "",
       label: label ?? title ?? "",
       season: season ?? null,
       episode: episode ?? null,
+      r2Folder: r2Folder || undefined,
       addedAt: new Date().toISOString(),
     };
 

@@ -59,8 +59,10 @@ interface Job {
   progress: number; downloaded: number; total: number; error?: string; key?: string;
 }
 interface RegistryItem {
-  id: string; r2Key: string; teraboxUrl?: string; tmdbId: number; tmdbType: "movie" | "tv";
+  id: string; r2Key: string; teraboxUrl?: string; fileIndex?: number;
+  tmdbId: number; tmdbType: "movie" | "tv";
   title: string; label: string; season: number | null; episode: number | null;
+  r2Folder?: string;
 }
 interface TmdbSearchResult {
   id: number; title: string; poster_path: string | null; media_type: "movie" | "tv";
@@ -1708,11 +1710,15 @@ function TBFileChip({ f, qColor }: { f: TeraBoxFile; qColor: string }) {
 
 function TeraBoxRegisterTab() {
   const insets = useSafeAreaInsets();
+
+  const [mediaKind, setMediaKind] = useState<"movie" | "tv">("tv");
+
   const [inputUrl, setInputUrl] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [resolveError, setResolveError] = useState<string | null>(null);
   const [files, setFiles] = useState<TeraBoxFile[]>([]);
-  const [selectedFileIdx, setSelectedFileIdx] = useState(0);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [parsedEps, setParsedEps] = useState<Array<{ season: number; episode: number } | null>>([]);
 
   const [tmdbQuery, setTmdbQuery] = useState("");
   const [tmdbSearching, setTmdbSearching] = useState(false);
@@ -1720,35 +1726,63 @@ function TeraBoxRegisterTab() {
   const [tmdbError, setTmdbError] = useState<string | null>(null);
   const [selectedTmdb, setSelectedTmdb] = useState<TmdbResult | null>(null);
 
-  const [mediaType, setMediaType] = useState<"movie" | "tv">("movie");
-  const [season, setSeason] = useState("1");
-  const [episode, setEpisode] = useState("");
-  const [label, setLabel] = useState("");
+  const [r2Folder, setR2Folder] = useState("");
+  const [showFolderPicker, setShowFolderPicker] = useState(false);
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
 
   const [saving, setSaving] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveResults, setSaveResults] = useState<Array<{ success: boolean; error?: string } | null>>([]);
+  const [allDone, setAllDone] = useState(false);
 
   const qualityColors: Record<string, string> = { "4K": "#a78bfa", "1080p": "#60a5fa", "720p": "#34d399", "480p": "#f59e0b", "360p": "#fb923c" };
 
+  const parseEpisode = (filename: string): { season: number; episode: number } | null => {
+    const m = filename.match(/[Ss](\d{1,2})[Ee](\d{1,3})/);
+    if (m) return { season: parseInt(m[1], 10), episode: parseInt(m[2], 10) };
+    return null;
+  };
+
+  const guessTitle = (filename: string): string =>
+    filename
+      .replace(/^\([^)]+\)\s*/g, "")
+      .replace(/[Ss]\d{1,2}[Ee]\d{1,3}.*/g, "")
+      .replace(/\.\d{3,4}p.*/gi, "")
+      .replace(/\s*\d{3,4}p.*/gi, "")
+      .replace(/[._-]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const allSelected = files.length > 0 && selected.size === files.length;
+  const toggleAll = () => {
+    if (allSelected) setSelected(new Set());
+    else setSelected(new Set(files.map((_, i) => i)));
+  };
+
   const resolve = async () => {
     const u = inputUrl.trim();
-    if (!u) { setError("Cole um link do TeraBox"); return; }
+    if (!u) { setResolveError("Cole um link do TeraBox"); return; }
     setLoading(true);
-    setError(null);
+    setResolveError(null);
     setFiles([]);
+    setSelected(new Set());
+    setParsedEps([]);
     setSelectedTmdb(null);
     setTmdbResults([]);
-    setSaveSuccess(false);
+    setSaveResults([]);
+    setAllDone(false);
     try {
       const r = await apiPost<{ list: TeraBoxFile[] }>("/terabox-resolve", { url: u });
       const list = r.list ?? [];
-      if (list.length === 0) { setError("Nenhum arquivo encontrado no link"); return; }
+      if (list.length === 0) { setResolveError("Nenhum arquivo encontrado no link"); return; }
       setFiles(list);
-      setSelectedFileIdx(0);
-      const guessName = list[0].name.replace(/\.[^.]+$/, "").replace(/[._-]+/g, " ").replace(/\d{3,4}p.*$/i, "").trim();
-      setTmdbQuery(guessName);
-      setLabel(guessName);
-    } catch (e: any) { setError(e.message ?? "Erro na API TeraBox"); }
+      setSelected(new Set(list.map((_, i) => i)));
+      const parsed = list.map((f) => parseEpisode(f.name));
+      setParsedEps(parsed);
+      setSaveResults(new Array(list.length).fill(null));
+      const guess = guessTitle(list[0].name);
+      setTmdbQuery(guess);
+    } catch (e: any) { setResolveError(e.message ?? "Erro na API TeraBox"); }
     finally { setLoading(false); }
   };
 
@@ -1779,116 +1813,201 @@ function TeraBoxRegisterTab() {
 
   const selectTmdb = (t: TmdbResult) => {
     setSelectedTmdb(t);
-    setMediaType(t.media_type);
-    setLabel(t.title);
+    setMediaKind(t.media_type);
     setTmdbResults([]);
+    if (!r2Folder && !newFolderName) setNewFolderName(t.title);
   };
 
-  const register = async () => {
-    if (!selectedTmdb) { setError("Selecione um título no TMDB"); return; }
-    if (files.length === 0) { setError("Resolva o link do TeraBox primeiro"); return; }
-    const file = files[selectedFileIdx];
-    const teraboxUrl = inputUrl.trim();
-    setSaving(true);
-    setError(null);
+  const createR2Folder = async () => {
+    const n = newFolderName.trim();
+    if (!n) return;
+    const fullPath = `${n}/`;
+    setCreatingFolder(true);
     try {
-      await apiPost("/terabox/register", {
-        teraboxUrl,
-        tmdbId: selectedTmdb.id,
-        tmdbType: mediaType,
-        title: selectedTmdb.title,
-        label: label.trim() || selectedTmdb.title,
-        season: mediaType === "tv" && season ? Number(season) : null,
-        episode: mediaType === "tv" && episode ? Number(episode) : null,
-      });
-      setSaveSuccess(true);
-      setInputUrl("");
-      setFiles([]);
-      setSelectedTmdb(null);
-      setTmdbResults([]);
-      setTmdbQuery("");
-      setLabel("");
-      setSeason("1");
-      setEpisode("");
-    } catch (e: any) { setError(e.message ?? "Erro ao registrar"); }
-    finally { setSaving(false); }
+      await apiPost("/mkdir", { prefix: fullPath });
+      setR2Folder(fullPath);
+      setNewFolderName("");
+    } catch (e: any) { Alert.alert("Erro", e.message ?? "Erro ao criar pasta"); }
+    finally { setCreatingFolder(false); }
+  };
+
+  const registerAll = async () => {
+    if (!selectedTmdb) { Alert.alert("TMDB", "Selecione um título no TMDB primeiro"); return; }
+    if (files.length === 0) { Alert.alert("Sem arquivos", "Resolva um link TeraBox primeiro"); return; }
+    const toRegister = Array.from(selected).sort((a, b) => a - b);
+    if (toRegister.length === 0) { Alert.alert("Selecione", "Selecione ao menos um arquivo"); return; }
+    setSaving(true);
+    const results = new Array(files.length).fill(null) as Array<{ success: boolean; error?: string } | null>;
+    for (const idx of toRegister) {
+      const ep = parsedEps[idx];
+      const s = ep ? String(ep.season).padStart(2, "0") : null;
+      const e2 = ep ? String(ep.episode).padStart(2, "0") : null;
+      const labelStr = mediaKind === "tv" && s && e2 ? `T${s} E${e2}` : selectedTmdb.title;
+      try {
+        await apiPost("/terabox/register", {
+          teraboxUrl: inputUrl.trim(),
+          fileIndex: idx,
+          tmdbId: selectedTmdb.id,
+          tmdbType: mediaKind,
+          title: selectedTmdb.title,
+          label: labelStr,
+          season: mediaKind === "tv" && ep ? ep.season : null,
+          episode: mediaKind === "tv" && ep ? ep.episode : null,
+          r2Folder: r2Folder || undefined,
+        });
+        results[idx] = { success: true };
+      } catch (e: any) {
+        results[idx] = { success: false, error: e.message ?? "Erro" };
+      }
+      setSaveResults([...results]);
+    }
+    setSaving(false);
+    setAllDone(true);
   };
 
   const reset = () => {
-    setInputUrl(""); setFiles([]); setError(null); setSelectedTmdb(null);
-    setTmdbResults([]); setTmdbQuery(""); setLabel(""); setSeason("1"); setEpisode(""); setSaveSuccess(false);
+    setInputUrl(""); setFiles([]); setSelected(new Set()); setParsedEps([]);
+    setResolveError(null); setSelectedTmdb(null); setTmdbResults([]); setTmdbQuery("");
+    setR2Folder(""); setNewFolderName(""); setSaveResults([]); setAllDone(false);
   };
 
+  const successCount = saveResults.filter((r) => r?.success).length;
+  const failCount = saveResults.filter((r) => r && !r.success).length;
+
   return (
-    <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 80 }}>
-      {saveSuccess && (
-        <View style={{ backgroundColor: "rgba(74,222,128,0.12)", borderRadius: 12, padding: 14, marginBottom: 14, flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderColor: "rgba(74,222,128,0.3)" }}>
-          <Feather name="check-circle" size={20} color="#4ade80" />
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: "#4ade80", fontWeight: "700", fontSize: 14 }}>Registrado com sucesso!</Text>
-            <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 12, marginTop: 2 }}>O link TeraBox foi salvo no registro. Agora aparece como fonte no app.</Text>
+    <>
+      <ScrollView contentContainerStyle={{ padding: 14, paddingBottom: insets.bottom + 80 }}>
+
+        {/* ── Tipo de mídia — sempre visível ── */}
+        <View style={{ flexDirection: "row", gap: 10, marginBottom: 14 }}>
+          {(["tv", "movie"] as const).map((t) => (
+            <Pressable
+              key={t}
+              onPress={() => setMediaKind(t)}
+              style={{
+                flex: 1, paddingVertical: 12, borderRadius: 12, alignItems: "center",
+                backgroundColor: mediaKind === t
+                  ? (t === "tv" ? "rgba(26,107,181,0.25)" : `${RED}22`)
+                  : "rgba(255,255,255,0.06)",
+                borderWidth: 2,
+                borderColor: mediaKind === t ? (t === "tv" ? "#1a6bb5" : RED) : "rgba(255,255,255,0.1)",
+              }}
+            >
+              <Text style={{ fontSize: 24 }}>{t === "tv" ? "📺" : "🎬"}</Text>
+              <Text style={{
+                color: mediaKind === t ? (t === "tv" ? "#60a5fa" : RED) : "rgba(255,255,255,0.45)",
+                fontWeight: "700", fontSize: 14, marginTop: 4,
+              }}>{t === "tv" ? "Série" : "Filme"}</Text>
+            </Pressable>
+          ))}
+        </View>
+
+        {/* ── Link + Resolver ── */}
+        <View style={[styles.sectionCard, { borderColor: "rgba(245,158,11,0.2)", marginBottom: 12 }]}>
+          <View style={styles.sectionTitleRow}>
+            <Feather name="link" size={14} color={TB_COLOR} />
+            <Text style={[styles.sectionTitle, { color: TB_COLOR, fontSize: 13 }]}>Link do TeraBox</Text>
           </View>
-          <Pressable onPress={() => setSaveSuccess(false)}><Feather name="x" size={16} color="rgba(255,255,255,0.4)" /></Pressable>
+          <TextInput
+            style={[styles.input, loading && { opacity: 0.5 }]}
+            placeholder="https://1024terabox.com/s/..."
+            placeholderTextColor="rgba(255,255,255,0.25)"
+            value={inputUrl}
+            onChangeText={(v) => { setInputUrl(v); if (files.length > 0) reset(); }}
+            autoCapitalize="none" autoCorrect={false} editable={!loading} multiline
+          />
+          <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
+            <Pressable
+              style={[styles.actionBtn, { flex: 1, backgroundColor: TB_COLOR }, loading && { opacity: 0.5 }]}
+              onPress={resolve} disabled={loading}
+            >
+              {loading ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="search" size={15} color="#fff" />}
+              <Text style={styles.actionBtnText}>{loading ? "Consultando API…" : "Resolver TeraBox"}</Text>
+            </Pressable>
+            {files.length > 0 && !saving && (
+              <Pressable style={[styles.actionBtn, { paddingHorizontal: 14, backgroundColor: "rgba(255,255,255,0.08)" }]} onPress={reset}>
+                <Feather name="refresh-cw" size={15} color="rgba(255,255,255,0.6)" />
+              </Pressable>
+            )}
+          </View>
+          {resolveError && <View style={styles.errorBox}><Feather name="alert-circle" size={13} color="#f87171" /><Text style={styles.errorBoxText}>{resolveError}</Text></View>}
         </View>
-      )}
 
-      <View style={[styles.sectionCard, { borderColor: "rgba(245,158,11,0.15)" }]}>
-        <View style={styles.sectionTitleRow}>
-          <Feather name="link" size={15} color={TB_COLOR} />
-          <Text style={[styles.sectionTitle, { color: TB_COLOR }]}>1. Link do TeraBox</Text>
-        </View>
-        <TextInput
-          style={[styles.input, loading && { opacity: 0.5 }]}
-          placeholder="https://1024terabox.com/s/..."
-          placeholderTextColor="rgba(255,255,255,0.25)"
-          value={inputUrl}
-          onChangeText={(v) => { setInputUrl(v); if (files.length > 0) reset(); }}
-          autoCapitalize="none" autoCorrect={false} editable={!loading} multiline
-        />
-        <Pressable
-          style={[styles.actionBtn, { backgroundColor: TB_COLOR }, loading && { opacity: 0.5 }]}
-          onPress={resolve} disabled={loading}
-        >
-          {loading ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="search" size={16} color="#fff" />}
-          <Text style={styles.actionBtnText}>{loading ? "Consultando API…" : "Resolver TeraBox"}</Text>
-        </Pressable>
-        {error && <View style={styles.errorBox}><Feather name="alert-circle" size={14} color="#f87171" /><Text style={styles.errorBoxText}>{error}</Text></View>}
-      </View>
-
-      {files.length > 0 && (
-        <>
-          <View style={[styles.sectionCard, { marginTop: 12, borderColor: "rgba(245,158,11,0.15)" }]}>
-            <View style={styles.sectionTitleRow}>
-              <Feather name="film" size={15} color={TB_COLOR} />
-              <Text style={[styles.sectionTitle, { color: TB_COLOR }]}>2. Arquivo</Text>
+        {/* ── Arquivos com Selecionar Tudo ── */}
+        {files.length > 0 && (
+          <View style={[styles.sectionCard, { borderColor: "rgba(245,158,11,0.2)", marginBottom: 12 }]}>
+            <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 10 }}>
+              <Feather name="package" size={14} color={TB_COLOR} style={{ marginRight: 6 }} />
+              <Text style={[styles.sectionTitle, { flex: 1, fontSize: 13, color: TB_COLOR }]}>
+                {files.length} arquivo{files.length > 1 ? "s" : ""}
+              </Text>
+              <Pressable
+                onPress={toggleAll}
+                style={{
+                  flexDirection: "row", alignItems: "center", gap: 5,
+                  paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8,
+                  backgroundColor: allSelected ? `${TB_COLOR}22` : "rgba(255,255,255,0.07)",
+                  borderWidth: 1, borderColor: allSelected ? `${TB_COLOR}44` : "rgba(255,255,255,0.12)",
+                }}
+              >
+                <Feather name={allSelected ? "check-square" : "square"} size={14} color={allSelected ? TB_COLOR : "rgba(255,255,255,0.4)"} />
+                <Text style={{ color: allSelected ? TB_COLOR : "rgba(255,255,255,0.5)", fontSize: 11, fontWeight: "700" }}>
+                  {allSelected ? "Desmarcar Tudo" : "Selecionar Tudo"}
+                </Text>
+              </Pressable>
             </View>
+
             {files.map((f, i) => {
+              const sel = selected.has(i);
+              const ep = parsedEps[i];
+              const result = saveResults[i];
               const qColor = qualityColors[f.quality] ?? "rgba(255,255,255,0.4)";
               return (
                 <Pressable
-                  key={i} onPress={() => setSelectedFileIdx(i)}
+                  key={i}
+                  onPress={() => !saving && setSelected((prev) => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n; })}
                   style={{ flexDirection: "row", alignItems: "flex-start", gap: 10, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.05)" }}
                 >
-                  <Feather name={selectedFileIdx === i ? "check-circle" : "circle"} size={18} color={selectedFileIdx === i ? TB_COLOR : "rgba(255,255,255,0.25)"} style={{ marginTop: 2 }} />
+                  {result?.success
+                    ? <Feather name="check-circle" size={18} color="#4ade80" style={{ marginTop: 2 }} />
+                    : result && !result.success
+                      ? <Feather name="x-circle" size={18} color="#f87171" style={{ marginTop: 2 }} />
+                      : <Feather name={sel ? "check-square" : "square"} size={18} color={sel ? TB_COLOR : "rgba(255,255,255,0.25)"} style={{ marginTop: 2 }} />}
                   <View style={{ flex: 1 }}>
                     <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600", marginBottom: 4 }} numberOfLines={2}>{f.name}</Text>
-                    <TBFileChip f={f} qColor={qColor} />
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 5 }}>
+                      {f.quality && (
+                        <View style={{ backgroundColor: `${qColor}20`, borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1, borderColor: `${qColor}50` }}>
+                          <Text style={{ color: qColor, fontSize: 10, fontWeight: "700" }}>{f.quality}</Text>
+                        </View>
+                      )}
+                      {ep && mediaKind === "tv" && (
+                        <View style={{ backgroundColor: "rgba(26,107,181,0.25)", borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1, borderColor: "rgba(26,107,181,0.5)" }}>
+                          <Text style={{ color: "#60a5fa", fontSize: 10, fontWeight: "700" }}>T{String(ep.season).padStart(2, "0")} E{String(ep.episode).padStart(2, "0")}</Text>
+                        </View>
+                      )}
+                      {f.size_formatted && <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 10 }}>{f.size_formatted}</Text>}
+                    </View>
+                    {result && !result.success && <Text style={{ color: "#f87171", fontSize: 10, marginTop: 3 }}>❌ {result.error}</Text>}
+                    {result?.success && <Text style={{ color: "#4ade80", fontSize: 10, marginTop: 3 }}>✅ Registrado!</Text>}
                   </View>
                 </Pressable>
               );
             })}
           </View>
+        )}
 
-          <View style={[styles.sectionCard, { marginTop: 12, borderColor: "rgba(245,158,11,0.15)" }]}>
+        {/* ── TMDB ── */}
+        {files.length > 0 && (
+          <View style={[styles.sectionCard, { borderColor: "rgba(245,158,11,0.2)", marginBottom: 12 }]}>
             <View style={styles.sectionTitleRow}>
-              <Feather name="database" size={15} color={TB_COLOR} />
-              <Text style={[styles.sectionTitle, { color: TB_COLOR }]}>3. Vincular ao TMDB</Text>
+              <Feather name="database" size={14} color={TB_COLOR} />
+              <Text style={[styles.sectionTitle, { color: TB_COLOR, fontSize: 13 }]}>Vincular TMDB</Text>
             </View>
-            <Text style={styles.fieldLabel}>Buscar filme ou série</Text>
             <View style={{ flexDirection: "row", gap: 8 }}>
               <TextInput
                 style={[styles.input, { flex: 1 }]}
-                placeholder="Ex: Interstellar, Breaking Bad..."
+                placeholder="Buscar filme ou série..."
                 placeholderTextColor="rgba(255,255,255,0.25)"
                 value={tmdbQuery}
                 onChangeText={setTmdbQuery}
@@ -1896,92 +2015,134 @@ function TeraBoxRegisterTab() {
                 returnKeyType="search"
                 autoCapitalize="words"
               />
-              <Pressable style={[styles.actionBtn, { paddingHorizontal: 14, backgroundColor: "rgba(245,158,11,0.2)" }]} onPress={searchTmdb} disabled={tmdbSearching}>
-                {tmdbSearching ? <ActivityIndicator color={TB_COLOR} size="small" /> : <Feather name="search" size={16} color={TB_COLOR} />}
+              <Pressable style={[styles.actionBtn, { paddingHorizontal: 14, backgroundColor: "rgba(245,158,11,0.2)", marginTop: 0 }]} onPress={searchTmdb} disabled={tmdbSearching}>
+                {tmdbSearching ? <ActivityIndicator color={TB_COLOR} size="small" /> : <Feather name="search" size={15} color={TB_COLOR} />}
               </Pressable>
             </View>
-
-            {tmdbError && <View style={styles.errorBox}><Feather name="alert-circle" size={14} color="#f87171" /><Text style={styles.errorBoxText}>{tmdbError}</Text></View>}
-
+            {tmdbError && <View style={styles.errorBox}><Text style={styles.errorBoxText}>{tmdbError}</Text></View>}
             {tmdbResults.length > 0 && (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 10 }}>
                 {tmdbResults.map((t) => (
-                  <Pressable key={t.id} onPress={() => selectTmdb(t)} style={{ width: 90, marginRight: 10, alignItems: "center" }}>
+                  <Pressable key={t.id} onPress={() => selectTmdb(t)} style={{ width: 80, marginRight: 10, alignItems: "center" }}>
                     {t.poster_path ? (
-                      <Image source={{ uri: TMDB_IMG(t.poster_path, "w185") ?? "" }} style={{ width: 80, height: 120, borderRadius: 8, borderWidth: 2, borderColor: "rgba(255,255,255,0.1)" }} />
+                      <Image source={{ uri: TMDB_IMG(t.poster_path, "w185") ?? "" }} style={{ width: 70, height: 105, borderRadius: 7, borderWidth: 2, borderColor: "rgba(255,255,255,0.1)" }} />
                     ) : (
-                      <View style={{ width: 80, height: 120, borderRadius: 8, backgroundColor: "rgba(255,255,255,0.08)", alignItems: "center", justifyContent: "center" }}>
-                        <Feather name="film" size={24} color="rgba(255,255,255,0.3)" />
+                      <View style={{ width: 70, height: 105, borderRadius: 7, backgroundColor: "rgba(255,255,255,0.08)", alignItems: "center", justifyContent: "center" }}>
+                        <Feather name="film" size={22} color="rgba(255,255,255,0.3)" />
                       </View>
                     )}
-                    <Text style={{ color: "#fff", fontSize: 10, textAlign: "center", marginTop: 4 }} numberOfLines={2}>{t.title}</Text>
+                    <Text style={{ color: "#fff", fontSize: 10, textAlign: "center", marginTop: 3 }} numberOfLines={2}>{t.title}</Text>
                     <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 9, textAlign: "center" }}>{t.media_type === "tv" ? "Série" : "Filme"} {t.year}</Text>
                   </Pressable>
                 ))}
               </ScrollView>
             )}
-
             {selectedTmdb && (
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginTop: 12, backgroundColor: "rgba(245,158,11,0.08)", borderRadius: 10, padding: 12, borderWidth: 1, borderColor: "rgba(245,158,11,0.2)" }}>
-                {selectedTmdb.poster_path ? (
-                  <Image source={{ uri: TMDB_IMG(selectedTmdb.poster_path, "w185") ?? "" }} style={{ width: 50, height: 75, borderRadius: 6 }} />
-                ) : <Feather name="film" size={24} color={TB_COLOR} />}
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginTop: 10, backgroundColor: "rgba(245,158,11,0.07)", borderRadius: 10, padding: 10, borderWidth: 1, borderColor: "rgba(245,158,11,0.2)" }}>
+                {selectedTmdb.poster_path
+                  ? <Image source={{ uri: TMDB_IMG(selectedTmdb.poster_path, "w185") ?? "" }} style={{ width: 42, height: 63, borderRadius: 5 }} />
+                  : <Feather name="film" size={22} color={TB_COLOR} />}
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: TB_COLOR, fontWeight: "700", fontSize: 13 }}>{selectedTmdb.title}</Text>
                   <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 11 }}>{selectedTmdb.media_type === "tv" ? "Série" : "Filme"} · {selectedTmdb.year}</Text>
-                  <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 10 }}>ID: {selectedTmdb.id}</Text>
                 </View>
                 <Pressable onPress={() => { setSelectedTmdb(null); setTmdbResults([]); }}>
-                  <Feather name="x" size={16} color="rgba(255,255,255,0.4)" />
+                  <Feather name="x" size={15} color="rgba(255,255,255,0.4)" />
                 </Pressable>
               </View>
             )}
           </View>
+        )}
 
-          {selectedTmdb && (
-            <View style={[styles.sectionCard, { marginTop: 12, borderColor: "rgba(245,158,11,0.15)" }]}>
-              <View style={styles.sectionTitleRow}>
-                <Feather name="tag" size={15} color={TB_COLOR} />
-                <Text style={[styles.sectionTitle, { color: TB_COLOR }]}>4. Detalhes</Text>
-              </View>
-
-              <Text style={styles.fieldLabel}>Tipo de mídia</Text>
-              <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
-                {(["movie", "tv"] as const).map((t) => (
-                  <Pressable key={t} onPress={() => setMediaType(t)} style={{ flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: "center", backgroundColor: mediaType === t ? TB_COLOR : "rgba(255,255,255,0.07)", borderWidth: 1, borderColor: mediaType === t ? TB_COLOR : "rgba(255,255,255,0.1)" }}>
-                    <Text style={{ color: mediaType === t ? "#fff" : "rgba(255,255,255,0.5)", fontWeight: "700", fontSize: 13 }}>{t === "movie" ? "🎬 Filme" : "📺 Série"}</Text>
-                  </Pressable>
-                ))}
-              </View>
-
-              {mediaType === "tv" && (
-                <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.fieldLabel}>Temporada</Text>
-                    <TextInput style={styles.input} placeholder="1" placeholderTextColor="rgba(255,255,255,0.25)" value={season} onChangeText={setSeason} keyboardType="numeric" />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.fieldLabel}>Episódio (opcional)</Text>
-                    <TextInput style={styles.input} placeholder="Ex: 1" placeholderTextColor="rgba(255,255,255,0.25)" value={episode} onChangeText={setEpisode} keyboardType="numeric" />
-                  </View>
-                </View>
-              )}
-
-              <Text style={styles.fieldLabel}>Etiqueta (exibida no app)</Text>
-              <TextInput style={[styles.input, { marginBottom: 12 }]} placeholder="Ex: T1 Ep 1 — Piloto" placeholderTextColor="rgba(255,255,255,0.25)" value={label} onChangeText={setLabel} />
-
+        {/* ── Pasta no R2 ── */}
+        {files.length > 0 && (
+          <View style={[styles.sectionCard, { borderColor: "rgba(245,158,11,0.2)", marginBottom: 12 }]}>
+            <View style={styles.sectionTitleRow}>
+              <Feather name="folder" size={14} color={TB_COLOR} />
+              <Text style={[styles.sectionTitle, { color: TB_COLOR, fontSize: 13 }]}>Pasta no R2 <Text style={{ color: "rgba(255,255,255,0.3)", fontWeight: "400", fontSize: 11 }}>(opcional)</Text></Text>
+            </View>
+            <Pressable
+              style={[styles.input, { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 }]}
+              onPress={() => setShowFolderPicker(true)}
+            >
+              <Feather name="folder" size={15} color={r2Folder ? "#f59e0b" : "rgba(255,255,255,0.25)"} />
+              <Text style={{ flex: 1, color: r2Folder ? "#fff" : "rgba(255,255,255,0.3)", fontSize: 13 }} numberOfLines={1}>
+                {r2Folder ? r2Folder.replace(/\/$/, "") : "Selecionar pasta existente…"}
+              </Text>
+              {r2Folder
+                ? <Pressable onPress={() => setR2Folder("")}><Feather name="x" size={13} color="rgba(255,255,255,0.4)" /></Pressable>
+                : <Feather name="chevron-right" size={13} color="rgba(255,255,255,0.3)" />}
+            </Pressable>
+            <Text style={styles.fieldLabel}>Ou criar nova pasta</Text>
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              <TextInput
+                style={[styles.input, { flex: 1 }]}
+                placeholder={selectedTmdb ? selectedTmdb.title : "Nome da pasta…"}
+                placeholderTextColor="rgba(255,255,255,0.25)"
+                value={newFolderName}
+                onChangeText={setNewFolderName}
+                autoCapitalize="none" autoCorrect={false}
+                returnKeyType="done"
+                onSubmitEditing={createR2Folder}
+              />
               <Pressable
-                style={[styles.actionBtn, { backgroundColor: "#22c55e" }, saving && { opacity: 0.6 }]}
-                onPress={register} disabled={saving}
+                style={[styles.actionBtn, { paddingHorizontal: 14, backgroundColor: "#f59e0b22", borderWidth: 1, borderColor: "#f59e0b44", marginTop: 0 }, (creatingFolder || !newFolderName.trim()) && { opacity: 0.4 }]}
+                onPress={createR2Folder}
+                disabled={creatingFolder || !newFolderName.trim()}
               >
-                {saving ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="bookmark" size={16} color="#fff" />}
-                <Text style={styles.actionBtnText}>{saving ? "Registrando…" : "Registrar no R2 (sem baixar)"}</Text>
+                {creatingFolder ? <ActivityIndicator color="#f59e0b" size="small" /> : <Feather name="folder-plus" size={15} color="#f59e0b" />}
               </Pressable>
             </View>
-          )}
-        </>
+            {r2Folder && (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8, backgroundColor: "rgba(245,158,11,0.1)", borderRadius: 8, padding: 8, borderWidth: 1, borderColor: "rgba(245,158,11,0.25)" }}>
+                <Feather name="check-circle" size={13} color="#f59e0b" />
+                <Text style={{ color: "#f59e0b", fontSize: 12, fontWeight: "600" }} numberOfLines={1}>📁 {r2Folder.replace(/\/$/, "")}</Text>
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* ── Botão Registrar ── */}
+        {files.length > 0 && selectedTmdb && !allDone && (
+          <Pressable
+            style={[styles.actionBtn, { backgroundColor: "#22c55e", marginBottom: 16 }, (saving || selected.size === 0) && { opacity: 0.5 }]}
+            onPress={registerAll}
+            disabled={saving || selected.size === 0}
+          >
+            {saving ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="bookmark" size={16} color="#fff" />}
+            <Text style={styles.actionBtnText}>
+              {saving
+                ? `Registrando ${saveResults.filter((r) => r !== null).length}/${selected.size}…`
+                : `Registrar ${selected.size} arquivo${selected.size > 1 ? "s" : ""} (sem baixar)`}
+            </Text>
+          </Pressable>
+        )}
+
+        {/* ── Resultado ── */}
+        {allDone && (
+          <View style={{ backgroundColor: successCount > 0 ? "rgba(34,197,94,0.1)" : "rgba(248,113,113,0.1)", borderRadius: 12, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: successCount > 0 ? "rgba(34,197,94,0.3)" : "rgba(248,113,113,0.3)" }}>
+            <Text style={{ color: successCount > 0 ? "#4ade80" : "#f87171", fontWeight: "700", fontSize: 14, marginBottom: 4 }}>
+              {successCount > 0 ? `✅ ${successCount} registrado${successCount > 1 ? "s" : ""}!` : "❌ Falhou"}
+              {failCount > 0 ? `  ·  ${failCount} erro${failCount > 1 ? "s" : ""}` : ""}
+            </Text>
+            <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 12 }}>
+              {successCount > 0 ? "Links salvos no registro — aparecem como fontes no app." : "Verifique os erros acima e tente novamente."}
+            </Text>
+            <Pressable onPress={reset} style={{ marginTop: 10, flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <Feather name="plus-circle" size={14} color={TB_COLOR} />
+              <Text style={{ color: TB_COLOR, fontSize: 13, fontWeight: "600" }}>Registrar outro link</Text>
+            </Pressable>
+          </View>
+        )}
+      </ScrollView>
+
+      {showFolderPicker && (
+        <FolderPickerModal
+          onSelect={(prefix) => { setR2Folder(prefix); setShowFolderPicker(false); }}
+          onClose={() => setShowFolderPicker(false)}
+        />
       )}
-    </ScrollView>
+    </>
   );
 }
 
@@ -2270,7 +2431,6 @@ function TeraBoxTestTab() {
 }
 
 function TeraBoxPanel() {
-  const insets = useSafeAreaInsets();
   const [subTab, setSubTab] = useState<"register" | "upload" | "test">("register");
 
   const subTabs = [
@@ -2281,21 +2441,22 @@ function TeraBoxPanel() {
 
   return (
     <View style={{ flex: 1 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, paddingVertical: 12, backgroundColor: "rgba(245,158,11,0.05)", borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)" }}>
-        <Feather name="zap" size={16} color={TB_COLOR} />
-        <Text style={{ color: TB_COLOR, fontWeight: "800", fontSize: 13, flex: 1 }}>TeraBox API Pro</Text>
-        <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 10 }}>xAPIverse</Text>
-      </View>
-
-      <View style={{ flexDirection: "row", padding: 12, gap: 6, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)" }}>
+      <View style={{ flexDirection: "row", paddingHorizontal: 12, paddingVertical: 8, gap: 6, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)", alignItems: "center" }}>
+        <Feather name="zap" size={12} color={TB_COLOR} />
+        <Text style={{ color: TB_COLOR, fontWeight: "700", fontSize: 11, flex: 1 }}>TeraBox API Pro</Text>
         {subTabs.map((t) => (
           <Pressable
             key={t.id}
             onPress={() => setSubTab(t.id)}
-            style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, paddingVertical: 8, borderRadius: 10, backgroundColor: subTab === t.id ? `${TB_COLOR}22` : "rgba(255,255,255,0.06)", borderWidth: 1, borderColor: subTab === t.id ? `${TB_COLOR}55` : "rgba(255,255,255,0.08)" }}
+            style={{
+              flexDirection: "row", alignItems: "center", gap: 4,
+              paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8,
+              backgroundColor: subTab === t.id ? `${TB_COLOR}22` : "rgba(255,255,255,0.06)",
+              borderWidth: 1, borderColor: subTab === t.id ? `${TB_COLOR}55` : "rgba(255,255,255,0.08)",
+            }}
           >
-            <Feather name={t.icon} size={13} color={subTab === t.id ? TB_COLOR : "rgba(255,255,255,0.4)"} />
-            <Text style={{ color: subTab === t.id ? TB_COLOR : "rgba(255,255,255,0.4)", fontSize: 12, fontWeight: subTab === t.id ? "700" : "400" }}>{t.label}</Text>
+            <Feather name={t.icon} size={12} color={subTab === t.id ? TB_COLOR : "rgba(255,255,255,0.4)"} />
+            <Text style={{ color: subTab === t.id ? TB_COLOR : "rgba(255,255,255,0.4)", fontSize: 11, fontWeight: subTab === t.id ? "700" : "400" }}>{t.label}</Text>
           </Pressable>
         ))}
       </View>
