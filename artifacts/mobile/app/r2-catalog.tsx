@@ -3908,7 +3908,7 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
       {/* Drive browser panel */}
       {path === "" && mgDriveOpen && (
         <View style={{ marginHorizontal: 12, marginBottom: 8, borderRadius: 12, borderWidth: 1,
-          borderColor: "rgba(34,197,94,0.2)", backgroundColor: "#040d06", overflow: "hidden" }}>
+          borderColor: "rgba(34,197,94,0.2)", backgroundColor: "#040d06", flex: 1 }}>
 
           {/* Header + breadcrumb */}
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingTop: 10, paddingBottom: 6 }}>
@@ -3938,7 +3938,7 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
 
           {/* Root level — Drive roots */}
           {mgDriveNav.length === 0 && (
-            <View style={{ paddingHorizontal: 12, paddingBottom: 12 }}>
+            <ScrollView contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 12 }} showsVerticalScrollIndicator={false}>
               <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 11, marginBottom: 10 }}>
                 Selecione uma pasta raiz para navegar e registrar conteúdos no Drive
               </Text>
@@ -3958,12 +3958,12 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
                   ))}
                 </View>
               ))}
-            </View>
+            </ScrollView>
           )}
 
           {/* Folder contents */}
           {mgDriveNav.length > 0 && (
-            <View style={{ paddingHorizontal: 12, paddingBottom: 12 }}>
+            <ScrollView contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 12 }} showsVerticalScrollIndicator={false}>
               {/* Back */}
               <Pressable onPress={mgNavPop} style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 8, marginBottom: 6 }}>
                 <Feather name="arrow-left" size={15} color="rgba(255,255,255,0.45)" />
@@ -4031,7 +4031,7 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
                   )}
                 </>
               )}
-            </View>
+            </ScrollView>
           )}
         </View>
       )}
