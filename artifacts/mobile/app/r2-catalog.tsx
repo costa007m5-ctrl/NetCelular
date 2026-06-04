@@ -24,6 +24,7 @@ import * as FileSystem from "expo-file-system";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/lib/auth-context";
 import { r2Route, teraboxResolve } from "@/lib/r2-direct";
+import { listFolder, isFolder as driveIsFolder, isVideo as driveIsVideo, getStreamUrl, formatSize as driveFormatSize, DRIVE_ROOTS, DriveItem } from "@/lib/gdrive-index";
 
 const UPLOADED_URLS_KEY = "r2_uploaded_urls_v1";
 
@@ -69,7 +70,8 @@ interface TmdbSearchResult {
 }
 
 type Tab = "catalog" | "upload" | "manage" | "terabox";
-type UploadMode = "url" | "gdrive" | "terabox" | "local";
+type UploadMode = "url" | "gdrive" | "terabox" | "local" | "drive";
+type MediaKind = "tv" | "movie";
 type CatalogView =
   | { screen: "catalog" }
   | { screen: "seasons"; entry: CatalogEntry }
@@ -701,6 +703,27 @@ function UploadPanel() {
   const [teraRunning, setTeraRunning] = useState(false);
   const teraPollRefs = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
+  // ── Batch media kind + per-item title override ──
+  const [batchMediaKind, setBatchMediaKind] = useState<MediaKind>("tv");
+  const [batchItemTitles, setBatchItemTitles] = useState<Record<number, string>>({});
+  const [singleMediaKind, setSingleMediaKind] = useState<MediaKind>("tv");
+
+  // ── Drive Index browser state ──
+  type DriveNavEntry = { drive: 0 | 1; path: string; name: string };
+  const [driveNav, setDriveNav] = useState<DriveNavEntry[]>([]);
+  const [driveItems, setDriveItems] = useState<DriveItem[]>([]);
+  const [drivePageToken, setDrivePageToken] = useState<string | null>(null);
+  const [drivePageLoading, setDrivePageLoading] = useState(false);
+  const [driveBrowseLoading, setDriveBrowseLoading] = useState(false);
+  const [driveBrowseError, setDriveBrowseError] = useState<string | null>(null);
+  const [driveSelectedIds, setDriveSelectedIds] = useState<Set<string>>(new Set());
+  const [driveSelectedMap, setDriveSelectedMap] = useState<Map<string, DriveItem>>(new Map());
+  const [driveDestFolder, setDriveDestFolder] = useState("");
+  const [showDriveDestPicker, setShowDriveDestPicker] = useState(false);
+  const [driveJobs, setDriveJobs] = useState<BulkJobItem[]>([]);
+  const [driveRunning, setDriveRunning] = useState(false);
+  const drivePollRefs = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
   // ── Local file upload state ──
   const [localFile, setLocalFile] = useState<{ name: string; uri: string; size: number; mimeType: string } | null>(null);
   const [localFolder, setLocalFolder] = useState("");
@@ -1101,8 +1124,126 @@ function UploadPanel() {
   const downloaded = job?.downloaded ?? 0;
   const total = job?.total ?? 0;
 
+  // ── Drive Index helpers ──────────────────────────────────────────────────────
+
+  const driveCurrentEntry = driveNav.length > 0 ? driveNav[driveNav.length - 1] : null;
+
+  const loadDriveFolder = async (drive: 0 | 1, path: string, pageToken = "") => {
+    if (pageToken) {
+      setDrivePageLoading(true);
+    } else {
+      setDriveBrowseLoading(true);
+      setDriveItems([]);
+    }
+    setDriveBrowseError(null);
+    try {
+      const result = await listFolder(drive, path, pageToken);
+      if (!result) { setDriveBrowseError("Não foi possível carregar a pasta"); return; }
+      if (pageToken) {
+        setDriveItems((prev) => [...prev, ...result.data.files]);
+      } else {
+        setDriveItems(result.data.files);
+      }
+      setDrivePageToken(result.nextPageToken);
+    } catch { setDriveBrowseError("Erro ao carregar pasta"); }
+    finally { setDriveBrowseLoading(false); setDrivePageLoading(false); }
+  };
+
+  const driveNavPush = (drive: 0 | 1, path: string, name: string) => {
+    setDriveNav((prev) => [...prev, { drive, path, name }]);
+    loadDriveFolder(drive, path);
+  };
+
+  const driveNavPop = () => {
+    if (driveNav.length === 0) return;
+    const next = driveNav.slice(0, -1);
+    setDriveNav(next);
+    if (next.length > 0) {
+      const entry = next[next.length - 1];
+      loadDriveFolder(entry.drive, entry.path);
+    } else {
+      setDriveItems([]);
+      setDrivePageToken(null);
+    }
+  };
+
+  const toggleDriveItem = (item: DriveItem) => {
+    const id = item.id;
+    setDriveSelectedIds((prev) => {
+      const n = new Set(prev);
+      if (n.has(id)) { n.delete(id); } else { n.add(id); }
+      return n;
+    });
+    setDriveSelectedMap((prev) => {
+      const m = new Map(prev);
+      if (m.has(id)) { m.delete(id); } else { m.set(id, item); }
+      return m;
+    });
+  };
+
+  const selectAllDriveVideos = () => {
+    const videos = driveItems.filter(driveIsVideo);
+    const allSel = videos.every((v) => driveSelectedIds.has(v.id));
+    if (allSel) {
+      setDriveSelectedIds((prev) => { const n = new Set(prev); videos.forEach((v) => n.delete(v.id)); return n; });
+      setDriveSelectedMap((prev) => { const m = new Map(prev); videos.forEach((v) => m.delete(v.id)); return m; });
+    } else {
+      setDriveSelectedIds((prev) => { const n = new Set(prev); videos.forEach((v) => n.add(v.id)); return n; });
+      setDriveSelectedMap((prev) => { const m = new Map(prev); videos.forEach((v) => m.set(v.id, v)); return m; });
+    }
+  };
+
+  const clearDriveSelection = () => {
+    setDriveSelectedIds(new Set());
+    setDriveSelectedMap(new Map());
+    setDriveJobs([]);
+  };
+
+  const startDriveUpload = async () => {
+    const items = Array.from(driveSelectedMap.values()).filter(driveIsVideo);
+    if (items.length === 0) return;
+    const folderBase = driveDestFolder ? (driveDestFolder.endsWith("/") ? driveDestFolder : `${driveDestFolder}/`) : "";
+    const initial: BulkJobItem[] = items.map((item) => ({
+      url: getStreamUrl(item),
+      jobId: null,
+      status: "queued",
+      progress: 0,
+      key: `${folderBase}${item.name}`,
+    }));
+    setDriveJobs(initial);
+    setDriveRunning(true);
+
+    const runOne = async (idx: number, item: DriveItem): Promise<void> => {
+      const streamUrl = getStreamUrl(item);
+      const key = `${folderBase}${item.name}`;
+      try {
+        const r = await apiPost<{ jobId: string; key: string }>("/download-url", { url: streamUrl, key });
+        setDriveJobs((prev) => { const n = [...prev]; n[idx] = { ...n[idx], jobId: r.jobId, status: "downloading", key: r.key }; return n; });
+        await new Promise<void>((resolve) => {
+          const poll = async () => {
+            try {
+              const j = await apiFetch<Job>(`/job/${r.jobId}`);
+              setDriveJobs((prev) => { const n = [...prev]; n[idx] = { ...n[idx], status: j.status, progress: j.progress, key: j.key ?? n[idx].key, error: j.error }; return n; });
+              if (j.status === "done" || j.status === "error") resolve();
+              else { const t = setTimeout(poll, 1500); drivePollRefs.current.set(r.jobId, t); }
+            } catch { const t = setTimeout(poll, 2500); drivePollRefs.current.set(r.jobId, t); }
+          };
+          poll();
+        });
+      } catch (e: any) {
+        setDriveJobs((prev) => { const n = [...prev]; n[idx] = { ...n[idx], status: "error", error: e.message }; return n; });
+      }
+    };
+
+    let cursor = 0;
+    const worker = async () => { while (cursor < items.length) { const i = cursor++; await runOne(i, items[i]); } };
+    await Promise.all(Array.from({ length: Math.min(3, items.length) }, worker));
+    setDriveRunning(false);
+  };
+
   const UPLOAD_MODES: { id: UploadMode; label: string; icon: string; color: string }[] = [
     { id: "url", label: "URL", icon: "link", color: RED },
+    { id: "drive", label: "Drive Index", icon: "hard-drive", color: "#8b5cf6" },
     { id: "gdrive", label: "Google Drive", icon: "cloud", color: "#1a73e8" },
     { id: "terabox", label: "TeraBox", icon: "package", color: "#f59e0b" },
     { id: "local", label: "Armazenamento", icon: "smartphone", color: "#10b981" },
@@ -1377,6 +1518,235 @@ function UploadPanel() {
           </View>
         )}
 
+        {/* ── Drive Index browser section ── */}
+        {uploadMode === "drive" && (
+          <View style={styles.sectionCard}>
+            <View style={styles.sectionTitleRow}>
+              <Feather name="hard-drive" size={18} color="#8b5cf6" />
+              <Text style={[styles.sectionTitle, { color: "#8b5cf6" }]}>Drive Index → R2</Text>
+            </View>
+            <Text style={styles.sectionHint}>Navegue nas pastas do Drive Index, selecione arquivos ou pastas inteiras e envie direto para o R2.</Text>
+
+            {/* Breadcrumb */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                <Pressable onPress={() => { setDriveNav([]); setDriveItems([]); setDrivePageToken(null); }}>
+                  <Text style={{ color: driveNav.length === 0 ? "#8b5cf6" : "rgba(255,255,255,0.45)", fontSize: 12, fontWeight: "700" }}>Drive Index</Text>
+                </Pressable>
+                {driveNav.map((entry, i) => (
+                  <View key={i} style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                    <Feather name="chevron-right" size={12} color="rgba(255,255,255,0.3)" />
+                    <Pressable onPress={() => {
+                      const next = driveNav.slice(0, i + 1);
+                      setDriveNav(next);
+                      loadDriveFolder(entry.drive, entry.path);
+                    }}>
+                      <Text style={{ color: i === driveNav.length - 1 ? "#8b5cf6" : "rgba(255,255,255,0.45)", fontSize: 12, fontWeight: "700" }}>{entry.name}</Text>
+                    </Pressable>
+                  </View>
+                ))}
+              </View>
+            </ScrollView>
+
+            {/* Root level: show Drive roots */}
+            {driveNav.length === 0 && (
+              <View>
+                {DRIVE_ROOTS.map((root) => (
+                  <View key={root.drive} style={{ marginBottom: 10 }}>
+                    <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 10, fontWeight: "700", letterSpacing: 1, marginBottom: 6, textTransform: "uppercase" }}>
+                      {root.icon} {root.name}
+                    </Text>
+                    {root.folders.map((folder) => (
+                      <Pressable
+                        key={folder}
+                        onPress={() => driveNavPush(root.drive, folder, folder)}
+                        style={{ flexDirection: "row", alignItems: "center", gap: 10, padding: 12, marginBottom: 4, borderRadius: 10, backgroundColor: "rgba(139,92,246,0.08)", borderWidth: 1, borderColor: "rgba(139,92,246,0.2)" }}
+                      >
+                        <Feather name="folder" size={18} color="#8b5cf6" />
+                        <Text style={{ flex: 1, color: "#fff", fontSize: 14, fontWeight: "600" }}>{folder}</Text>
+                        <Feather name="chevron-right" size={16} color="rgba(255,255,255,0.3)" />
+                      </Pressable>
+                    ))}
+                  </View>
+                ))}
+              </View>
+            )}
+
+            {/* Folder contents */}
+            {driveNav.length > 0 && (
+              <>
+                {/* Back button */}
+                <Pressable onPress={driveNavPop} style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 8, marginBottom: 8 }}>
+                  <Feather name="arrow-left" size={16} color="rgba(255,255,255,0.5)" />
+                  <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 13 }}>Voltar</Text>
+                </Pressable>
+
+                {driveBrowseLoading ? (
+                  <View style={{ alignItems: "center", paddingVertical: 24, gap: 8 }}>
+                    <ActivityIndicator color="#8b5cf6" size="large" />
+                    <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }}>Carregando pasta…</Text>
+                  </View>
+                ) : driveBrowseError ? (
+                  <View style={styles.errorBox}><Feather name="alert-circle" size={14} color="#f87171" /><Text style={styles.errorBoxText}>{driveBrowseError}</Text></View>
+                ) : (
+                  <>
+                    {/* Select all videos row */}
+                    {driveItems.filter(driveIsVideo).length > 0 && (
+                      <Pressable
+                        style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, backgroundColor: "rgba(255,255,255,0.04)" }}
+                        onPress={selectAllDriveVideos}
+                      >
+                        <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 12 }}>
+                          {driveItems.filter(driveIsVideo).every((v) => driveSelectedIds.has(v.id))
+                            ? "Desmarcar todos os vídeos"
+                            : `Selecionar todos os vídeos (${driveItems.filter(driveIsVideo).length})`}
+                        </Text>
+                        <Feather
+                          name={driveItems.filter(driveIsVideo).every((v) => driveSelectedIds.has(v.id)) ? "check-square" : "square"}
+                          size={16}
+                          color="#8b5cf6"
+                        />
+                      </Pressable>
+                    )}
+
+                    {driveItems.length === 0 && (
+                      <View style={{ alignItems: "center", paddingVertical: 20 }}>
+                        <Feather name="inbox" size={28} color="rgba(255,255,255,0.15)" />
+                        <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 13, marginTop: 8 }}>Pasta vazia</Text>
+                      </View>
+                    )}
+
+                    {driveItems.map((item) => {
+                      const isDir = driveIsFolder(item);
+                      const isVid = driveIsVideo(item);
+                      const selected = driveSelectedIds.has(item.id);
+                      return (
+                        <Pressable
+                          key={item.id}
+                          onPress={() => {
+                            if (isDir) {
+                              const newPath = driveCurrentEntry
+                                ? `${driveCurrentEntry.path}/${item.name}`
+                                : item.name;
+                              driveNavPush(driveCurrentEntry!.drive, newPath, item.name);
+                            } else if (isVid) {
+                              toggleDriveItem(item);
+                            }
+                          }}
+                          style={{
+                            flexDirection: "row", alignItems: "center", gap: 10,
+                            paddingVertical: 10, paddingHorizontal: 10, marginBottom: 3, borderRadius: 8,
+                            backgroundColor: selected ? "rgba(139,92,246,0.12)" : isDir ? "rgba(255,255,255,0.03)" : "rgba(255,255,255,0.05)",
+                            borderWidth: 1,
+                            borderColor: selected ? "rgba(139,92,246,0.35)" : "rgba(255,255,255,0.06)",
+                          }}
+                        >
+                          {isVid ? (
+                            <Feather name={selected ? "check-square" : "square"} size={18} color={selected ? "#8b5cf6" : "rgba(255,255,255,0.3)"} />
+                          ) : (
+                            <Feather name="folder" size={18} color="#f59e0b" />
+                          )}
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ color: isVid ? (selected ? "#e9d5ff" : "#fff") : "rgba(255,255,255,0.7)", fontSize: 12, fontWeight: isDir ? "600" : "400" }} numberOfLines={1}>{item.name}</Text>
+                            {isVid && item.size && (
+                              <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 10, marginTop: 1 }}>{driveFormatSize(item.size)}</Text>
+                            )}
+                          </View>
+                          {isDir && <Feather name="chevron-right" size={14} color="rgba(255,255,255,0.3)" />}
+                        </Pressable>
+                      );
+                    })}
+
+                    {/* Load more */}
+                    {drivePageToken && (
+                      <Pressable
+                        onPress={() => driveCurrentEntry && loadDriveFolder(driveCurrentEntry.drive, driveCurrentEntry.path, drivePageToken)}
+                        style={{ alignItems: "center", padding: 12, marginTop: 4, borderRadius: 8, borderWidth: 1, borderColor: "rgba(139,92,246,0.3)", backgroundColor: "rgba(139,92,246,0.07)" }}
+                        disabled={drivePageLoading}
+                      >
+                        {drivePageLoading ? <ActivityIndicator color="#8b5cf6" size="small" /> : <Text style={{ color: "#8b5cf6", fontSize: 13, fontWeight: "600" }}>Carregar mais…</Text>}
+                      </Pressable>
+                    )}
+                  </>
+                )}
+              </>
+            )}
+
+            {/* Selection summary + upload controls */}
+            {driveSelectedIds.size > 0 && (
+              <View style={{ marginTop: 14, padding: 12, borderRadius: 10, backgroundColor: "rgba(139,92,246,0.1)", borderWidth: 1, borderColor: "rgba(139,92,246,0.3)" }}>
+                <Text style={{ color: "#c4b5fd", fontSize: 12, fontWeight: "700", marginBottom: 10 }}>
+                  {driveSelectedIds.size} arquivo{driveSelectedIds.size > 1 ? "s" : ""} selecionado{driveSelectedIds.size > 1 ? "s" : ""}
+                </Text>
+
+                <Text style={styles.fieldLabel}>Pasta de destino no R2</Text>
+                <Pressable
+                  style={[styles.input, { flexDirection: "row", alignItems: "center", gap: 10 }, driveRunning && { opacity: 0.5 }]}
+                  onPress={() => !driveRunning && setShowDriveDestPicker(true)}
+                >
+                  <Feather name="folder" size={16} color={driveDestFolder ? "#f59e0b" : "rgba(255,255,255,0.25)"} />
+                  <Text style={{ flex: 1, color: driveDestFolder ? "#fff" : "rgba(255,255,255,0.3)", fontSize: 14 }} numberOfLines={1}>
+                    {driveDestFolder ? driveDestFolder.replace(/\/$/, "") : "Toque para escolher pasta…"}
+                  </Text>
+                  {driveDestFolder ? (
+                    <Pressable onPress={() => setDriveDestFolder("")}><Feather name="x" size={14} color="rgba(255,255,255,0.4)" /></Pressable>
+                  ) : (
+                    <Feather name="chevron-right" size={14} color="rgba(255,255,255,0.3)" />
+                  )}
+                </Pressable>
+
+                {/* Job progress list */}
+                {driveJobs.length > 0 && (
+                  <View style={{ marginTop: 10, gap: 4 }}>
+                    <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11, marginBottom: 4 }}>
+                      {driveJobs.filter(j => j.status === "done").length} concluídos · {driveJobs.filter(j => j.status === "error").length} com erro · {driveJobs.filter(j => j.status !== "done" && j.status !== "error").length} em andamento
+                    </Text>
+                    {driveJobs.map((dj, i) => {
+                      const isDone = dj.status === "done";
+                      const isErr = dj.status === "error";
+                      return (
+                        <View key={i} style={{ backgroundColor: isDone ? "rgba(34,197,94,0.07)" : isErr ? "rgba(248,113,113,0.07)" : "rgba(255,255,255,0.04)", borderRadius: 8, padding: 8, borderWidth: 1, borderColor: isDone ? "rgba(34,197,94,0.2)" : isErr ? "rgba(248,113,113,0.2)" : "rgba(255,255,255,0.06)" }}>
+                          <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 10, marginBottom: 2 }} numberOfLines={1}>{dj.key.split("/").pop()}</Text>
+                          {!isDone && !isErr && (
+                            <View style={[styles.progressBar, { marginTop: 3 }]}>
+                              <View style={[styles.progressFill, { width: `${dj.progress}%` as any, backgroundColor: "#8b5cf6" }]} />
+                            </View>
+                          )}
+                          {isDone && <Text style={{ color: "#4ade80", fontSize: 10 }}>✅ Enviado</Text>}
+                          {isErr && <Text style={{ color: "#f87171", fontSize: 10 }}>❌ {dj.error}</Text>}
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
+
+                <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
+                  <Pressable
+                    style={[styles.actionBtn, { flex: 1, backgroundColor: "#7c3aed" }, (driveRunning || driveSelectedIds.size === 0) && { opacity: 0.4 }]}
+                    onPress={startDriveUpload}
+                    disabled={driveRunning || driveSelectedIds.size === 0}
+                  >
+                    {driveRunning ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="upload-cloud" size={16} color="#fff" />}
+                    <Text style={styles.actionBtnText}>
+                      {driveRunning
+                        ? `Enviando ${driveJobs.filter(j => j.status === "done").length}/${driveJobs.length}…`
+                        : `Enviar ${driveSelectedIds.size} para R2`}
+                    </Text>
+                  </Pressable>
+                  {!driveRunning && (
+                    <Pressable
+                      style={[styles.actionBtn, { paddingHorizontal: 14, backgroundColor: "rgba(255,255,255,0.08)" }]}
+                      onPress={clearDriveSelection}
+                    >
+                      <Feather name="x" size={16} color="rgba(255,255,255,0.6)" />
+                    </Pressable>
+                  )}
+                </View>
+              </View>
+            )}
+          </View>
+        )}
+
         {/* Via URL */}
         {uploadMode === "url" && <View style={styles.sectionCard}>
           <View style={styles.sectionTitleRow}>
@@ -1384,6 +1754,20 @@ function UploadPanel() {
             <Text style={styles.sectionTitle}>Baixar via URL para o R2</Text>
           </View>
           <Text style={styles.sectionHint}>Cole a URL do vídeo — o servidor baixa e envia para o R2. Sem limite de tamanho.</Text>
+
+          {/* Media kind selector */}
+          <View style={{ flexDirection: "row", gap: 8, marginBottom: 14, marginTop: 4 }}>
+            {([["tv", "📺", "Série / Anime"], ["movie", "🎬", "Filme"]] as const).map(([kind, icon, label]) => (
+              <Pressable
+                key={kind}
+                onPress={() => setSingleMediaKind(kind)}
+                style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 9, borderRadius: 10, backgroundColor: singleMediaKind === kind ? (kind === "movie" ? "rgba(251,191,36,0.15)" : "rgba(229,9,20,0.12)") : "rgba(255,255,255,0.05)", borderWidth: 1, borderColor: singleMediaKind === kind ? (kind === "movie" ? "#fbbf24" : RED) : "rgba(255,255,255,0.08)" }}
+              >
+                <Text style={{ fontSize: 14 }}>{icon}</Text>
+                <Text style={{ color: singleMediaKind === kind ? (kind === "movie" ? "#fbbf24" : "#f87171") : "rgba(255,255,255,0.4)", fontSize: 12, fontWeight: "700" }}>{label}</Text>
+              </Pressable>
+            ))}
+          </View>
 
           <Text style={styles.fieldLabel}>URL do vídeo</Text>
           <TextInput
@@ -1489,6 +1873,25 @@ function UploadPanel() {
             Cole as URLs (uma por linha). Escolha quais enviar e toque em iniciar.
           </Text>
 
+          {/* Batch media kind selector */}
+          <View style={{ flexDirection: "row", gap: 8, marginBottom: 12, marginTop: 4 }}>
+            {([["tv", "📺", "Série / Anime"], ["movie", "🎬", "Filmes"]] as const).map(([kind, icon, label]) => (
+              <Pressable
+                key={kind}
+                onPress={() => { setBatchMediaKind(kind); setBatchItemTitles({}); }}
+                style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 9, borderRadius: 10, backgroundColor: batchMediaKind === kind ? (kind === "movie" ? "rgba(251,191,36,0.15)" : "rgba(245,158,11,0.12)") : "rgba(255,255,255,0.05)", borderWidth: 1, borderColor: batchMediaKind === kind ? (kind === "movie" ? "#fbbf24" : "#f59e0b") : "rgba(255,255,255,0.08)" }}
+              >
+                <Text style={{ fontSize: 14 }}>{icon}</Text>
+                <Text style={{ color: batchMediaKind === kind ? (kind === "movie" ? "#fbbf24" : "#f59e0b") : "rgba(255,255,255,0.4)", fontSize: 12, fontWeight: "700" }}>{label}</Text>
+              </Pressable>
+            ))}
+          </View>
+          {batchMediaKind === "movie" && (
+            <View style={{ marginBottom: 10, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, backgroundColor: "rgba(251,191,36,0.07)", borderWidth: 1, borderColor: "rgba(251,191,36,0.2)" }}>
+              <Text style={{ color: "#fde68a", fontSize: 11 }}>🎬 Modo filmes — cada URL pode ter um título manual para identificação no catálogo.</Text>
+            </View>
+          )}
+
           {/* Text input — only shown before upload starts */}
           {bulkJobs.length === 0 && (
             <>
@@ -1531,51 +1934,80 @@ function UploadPanel() {
                   {/* Checkbox list */}
                   {bulkParsed.map((item, i) => {
                     const alreadyDone = uploadedUrls.has(item.url);
+                    const customTitle = batchItemTitles[i] ?? "";
                     return (
-                      <Pressable
-                        key={i}
-                        onPress={() => !alreadyDone && toggleBulkSelect(i)}
-                        style={{
-                          flexDirection: "row",
-                          alignItems: "center",
-                          gap: 10,
-                          paddingVertical: 8,
-                          paddingHorizontal: 10,
-                          marginBottom: 4,
-                          borderRadius: 8,
-                          backgroundColor: alreadyDone
-                            ? "rgba(229,9,20,0.08)"
-                            : item.selected
-                              ? "rgba(245,158,11,0.1)"
-                              : "rgba(255,255,255,0.04)",
-                          borderWidth: 1,
-                          borderColor: alreadyDone
-                            ? "rgba(229,9,20,0.35)"
-                            : item.selected
-                              ? "rgba(245,158,11,0.3)"
-                              : "rgba(255,255,255,0.06)",
-                        }}
-                      >
-                        <Feather
-                          name={alreadyDone ? "check-circle" : item.selected ? "check-square" : "square"}
-                          size={18}
-                          color={alreadyDone ? "#e50914" : item.selected ? "#f59e0b" : "rgba(255,255,255,0.3)"}
-                        />
-                        <View style={{ flex: 1 }}>
-                          <Text
+                      <View key={i} style={{ marginBottom: 6 }}>
+                        <Pressable
+                          onPress={() => !alreadyDone && toggleBulkSelect(i)}
+                          style={{
+                            flexDirection: "row",
+                            alignItems: "center",
+                            gap: 10,
+                            paddingVertical: 8,
+                            paddingHorizontal: 10,
+                            borderRadius: batchMediaKind === "movie" ? 10 : 8,
+                            borderBottomLeftRadius: batchMediaKind === "movie" ? 0 : 8,
+                            borderBottomRightRadius: batchMediaKind === "movie" ? 0 : 8,
+                            backgroundColor: alreadyDone
+                              ? "rgba(229,9,20,0.08)"
+                              : item.selected
+                                ? "rgba(245,158,11,0.1)"
+                                : "rgba(255,255,255,0.04)",
+                            borderWidth: 1,
+                            borderColor: alreadyDone
+                              ? "rgba(229,9,20,0.35)"
+                              : item.selected
+                                ? "rgba(245,158,11,0.3)"
+                                : "rgba(255,255,255,0.06)",
+                          }}
+                        >
+                          <Feather
+                            name={alreadyDone ? "check-circle" : item.selected ? "check-square" : "square"}
+                            size={18}
+                            color={alreadyDone ? "#e50914" : item.selected ? "#f59e0b" : "rgba(255,255,255,0.3)"}
+                          />
+                          <View style={{ flex: 1 }}>
+                            <Text
+                              style={{
+                                color: alreadyDone ? "#f87171" : item.selected ? "#fff" : "rgba(255,255,255,0.35)",
+                                fontSize: 11,
+                              }}
+                              numberOfLines={1}
+                            >
+                              {item.url.replace(/^https?:\/\//, "").slice(0, 60)}
+                            </Text>
+                            {alreadyDone && (
+                              <Text style={{ color: "#e50914", fontSize: 10, marginTop: 1 }}>Já enviado ao servidor</Text>
+                            )}
+                            {batchMediaKind === "movie" && customTitle ? (
+                              <Text style={{ color: "#fbbf24", fontSize: 10, marginTop: 2 }}>🎬 {customTitle}</Text>
+                            ) : null}
+                          </View>
+                        </Pressable>
+                        {/* Per-item title input in movie mode */}
+                        {batchMediaKind === "movie" && (
+                          <TextInput
                             style={{
-                              color: alreadyDone ? "#f87171" : item.selected ? "#fff" : "rgba(255,255,255,0.35)",
-                              fontSize: 11,
+                              backgroundColor: "rgba(251,191,36,0.06)",
+                              borderWidth: 1,
+                              borderTopWidth: 0,
+                              borderColor: item.selected ? "rgba(251,191,36,0.3)" : "rgba(255,255,255,0.06)",
+                              borderBottomLeftRadius: 8,
+                              borderBottomRightRadius: 8,
+                              paddingHorizontal: 10,
+                              paddingVertical: 7,
+                              color: "#fde68a",
+                              fontSize: 12,
                             }}
-                            numberOfLines={1}
-                          >
-                            {item.url.replace(/^https?:\/\//, "").slice(0, 60)}
-                          </Text>
-                          {alreadyDone && (
-                            <Text style={{ color: "#e50914", fontSize: 10, marginTop: 1 }}>Já enviado ao servidor</Text>
-                          )}
-                        </View>
-                      </Pressable>
+                            placeholder="Título do filme (opcional — para catálogo)"
+                            placeholderTextColor="rgba(251,191,36,0.3)"
+                            value={customTitle}
+                            onChangeText={(v) => setBatchItemTitles((prev) => ({ ...prev, [i]: v }))}
+                            autoCapitalize="words"
+                            autoCorrect={false}
+                          />
+                        )}
+                      </View>
                     );
                   })}
                 </View>
@@ -1732,6 +2164,12 @@ function UploadPanel() {
         <FolderPickerModal
           onSelect={(prefix) => setLocalFolder(prefix)}
           onClose={() => setShowLocalFolderPicker(false)}
+        />
+      )}
+      {showDriveDestPicker && (
+        <FolderPickerModal
+          onSelect={(prefix) => setDriveDestFolder(prefix)}
+          onClose={() => setShowDriveDestPicker(false)}
         />
       )}
     </>
