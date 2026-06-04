@@ -308,6 +308,7 @@ function CatalogGrid({ onSelect, onRegister, onEdit }: {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [opening, setOpening] = useState<string | null>(null);
+  const [deletingKey, setDeletingKey] = useState<string | null>(null);
 
   const load = useCallback(async (refresh = false) => {
     setError(null);
@@ -324,6 +325,31 @@ function CatalogGrid({ onSelect, onRegister, onEdit }: {
   useEffect(() => { load(); }, []);
 
   const isTeraboxEntry = (entry: CatalogEntry) => entry.key.startsWith("__tb__/");
+
+  const handleDelete = (entry: CatalogEntry) => {
+    const title = entry.tmdb?.title ?? entry.name;
+    Alert.alert(
+      "Deletar conteúdo",
+      `Remover "${title}" do catálogo?\n\nEsta ação não pode ser desfeita.`,
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Deletar",
+          style: "destructive",
+          onPress: async () => {
+            setDeletingKey(entry.key);
+            try {
+              const qs = `prefix=${encodeURIComponent(entry.key)}${entry.tmdb?.id ? `&tmdbId=${entry.tmdb.id}` : ""}`;
+              await apiFetch(`/catalog-entry?${qs}`, { method: "DELETE" });
+              setEntries((prev) => prev.filter((e) => e.key !== entry.key));
+            } catch (e: any) {
+              Alert.alert("Erro ao deletar", e.message ?? "Falha ao remover conteúdo");
+            } finally { setDeletingKey(null); }
+          },
+        },
+      ]
+    );
+  };
 
   const openTeraboxEntry = (entry: CatalogEntry) => {
     if (!entry.tmdb?.id) return;
@@ -408,7 +434,7 @@ function CatalogGrid({ onSelect, onRegister, onEdit }: {
                       <Text style={{ color: "#000", fontSize: 8, fontWeight: "900" }}>TB</Text>
                     </View>
                   )}
-                  {isBusy && <View style={styles.posterLoading}><ActivityIndicator color="#fff" size="small" /></View>}
+                  {(isBusy || deletingKey === entry.key) && <View style={styles.posterLoading}><ActivityIndicator color="#fff" size="small" /></View>}
                   {!isTB && (
                     <>
                       <Pressable style={[styles.registerOverlay, { right: 28 }]} onPress={() => onEdit(entry)}>
@@ -419,6 +445,12 @@ function CatalogGrid({ onSelect, onRegister, onEdit }: {
                       </Pressable>
                     </>
                   )}
+                  <Pressable
+                    style={[styles.registerOverlay, { left: 0, right: "auto" as any, backgroundColor: "rgba(180,20,20,0.82)" }]}
+                    onPress={() => handleDelete(entry)}
+                  >
+                    <Feather name="trash-2" size={11} color="#fff" />
+                  </Pressable>
                 </View>
                 <Text style={styles.posterTitle} numberOfLines={2}>{entry.tmdb?.title ?? entry.name}</Text>
               </Pressable>

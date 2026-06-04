@@ -955,7 +955,15 @@ export default function R2PlayerScreen() {
         {videoUrl && Video && (
           <Video
             ref={videoRef}
-            source={{ uri: videoUrl }}
+            source={{
+              uri: videoUrl,
+              ...(isTerabox ? {
+                headers: {
+                  "User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36",
+                  "Referer": "https://www.terabox.com/",
+                },
+              } : {}),
+            }}
             style={[StyleSheet.absoluteFill, { opacity: phase === "ready" ? 1 : 0 }]}
             resizeMode={ResizeMode?.CONTAIN ?? "contain"}
             shouldPlay={phase === "ready" && isPlaying}

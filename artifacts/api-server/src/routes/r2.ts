@@ -730,6 +730,56 @@ router.delete("/delete", async (req, res) => {
   }
 });
 
+// DELETE /catalog-entry?prefix=<prefix>&tmdbId=<id>
+// Deletes all objects under a folder prefix (R2 entry) or removes registry items (TeraBox entry)
+router.delete("/catalog-entry", async (req, res) => {
+  try {
+    const prefix = req.query["prefix"] as string;
+    const tmdbId = req.query["tmdbId"] ? Number(req.query["tmdbId"]) : null;
+    if (!prefix) { res.status(400).json({ error: "prefix required" }); return; }
+
+    const client = getClient();
+    const bucket = getBucket();
+
+    // TeraBox virtual entry: remove all registry items with matching tmdbId
+    if (prefix.startsWith("__tb__/") && tmdbId != null) {
+      const registry = await readRegistry(client, bucket);
+      const before = registry.items.length;
+      registry.items = registry.items.filter((i) => i.tmdbId !== tmdbId);
+      await writeRegistry(client, bucket, registry);
+      catalogCache = null;
+      res.json({ ok: true, deleted: before - registry.items.length, type: "registry" });
+      return;
+    }
+
+    // R2 folder entry: list all objects under prefix and delete each
+    let deleted = 0;
+    let token: string | undefined;
+    do {
+      const cmd = new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, MaxKeys: 1000, ContinuationToken: token });
+      const data = await client.send(cmd);
+      for (const obj of data.Contents ?? []) {
+        if (obj.Key) { await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: obj.Key })); deleted++; }
+      }
+      token = data.IsTruncated ? data.NextContinuationToken : undefined;
+    } while (token);
+
+    // Remove catalog-meta override if present
+    try {
+      const meta = await readCatalogMeta(client, bucket);
+      if (meta.overrides[prefix]) {
+        delete meta.overrides[prefix];
+        await writeCatalogMeta(client, bucket, meta);
+      }
+    } catch {}
+
+    catalogCache = null;
+    res.json({ ok: true, deleted, type: "r2" });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "error" });
+  }
+});
+
 // ── NEW: Create folder ────────────────────────────────────────────────────────
 // POST /mkdir  { prefix }   (creates a zero-byte placeholder)
 router.post("/mkdir", async (req, res) => {

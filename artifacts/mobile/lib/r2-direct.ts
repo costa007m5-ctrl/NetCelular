@@ -386,6 +386,36 @@ export async function apiDelete(key: string) {
   return { ok: true };
 }
 
+export async function apiDeleteCatalogEntry(prefix: string, tmdbId?: number) {
+  // TeraBox virtual entry: remove all registry items with matching tmdbId
+  if (prefix.startsWith("__tb__/") && tmdbId != null) {
+    const reg = await apiGetRegistry();
+    const before: number = reg.items.length;
+    reg.items = reg.items.filter((i: any) => i.tmdbId !== tmdbId);
+    await putRaw("__registry.json", JSON.stringify(reg, null, 2));
+    return { ok: true, deleted: before - reg.items.length, type: "registry" };
+  }
+  // R2 folder entry: list all objects under prefix and delete each
+  let deleted = 0;
+  let token: string | undefined;
+  do {
+    const r = await listObjectsRaw(prefix, undefined, token, 1000);
+    for (const obj of r.objects) { await delRaw(obj.key); deleted++; }
+    token = r.isTruncated ? r.nextToken : undefined;
+  } while (token);
+  // Remove catalog-meta override
+  try {
+    const meta = JSON.parse(await getRaw("__catalog-meta.json")) as any;
+    if (meta?.overrides?.[prefix]) {
+      delete meta.overrides[prefix];
+      await putRaw("__catalog-meta.json", JSON.stringify(meta, null, 2));
+    }
+  } catch {}
+  // Invalidate in-memory catalog cache
+  _catalogCache = null;
+  return { ok: true, deleted, type: "r2" };
+}
+
 export async function apiMove(src: string, dst: string) {
   await copyRaw(src, dst);
   await delRaw(src);
@@ -732,6 +762,8 @@ export async function r2Route<T>(path: string, options?: RequestInit): Promise<T
     result = await apiAddRegistry(body);
   } else if (route === "/delete") {
     result = await apiDelete(q("key"));
+  } else if (route === "/catalog-entry") {
+    result = await apiDeleteCatalogEntry(q("prefix"), q("tmdbId") ? Number(q("tmdbId")) : undefined);
   } else if (route === "/move") {
     result = await apiMove(body.src, body.dst);
   } else if (route === "/mkdir") {
@@ -821,7 +853,8 @@ export async function teraboxPlay(
     const idx = typeof fileIndex === "number" && fileIndex < list.length ? fileIndex : 0;
     file = list[idx];
   }
-  const streamUrl = file.fast_dlink ?? file.stream_url;
+  // Prefer stream_url (designed for playback); fall back to fast_dlink (CDN download link)
+  const streamUrl = file.stream_url ?? file.fast_dlink;
   if (!streamUrl) throw new Error("URL de stream não disponível");
   return { url: streamUrl, name: file.name };
 }
