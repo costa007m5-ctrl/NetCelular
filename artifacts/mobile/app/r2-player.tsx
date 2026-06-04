@@ -253,6 +253,9 @@ export default function R2PlayerScreen() {
 
   // ── Buffering state ──────────────────────────────────────────────────────────
   const [isBuffering, setIsBuffering] = useState(false);
+  // Tracks whether playback has started at least once for the current video.
+  // Prevents expo-av's initial isPlaying:false status from killing shouldPlay.
+  const hasStartedPlayingRef = useRef(false);
 
   // ── TMDB content logo + loading tips ────────────────────────────────────────
   const [contentLogo, setContentLogo] = useState<string | null>(null);
@@ -408,6 +411,8 @@ export default function R2PlayerScreen() {
     setPhase("loading");
     setVideoUrl(null);
     setIsPlaying(false);
+    setIsBuffering(false);
+    hasStartedPlayingRef.current = false;
     setPositionMs(0);
     setDurationMs(0);
     hasSeekedRef.current = false;
@@ -569,14 +574,30 @@ export default function R2PlayerScreen() {
   }, [transitionToReady]);
 
   const onPlaybackStatusUpdate = useCallback((status: any) => {
+    // Handle load error from expo-av
+    if (status?.isLoaded === false && status?.error) {
+      if (phaseRef.current === "loading" || phaseRef.current === "ready") {
+        setPhase("error");
+        setErrorMsg("Erro ao reproduzir vídeo");
+      }
+      return;
+    }
     if (!status?.isLoaded) return;
     transitionToReady(status.durationMillis ?? 0);
     const buffering = !!(status.isBuffering);
     setIsBuffering(buffering);
-    // Don't sync isPlaying from status while buffering — prevents seek→buffer→pause loop
-    if (!buffering) {
-      setIsPlaying(status.isPlaying ?? false);
+    // Sync isPlaying with careful rules to avoid two bugs:
+    // 1. Seek/buffer loop: expo-av briefly reports isPlaying:false while buffering — ignore.
+    // 2. Initial-load false negative: expo-av reports isPlaying:false before first frame — ignore
+    //    until the video has actually started playing (hasStartedPlayingRef guards this).
+    if (status.isPlaying) {
+      hasStartedPlayingRef.current = true;
+      setIsPlaying(true);
+    } else if (!buffering && hasStartedPlayingRef.current) {
+      // Video was playing before and stopped (user paused, or playback ended)
+      setIsPlaying(false);
     }
+    // else: buffering=true OR video never started yet — don't touch isPlaying
     const pos = status.positionMillis ?? 0;
     const dur = status.durationMillis ?? 0;
     setPositionMs(pos);
