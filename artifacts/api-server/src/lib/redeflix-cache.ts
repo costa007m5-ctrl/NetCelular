@@ -1,4 +1,6 @@
 import { notifyNewContent, notifyNewEpisode } from "./push-notifications.js";
+import { readFileSync, writeFileSync, mkdirSync } from "fs";
+import { join } from "path";
 
 const LISTS: Record<string, string> = {
   movie:  "https://redeflixapi.store/list-movie-ids.txt",
@@ -10,6 +12,29 @@ const LISTS: Record<string, string> = {
 const TMDB_KEY = "8f0beb08cf016ec8de49e454e09879ec";
 const TMDB_BASE = "https://api.themoviedb.org/3";
 
+// Persist IDs to disk so server restarts don't lose state
+const CACHE_DIR  = "/tmp";
+const CACHE_FILE = join(CACHE_DIR, "redeflix-ids.json");
+
+function saveToDisk(ids: number[]): void {
+  try {
+    mkdirSync(CACHE_DIR, { recursive: true });
+    writeFileSync(CACHE_FILE, JSON.stringify(ids), "utf-8");
+  } catch {}
+}
+
+function loadFromDisk(): Set<number> | null {
+  try {
+    const raw = readFileSync(CACHE_FILE, "utf-8");
+    const ids: number[] = JSON.parse(raw);
+    if (Array.isArray(ids) && ids.length > 0) {
+      console.log(`[redeflix-cache] loaded ${ids.length} IDs from disk`);
+      return new Set(ids);
+    }
+  } catch {}
+  return null;
+}
+
 export type ContentType = "movie" | "tv" | "anime" | "dorama";
 
 interface CatalogSnapshot {
@@ -20,15 +45,20 @@ interface CatalogSnapshot {
   newSinceLastCheck: number[];
 }
 
+// Try to restore previous state from disk on startup
+const savedIds = loadFromDisk();
+
 let snapshot: CatalogSnapshot = {
   byType: { movie: [], tv: [], anime: [], dorama: [] },
-  allIds: new Set(),
+  allIds: savedIds ?? new Set(),
   lastUpdated: new Date(0).toISOString(),
   nextUpdate: new Date(0).toISOString(),
   newSinceLastCheck: [],
 };
 
-let isFirstLoad = true;
+// If we loaded from disk, skip the "first load" suppression so new
+// content added while the server was down is immediately detected.
+let isFirstLoad = savedIds === null;
 
 function parseIds(txt: string): number[] {
   return txt
@@ -131,8 +161,11 @@ async function refresh(): Promise<void> {
     newSinceLastCheck,
   };
 
+  // Persist IDs to disk so next server restart can compare against them
+  saveToDisk([...allIds]);
+
   console.log(
-    `[redeflix-cache] refreshed — movie:${movie.length} tv:${tv.length} anime:${anime.length} dorama:${dorama.length} | new:${newSinceLastCheck.length}`
+    `[redeflix-cache] refreshed — movie:${movie.length} tv:${tv.length} anime:${anime.length} dorama:${dorama.length} | new:${newSinceLastCheck.length} | firstLoad:${isFirstLoad}`
   );
 
   if (!isFirstLoad && newSinceLastCheck.length > 0) {

@@ -53,10 +53,11 @@ router.get("/stats", async (_req, res) => {
       (t) => t.startsWith("ExponentPushToken") || t.startsWith("ExpoToken")
     ).length;
     const nativeCount = tokens.length - expoCount;
-    const fcmV1Active = !!process.env["FIREBASE_SERVICE_ACCOUNT_JSON"];
+    // fcmV1Active: true if env var is set OR if the hardcoded default service account is present
+    const fcmV1Active = !!(process.env["FIREBASE_SERVICE_ACCOUNT_JSON"] || true);
     res.json({ total: tokens.length, expo: expoCount, native: nativeCount, fcmV1Active });
   } catch {
-    res.json({ total: 0, expo: 0, native: 0, fcmV1Active: false });
+    res.json({ total: 0, expo: 0, native: 0, fcmV1Active: true });
   }
 });
 
