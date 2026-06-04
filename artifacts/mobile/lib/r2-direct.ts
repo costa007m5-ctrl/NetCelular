@@ -814,19 +814,20 @@ export interface TeraBoxFileEntry {
 
 export async function teraboxResolve(
   url: string,
-  timeoutMs = 25_000,
+  timeoutMs = 0,
 ): Promise<{ list: TeraBoxFileEntry[]; total_files: number }> {
   const normalized = normalizeTbUrl(url);
+  // timeoutMs = 0 means no timeout (wait indefinitely)
   const ctrl = new AbortController();
-  const tid = setTimeout(() => ctrl.abort(), timeoutMs);
+  const tid = timeoutMs > 0 ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
   try {
     const res = await fetch(XAPIVERSE_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json", "xAPIverse-Key": XAPIVERSE_KEY },
       body: JSON.stringify({ url: normalized }),
-      signal: ctrl.signal,
+      signal: timeoutMs > 0 ? ctrl.signal : undefined,
     });
-    clearTimeout(tid);
+    if (tid) clearTimeout(tid);
     const data = await res.json() as any;
     if (data.status !== "success") {
       throw new Error(data.message ?? data.error ?? "TeraBox API error");
@@ -834,8 +835,8 @@ export async function teraboxResolve(
     const list: TeraBoxFileEntry[] = data.list ?? [];
     return { list, total_files: list.length };
   } catch (e: any) {
-    clearTimeout(tid);
-    if (e?.name === "AbortError") throw new Error("Tempo esgotado ao resolver TeraBox (25s)");
+    if (tid) clearTimeout(tid);
+    if (e?.name === "AbortError") throw new Error(`Tempo esgotado ao resolver TeraBox (${Math.round(timeoutMs / 1000)}s)`);
     throw e;
   }
 }

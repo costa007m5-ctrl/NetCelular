@@ -1460,9 +1460,17 @@ export default function R2PlayerScreen() {
         {/* Episode list */}
         <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
           {(() => {
-            const seasonItems = r2Items
+            const seasonItemsRaw = r2Items
               .filter((i) => i.season === panelSeason && i.episode != null)
               .sort((a, b) => (a.episode ?? 0) - (b.episode ?? 0));
+            // Deduplicate by episode number — keep the first occurrence
+            const _seenEps = new Set<number>();
+            const seasonItems = seasonItemsRaw.filter((i) => {
+              const ep = i.episode ?? 0;
+              if (_seenEps.has(ep)) return false;
+              _seenEps.add(ep);
+              return true;
+            });
             const useTmdbFallback = seasonItems.length === 0 && panelEpisodes.length > 0;
             const folderItem = r2Items.find((i) => i.season === panelSeason && i.episode == null) ?? r2Items[0] ?? null;
 

@@ -1744,6 +1744,9 @@ interface TeraBoxFile {
   name: string; size: number; size_formatted: string; type: string;
   quality: string; duration: string; fast_dlink: string; stream_url: string;
   fast_stream_url: Record<string, string>; thumbnail: string; fs_id: number; file_path: string;
+  // Added for multi-URL batch resolve:
+  _sourceUrl?: string;
+  _fileIndexInAlbum?: number;
 }
 
 const TB_COLOR = "#f59e0b";
@@ -1770,6 +1773,7 @@ function TeraBoxRegisterTab() {
 
   const [inputUrl, setInputUrl] = useState("");
   const [loading, setLoading] = useState(false);
+  const [resolveProgress, setResolveProgress] = useState<{ done: number; total: number } | null>(null);
   const [resolveError, setResolveError] = useState<string | null>(null);
   const [files, setFiles] = useState<TeraBoxFile[]>([]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -1823,10 +1827,12 @@ function TeraBoxRegisterTab() {
   };
 
   const resolve = async () => {
-    const u = inputUrl.trim();
-    if (!u) { setResolveError("Cole um link do TeraBox"); return; }
+    // Support multiple URLs — one per line
+    const urls = inputUrl.split(/\n+/).map((s) => s.trim()).filter((s) => s.length > 0);
+    if (urls.length === 0) { setResolveError("Cole um ou mais links do TeraBox (um por linha)"); return; }
     setLoading(true);
     setResolveError(null);
+    setResolveProgress({ done: 0, total: urls.length });
     setFiles([]);
     setSelected(new Set());
     setParsedEps([]);
@@ -1835,18 +1841,34 @@ function TeraBoxRegisterTab() {
     setSaveResults([]);
     setAllDone(false);
     try {
-      const r = await teraboxResolve(u);
-      const list = r.list ?? [];
-      if (list.length === 0) { setResolveError("Nenhum arquivo encontrado no link"); return; }
-      setFiles(list as any[]);
-      setSelected(new Set(list.map((_, i) => i)));
-      const parsed = list.map((f) => parseEpisode(f.name));
+      const allFiles: TeraBoxFile[] = [];
+      const errors: string[] = [];
+      for (let ui = 0; ui < urls.length; ui++) {
+        try {
+          const r = await teraboxResolve(urls[ui]);
+          const list = r.list ?? [];
+          list.forEach((f, idx) => {
+            allFiles.push({ ...(f as any), _sourceUrl: urls[ui], _fileIndexInAlbum: idx });
+          });
+        } catch (e: any) {
+          errors.push(`URL ${ui + 1}: ${e.message ?? "Erro"}`);
+        }
+        setResolveProgress({ done: ui + 1, total: urls.length });
+      }
+      if (allFiles.length === 0) {
+        setResolveError(errors.length > 0 ? errors.join(" | ") : "Nenhum arquivo encontrado nos links");
+        return;
+      }
+      if (errors.length > 0) setResolveError(`Alguns links falharam: ${errors.join(" | ")}`);
+      setFiles(allFiles);
+      setSelected(new Set(allFiles.map((_, i) => i)));
+      const parsed = allFiles.map((f) => parseEpisode(f.name));
       setParsedEps(parsed);
-      setSaveResults(new Array(list.length).fill(null));
-      const guess = guessTitle(list[0].name);
+      setSaveResults(new Array(allFiles.length).fill(null));
+      const guess = guessTitle(allFiles[0].name);
       setTmdbQuery(guess);
     } catch (e: any) { setResolveError(e.message ?? "Erro na API TeraBox"); }
-    finally { setLoading(false); }
+    finally { setLoading(false); setResolveProgress(null); }
   };
 
   const searchTmdb = async () => {
@@ -1908,8 +1930,8 @@ function TeraBoxRegisterTab() {
       const labelStr = mediaKind === "tv" && s && e2 ? `T${s} E${e2}` : selectedTmdb.title;
       try {
         await apiPost("/terabox/register", {
-          teraboxUrl: inputUrl.trim(),
-          fileIndex: idx,
+          teraboxUrl: files[idx]?._sourceUrl ?? inputUrl.trim(),
+          fileIndex: files[idx]?._fileIndexInAlbum ?? idx,
           fileName: files[idx]?.name,
           tmdbId: selectedTmdb.id,
           tmdbType: mediaKind,
@@ -1931,7 +1953,7 @@ function TeraBoxRegisterTab() {
 
   const reset = () => {
     setInputUrl(""); setFiles([]); setSelected(new Set()); setParsedEps([]);
-    setResolveError(null); setSelectedTmdb(null); setTmdbResults([]); setTmdbQuery("");
+    setResolveError(null); setResolveProgress(null); setSelectedTmdb(null); setTmdbResults([]); setTmdbQuery("");
     setR2Folder(""); setNewFolderName(""); setSaveResults([]); setAllDone(false);
     setDirectMode(false); setDirectSeason(""); setDirectEpisode("");
     setDirectDone(false); setDirectError(null);
@@ -2002,16 +2024,27 @@ function TeraBoxRegisterTab() {
         <View style={[styles.sectionCard, { borderColor: "rgba(245,158,11,0.2)", marginBottom: 12 }]}>
           <View style={styles.sectionTitleRow}>
             <Feather name="link" size={14} color={TB_COLOR} />
-            <Text style={[styles.sectionTitle, { color: TB_COLOR, fontSize: 13 }]}>Link do TeraBox</Text>
+            <Text style={[styles.sectionTitle, { color: TB_COLOR, fontSize: 13 }]}>Links do TeraBox</Text>
           </View>
+          <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 11, marginBottom: 6 }}>
+            Cole um ou mais links (um por linha). Sem limite de arquivos.
+          </Text>
           <TextInput
-            style={[styles.input, loading && { opacity: 0.5 }]}
-            placeholder="https://1024terabox.com/s/..."
+            style={[styles.input, { minHeight: 72 }, loading && { opacity: 0.5 }]}
+            placeholder={"https://1024terabox.com/s/...\nhttps://1024terabox.com/s/...\nhttps://1024terabox.com/s/..."}
             placeholderTextColor="rgba(255,255,255,0.25)"
             value={inputUrl}
             onChangeText={(v) => { setInputUrl(v); if (files.length > 0) reset(); }}
             autoCapitalize="none" autoCorrect={false} editable={!loading} multiline
           />
+          {resolveProgress && (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8 }}>
+              <ActivityIndicator color={TB_COLOR} size="small" />
+              <Text style={{ color: TB_COLOR, fontSize: 12 }}>
+                Resolvendo {resolveProgress.done}/{resolveProgress.total} links…
+              </Text>
+            </View>
+          )}
           <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
             <Pressable
               style={[styles.actionBtn, { flex: 1, backgroundColor: TB_COLOR }, loading && { opacity: 0.5 }]}
@@ -2384,6 +2417,7 @@ function TeraBoxUploadTab() {
   const insets = useSafeAreaInsets();
   const [inputUrl, setInputUrl] = useState("");
   const [loading, setLoading] = useState(false);
+  const [resolveProgress, setResolveProgress] = useState<{ done: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [files, setFiles] = useState<TeraBoxFile[]>([]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -2394,20 +2428,34 @@ function TeraBoxUploadTab() {
   const pollRefs = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   const resolve = async () => {
-    const u = inputUrl.trim();
-    if (!u) { setError("Cole um link do TeraBox"); return; }
+    const urls = inputUrl.split(/\n+/).map((s) => s.trim()).filter((s) => s.length > 0);
+    if (urls.length === 0) { setError("Cole um ou mais links do TeraBox (um por linha)"); return; }
     setLoading(true);
     setError(null);
+    setResolveProgress({ done: 0, total: urls.length });
     setFiles([]);
     setSelected(new Set());
     setJobs([]);
     try {
-      const r = await teraboxResolve(u);
-      const list = r.list ?? [];
-      setFiles(list as any[]);
-      setSelected(new Set(list.map((_, i) => i)));
+      const allFiles: TeraBoxFile[] = [];
+      const errors: string[] = [];
+      for (let ui = 0; ui < urls.length; ui++) {
+        try {
+          const r = await teraboxResolve(urls[ui]);
+          const list = r.list ?? [];
+          list.forEach((f, idx) => {
+            allFiles.push({ ...(f as any), _sourceUrl: urls[ui], _fileIndexInAlbum: idx });
+          });
+        } catch (e: any) {
+          errors.push(`URL ${ui + 1}: ${e.message ?? "Erro"}`);
+        }
+        setResolveProgress({ done: ui + 1, total: urls.length });
+      }
+      if (errors.length > 0) setError(`Alguns links falharam: ${errors.join(" | ")}`);
+      setFiles(allFiles);
+      setSelected(new Set(allFiles.map((_, i) => i)));
     } catch (e: any) { setError(e.message ?? "Erro na API TeraBox"); }
-    finally { setLoading(false); }
+    finally { setLoading(false); setResolveProgress(null); }
   };
 
   const sendToR2 = async () => {
@@ -2455,16 +2503,22 @@ function TeraBoxUploadTab() {
             <Feather name="upload-cloud" size={15} color={TB_COLOR} />
             <Text style={[styles.sectionTitle, { color: TB_COLOR }]}>Download → R2</Text>
           </View>
-          <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 12, marginBottom: 10 }}>Baixa o arquivo do TeraBox diretamente para o seu bucket R2 (ocupa espaço).</Text>
-          <Text style={styles.fieldLabel}>Link do TeraBox</Text>
+          <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 12, marginBottom: 10 }}>Baixa os arquivos do TeraBox diretamente para o seu bucket R2 (ocupa espaço).</Text>
+          <Text style={styles.fieldLabel}>Links do TeraBox (um por linha)</Text>
           <TextInput
-            style={[styles.input, loading && { opacity: 0.5 }]}
-            placeholder="https://1024terabox.com/s/..."
+            style={[styles.input, { minHeight: 72 }, loading && { opacity: 0.5 }]}
+            placeholder={"https://1024terabox.com/s/...\nhttps://1024terabox.com/s/...\nhttps://1024terabox.com/s/..."}
             placeholderTextColor="rgba(255,255,255,0.25)"
             value={inputUrl}
             onChangeText={(v) => { setInputUrl(v); if (files.length > 0) reset(); }}
             autoCapitalize="none" autoCorrect={false} editable={!loading && !running} multiline
           />
+          {resolveProgress && (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8 }}>
+              <ActivityIndicator color={TB_COLOR} size="small" />
+              <Text style={{ color: TB_COLOR, fontSize: 12 }}>Resolvendo {resolveProgress.done}/{resolveProgress.total} links…</Text>
+            </View>
+          )}
           <Pressable style={[styles.actionBtn, { backgroundColor: TB_COLOR }, (loading || running) && { opacity: 0.5 }]} onPress={resolve} disabled={loading || running}>
             {loading ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="search" size={16} color="#fff" />}
             <Text style={styles.actionBtnText}>{loading ? "Consultando API…" : "Resolver TeraBox"}</Text>
