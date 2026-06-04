@@ -10,6 +10,7 @@
  */
 
 const http = require("http");
+const https = require("https");
 const fs = require("fs");
 const path = require("path");
 
@@ -107,12 +108,59 @@ function serveStaticFile(urlPath, res) {
 const landingPageTemplate = fs.readFileSync(TEMPLATE_PATH, "utf-8");
 const appName = getAppName();
 
+// ── Proxy: encaminha /api/* para o API server (porta 8080) ─────────────────────
+const API_PORT = parseInt(process.env.API_PORT || "8080", 10);
+
+function proxyToApi(req, res) {
+  const options = {
+    hostname: "localhost",
+    port: API_PORT,
+    path: req.url,
+    method: req.method,
+    headers: Object.assign({}, req.headers, { host: `localhost:${API_PORT}` }),
+  };
+
+  const proxyReq = http.request(options, (proxyRes) => {
+    // CORS headers para requests do browser
+    const headers = Object.assign({}, proxyRes.headers, {
+      "access-control-allow-origin": "*",
+      "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
+      "access-control-allow-headers": "Content-Type, Authorization",
+    });
+    res.writeHead(proxyRes.statusCode || 502, headers);
+    proxyRes.pipe(res, { end: true });
+  });
+
+  proxyReq.on("error", (err) => {
+    console.error("[proxy] API server error:", err.message);
+    res.writeHead(502, { "content-type": "application/json" });
+    res.end(JSON.stringify({ error: "API server indisponível", message: err.message }));
+  });
+
+  req.pipe(proxyReq, { end: true });
+}
+
 const server = http.createServer((req, res) => {
   const url = new URL(req.url || "/", `http://${req.headers.host}`);
   let pathname = url.pathname;
 
   if (basePath && pathname.startsWith(basePath)) {
     pathname = pathname.slice(basePath.length) || "/";
+  }
+
+  // Preflight CORS
+  if (req.method === "OPTIONS") {
+    res.writeHead(204, {
+      "access-control-allow-origin": "*",
+      "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
+      "access-control-allow-headers": "Content-Type, Authorization",
+    });
+    return res.end();
+  }
+
+  // Proxy /api/ → API server (porta 8080)
+  if (pathname.startsWith("/api/")) {
+    return proxyToApi(req, res);
   }
 
   if (pathname === "/" || pathname === "/manifest") {

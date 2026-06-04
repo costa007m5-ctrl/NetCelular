@@ -4,6 +4,7 @@
  * Usa SHA-256 / HMAC-SHA256 puro em JS (compatível com Hermes/Android).
  */
 import Constants from "expo-constants";
+import { Platform } from "react-native";
 
 // ─── Credenciais ─────────────────────────────────────────────────────────────
 const ACCOUNT_ID = process.env.EXPO_PUBLIC_R2_ACCOUNT_ID      ?? "9827b92a6b3a621e8c6f50274e68f37b";
@@ -742,6 +743,11 @@ export async function r2Route<T>(path: string, options?: RequestInit): Promise<T
   const route = u.pathname;
   const q = (k: string) => u.searchParams.get(k) ?? "";
   const body = options?.body ? JSON.parse(options.body as string) : null;
+
+  // No web (Chrome/browser): sempre usa o API server — S3 direto falha por CORS
+  if (Platform.OS === "web") {
+    return forwardToServer<T>(path, options);
+  }
 
   // Server-only routes: forward to API server
   if (SERVER_ONLY_ROUTES.has(route) || route.startsWith("/job/")) {
