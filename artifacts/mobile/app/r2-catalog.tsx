@@ -24,7 +24,7 @@ import * as FileSystem from "expo-file-system";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/lib/auth-context";
 import { r2Route, teraboxResolve } from "@/lib/r2-direct";
-import { listFolder, isFolder as driveIsFolder, isVideo as driveIsVideo, getStreamUrl, formatSize as driveFormatSize, DRIVE_ROOTS, DriveItem } from "@/lib/gdrive-index";
+import { listFolder, isFolder as driveIsFolder, isVideo as driveIsVideo, getStreamUrl, formatSize as driveFormatSize, DRIVE_ROOTS, DriveItem, parseEpisodeInfo } from "@/lib/gdrive-index";
 
 const UPLOADED_URLS_KEY = "r2_uploaded_urls_v1";
 
@@ -3553,6 +3553,146 @@ function TeraBoxPanel() {
   );
 }
 
+// ── Drive Register Modal (registra um arquivo do Drive no registry) ────────────
+
+function DriveRegisterModal({ item, onClose, onDone }: {
+  item: DriveItem; onClose: () => void; onDone: () => void;
+}) {
+  const parsed = parseEpisodeInfo(item.name);
+  const [q, setQ] = useState(parsed.seriesTitle ?? item.name.replace(/\.[^.]+$/, "").replace(/[._]/g, " ").trim());
+  const [searching, setSearching] = useState(false);
+  const [results, setResults] = useState<TmdbSearchResult[]>([]);
+  const [selected, setSelected] = useState<TmdbSearchResult | null>(null);
+  const [label, setLabel] = useState("Dublado 1080p");
+  const [season, setSeason] = useState(parsed.season != null ? String(parsed.season) : "");
+  const [ep, setEp] = useState(parsed.episode != null ? String(parsed.episode) : "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const search = async () => {
+    if (!q.trim()) return;
+    setSearching(true);
+    try {
+      const data = await apiFetch<{ results: TmdbSearchResult[] }>(`/tmdb-search?q=${encodeURIComponent(q)}&type=multi`);
+      setResults(data.results);
+    } catch (e: any) { setError(e.message); }
+    finally { setSearching(false); }
+  };
+
+  const save = async () => {
+    if (!selected) { setError("Selecione um título"); return; }
+    setSaving(true); setError(null);
+    try {
+      await apiPost("/drive/register", {
+        driveUrl: `https://drive.google.com/file/d/${item.id}/view`,
+        tmdbId: selected.id,
+        tmdbType: selected.media_type,
+        title: selected.title,
+        label,
+        season: season ? parseInt(season, 10) : null,
+        episode: ep ? parseInt(ep, 10) : null,
+      });
+      onDone();
+    } catch (e: any) { setError(e.message); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+      <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.85)", justifyContent: "flex-end" }}>
+        <View style={{ backgroundColor: "#0f0f0f", borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, maxHeight: "90%" }}>
+          <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 14 }}>
+            <Feather name="cloud" size={17} color="#22c55e" />
+            <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15, marginLeft: 8, flex: 1 }}>Registrar no Drive</Text>
+            <Pressable onPress={onClose}><Feather name="x" size={20} color="rgba(255,255,255,0.5)" /></Pressable>
+          </View>
+          <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11, marginBottom: 14 }} numberOfLines={2}>📁 {item.name}</Text>
+
+          <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+            <Text style={styles.fieldLabel}>Buscar título no TMDB</Text>
+            <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
+              <TextInput style={[styles.input, { flex: 1 }]} value={q} onChangeText={setQ}
+                placeholder="Nome do filme ou série…" placeholderTextColor="rgba(255,255,255,0.3)"
+                onSubmitEditing={search} returnKeyType="search" />
+              <Pressable onPress={search} disabled={searching}
+                style={{ paddingHorizontal: 14, borderRadius: 8, backgroundColor: "#374151", alignItems: "center", justifyContent: "center" }}>
+                {searching ? <ActivityIndicator size="small" color="#fff" /> : <Feather name="search" size={15} color="#fff" />}
+              </Pressable>
+            </View>
+
+            {results.map((r) => (
+              <Pressable key={r.id} onPress={() => { setSelected(r); setResults([]); }}
+                style={{ flexDirection: "row", alignItems: "center", gap: 10, padding: 10, marginBottom: 4, borderRadius: 8,
+                  backgroundColor: selected?.id === r.id ? "rgba(34,197,94,0.12)" : "rgba(255,255,255,0.04)",
+                  borderWidth: 1, borderColor: selected?.id === r.id ? "rgba(34,197,94,0.35)" : "rgba(255,255,255,0.07)" }}>
+                {r.poster_path ? (
+                  <Image source={{ uri: `https://image.tmdb.org/t/p/w92${r.poster_path}` }} style={{ width: 32, height: 48, borderRadius: 4 }} />
+                ) : (
+                  <View style={{ width: 32, height: 48, borderRadius: 4, backgroundColor: "#1a1a1a", alignItems: "center", justifyContent: "center" }}>
+                    <Feather name="film" size={14} color="rgba(255,255,255,0.3)" />
+                  </View>
+                )}
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600" }} numberOfLines={1}>{r.title}</Text>
+                  <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11 }}>{r.media_type === "tv" ? "Série" : "Filme"}</Text>
+                </View>
+                {selected?.id === r.id && <Feather name="check-circle" size={16} color="#22c55e" />}
+              </Pressable>
+            ))}
+
+            {selected && (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 10, marginBottom: 8, borderRadius: 8,
+                backgroundColor: "rgba(34,197,94,0.08)", borderWidth: 1, borderColor: "rgba(34,197,94,0.2)" }}>
+                <Feather name="check-circle" size={14} color="#4ade80" />
+                <Text style={{ color: "#4ade80", fontSize: 12, flex: 1 }} numberOfLines={1}>{selected.title} ({selected.media_type === "tv" ? "Série" : "Filme"})</Text>
+                <Pressable onPress={() => setSelected(null)}><Feather name="x" size={14} color="rgba(255,255,255,0.4)" /></Pressable>
+              </View>
+            )}
+
+            {selected?.media_type === "tv" && (
+              <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.fieldLabel}>Temporada</Text>
+                  <TextInput style={styles.input} value={season} onChangeText={setSeason}
+                    placeholder="1" placeholderTextColor="rgba(255,255,255,0.3)" keyboardType="numeric" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.fieldLabel}>Episódio</Text>
+                  <TextInput style={styles.input} value={ep} onChangeText={setEp}
+                    placeholder="1" placeholderTextColor="rgba(255,255,255,0.3)" keyboardType="numeric" />
+                </View>
+              </View>
+            )}
+
+            <View style={{ marginBottom: 16 }}>
+              <Text style={styles.fieldLabel}>Qualidade / Label</Text>
+              <TextInput style={styles.input} value={label} onChangeText={setLabel}
+                placeholder="Dublado 1080p" placeholderTextColor="rgba(255,255,255,0.3)" />
+            </View>
+
+            {error && (
+              <View style={[styles.errorBox, { marginBottom: 12 }]}>
+                <Feather name="alert-circle" size={13} color="#f87171" />
+                <Text style={styles.errorBoxText}>{error}</Text>
+              </View>
+            )}
+
+            <Pressable onPress={save} disabled={saving || !selected}
+              style={[styles.actionBtn, { justifyContent: "center", marginBottom: 8,
+                backgroundColor: saving || !selected ? "#1f2937" : "#16a34a",
+                opacity: saving || !selected ? 0.6 : 1 }]}>
+              {saving
+                ? <ActivityIndicator size="small" color="#fff" />
+                : <Feather name="save" size={15} color="#fff" />}
+              <Text style={styles.actionBtnText}>{saving ? "Salvando…" : "Salvar no Registry"}</Text>
+            </Pressable>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 // ── Manage Panel ───────────────────────────────────────────────────────────────
 
 function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
@@ -3569,6 +3709,16 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
   const [driveJobStatus, setDriveJobStatus] = useState<"idle" | "running" | "done" | "error">("idle");
   const [driveJobProgress, setDriveJobProgress] = useState(0);
   const [driveJobMessage, setDriveJobMessage] = useState("");
+
+  // ── Drive browser state (Acervo Drive → navegar pastas) ──
+  type MgNavEntry = { drive: 0 | 1; path: string; name: string };
+  const [mgDriveOpen, setMgDriveOpen] = useState(false);
+  const [mgDriveNav, setMgDriveNav] = useState<MgNavEntry[]>([]);
+  const [mgDriveItems, setMgDriveItems] = useState<DriveItem[]>([]);
+  const [mgDriveLoading, setMgDriveLoading] = useState(false);
+  const [mgDriveError, setMgDriveError] = useState<string | null>(null);
+  const [mgDrivePageToken, setMgDrivePageToken] = useState<string | null>(null);
+  const [mgDriveRegisterItem, setMgDriveRegisterItem] = useState<DriveItem | null>(null);
 
   useEffect(() => {
     if (!driveJobId || driveJobStatus !== "running") return;
@@ -3604,6 +3754,36 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
       setDriveJobMessage(e.message ?? "Erro ao iniciar");
     }
   };
+
+  // ── Drive browser helpers ────────────────────────────────────────────────────
+
+  const loadMgFolder = async (drive: 0 | 1, folderPath: string, pageToken = "") => {
+    if (!pageToken) { setMgDriveLoading(true); setMgDriveItems([]); }
+    setMgDriveError(null);
+    try {
+      const result = await listFolder(drive, folderPath, pageToken);
+      if (!result) { setMgDriveError("Não foi possível carregar a pasta"); return; }
+      if (pageToken) setMgDriveItems((prev) => [...prev, ...result.data.files]);
+      else setMgDriveItems(result.data.files);
+      setMgDrivePageToken(result.nextPageToken);
+    } catch { setMgDriveError("Erro ao carregar pasta"); }
+    finally { setMgDriveLoading(false); }
+  };
+
+  const mgNavPush = (drive: 0 | 1, folderPath: string, name: string) => {
+    setMgDriveNav((prev) => [...prev, { drive, path: folderPath, name }]);
+    loadMgFolder(drive, folderPath);
+  };
+
+  const mgNavPop = () => {
+    if (mgDriveNav.length === 0) return;
+    const next = mgDriveNav.slice(0, -1);
+    setMgDriveNav(next);
+    if (next.length > 0) { const e = next[next.length - 1]; loadMgFolder(e.drive, e.path); }
+    else { setMgDriveItems([]); setMgDrivePageToken(null); }
+  };
+
+  const mgCurrent = mgDriveNav.length > 0 ? mgDriveNav[mgDriveNav.length - 1] : null;
 
   const load = useCallback(async (prefix: string) => {
     setLoading(true);
@@ -3708,7 +3888,161 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
                 : "Extrair todos os conteúdos do Drive"}
             </Text>
           </Pressable>
+          {/* Navegar Drive button */}
+          <Pressable
+            onPress={() => { setMgDriveOpen((v) => !v); if (!mgDriveOpen) { setMgDriveNav([]); setMgDriveItems([]); } }}
+            style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+              marginHorizontal: 10, marginBottom: 10, padding: 9, borderRadius: 8,
+              backgroundColor: mgDriveOpen ? "rgba(34,197,94,0.12)" : "rgba(255,255,255,0.05)",
+              borderWidth: 1, borderColor: mgDriveOpen ? "rgba(34,197,94,0.35)" : "rgba(255,255,255,0.1)" }}
+          >
+            <Feather name="folder" size={14} color={mgDriveOpen ? "#4ade80" : "rgba(255,255,255,0.5)"} />
+            <Text style={{ color: mgDriveOpen ? "#4ade80" : "rgba(255,255,255,0.5)", fontWeight: "600", fontSize: 13 }}>
+              {mgDriveOpen ? "Fechar navegador" : "Navegar pastas do Drive"}
+            </Text>
+            <Feather name={mgDriveOpen ? "chevron-up" : "chevron-down"} size={14} color={mgDriveOpen ? "#4ade80" : "rgba(255,255,255,0.4)"} />
+          </Pressable>
         </View>
+      )}
+
+      {/* Drive browser panel */}
+      {path === "" && mgDriveOpen && (
+        <View style={{ marginHorizontal: 12, marginBottom: 8, borderRadius: 12, borderWidth: 1,
+          borderColor: "rgba(34,197,94,0.2)", backgroundColor: "#040d06", overflow: "hidden" }}>
+
+          {/* Header + breadcrumb */}
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingTop: 10, paddingBottom: 6 }}>
+            <Feather name="hard-drive" size={14} color="#22c55e" />
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                <Pressable onPress={() => { setMgDriveNav([]); setMgDriveItems([]); setMgDrivePageToken(null); }}>
+                  <Text style={{ color: mgDriveNav.length === 0 ? "#4ade80" : "rgba(255,255,255,0.4)", fontSize: 12, fontWeight: "700" }}>Drive</Text>
+                </Pressable>
+                {mgDriveNav.map((entry, i) => (
+                  <View key={i} style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                    <Feather name="chevron-right" size={11} color="rgba(255,255,255,0.25)" />
+                    <Pressable onPress={() => {
+                      const next = mgDriveNav.slice(0, i + 1);
+                      setMgDriveNav(next);
+                      loadMgFolder(entry.drive, entry.path);
+                    }}>
+                      <Text style={{ color: i === mgDriveNav.length - 1 ? "#4ade80" : "rgba(255,255,255,0.4)", fontSize: 12, fontWeight: "600" }} numberOfLines={1}>{entry.name}</Text>
+                    </Pressable>
+                  </View>
+                ))}
+              </View>
+            </ScrollView>
+          </View>
+
+          <View style={{ height: 1, backgroundColor: "rgba(34,197,94,0.12)", marginHorizontal: 12, marginBottom: 8 }} />
+
+          {/* Root level — Drive roots */}
+          {mgDriveNav.length === 0 && (
+            <View style={{ paddingHorizontal: 12, paddingBottom: 12 }}>
+              <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 11, marginBottom: 10 }}>
+                Selecione uma pasta raiz para navegar e registrar conteúdos no Drive
+              </Text>
+              {DRIVE_ROOTS.map((root) => (
+                <View key={root.drive} style={{ marginBottom: 12 }}>
+                  <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 10, fontWeight: "700", letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 6 }}>
+                    {root.icon} {root.name}
+                  </Text>
+                  {root.folders.map((folder) => (
+                    <Pressable key={folder} onPress={() => mgNavPush(root.drive, folder, folder)}
+                      style={{ flexDirection: "row", alignItems: "center", gap: 10, padding: 10, marginBottom: 4, borderRadius: 8,
+                        backgroundColor: "rgba(34,197,94,0.06)", borderWidth: 1, borderColor: "rgba(34,197,94,0.15)" }}>
+                      <Feather name="folder" size={17} color="#22c55e" />
+                      <Text style={{ flex: 1, color: "#fff", fontSize: 13, fontWeight: "600" }}>{folder}</Text>
+                      <Feather name="chevron-right" size={15} color="rgba(255,255,255,0.25)" />
+                    </Pressable>
+                  ))}
+                </View>
+              ))}
+            </View>
+          )}
+
+          {/* Folder contents */}
+          {mgDriveNav.length > 0 && (
+            <View style={{ paddingHorizontal: 12, paddingBottom: 12 }}>
+              {/* Back */}
+              <Pressable onPress={mgNavPop} style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 8, marginBottom: 6 }}>
+                <Feather name="arrow-left" size={15} color="rgba(255,255,255,0.45)" />
+                <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 13 }}>Voltar</Text>
+              </Pressable>
+
+              {mgDriveLoading ? (
+                <View style={{ alignItems: "center", paddingVertical: 24, gap: 8 }}>
+                  <ActivityIndicator color="#22c55e" size="large" />
+                  <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 12 }}>Carregando pasta…</Text>
+                </View>
+              ) : mgDriveError ? (
+                <View style={styles.errorBox}><Feather name="alert-circle" size={13} color="#f87171" /><Text style={styles.errorBoxText}>{mgDriveError}</Text></View>
+              ) : mgDriveItems.length === 0 ? (
+                <View style={{ alignItems: "center", paddingVertical: 20 }}>
+                  <Feather name="inbox" size={26} color="rgba(255,255,255,0.12)" />
+                  <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 12, marginTop: 8 }}>Pasta vazia</Text>
+                </View>
+              ) : (
+                <>
+                  {mgDriveItems.map((item) => {
+                    const isDir = driveIsFolder(item);
+                    const isVid = driveIsVideo(item);
+                    return (
+                      <Pressable key={item.id}
+                        onPress={() => {
+                          if (isDir) {
+                            const newPath = mgCurrent ? `${mgCurrent.path}/${item.name}` : item.name;
+                            mgNavPush(mgCurrent!.drive, newPath, item.name);
+                          } else if (isVid) {
+                            setMgDriveRegisterItem(item);
+                          }
+                        }}
+                        style={{ flexDirection: "row", alignItems: "center", gap: 10,
+                          paddingVertical: 9, paddingHorizontal: 10, marginBottom: 3, borderRadius: 8,
+                          backgroundColor: isVid ? "rgba(34,197,94,0.05)" : "rgba(255,255,255,0.03)",
+                          borderWidth: 1, borderColor: isVid ? "rgba(34,197,94,0.12)" : "rgba(255,255,255,0.06)" }}>
+                        <Feather
+                          name={isDir ? "folder" : isVid ? "film" : "file"}
+                          size={16}
+                          color={isDir ? "#f59e0b" : isVid ? "#22c55e" : "rgba(255,255,255,0.3)"}
+                        />
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ color: isDir ? "rgba(255,255,255,0.75)" : isVid ? "#e2fbe8" : "rgba(255,255,255,0.5)", fontSize: 12, fontWeight: isDir ? "600" : "400" }} numberOfLines={1}>{item.name}</Text>
+                          {isVid && item.size && (
+                            <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 10, marginTop: 1 }}>{driveFormatSize(item.size)}</Text>
+                          )}
+                        </View>
+                        {isDir && <Feather name="chevron-right" size={13} color="rgba(255,255,255,0.25)" />}
+                        {isVid && (
+                          <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor: "rgba(34,197,94,0.15)" }}>
+                            <Text style={{ color: "#4ade80", fontSize: 10, fontWeight: "700" }}>+ Registrar</Text>
+                          </View>
+                        )}
+                      </Pressable>
+                    );
+                  })}
+                  {mgDrivePageToken && (
+                    <Pressable onPress={() => loadMgFolder(mgCurrent!.drive, mgCurrent!.path, mgDrivePageToken)}
+                      style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
+                        marginTop: 8, padding: 10, borderRadius: 8, borderWidth: 1, borderColor: "rgba(34,197,94,0.2)" }}>
+                      <Feather name="more-horizontal" size={14} color="#22c55e" />
+                      <Text style={{ color: "#22c55e", fontSize: 12, fontWeight: "600" }}>Carregar mais</Text>
+                    </Pressable>
+                  )}
+                </>
+              )}
+            </View>
+          )}
+        </View>
+      )}
+
+      {/* Drive Register Modal */}
+      {mgDriveRegisterItem && (
+        <DriveRegisterModal
+          item={mgDriveRegisterItem}
+          onClose={() => setMgDriveRegisterItem(null)}
+          onDone={() => { setMgDriveRegisterItem(null); Alert.alert("✅ Registrado", "Conteúdo adicionado ao Drive Registry!"); }}
+        />
       )}
 
       {/* Breadcrumb */}
