@@ -2642,8 +2642,7 @@ function TeraBoxTestTab() {
           <Text style={{ color: "rgba(255,255,255,0.25)", fontSize: 10, marginBottom: 14 }} numberOfLines={2}>{resolved.url}</Text>
 
           <View style={{ borderRadius: 10, overflow: "hidden", backgroundColor: "#000", height: 200, alignItems: "center", justifyContent: "center", marginBottom: 12 }}>
-            {/* Native video element for web/Expo Go preview */}
-            {(typeof window !== "undefined") ? (
+            {Platform.OS === "web" ? (
               <video
                 src={resolved.url}
                 controls
