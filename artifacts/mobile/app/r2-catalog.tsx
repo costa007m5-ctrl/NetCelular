@@ -3911,7 +3911,7 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
       {/* Drive browser panel */}
       {path === "" && mgDriveOpen && (
         <View style={{ marginHorizontal: 12, marginBottom: 8, borderRadius: 12, borderWidth: 1,
-          borderColor: "rgba(34,197,94,0.2)", backgroundColor: "#040d06", flex: 1 }}>
+          borderColor: "rgba(34,197,94,0.2)", backgroundColor: "#040d06", flex: 1, minHeight: 420 }}>
 
           {/* Header + breadcrumb */}
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingTop: 10, paddingBottom: 6 }}>

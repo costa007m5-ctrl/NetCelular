@@ -394,7 +394,55 @@ router.get("/catalog", async (req, res) => {
       return;
     }
 
-    const entries = await buildCatalog(client, bucket);
+    const [entries, registry] = await Promise.all([
+      buildCatalog(client, bucket),
+      readRegistry(client, bucket),
+    ]);
+
+    // Merge registry items (TeraBox / Drive) into catalog
+    // Group by tmdbId + tmdbType to deduplicate
+    const byTmdb = new Map<string, RegistryItem[]>();
+    for (const item of registry.items) {
+      if (!item.tmdbId) continue;
+      const k = `${item.tmdbType ?? "movie"}__${item.tmdbId}`;
+      if (!byTmdb.has(k)) byTmdb.set(k, []);
+      byTmdb.get(k)!.push(item);
+    }
+
+    for (const [, items] of byTmdb) {
+      const first = items[0];
+      // Skip if this tmdbId is already covered by an R2 folder entry
+      if (entries.some((e) => e.tmdb?.id === first.tmdbId)) continue;
+
+      const isSeries = first.tmdbType === "tv";
+      const seasons: SeasonInfo[] = [];
+      if (isSeries) {
+        const seasonNums = [...new Set(items.filter((i) => i.season != null).map((i) => i.season!))].sort((a, b) => a - b);
+        for (const sn of seasonNums) {
+          seasons.push({ number: sn, prefix: `__tb__/${first.tmdbId}/S${sn}/`, label: `Temporada ${sn}` });
+        }
+      }
+
+      let tmdbMatch: TmdbMatch | null = null;
+      try {
+        if (isSeries) {
+          const r = await (tmdb as any).tv.details(first.tmdbId);
+          tmdbMatch = { id: r.id, title: r.name, poster_path: r.poster_path, backdrop_path: r.backdrop_path, overview: r.overview, vote_average: r.vote_average, first_air_date: r.first_air_date, media_type: "tv" };
+        } else {
+          const r = await (tmdb as any).movies.details(first.tmdbId);
+          tmdbMatch = { id: r.id, title: r.title, poster_path: r.poster_path, backdrop_path: r.backdrop_path, overview: r.overview, vote_average: r.vote_average, release_date: r.release_date, media_type: "movie" };
+        }
+      } catch { tmdbMatch = null; }
+
+      entries.push({
+        key: `__tb__/${first.tmdbId}`,
+        name: tmdbMatch?.title ?? first.title ?? "Desconhecido",
+        type: isSeries ? "tv" : "movie",
+        seasons,
+        tmdb: tmdbMatch,
+      });
+    }
+
     catalogCache = { entries, builtAt: Date.now() };
     res.json({ catalog: entries, cached: false, builtAt: new Date(catalogCache.builtAt).toISOString() });
   } catch (err: any) {
@@ -1213,7 +1261,7 @@ function extractDriveFileId(url: string): string | null {
 }
 
 function buildDriveDirectUrl(fileId: string): string {
-  return `https://drive.usercontent.google.com/download?id=${fileId}&export=download&authuser=0&confirm=t`;
+  return `https://drive.google.com/file/d/${fileId}/preview`;
 }
 
 // ── Drive: registrar link (sem fazer upload do vídeo — economiza espaço no R2) ──
