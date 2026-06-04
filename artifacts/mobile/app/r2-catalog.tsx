@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -59,7 +59,7 @@ interface Job {
   progress: number; downloaded: number; total: number; error?: string; key?: string;
 }
 interface RegistryItem {
-  id: string; r2Key: string; tmdbId: number; tmdbType: "movie" | "tv";
+  id: string; r2Key: string; teraboxUrl?: string; tmdbId: number; tmdbType: "movie" | "tv";
   title: string; label: string; season: number | null; episode: number | null;
 }
 interface TmdbSearchResult {
@@ -1689,7 +1689,303 @@ interface TeraBoxFile {
   fast_stream_url: Record<string, string>; thumbnail: string; fs_id: number; file_path: string;
 }
 
-function TeraBoxPanel() {
+const TB_COLOR = "#f59e0b";
+
+interface TmdbResult {
+  id: number; title: string; poster_path: string | null;
+  media_type: "movie" | "tv"; year?: string;
+}
+
+function TBFileChip({ f, qColor }: { f: TeraBoxFile; qColor: string }) {
+  return (
+    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+      {f.quality ? <View style={{ backgroundColor: `${qColor}20`, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1, borderColor: `${qColor}50` }}><Text style={{ color: qColor, fontSize: 10, fontWeight: "700" }}>{f.quality}</Text></View> : null}
+      {f.duration ? <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11 }}>⏱ {f.duration}</Text> : null}
+      {f.size_formatted ? <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11 }}>💾 {f.size_formatted}</Text> : null}
+    </View>
+  );
+}
+
+function TeraBoxRegisterTab() {
+  const insets = useSafeAreaInsets();
+  const [inputUrl, setInputUrl] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [files, setFiles] = useState<TeraBoxFile[]>([]);
+  const [selectedFileIdx, setSelectedFileIdx] = useState(0);
+
+  const [tmdbQuery, setTmdbQuery] = useState("");
+  const [tmdbSearching, setTmdbSearching] = useState(false);
+  const [tmdbResults, setTmdbResults] = useState<TmdbResult[]>([]);
+  const [tmdbError, setTmdbError] = useState<string | null>(null);
+  const [selectedTmdb, setSelectedTmdb] = useState<TmdbResult | null>(null);
+
+  const [mediaType, setMediaType] = useState<"movie" | "tv">("movie");
+  const [season, setSeason] = useState("1");
+  const [episode, setEpisode] = useState("");
+  const [label, setLabel] = useState("");
+
+  const [saving, setSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+
+  const qualityColors: Record<string, string> = { "4K": "#a78bfa", "1080p": "#60a5fa", "720p": "#34d399", "480p": "#f59e0b", "360p": "#fb923c" };
+
+  const resolve = async () => {
+    const u = inputUrl.trim();
+    if (!u) { setError("Cole um link do TeraBox"); return; }
+    setLoading(true);
+    setError(null);
+    setFiles([]);
+    setSelectedTmdb(null);
+    setTmdbResults([]);
+    setSaveSuccess(false);
+    try {
+      const r = await apiPost<{ list: TeraBoxFile[] }>("/terabox-resolve", { url: u });
+      const list = r.list ?? [];
+      if (list.length === 0) { setError("Nenhum arquivo encontrado no link"); return; }
+      setFiles(list);
+      setSelectedFileIdx(0);
+      const guessName = list[0].name.replace(/\.[^.]+$/, "").replace(/[._-]+/g, " ").replace(/\d{3,4}p.*$/i, "").trim();
+      setTmdbQuery(guessName);
+      setLabel(guessName);
+    } catch (e: any) { setError(e.message ?? "Erro na API TeraBox"); }
+    finally { setLoading(false); }
+  };
+
+  const searchTmdb = async () => {
+    const q = tmdbQuery.trim();
+    if (!q) return;
+    setTmdbSearching(true);
+    setTmdbError(null);
+    setTmdbResults([]);
+    setSelectedTmdb(null);
+    try {
+      const r = await apiFetch<{ results: any[] }>(`/tmdb-search?q=${encodeURIComponent(q)}&type=multi`);
+      const results: TmdbResult[] = (r.results ?? [])
+        .filter((x: any) => x.media_type === "movie" || x.media_type === "tv")
+        .slice(0, 8)
+        .map((x: any) => ({
+          id: x.id,
+          title: x.media_type === "movie" ? (x.title ?? x.name) : (x.name ?? x.title),
+          poster_path: x.poster_path ?? null,
+          media_type: x.media_type,
+          year: (x.release_date ?? x.first_air_date ?? "").slice(0, 4),
+        }));
+      setTmdbResults(results);
+      if (results.length === 0) setTmdbError("Nenhum resultado encontrado");
+    } catch (e: any) { setTmdbError(e.message ?? "Erro TMDB"); }
+    finally { setTmdbSearching(false); }
+  };
+
+  const selectTmdb = (t: TmdbResult) => {
+    setSelectedTmdb(t);
+    setMediaType(t.media_type);
+    setLabel(t.title);
+    setTmdbResults([]);
+  };
+
+  const register = async () => {
+    if (!selectedTmdb) { setError("Selecione um título no TMDB"); return; }
+    if (files.length === 0) { setError("Resolva o link do TeraBox primeiro"); return; }
+    const file = files[selectedFileIdx];
+    const teraboxUrl = inputUrl.trim();
+    setSaving(true);
+    setError(null);
+    try {
+      await apiPost("/terabox/register", {
+        teraboxUrl,
+        tmdbId: selectedTmdb.id,
+        tmdbType: mediaType,
+        title: selectedTmdb.title,
+        label: label.trim() || selectedTmdb.title,
+        season: mediaType === "tv" && season ? Number(season) : null,
+        episode: mediaType === "tv" && episode ? Number(episode) : null,
+      });
+      setSaveSuccess(true);
+      setInputUrl("");
+      setFiles([]);
+      setSelectedTmdb(null);
+      setTmdbResults([]);
+      setTmdbQuery("");
+      setLabel("");
+      setSeason("1");
+      setEpisode("");
+    } catch (e: any) { setError(e.message ?? "Erro ao registrar"); }
+    finally { setSaving(false); }
+  };
+
+  const reset = () => {
+    setInputUrl(""); setFiles([]); setError(null); setSelectedTmdb(null);
+    setTmdbResults([]); setTmdbQuery(""); setLabel(""); setSeason("1"); setEpisode(""); setSaveSuccess(false);
+  };
+
+  return (
+    <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 80 }}>
+      {saveSuccess && (
+        <View style={{ backgroundColor: "rgba(74,222,128,0.12)", borderRadius: 12, padding: 14, marginBottom: 14, flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderColor: "rgba(74,222,128,0.3)" }}>
+          <Feather name="check-circle" size={20} color="#4ade80" />
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: "#4ade80", fontWeight: "700", fontSize: 14 }}>Registrado com sucesso!</Text>
+            <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 12, marginTop: 2 }}>O link TeraBox foi salvo no registro. Agora aparece como fonte no app.</Text>
+          </View>
+          <Pressable onPress={() => setSaveSuccess(false)}><Feather name="x" size={16} color="rgba(255,255,255,0.4)" /></Pressable>
+        </View>
+      )}
+
+      <View style={[styles.sectionCard, { borderColor: "rgba(245,158,11,0.15)" }]}>
+        <View style={styles.sectionTitleRow}>
+          <Feather name="link" size={15} color={TB_COLOR} />
+          <Text style={[styles.sectionTitle, { color: TB_COLOR }]}>1. Link do TeraBox</Text>
+        </View>
+        <TextInput
+          style={[styles.input, loading && { opacity: 0.5 }]}
+          placeholder="https://1024terabox.com/s/..."
+          placeholderTextColor="rgba(255,255,255,0.25)"
+          value={inputUrl}
+          onChangeText={(v) => { setInputUrl(v); if (files.length > 0) reset(); }}
+          autoCapitalize="none" autoCorrect={false} editable={!loading} multiline
+        />
+        <Pressable
+          style={[styles.actionBtn, { backgroundColor: TB_COLOR }, loading && { opacity: 0.5 }]}
+          onPress={resolve} disabled={loading}
+        >
+          {loading ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="search" size={16} color="#fff" />}
+          <Text style={styles.actionBtnText}>{loading ? "Consultando API…" : "Resolver TeraBox"}</Text>
+        </Pressable>
+        {error && <View style={styles.errorBox}><Feather name="alert-circle" size={14} color="#f87171" /><Text style={styles.errorBoxText}>{error}</Text></View>}
+      </View>
+
+      {files.length > 0 && (
+        <>
+          <View style={[styles.sectionCard, { marginTop: 12, borderColor: "rgba(245,158,11,0.15)" }]}>
+            <View style={styles.sectionTitleRow}>
+              <Feather name="film" size={15} color={TB_COLOR} />
+              <Text style={[styles.sectionTitle, { color: TB_COLOR }]}>2. Arquivo</Text>
+            </View>
+            {files.map((f, i) => {
+              const qColor = qualityColors[f.quality] ?? "rgba(255,255,255,0.4)";
+              return (
+                <Pressable
+                  key={i} onPress={() => setSelectedFileIdx(i)}
+                  style={{ flexDirection: "row", alignItems: "flex-start", gap: 10, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.05)" }}
+                >
+                  <Feather name={selectedFileIdx === i ? "check-circle" : "circle"} size={18} color={selectedFileIdx === i ? TB_COLOR : "rgba(255,255,255,0.25)"} style={{ marginTop: 2 }} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600", marginBottom: 4 }} numberOfLines={2}>{f.name}</Text>
+                    <TBFileChip f={f} qColor={qColor} />
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <View style={[styles.sectionCard, { marginTop: 12, borderColor: "rgba(245,158,11,0.15)" }]}>
+            <View style={styles.sectionTitleRow}>
+              <Feather name="database" size={15} color={TB_COLOR} />
+              <Text style={[styles.sectionTitle, { color: TB_COLOR }]}>3. Vincular ao TMDB</Text>
+            </View>
+            <Text style={styles.fieldLabel}>Buscar filme ou série</Text>
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              <TextInput
+                style={[styles.input, { flex: 1 }]}
+                placeholder="Ex: Interstellar, Breaking Bad..."
+                placeholderTextColor="rgba(255,255,255,0.25)"
+                value={tmdbQuery}
+                onChangeText={setTmdbQuery}
+                onSubmitEditing={searchTmdb}
+                returnKeyType="search"
+                autoCapitalize="words"
+              />
+              <Pressable style={[styles.actionBtn, { paddingHorizontal: 14, backgroundColor: "rgba(245,158,11,0.2)" }]} onPress={searchTmdb} disabled={tmdbSearching}>
+                {tmdbSearching ? <ActivityIndicator color={TB_COLOR} size="small" /> : <Feather name="search" size={16} color={TB_COLOR} />}
+              </Pressable>
+            </View>
+
+            {tmdbError && <View style={styles.errorBox}><Feather name="alert-circle" size={14} color="#f87171" /><Text style={styles.errorBoxText}>{tmdbError}</Text></View>}
+
+            {tmdbResults.length > 0 && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 10 }}>
+                {tmdbResults.map((t) => (
+                  <Pressable key={t.id} onPress={() => selectTmdb(t)} style={{ width: 90, marginRight: 10, alignItems: "center" }}>
+                    {t.poster_path ? (
+                      <Image source={{ uri: TMDB_IMG(t.poster_path, "w185") ?? "" }} style={{ width: 80, height: 120, borderRadius: 8, borderWidth: 2, borderColor: "rgba(255,255,255,0.1)" }} />
+                    ) : (
+                      <View style={{ width: 80, height: 120, borderRadius: 8, backgroundColor: "rgba(255,255,255,0.08)", alignItems: "center", justifyContent: "center" }}>
+                        <Feather name="film" size={24} color="rgba(255,255,255,0.3)" />
+                      </View>
+                    )}
+                    <Text style={{ color: "#fff", fontSize: 10, textAlign: "center", marginTop: 4 }} numberOfLines={2}>{t.title}</Text>
+                    <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 9, textAlign: "center" }}>{t.media_type === "tv" ? "Série" : "Filme"} {t.year}</Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            )}
+
+            {selectedTmdb && (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 12, marginTop: 12, backgroundColor: "rgba(245,158,11,0.08)", borderRadius: 10, padding: 12, borderWidth: 1, borderColor: "rgba(245,158,11,0.2)" }}>
+                {selectedTmdb.poster_path ? (
+                  <Image source={{ uri: TMDB_IMG(selectedTmdb.poster_path, "w185") ?? "" }} style={{ width: 50, height: 75, borderRadius: 6 }} />
+                ) : <Feather name="film" size={24} color={TB_COLOR} />}
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: TB_COLOR, fontWeight: "700", fontSize: 13 }}>{selectedTmdb.title}</Text>
+                  <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 11 }}>{selectedTmdb.media_type === "tv" ? "Série" : "Filme"} · {selectedTmdb.year}</Text>
+                  <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 10 }}>ID: {selectedTmdb.id}</Text>
+                </View>
+                <Pressable onPress={() => { setSelectedTmdb(null); setTmdbResults([]); }}>
+                  <Feather name="x" size={16} color="rgba(255,255,255,0.4)" />
+                </Pressable>
+              </View>
+            )}
+          </View>
+
+          {selectedTmdb && (
+            <View style={[styles.sectionCard, { marginTop: 12, borderColor: "rgba(245,158,11,0.15)" }]}>
+              <View style={styles.sectionTitleRow}>
+                <Feather name="tag" size={15} color={TB_COLOR} />
+                <Text style={[styles.sectionTitle, { color: TB_COLOR }]}>4. Detalhes</Text>
+              </View>
+
+              <Text style={styles.fieldLabel}>Tipo de mídia</Text>
+              <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
+                {(["movie", "tv"] as const).map((t) => (
+                  <Pressable key={t} onPress={() => setMediaType(t)} style={{ flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: "center", backgroundColor: mediaType === t ? TB_COLOR : "rgba(255,255,255,0.07)", borderWidth: 1, borderColor: mediaType === t ? TB_COLOR : "rgba(255,255,255,0.1)" }}>
+                    <Text style={{ color: mediaType === t ? "#fff" : "rgba(255,255,255,0.5)", fontWeight: "700", fontSize: 13 }}>{t === "movie" ? "🎬 Filme" : "📺 Série"}</Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              {mediaType === "tv" && (
+                <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.fieldLabel}>Temporada</Text>
+                    <TextInput style={styles.input} placeholder="1" placeholderTextColor="rgba(255,255,255,0.25)" value={season} onChangeText={setSeason} keyboardType="numeric" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.fieldLabel}>Episódio (opcional)</Text>
+                    <TextInput style={styles.input} placeholder="Ex: 1" placeholderTextColor="rgba(255,255,255,0.25)" value={episode} onChangeText={setEpisode} keyboardType="numeric" />
+                  </View>
+                </View>
+              )}
+
+              <Text style={styles.fieldLabel}>Etiqueta (exibida no app)</Text>
+              <TextInput style={[styles.input, { marginBottom: 12 }]} placeholder="Ex: T1 Ep 1 — Piloto" placeholderTextColor="rgba(255,255,255,0.25)" value={label} onChangeText={setLabel} />
+
+              <Pressable
+                style={[styles.actionBtn, { backgroundColor: "#22c55e" }, saving && { opacity: 0.6 }]}
+                onPress={register} disabled={saving}
+              >
+                {saving ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="bookmark" size={16} color="#fff" />}
+                <Text style={styles.actionBtnText}>{saving ? "Registrando…" : "Registrar no R2 (sem baixar)"}</Text>
+              </Pressable>
+            </View>
+          )}
+        </>
+      )}
+    </ScrollView>
+  );
+}
+
+function TeraBoxUploadTab() {
   const insets = useSafeAreaInsets();
   const [inputUrl, setInputUrl] = useState("");
   const [loading, setLoading] = useState(false);
@@ -1711,7 +2007,7 @@ function TeraBoxPanel() {
     setSelected(new Set());
     setJobs([]);
     try {
-      const r = await apiPost<{ list: TeraBoxFile[]; total_files: number }>("/terabox-resolve", { url: u });
+      const r = await apiPost<{ list: TeraBoxFile[] }>("/terabox-resolve", { url: u });
       const list = r.list ?? [];
       setFiles(list);
       setSelected(new Set(list.map((_, i) => i)));
@@ -1723,35 +2019,26 @@ function TeraBoxPanel() {
     const toUpload = files.filter((_, i) => selected.has(i));
     if (toUpload.length === 0) return;
     const folderBase = destFolder ? (destFolder.endsWith("/") ? destFolder : `${destFolder}/`) : "";
-    const initial: BulkJobItem[] = toUpload.map((f) => ({
-      url: f.fast_dlink, jobId: null, status: "queued", progress: 0, key: `${folderBase}${f.name}`,
-    }));
+    const initial: BulkJobItem[] = toUpload.map((f) => ({ url: f.fast_dlink, jobId: null, status: "queued", progress: 0, key: `${folderBase}${f.name}` }));
     setJobs(initial);
     setRunning(true);
-
     const runOne = async (idx: number, file: TeraBoxFile): Promise<void> => {
       try {
-        const r = await apiPost<{ jobId: string; key: string }>("/download-url", {
-          url: file.fast_dlink,
-          key: `${folderBase}${file.name}`,
-        });
+        const r = await apiPost<{ jobId: string; key: string }>("/download-url", { url: file.fast_dlink, key: `${folderBase}${file.name}` });
         setJobs((prev) => { const n = [...prev]; n[idx] = { ...n[idx], jobId: r.jobId, status: "downloading", key: r.key }; return n; });
-        await new Promise<void>((resolve) => {
+        await new Promise<void>((res) => {
           const poll = async () => {
             try {
               const j = await apiFetch<Job>(`/job/${r.jobId}`);
               setJobs((prev) => { const n = [...prev]; n[idx] = { ...n[idx], status: j.status, progress: j.progress, key: j.key ?? n[idx].key, error: j.error }; return n; });
-              if (j.status === "done" || j.status === "error") resolve();
+              if (j.status === "done" || j.status === "error") res();
               else { const t = setTimeout(poll, 1500); pollRefs.current.set(r.jobId, t); }
             } catch { const t = setTimeout(poll, 2500); pollRefs.current.set(r.jobId, t); }
           };
           poll();
         });
-      } catch (e: any) {
-        setJobs((prev) => { const n = [...prev]; n[idx] = { ...n[idx], status: "error", error: e.message }; return n; });
-      }
+      } catch (e: any) { setJobs((prev) => { const n = [...prev]; n[idx] = { ...n[idx], status: "error", error: e.message }; return n; }); }
     };
-
     let cursor = 0;
     const worker = async () => { while (cursor < toUpload.length) { const i = cursor++; await runOne(i, toUpload[i]); } };
     await Promise.all(Array.from({ length: Math.min(3, toUpload.length) }, worker));
@@ -1759,102 +2046,58 @@ function TeraBoxPanel() {
   };
 
   const reset = () => {
-    pollRefs.current.forEach((t) => clearTimeout(t));
-    pollRefs.current.clear();
-    setFiles([]);
-    setJobs([]);
-    setInputUrl("");
-    setSelected(new Set());
-    setError(null);
+    pollRefs.current.forEach((t) => clearTimeout(t)); pollRefs.current.clear();
+    setFiles([]); setJobs([]); setInputUrl(""); setSelected(new Set()); setError(null);
   };
 
-  const TB_COLOR = "#f59e0b";
+  const qualityColors: Record<string, string> = { "4K": "#a78bfa", "1080p": "#60a5fa", "720p": "#34d399", "480p": "#f59e0b", "360p": "#fb923c" };
 
   return (
     <>
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 80 }}>
-        {/* Header info */}
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 14, backgroundColor: "rgba(245,158,11,0.08)", borderRadius: 12, padding: 14, borderWidth: 1, borderColor: "rgba(245,158,11,0.2)" }}>
-          <Feather name="zap" size={20} color={TB_COLOR} />
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: TB_COLOR, fontWeight: "800", fontSize: 14 }}>TeraBox API Pro</Text>
-            <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11, marginTop: 2 }}>xAPIverse · Resolve links, detecta qualidade e envia para R2</Text>
+        <View style={[styles.sectionCard, { borderColor: "rgba(245,158,11,0.15)" }]}>
+          <View style={styles.sectionTitleRow}>
+            <Feather name="upload-cloud" size={15} color={TB_COLOR} />
+            <Text style={[styles.sectionTitle, { color: TB_COLOR }]}>Download → R2</Text>
           </View>
-        </View>
-
-        {/* Input */}
-        <View style={styles.sectionCard}>
+          <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 12, marginBottom: 10 }}>Baixa o arquivo do TeraBox diretamente para o seu bucket R2 (ocupa espaço).</Text>
           <Text style={styles.fieldLabel}>Link do TeraBox</Text>
           <TextInput
             style={[styles.input, loading && { opacity: 0.5 }]}
-            placeholder="https://1024terabox.com/s/... ou https://terabox.com/s/..."
+            placeholder="https://1024terabox.com/s/..."
             placeholderTextColor="rgba(255,255,255,0.25)"
             value={inputUrl}
             onChangeText={(v) => { setInputUrl(v); if (files.length > 0) reset(); }}
-            autoCapitalize="none"
-            autoCorrect={false}
-            editable={!loading && !running}
-            multiline
+            autoCapitalize="none" autoCorrect={false} editable={!loading && !running} multiline
           />
-
-          <Pressable
-            style={[styles.actionBtn, { backgroundColor: TB_COLOR }, (loading || running) && { opacity: 0.5 }]}
-            onPress={resolve}
-            disabled={loading || running}
-          >
+          <Pressable style={[styles.actionBtn, { backgroundColor: TB_COLOR }, (loading || running) && { opacity: 0.5 }]} onPress={resolve} disabled={loading || running}>
             {loading ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="search" size={16} color="#fff" />}
             <Text style={styles.actionBtnText}>{loading ? "Consultando API…" : "Resolver TeraBox"}</Text>
           </Pressable>
-
           {error && <View style={styles.errorBox}><Feather name="alert-circle" size={14} color="#f87171" /><Text style={styles.errorBoxText}>{error}</Text></View>}
         </View>
 
-        {/* File results */}
         {files.length > 0 && (
-          <View style={[styles.sectionCard, { marginTop: 14 }]}>
+          <View style={[styles.sectionCard, { marginTop: 14, borderColor: "rgba(245,158,11,0.15)" }]}>
             <View style={styles.sectionTitleRow}>
               <Feather name="package" size={16} color={TB_COLOR} />
               <Text style={[styles.sectionTitle, { color: TB_COLOR }]}>{files.length} arquivo{files.length > 1 ? "s" : ""} encontrado{files.length > 1 ? "s" : ""}</Text>
             </View>
-
             {files.map((f, i) => {
               const sel = selected.has(i);
               const j = jobs[i];
-              const qualityColors: Record<string, string> = { "4K": "#a78bfa", "1080p": "#60a5fa", "720p": "#34d399", "480p": "#f59e0b", "360p": "#fb923c" };
               const qColor = qualityColors[f.quality] ?? "rgba(255,255,255,0.4)";
               return (
-                <Pressable
-                  key={i}
-                  onPress={() => !running && setSelected((prev) => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n; })}
-                  style={{ flexDirection: "row", alignItems: "flex-start", gap: 10, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.05)" }}
-                >
-                  <Feather
-                    name={j?.status === "done" ? "check-circle" : sel ? "check-square" : "square"}
-                    size={20}
-                    color={j?.status === "done" ? "#4ade80" : sel ? TB_COLOR : "rgba(255,255,255,0.25)"}
-                    style={{ marginTop: 2 }}
-                  />
+                <Pressable key={i} onPress={() => !running && setSelected((prev) => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n; })}
+                  style={{ flexDirection: "row", alignItems: "flex-start", gap: 10, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.05)" }}>
+                  <Feather name={j?.status === "done" ? "check-circle" : sel ? "check-square" : "square"} size={20} color={j?.status === "done" ? "#4ade80" : sel ? TB_COLOR : "rgba(255,255,255,0.25)"} style={{ marginTop: 2 }} />
                   <View style={{ flex: 1 }}>
                     <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600", marginBottom: 4 }} numberOfLines={2}>{f.name}</Text>
-                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 4 }}>
-                      {f.quality ? <View style={{ backgroundColor: `${qColor}20`, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1, borderColor: `${qColor}50` }}><Text style={{ color: qColor, fontSize: 10, fontWeight: "700" }}>{f.quality}</Text></View> : null}
-                      {f.duration ? <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11 }}>⏱ {f.duration}</Text> : null}
-                      {f.size_formatted ? <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11 }}>💾 {f.size_formatted}</Text> : null}
-                      {f.type ? <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 11 }}>{f.type}</Text> : null}
-                    </View>
-                    {f.fast_stream_url && Object.keys(f.fast_stream_url).length > 0 && (
-                      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
-                        {Object.keys(f.fast_stream_url).map((q) => (
-                          <View key={q} style={{ backgroundColor: "rgba(255,255,255,0.06)", borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2 }}>
-                            <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 9 }}>HLS {q}</Text>
-                          </View>
-                        ))}
-                      </View>
-                    )}
+                    <TBFileChip f={f} qColor={qColor} />
                     {j && j.status !== "queued" && (
                       <View style={{ marginTop: 6 }}>
                         {j.status === "done" ? (
-                          <Text style={{ color: "#4ade80", fontSize: 11 }}>✅ Salvo em R2: {(j.key || "").split("/").pop()}</Text>
+                          <Text style={{ color: "#4ade80", fontSize: 11 }}>✅ Salvo: {(j.key || "").split("/").pop()}</Text>
                         ) : j.status === "error" ? (
                           <Text style={{ color: "#f87171", fontSize: 11 }}>❌ {j.error}</Text>
                         ) : (
@@ -1862,9 +2105,7 @@ function TeraBoxPanel() {
                             <View style={[styles.progressBar, { marginBottom: 3 }]}>
                               <View style={[styles.progressFill, { width: `${j.progress}%` as any, backgroundColor: TB_COLOR }]} />
                             </View>
-                            <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 10 }}>
-                              {j.status === "downloading" ? `Baixando… ${j.progress}%` : `Enviando para R2… ${j.progress}%`}
-                            </Text>
+                            <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 10 }}>{j.status === "downloading" ? `Baixando… ${j.progress}%` : `Enviando… ${j.progress}%`}</Text>
                           </>
                         )}
                       </View>
@@ -1873,72 +2114,196 @@ function TeraBoxPanel() {
                 </Pressable>
               );
             })}
-
             <Text style={[styles.fieldLabel, { marginTop: 14 }]}>Pasta de destino no R2</Text>
-            <Pressable
-              style={[styles.input, { flexDirection: "row", alignItems: "center", gap: 10 }, running && { opacity: 0.5 }]}
-              onPress={() => !running && setShowFolderPicker(true)}
-            >
-              <Feather name="folder" size={16} color={destFolder ? "#f59e0b" : "rgba(255,255,255,0.25)"} />
-              <Text style={{ flex: 1, color: destFolder ? "#fff" : "rgba(255,255,255,0.3)", fontSize: 14 }} numberOfLines={1}>
-                {destFolder ? destFolder.replace(/\/$/, "") : "Toque para escolher pasta…"}
-              </Text>
-              {destFolder && (
-                <Pressable onPress={() => setDestFolder("")}>
-                  <Feather name="x" size={14} color="rgba(255,255,255,0.4)" />
-                </Pressable>
-              )}
+            <Pressable style={[styles.input, { flexDirection: "row", alignItems: "center", gap: 10 }, running && { opacity: 0.5 }]} onPress={() => !running && setShowFolderPicker(true)}>
+              <Feather name="folder" size={16} color={destFolder ? TB_COLOR : "rgba(255,255,255,0.25)"} />
+              <Text style={{ flex: 1, color: destFolder ? "#fff" : "rgba(255,255,255,0.3)", fontSize: 14 }} numberOfLines={1}>{destFolder ? destFolder.replace(/\/$/, "") : "Toque para escolher pasta…"}</Text>
+              {destFolder && <Pressable onPress={() => setDestFolder("")}><Feather name="x" size={14} color="rgba(255,255,255,0.4)" /></Pressable>}
             </Pressable>
-
             <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
-              <Pressable
-                style={[styles.actionBtn, { flex: 1, backgroundColor: TB_COLOR }, (running || selected.size === 0) && { opacity: 0.4 }]}
-                onPress={sendToR2}
-                disabled={running || selected.size === 0}
-              >
+              <Pressable style={[styles.actionBtn, { flex: 1, backgroundColor: TB_COLOR }, (running || selected.size === 0) && { opacity: 0.4 }]} onPress={sendToR2} disabled={running || selected.size === 0}>
                 {running ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="upload-cloud" size={16} color="#fff" />}
-                <Text style={styles.actionBtnText}>
-                  {running
-                    ? `Enviando ${jobs.filter((j) => j.status === "done").length}/${jobs.length}…`
-                    : `Enviar ${selected.size} para R2`}
-                </Text>
+                <Text style={styles.actionBtnText}>{running ? `Enviando ${jobs.filter((j) => j.status === "done").length}/${jobs.length}…` : `Enviar ${selected.size} para R2`}</Text>
               </Pressable>
-              {!running && (
-                <Pressable style={[styles.actionBtn, { paddingHorizontal: 14, backgroundColor: "rgba(255,255,255,0.08)" }]} onPress={reset}>
-                  <Feather name="refresh-cw" size={16} color="rgba(255,255,255,0.6)" />
-                </Pressable>
-              )}
+              {!running && <Pressable style={[styles.actionBtn, { paddingHorizontal: 14, backgroundColor: "rgba(255,255,255,0.08)" }]} onPress={reset}><Feather name="refresh-cw" size={16} color="rgba(255,255,255,0.6)" /></Pressable>}
             </View>
           </View>
         )}
-
-        {/* Info card */}
-        <View style={[styles.sectionCard, { marginTop: 14 }]}>
-          <View style={styles.sectionTitleRow}>
-            <Feather name="info" size={16} color="rgba(255,255,255,0.3)" />
-            <Text style={[styles.sectionTitle, { color: "rgba(255,255,255,0.4)", fontSize: 13 }]}>Sobre a API</Text>
-          </View>
-          {[
-            ["Provedor", "xAPIverse · TeraBox API Pro"],
-            ["Funcionalidades", "Links rápidos, HLS até 4K, metadados completos"],
-            ["Formatos HLS", "360p, 480p, 720p, 1080p, 4K"],
-            ["Fluxo", "Resolve → Seleciona arquivos → Baixa direto no servidor → Salva no R2"],
-          ].map(([k, v]) => (
-            <View key={k} style={{ flexDirection: "row", gap: 8, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.04)" }}>
-              <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 12, width: 90 }}>{k}</Text>
-              <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 12, flex: 1 }}>{v}</Text>
-            </View>
-          ))}
-        </View>
       </ScrollView>
-
-      {showFolderPicker && (
-        <FolderPickerModal
-          onSelect={(prefix) => setDestFolder(prefix)}
-          onClose={() => setShowFolderPicker(false)}
-        />
-      )}
+      {showFolderPicker && <FolderPickerModal onSelect={(prefix) => setDestFolder(prefix)} onClose={() => setShowFolderPicker(false)} />}
     </>
+  );
+}
+
+function TeraBoxTestTab() {
+  const insets = useSafeAreaInsets();
+  const [inputUrl, setInputUrl] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [resolved, setResolved] = useState<{ url: string; name: string; quality?: string; duration?: string; size?: string } | null>(null);
+  const [files, setFiles] = useState<TeraBoxFile[]>([]);
+  const [selectedIdx, setSelectedIdx] = useState(0);
+
+  const resolveTerabox = async () => {
+    const u = inputUrl.trim();
+    if (!u) { setError("Cole um link do TeraBox ou URL direta"); return; }
+    setLoading(true);
+    setError(null);
+    setResolved(null);
+    setFiles([]);
+    try {
+      const r = await apiPost<{ list: TeraBoxFile[] }>("/terabox-resolve", { url: u });
+      const list = r.list ?? [];
+      if (list.length === 0) { setError("Nenhum arquivo encontrado"); return; }
+      setFiles(list);
+      const f = list[0];
+      const streamUrl = f.fast_dlink ?? f.stream_url;
+      if (!streamUrl) { setError("URL de stream não disponível para este arquivo"); return; }
+      setResolved({ url: streamUrl, name: f.name, quality: f.quality, duration: f.duration, size: f.size_formatted });
+      setSelectedIdx(0);
+    } catch (e: any) { setError(e.message ?? "Erro ao resolver"); }
+    finally { setLoading(false); }
+  };
+
+  const testDirect = () => {
+    const u = inputUrl.trim();
+    if (!u) { setError("Cole uma URL de vídeo"); return; }
+    setResolved({ url: u, name: u.split("/").pop() ?? "Vídeo" });
+    setFiles([]);
+    setError(null);
+  };
+
+  const selectFile = (idx: number) => {
+    const f = files[idx];
+    const streamUrl = f.fast_dlink ?? f.stream_url;
+    if (!streamUrl) { setError("URL de stream não disponível para este arquivo"); return; }
+    setSelectedIdx(idx);
+    setResolved({ url: streamUrl, name: f.name, quality: f.quality, duration: f.duration, size: f.size_formatted });
+  };
+
+  const qualityColors: Record<string, string> = { "4K": "#a78bfa", "1080p": "#60a5fa", "720p": "#34d399", "480p": "#f59e0b", "360p": "#fb923c" };
+
+  return (
+    <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 80 }}>
+      <View style={[styles.sectionCard, { borderColor: "rgba(245,158,11,0.15)" }]}>
+        <View style={styles.sectionTitleRow}>
+          <Feather name="play-circle" size={15} color={TB_COLOR} />
+          <Text style={[styles.sectionTitle, { color: TB_COLOR }]}>Testar Vídeo</Text>
+        </View>
+        <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 12, marginBottom: 10 }}>Cole um link do TeraBox ou uma URL direta de vídeo para testar a reprodução.</Text>
+        <TextInput
+          style={[styles.input, loading && { opacity: 0.5 }]}
+          placeholder="https://1024terabox.com/s/... ou URL direta"
+          placeholderTextColor="rgba(255,255,255,0.25)"
+          value={inputUrl}
+          onChangeText={(v) => { setInputUrl(v); setResolved(null); setFiles([]); setError(null); }}
+          autoCapitalize="none" autoCorrect={false} editable={!loading} multiline
+        />
+        <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
+          <Pressable style={[styles.actionBtn, { flex: 1, backgroundColor: TB_COLOR }, loading && { opacity: 0.5 }]} onPress={resolveTerabox} disabled={loading}>
+            {loading ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="search" size={16} color="#fff" />}
+            <Text style={styles.actionBtnText}>{loading ? "Resolvendo…" : "Resolver TeraBox"}</Text>
+          </Pressable>
+          <Pressable style={[styles.actionBtn, { paddingHorizontal: 14, backgroundColor: "rgba(255,255,255,0.08)" }]} onPress={testDirect}>
+            <Feather name="play" size={16} color="rgba(255,255,255,0.7)" />
+          </Pressable>
+        </View>
+        {error && <View style={styles.errorBox}><Feather name="alert-circle" size={14} color="#f87171" /><Text style={styles.errorBoxText}>{error}</Text></View>}
+      </View>
+
+      {files.length > 1 && (
+        <View style={[styles.sectionCard, { marginTop: 12, borderColor: "rgba(245,158,11,0.15)" }]}>
+          <View style={styles.sectionTitleRow}>
+            <Feather name="list" size={14} color={TB_COLOR} />
+            <Text style={[styles.sectionTitle, { color: TB_COLOR }]}>Selecionar arquivo</Text>
+          </View>
+          {files.map((f, i) => {
+            const qColor = qualityColors[f.quality] ?? "rgba(255,255,255,0.4)";
+            return (
+              <Pressable key={i} onPress={() => selectFile(i)} style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.05)" }}>
+                <Feather name={selectedIdx === i ? "check-circle" : "circle"} size={18} color={selectedIdx === i ? TB_COLOR : "rgba(255,255,255,0.25)"} />
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600" }} numberOfLines={1}>{f.name}</Text>
+                  <TBFileChip f={f} qColor={qColor} />
+                </View>
+              </Pressable>
+            );
+          })}
+        </View>
+      )}
+
+      {resolved && (
+        <View style={[styles.sectionCard, { marginTop: 12, borderColor: "rgba(74,222,128,0.2)" }]}>
+          <View style={styles.sectionTitleRow}>
+            <Feather name="check-circle" size={15} color="#4ade80" />
+            <Text style={[styles.sectionTitle, { color: "#4ade80" }]}>URL Resolvida</Text>
+          </View>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+            {resolved.quality && <View style={{ backgroundColor: `${qualityColors[resolved.quality] ?? "rgba(255,255,255,0.1)"}20`, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: `${qualityColors[resolved.quality] ?? "rgba(255,255,255,0.1)"}50` }}><Text style={{ color: qualityColors[resolved.quality] ?? "#fff", fontSize: 11, fontWeight: "700" }}>{resolved.quality}</Text></View>}
+            {resolved.duration && <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 12 }}>⏱ {resolved.duration}</Text>}
+            {resolved.size && <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 12 }}>💾 {resolved.size}</Text>}
+          </View>
+          <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 11, marginBottom: 4 }} numberOfLines={1}>{resolved.name}</Text>
+          <Text style={{ color: "rgba(255,255,255,0.25)", fontSize: 10, marginBottom: 14 }} numberOfLines={2}>{resolved.url}</Text>
+
+          <View style={{ borderRadius: 10, overflow: "hidden", backgroundColor: "#000", height: 200, alignItems: "center", justifyContent: "center", marginBottom: 12 }}>
+            {/* Native video element for web/Expo Go preview */}
+            {(typeof window !== "undefined") ? (
+              <video
+                src={resolved.url}
+                controls
+                autoPlay={false}
+                style={{ width: "100%", height: "100%", objectFit: "contain" } as any}
+              />
+            ) : (
+              <View style={{ alignItems: "center", gap: 10 }}>
+                <Feather name="play-circle" size={40} color={TB_COLOR} />
+                <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 13 }}>URL pronta para reprodução</Text>
+                <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 11 }}>Abra no player do app</Text>
+              </View>
+            )}
+          </View>
+        </View>
+      )}
+    </ScrollView>
+  );
+}
+
+function TeraBoxPanel() {
+  const insets = useSafeAreaInsets();
+  const [subTab, setSubTab] = useState<"register" | "upload" | "test">("register");
+
+  const subTabs = [
+    { id: "register" as const, label: "Registrar", icon: "bookmark" as const },
+    { id: "upload" as const, label: "Upload R2", icon: "upload-cloud" as const },
+    { id: "test" as const, label: "Testar", icon: "play-circle" as const },
+  ];
+
+  return (
+    <View style={{ flex: 1 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, paddingVertical: 12, backgroundColor: "rgba(245,158,11,0.05)", borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)" }}>
+        <Feather name="zap" size={16} color={TB_COLOR} />
+        <Text style={{ color: TB_COLOR, fontWeight: "800", fontSize: 13, flex: 1 }}>TeraBox API Pro</Text>
+        <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 10 }}>xAPIverse</Text>
+      </View>
+
+      <View style={{ flexDirection: "row", padding: 12, gap: 6, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)" }}>
+        {subTabs.map((t) => (
+          <Pressable
+            key={t.id}
+            onPress={() => setSubTab(t.id)}
+            style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, paddingVertical: 8, borderRadius: 10, backgroundColor: subTab === t.id ? `${TB_COLOR}22` : "rgba(255,255,255,0.06)", borderWidth: 1, borderColor: subTab === t.id ? `${TB_COLOR}55` : "rgba(255,255,255,0.08)" }}
+          >
+            <Feather name={t.icon} size={13} color={subTab === t.id ? TB_COLOR : "rgba(255,255,255,0.4)"} />
+            <Text style={{ color: subTab === t.id ? TB_COLOR : "rgba(255,255,255,0.4)", fontSize: 12, fontWeight: subTab === t.id ? "700" : "400" }}>{t.label}</Text>
+          </Pressable>
+        ))}
+      </View>
+
+      {subTab === "register" && <TeraBoxRegisterTab />}
+      {subTab === "upload" && <TeraBoxUploadTab />}
+      {subTab === "test" && <TeraBoxTestTab />}
+    </View>
   );
 }
 

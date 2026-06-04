@@ -143,6 +143,7 @@ const CATALOG_TTL_MS = 30 * 60 * 1000;
 export interface RegistryItem {
   id: string;
   r2Key: string;
+  teraboxUrl?: string;
   tmdbId: number;
   tmdbType: "movie" | "tv";
   title: string;
@@ -808,7 +809,7 @@ router.get("/registry", async (req, res) => {
 router.post("/registry/add", async (req, res) => {
   try {
     const { item } = req.body as { item: Omit<RegistryItem, "id" | "addedAt"> };
-    if (!item?.r2Key || !item?.tmdbId) { res.status(400).json({ error: "item with r2Key and tmdbId required" }); return; }
+    if ((!item?.r2Key && !item?.teraboxUrl) || !item?.tmdbId) { res.status(400).json({ error: "item with r2Key or teraboxUrl and tmdbId required" }); return; }
 
     const client = getClient();
     const bucket = getBucket();
@@ -857,6 +858,105 @@ router.delete("/registry/:id", async (req, res) => {
     if (registry.items.length === before) { res.status(404).json({ error: "item not found" }); return; }
     await writeRegistry(client, bucket, registry);
     res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "error" });
+  }
+});
+
+// ── NEW: TeraBox play (resolve on-the-fly from registry) ─────────────────────
+// GET /terabox/play?id=<registryItemId>
+router.get("/terabox/play", async (req, res) => {
+  try {
+    const { id } = req.query as { id: string };
+    if (!id) { res.status(400).json({ error: "id required" }); return; }
+
+    const client = getClient();
+    const bucket = getBucket();
+    const registry = await readRegistry(client, bucket);
+    const item = registry.items.find((i) => i.id === id);
+    if (!item) { res.status(404).json({ error: "Registry item not found" }); return; }
+    if (!item.teraboxUrl) { res.status(400).json({ error: "Item does not have a teraboxUrl" }); return; }
+
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 30_000);
+    let r: Response;
+    try {
+      r = await fetch("https://xapiverse.com/api/terabox-pro", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "xAPIverse-Key": "sk_6d7363a619840df0a07afe194613bf9a",
+        },
+        body: JSON.stringify({ url: item.teraboxUrl }),
+        signal: ctrl.signal,
+      });
+    } finally { clearTimeout(tid); }
+
+    const data = await r.json() as any;
+    if (!r.ok || data.status !== "success") {
+      res.status(400).json({ error: data.message ?? data.error ?? "TeraBox API error" });
+      return;
+    }
+
+    const list: any[] = data.list ?? [];
+    if (list.length === 0) { res.status(404).json({ error: "Nenhum arquivo encontrado no link TeraBox" }); return; }
+
+    const file = list[0];
+    const streamUrl = file.fast_dlink ?? file.stream_url ?? null;
+    if (!streamUrl) { res.status(404).json({ error: "URL de stream não disponível" }); return; }
+
+    res.json({
+      url: streamUrl,
+      name: file.name,
+      quality: file.quality,
+      duration: file.duration,
+      size: file.size_formatted,
+      fast_stream_url: file.fast_stream_url ?? {},
+      thumbnail: file.thumbnail ?? null,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "error" });
+  }
+});
+
+// ── NEW: TeraBox register (save link to registry without downloading) ──────────
+// POST /terabox/register { teraboxUrl, tmdbId, tmdbType, title, label, season?, episode? }
+router.post("/terabox/register", async (req, res) => {
+  try {
+    const { teraboxUrl, tmdbId, tmdbType, title, label, season, episode } = req.body as {
+      teraboxUrl: string;
+      tmdbId: number;
+      tmdbType: "movie" | "tv";
+      title: string;
+      label: string;
+      season?: number | null;
+      episode?: number | null;
+    };
+    if (!teraboxUrl || !tmdbId || !tmdbType) {
+      res.status(400).json({ error: "teraboxUrl, tmdbId and tmdbType are required" });
+      return;
+    }
+
+    const client = getClient();
+    const bucket = getBucket();
+    const registry = await readRegistry(client, bucket);
+
+    const newItem: RegistryItem = {
+      id: crypto.randomUUID(),
+      r2Key: "",
+      teraboxUrl,
+      tmdbId,
+      tmdbType,
+      title: title ?? "",
+      label: label ?? title ?? "",
+      season: season ?? null,
+      episode: episode ?? null,
+      addedAt: new Date().toISOString(),
+    };
+
+    registry.items.push(newItem);
+    await writeRegistry(client, bucket, registry);
+    res.json({ ok: true, item: newItem });
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? "error" });
   }

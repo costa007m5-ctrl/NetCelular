@@ -18,7 +18,7 @@ import {
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-import { apiList, apiSignedUrl } from "@/lib/r2-direct";
+import { apiList, apiSignedUrl, r2Route } from "@/lib/r2-direct";
 import { useAuth } from "@/lib/auth-context";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
 import { checkAndStartSession, heartbeatSession, endSession, getWhatsAppLink } from "@/lib/session-manager";
@@ -39,7 +39,7 @@ const TMDB_IMG = (path: string | null | undefined, size = "w1280") =>
 const TMDB_KEY = "8f0beb08cf016ec8de49e454e09879ec";
 
 interface RegistryItem {
-  id: string; r2Key: string; tmdbId: number; tmdbType: "movie" | "tv";
+  id: string; r2Key: string; teraboxUrl?: string; tmdbId: number; tmdbType: "movie" | "tv";
   title: string; label: string; season: number | null; episode: number | null;
 }
 
@@ -110,11 +110,17 @@ async function fetchSignedUrl(key: string, episodeNum?: number | null): Promise<
   return data.url;
 }
 
+async function fetchTeraboxUrl(registryItemId: string): Promise<string> {
+  const data = await r2Route<{ url: string }>(`/terabox/play?id=${encodeURIComponent(registryItemId)}`);
+  return data.url;
+}
+
 export default function R2PlayerScreen() {
   const { width: W, height: H } = useWindowDimensions();
 
   const params = useLocalSearchParams<{
     key: string;
+    registryItemId?: string;
     title: string;
     episodeName?: string;
     season?: string;
@@ -270,9 +276,10 @@ export default function R2PlayerScreen() {
     };
   }, []);
 
-  // ── Fetch signed URL ───────────────────────────────────────────────────────
+  // ── Fetch video URL (R2 signed URL or TeraBox on-the-fly) ─────────────────
+  const isTerabox = !!params.registryItemId;
   useEffect(() => {
-    if (!params.key) { setPhase("error"); setErrorMsg("Arquivo não especificado"); return; }
+    if (!isTerabox && !params.key) { setPhase("error"); setErrorMsg("Arquivo não especificado"); return; }
 
     phaseRef.current = "loading";
     setPhase("loading");
@@ -281,10 +288,14 @@ export default function R2PlayerScreen() {
     setPositionMs(0);
     setDurationMs(0);
 
-    fakeAnim.current = Animated.timing(loadProgress, { toValue: 80, duration: 4000, useNativeDriver: false });
+    fakeAnim.current = Animated.timing(loadProgress, { toValue: 80, duration: isTerabox ? 6000 : 4000, useNativeDriver: false });
     fakeAnim.current.start();
 
-    fetchSignedUrl(params.key, episode)
+    const fetchUrl = isTerabox
+      ? fetchTeraboxUrl(params.registryItemId!)
+      : fetchSignedUrl(params.key, episode);
+
+    fetchUrl
       .then((url) => {
         setVideoUrl(url);
         if (Platform.OS === "web") {
@@ -305,7 +316,7 @@ export default function R2PlayerScreen() {
         setErrorMsg(e.message ?? "Erro ao carregar");
         fakeAnim.current?.stop();
       });
-  }, [params.key]);
+  }, [params.key, params.registryItemId]);
 
   // ── Next episode ───────────────────────────────────────────────────────────
   const goToNextEpisode = useCallback(() => {
@@ -319,7 +330,8 @@ export default function R2PlayerScreen() {
       router.replace({
         pathname: "/r2-player",
         params: {
-          key: next.r2Key,
+          key: next.r2Key ?? "",
+          registryItemId: next.teraboxUrl ? next.id : "",
           title,
           episodeName: next.label,
           season: String(next.season ?? ""),
@@ -343,7 +355,8 @@ export default function R2PlayerScreen() {
         router.replace({
           pathname: "/r2-player",
           params: {
-            key: firstNextSeason.r2Key,
+            key: firstNextSeason.r2Key ?? "",
+            registryItemId: firstNextSeason.teraboxUrl ? firstNextSeason.id : "",
             title,
             episodeName: firstNextSeason.label,
             season: String(firstNextSeason.season ?? ""),
@@ -386,7 +399,8 @@ export default function R2PlayerScreen() {
     router.replace({
       pathname: "/r2-player",
       params: {
-        key: item.r2Key,
+        key: item.r2Key ?? "",
+        registryItemId: item.teraboxUrl ? item.id : "",
         title,
         episodeName: item.label,
         season: String(item.season ?? ""),

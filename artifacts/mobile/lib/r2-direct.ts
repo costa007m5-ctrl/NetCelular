@@ -612,6 +612,8 @@ export function r2Base(): string | null {
 const SERVER_ONLY_ROUTES = new Set([
   "/download-url",
   "/terabox-resolve",
+  "/terabox/register",
+  "/terabox/play",
   "/gdrive-resolve",
   "/upload",
 ]);

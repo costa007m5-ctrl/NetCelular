@@ -34,7 +34,7 @@ import { searchDriveByTitle, getDriveSeasonEpisodes, DriveMatch } from "@/lib/gd
 import { DriveItem, parseEpisodeInfo } from "@/lib/gdrive-index";
 
 interface RegistryItem {
-  id: string; r2Key: string; tmdbId: number; tmdbType: "movie" | "tv";
+  id: string; r2Key: string; teraboxUrl?: string; tmdbId: number; tmdbType: "movie" | "tv";
   title: string; label: string; season: number | null; episode: number | null;
 }
 
@@ -746,7 +746,8 @@ export default function DetailScreen() {
     router.push({
       pathname: "/r2-player",
       params: {
-        key: item.r2Key,
+        key: item.r2Key ?? "",
+        registryItemId: item.teraboxUrl ? item.id : "",
         title: details?.title ?? details?.name ?? item.title,
         label: item.label,
         backdropPath: details?.backdrop_path ?? "",
