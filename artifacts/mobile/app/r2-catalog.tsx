@@ -1802,12 +1802,39 @@ function TeraBoxRegisterTab() {
   const [directDone, setDirectDone] = useState(false);
   const [directError, setDirectError] = useState<string | null>(null);
 
+  // ── Episode inline editing ──
+  const [editingIdx, setEditingIdx] = useState<number | null>(null);
+  const [editSeason, setEditSeason] = useState("");
+  const [editEp, setEditEp] = useState("");
+  // ── Bulk season assignment ──
+  const [bulkSeasonInput, setBulkSeasonInput] = useState("");
+  // ── Season-folder splitting ──
+  const [splitBySeasons, setSplitBySeasons] = useState(false);
+  // ── Per-URL season map (when multiple URLs resolved) ──
+  const [urlSeasonMap, setUrlSeasonMap] = useState<Record<string, string>>({});
+  const [showUrlSeasonPanel, setShowUrlSeasonPanel] = useState(false);
+  // ── Detected subfolders count (from TeraBox API) ──
+  const [detectedFolderCount, setDetectedFolderCount] = useState(0);
+
   const qualityColors: Record<string, string> = { "4K": "#a78bfa", "1080p": "#60a5fa", "720p": "#34d399", "480p": "#f59e0b", "360p": "#fb923c" };
 
   const parseEpisode = (filename: string): { season: number; episode: number } | null => {
-    const m = filename.match(/[Ss](\d{1,2})[Ee](\d{1,3})/);
+    // SxxExx: S01E01
+    let m = filename.match(/[Ss](\d{1,2})[Ee](\d{1,3})/);
+    if (m) return { season: parseInt(m[1], 10), episode: parseInt(m[2], 10) };
+    // NxNN: 3x01, 1x09 (common in Brazilian naming)
+    m = filename.match(/\b(\d{1,2})[xX](\d{1,3})\b/);
     if (m) return { season: parseInt(m[1], 10), episode: parseInt(m[2], 10) };
     return null;
+  };
+
+  const parseEpOnly = (filename: string): number | null => {
+    // Extract just episode number for bulk season assignment
+    const m =
+      filename.match(/[Ee]p?(\d{1,3})/i) ??
+      filename.match(/[Ee]pisodio\s*(\d{1,3})/i) ??
+      filename.match(/\b(\d{1,3})\b/);
+    return m ? parseInt(m[1], 10) : null;
   };
 
   const guessTitle = (filename: string): string =>
@@ -1843,10 +1870,12 @@ function TeraBoxRegisterTab() {
     try {
       const allFiles: TeraBoxFile[] = [];
       const errors: string[] = [];
+      let totalFolders = 0;
       for (let ui = 0; ui < urls.length; ui++) {
         try {
           const r = await teraboxResolve(urls[ui]);
           const list = r.list ?? [];
+          totalFolders += (r as any).total_folders ?? 0;
           list.forEach((f, idx) => {
             allFiles.push({ ...(f as any), _sourceUrl: urls[ui], _fileIndexInAlbum: idx });
           });
@@ -1855,6 +1884,7 @@ function TeraBoxRegisterTab() {
         }
         setResolveProgress({ done: ui + 1, total: urls.length });
       }
+      setDetectedFolderCount(totalFolders);
       if (allFiles.length === 0) {
         setResolveError(errors.length > 0 ? errors.join(" | ") : "Nenhum arquivo encontrado nos links");
         return;
@@ -1939,7 +1969,7 @@ function TeraBoxRegisterTab() {
           label: labelStr,
           season: mediaKind === "tv" && ep ? ep.season : null,
           episode: mediaKind === "tv" && ep ? ep.episode : null,
-          r2Folder: r2Folder || undefined,
+          r2Folder: getEffectiveFolder(idx),
         });
         results[idx] = { success: true };
       } catch (e: any) {
@@ -1951,12 +1981,85 @@ function TeraBoxRegisterTab() {
     setAllDone(true);
   };
 
+  // ── Apply inline edit to a single file ──
+  const applyEpEdit = (idx: number) => {
+    const s = editSeason.trim() ? parseInt(editSeason, 10) : null;
+    const e = editEp.trim() ? parseInt(editEp, 10) : null;
+    setParsedEps((prev) => {
+      const n = [...prev];
+      const cur = n[idx];
+      if (s !== null || e !== null) {
+        n[idx] = { season: s ?? cur?.season ?? 1, episode: e ?? cur?.episode ?? 1 };
+      }
+      return n;
+    });
+    setEditingIdx(null);
+    setEditSeason("");
+    setEditEp("");
+  };
+
+  // ── Apply inline edit season to ALL selected files ──
+  const applyEpEditToAll = (idx: number) => {
+    const s = editSeason.trim() ? parseInt(editSeason, 10) : null;
+    if (!s) { applyEpEdit(idx); return; }
+    setParsedEps((prev) => prev.map((ep, i) => {
+      if (!selected.has(i)) return ep;
+      const epNum = ep?.episode ?? parseEpOnly(files[i]?.name ?? "") ?? 0;
+      return { season: s, episode: epNum };
+    }));
+    setEditingIdx(null);
+    setEditSeason("");
+    setEditEp("");
+  };
+
+  // ── Apply bulk season to selected or all files ──
+  const applyBulkSeason = (mode: "selected" | "all") => {
+    const s = parseInt(bulkSeasonInput.trim(), 10);
+    if (!s || s < 1) return;
+    setParsedEps((prev) => prev.map((ep, i) => {
+      if (mode === "selected" && !selected.has(i)) return ep;
+      const epNum = ep?.episode ?? parseEpOnly(files[i]?.name ?? "") ?? 0;
+      return { season: s, episode: epNum };
+    }));
+    setBulkSeasonInput("");
+  };
+
+  // ── Apply URL-season map to parsedEps ──
+  const applyUrlSeasonMap = () => {
+    const urlKeys = Object.keys(urlSeasonMap);
+    if (urlKeys.length === 0) return;
+    setParsedEps((prev) => prev.map((ep, i) => {
+      const srcUrl = files[i]?._sourceUrl;
+      if (!srcUrl) return ep;
+      const seasonStr = urlSeasonMap[srcUrl];
+      if (!seasonStr) return ep;
+      const s = parseInt(seasonStr, 10);
+      if (!s || s < 1) return ep;
+      const epNum = ep?.episode ?? parseEpOnly(files[i]?.name ?? "") ?? 0;
+      return { season: s, episode: epNum };
+    }));
+    setShowUrlSeasonPanel(false);
+  };
+
+  // ── Get effective R2 folder for a file (split-by-seasons) ──
+  const getEffectiveFolder = (idx: number): string | undefined => {
+    if (!splitBySeasons || mediaKind !== "tv") return r2Folder || undefined;
+    const ep = parsedEps[idx];
+    if (!ep?.season) return r2Folder || undefined;
+    const base = r2Folder ? (r2Folder.endsWith("/") ? r2Folder : `${r2Folder}/`) : "";
+    return `${base}Temporada ${ep.season}/`;
+  };
+
   const reset = () => {
     setInputUrl(""); setFiles([]); setSelected(new Set()); setParsedEps([]);
     setResolveError(null); setResolveProgress(null); setSelectedTmdb(null); setTmdbResults([]); setTmdbQuery("");
     setR2Folder(""); setNewFolderName(""); setSaveResults([]); setAllDone(false);
     setDirectMode(false); setDirectSeason(""); setDirectEpisode("");
     setDirectDone(false); setDirectError(null);
+    setEditingIdx(null); setEditSeason(""); setEditEp("");
+    setBulkSeasonInput(""); setSplitBySeasons(false);
+    setUrlSeasonMap({}); setShowUrlSeasonPanel(false);
+    setDetectedFolderCount(0);
   };
 
   const registerDirect = async () => {
@@ -2091,6 +2194,22 @@ function TeraBoxRegisterTab() {
               </Text>
             </Pressable>
           )}
+
+          {/* ── Folder detection hint ── */}
+          {detectedFolderCount > 0 && files.length > 0 && (
+            <View style={{ marginTop: 10, padding: 12, backgroundColor: "rgba(245,158,11,0.1)", borderRadius: 10,
+              borderWidth: 1, borderColor: `${TB_COLOR}44` }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                <Feather name="folder" size={14} color={TB_COLOR} />
+                <Text style={{ color: TB_COLOR, fontSize: 13, fontWeight: "700" }}>
+                  {detectedFolderCount} subpasta{detectedFolderCount > 1 ? "s" : ""} detectada{detectedFolderCount > 1 ? "s" : ""}
+                </Text>
+              </View>
+              <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 11, lineHeight: 16 }}>
+                Este link contém subpastas (ex: temporadas). Cole cada link de subpasta numa linha separada acima para processar os arquivos de cada pasta individualmente. Use "Atribuir temporada por link" para mapear cada URL a uma temporada.
+              </Text>
+            </View>
+          )}
         </View>
 
         {/* ── Registrar Direto (no-resolve mode) ── */}
@@ -2203,6 +2322,7 @@ function TeraBoxRegisterTab() {
         {/* ── Arquivos com Selecionar Tudo ── */}
         {files.length > 0 && (
           <View style={[styles.sectionCard, { borderColor: "rgba(245,158,11,0.2)", marginBottom: 12 }]}>
+            {/* Header row */}
             <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 10 }}>
               <Feather name="package" size={14} color={TB_COLOR} style={{ marginRight: 6 }} />
               <Text style={[styles.sectionTitle, { flex: 1, fontSize: 13, color: TB_COLOR }]}>
@@ -2224,41 +2344,225 @@ function TeraBoxRegisterTab() {
               </Pressable>
             </View>
 
+            {/* ── Bulk season assignment (TV only) ── */}
+            {mediaKind === "tv" && !saving && (
+              <View style={{ backgroundColor: "rgba(26,107,181,0.1)", borderRadius: 10, padding: 10, marginBottom: 10, borderWidth: 1, borderColor: "rgba(26,107,181,0.25)" }}>
+                <Text style={{ color: "#60a5fa", fontSize: 11, fontWeight: "700", marginBottom: 8 }}>Definir temporada em massa</Text>
+                <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+                  <TextInput
+                    style={[styles.input, { flex: 1, paddingVertical: 7 }]}
+                    placeholder="Nº da temporada"
+                    placeholderTextColor="rgba(255,255,255,0.25)"
+                    keyboardType="number-pad"
+                    value={bulkSeasonInput}
+                    onChangeText={setBulkSeasonInput}
+                    returnKeyType="done"
+                  />
+                  <Pressable
+                    onPress={() => applyBulkSeason("selected")}
+                    disabled={!bulkSeasonInput.trim()}
+                    style={{ paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8,
+                      backgroundColor: bulkSeasonInput.trim() ? "rgba(26,107,181,0.4)" : "rgba(255,255,255,0.07)",
+                      borderWidth: 1, borderColor: "rgba(26,107,181,0.35)" }}
+                  >
+                    <Text style={{ color: bulkSeasonInput.trim() ? "#60a5fa" : "rgba(255,255,255,0.3)", fontSize: 11, fontWeight: "700" }}>Selecionados</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => applyBulkSeason("all")}
+                    disabled={!bulkSeasonInput.trim()}
+                    style={{ paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8,
+                      backgroundColor: bulkSeasonInput.trim() ? "rgba(26,107,181,0.6)" : "rgba(255,255,255,0.07)",
+                      borderWidth: 1, borderColor: "rgba(26,107,181,0.35)" }}
+                  >
+                    <Text style={{ color: bulkSeasonInput.trim() ? "#93c5fd" : "rgba(255,255,255,0.3)", fontSize: 11, fontWeight: "700" }}>Todos</Text>
+                  </Pressable>
+                </View>
+              </View>
+            )}
+
+            {/* ── Per-URL season map (when multiple source URLs) ── */}
+            {mediaKind === "tv" && !saving && (() => {
+              const uniqueUrls = [...new Set(files.map((f) => f._sourceUrl).filter(Boolean))] as string[];
+              return uniqueUrls.length > 1 ? (
+                <View style={{ marginBottom: 10 }}>
+                  <Pressable
+                    onPress={() => setShowUrlSeasonPanel((v) => !v)}
+                    style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 8, paddingHorizontal: 10,
+                      backgroundColor: showUrlSeasonPanel ? "rgba(245,158,11,0.15)" : "rgba(255,255,255,0.05)",
+                      borderRadius: 10, borderWidth: 1, borderColor: showUrlSeasonPanel ? `${TB_COLOR}44` : "rgba(255,255,255,0.1)" }}
+                  >
+                    <Feather name="layers" size={13} color={showUrlSeasonPanel ? TB_COLOR : "rgba(255,255,255,0.45)"} />
+                    <Text style={{ color: showUrlSeasonPanel ? TB_COLOR : "rgba(255,255,255,0.55)", fontSize: 12, flex: 1, fontWeight: "600" }}>
+                      Atribuir temporada por link ({uniqueUrls.length} links)
+                    </Text>
+                    <Feather name={showUrlSeasonPanel ? "chevron-up" : "chevron-down"} size={13} color="rgba(255,255,255,0.35)" />
+                  </Pressable>
+                  {showUrlSeasonPanel && (
+                    <View style={{ marginTop: 8, backgroundColor: "rgba(245,158,11,0.07)", borderRadius: 10, padding: 10, borderWidth: 1, borderColor: `${TB_COLOR}22` }}>
+                      <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 10, marginBottom: 10 }}>
+                        Atribua uma temporada a cada link. Os episódios serão preservados.
+                      </Text>
+                      {uniqueUrls.map((url, ui) => {
+                        const fileCount = files.filter((f) => f._sourceUrl === url).length;
+                        const shortUrl = url.length > 38 ? url.slice(0, 18) + "…" + url.slice(-16) : url;
+                        return (
+                          <View key={ui} style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                            <View style={{ flex: 1 }}>
+                              <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 10 }} numberOfLines={1}>{shortUrl}</Text>
+                              <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 9 }}>{fileCount} arquivo{fileCount > 1 ? "s" : ""}</Text>
+                            </View>
+                            <TextInput
+                              style={[styles.input, { width: 72, paddingVertical: 6, textAlign: "center" }]}
+                              placeholder="T?"
+                              placeholderTextColor="rgba(255,255,255,0.2)"
+                              keyboardType="number-pad"
+                              value={urlSeasonMap[url] ?? ""}
+                              onChangeText={(v) => setUrlSeasonMap((prev) => ({ ...prev, [url]: v }))}
+                            />
+                          </View>
+                        );
+                      })}
+                      <Pressable
+                        onPress={applyUrlSeasonMap}
+                        style={{ flexDirection: "row", alignItems: "center", gap: 8, justifyContent: "center",
+                          paddingVertical: 10, backgroundColor: TB_COLOR, borderRadius: 8, marginTop: 4 }}
+                      >
+                        <Feather name="check" size={14} color="#fff" />
+                        <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>Aplicar mapeamento</Text>
+                      </Pressable>
+                    </View>
+                  )}
+                </View>
+              ) : null;
+            })()}
+
+            {/* ── File list ── */}
             {files.map((f, i) => {
               const sel = selected.has(i);
               const ep = parsedEps[i];
               const result = saveResults[i];
               const qColor = qualityColors[f.quality] ?? "rgba(255,255,255,0.4)";
+              const isEditing = editingIdx === i;
               return (
-                <Pressable
-                  key={i}
-                  onPress={() => !saving && setSelected((prev) => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n; })}
-                  style={{ flexDirection: "row", alignItems: "flex-start", gap: 10, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.05)" }}
-                >
-                  {result?.success
-                    ? <Feather name="check-circle" size={18} color="#4ade80" style={{ marginTop: 2 }} />
-                    : result && !result.success
-                      ? <Feather name="x-circle" size={18} color="#f87171" style={{ marginTop: 2 }} />
-                      : <Feather name={sel ? "check-square" : "square"} size={18} color={sel ? TB_COLOR : "rgba(255,255,255,0.25)"} style={{ marginTop: 2 }} />}
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600", marginBottom: 4 }} numberOfLines={2}>{f.name}</Text>
-                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 5 }}>
-                      {f.quality && (
-                        <View style={{ backgroundColor: `${qColor}20`, borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1, borderColor: `${qColor}50` }}>
-                          <Text style={{ color: qColor, fontSize: 10, fontWeight: "700" }}>{f.quality}</Text>
-                        </View>
-                      )}
-                      {ep && mediaKind === "tv" && (
-                        <View style={{ backgroundColor: "rgba(26,107,181,0.25)", borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1, borderColor: "rgba(26,107,181,0.5)" }}>
-                          <Text style={{ color: "#60a5fa", fontSize: 10, fontWeight: "700" }}>T{String(ep.season).padStart(2, "0")} E{String(ep.episode).padStart(2, "0")}</Text>
-                        </View>
-                      )}
-                      {f.size_formatted && <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 10 }}>{f.size_formatted}</Text>}
+                <View key={i} style={{ borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.05)" }}>
+                  <Pressable
+                    onPress={() => !saving && setSelected((prev) => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n; })}
+                    style={{ flexDirection: "row", alignItems: "flex-start", gap: 10, paddingVertical: 10 }}
+                  >
+                    {result?.success
+                      ? <Feather name="check-circle" size={18} color="#4ade80" style={{ marginTop: 2 }} />
+                      : result && !result.success
+                        ? <Feather name="x-circle" size={18} color="#f87171" style={{ marginTop: 2 }} />
+                        : <Feather name={sel ? "check-square" : "square"} size={18} color={sel ? TB_COLOR : "rgba(255,255,255,0.25)"} style={{ marginTop: 2 }} />}
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600", marginBottom: 4 }} numberOfLines={2}>{f.name}</Text>
+                      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 5, alignItems: "center" }}>
+                        {f.quality && (
+                          <View style={{ backgroundColor: `${qColor}20`, borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1, borderColor: `${qColor}50` }}>
+                            <Text style={{ color: qColor, fontSize: 10, fontWeight: "700" }}>{f.quality}</Text>
+                          </View>
+                        )}
+                        {ep && mediaKind === "tv" && (
+                          <Pressable
+                            onPress={() => {
+                              if (isEditing) { setEditingIdx(null); return; }
+                              setEditingIdx(i);
+                              setEditSeason(String(ep.season));
+                              setEditEp(String(ep.episode));
+                            }}
+                            style={{ flexDirection: "row", alignItems: "center", gap: 4,
+                              backgroundColor: isEditing ? "rgba(26,107,181,0.45)" : "rgba(26,107,181,0.25)",
+                              borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2,
+                              borderWidth: 1, borderColor: isEditing ? "#60a5fa" : "rgba(26,107,181,0.5)" }}
+                          >
+                            <Text style={{ color: "#60a5fa", fontSize: 10, fontWeight: "700" }}>T{String(ep.season).padStart(2, "0")} E{String(ep.episode).padStart(2, "0")}</Text>
+                            <Feather name="edit-2" size={9} color="#60a5fa" />
+                          </Pressable>
+                        )}
+                        {!ep && mediaKind === "tv" && !saving && (
+                          <Pressable
+                            onPress={() => { setEditingIdx(i); setEditSeason(""); setEditEp(""); }}
+                            style={{ flexDirection: "row", alignItems: "center", gap: 4,
+                              backgroundColor: isEditing ? "rgba(245,158,11,0.2)" : "rgba(255,255,255,0.06)",
+                              borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2,
+                              borderWidth: 1, borderColor: isEditing ? `${TB_COLOR}66` : "rgba(255,255,255,0.1)" }}
+                          >
+                            <Feather name="plus" size={9} color={isEditing ? TB_COLOR : "rgba(255,255,255,0.4)"} />
+                            <Text style={{ color: isEditing ? TB_COLOR : "rgba(255,255,255,0.4)", fontSize: 10 }}>S×E</Text>
+                          </Pressable>
+                        )}
+                        {f.size_formatted && <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 10 }}>{f.size_formatted}</Text>}
+                        {splitBySeasons && mediaKind === "tv" && ep?.season && (
+                          <View style={{ backgroundColor: "rgba(245,158,11,0.12)", borderRadius: 5, paddingHorizontal: 5, paddingVertical: 2, borderWidth: 1, borderColor: "rgba(245,158,11,0.3)" }}>
+                            <Text style={{ color: TB_COLOR, fontSize: 9, fontWeight: "700" }}>📁 T{ep.season}</Text>
+                          </View>
+                        )}
+                      </View>
+                      {result && !result.success && <Text style={{ color: "#f87171", fontSize: 10, marginTop: 3 }}>❌ {result.error}</Text>}
+                      {result?.success && <Text style={{ color: "#4ade80", fontSize: 10, marginTop: 3 }}>✅ Registrado!</Text>}
                     </View>
-                    {result && !result.success && <Text style={{ color: "#f87171", fontSize: 10, marginTop: 3 }}>❌ {result.error}</Text>}
-                    {result?.success && <Text style={{ color: "#4ade80", fontSize: 10, marginTop: 3 }}>✅ Registrado!</Text>}
-                  </View>
-                </Pressable>
+                  </Pressable>
+
+                  {/* ── Inline episode editor ── */}
+                  {isEditing && !saving && (
+                    <View style={{ backgroundColor: "rgba(26,107,181,0.12)", borderRadius: 10, padding: 10, marginBottom: 10, borderWidth: 1, borderColor: "rgba(26,107,181,0.3)" }}>
+                      <Text style={{ color: "#60a5fa", fontSize: 11, fontWeight: "700", marginBottom: 8 }}>Editar temporada / episódio</Text>
+                      <View style={{ flexDirection: "row", gap: 8, marginBottom: 10 }}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 10, marginBottom: 4 }}>Temporada</Text>
+                          <TextInput
+                            style={[styles.input, { paddingVertical: 8 }]}
+                            placeholder="1"
+                            placeholderTextColor="rgba(255,255,255,0.2)"
+                            keyboardType="number-pad"
+                            value={editSeason}
+                            onChangeText={setEditSeason}
+                            autoFocus
+                          />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 10, marginBottom: 4 }}>Episódio</Text>
+                          <TextInput
+                            style={[styles.input, { paddingVertical: 8 }]}
+                            placeholder="1"
+                            placeholderTextColor="rgba(255,255,255,0.2)"
+                            keyboardType="number-pad"
+                            value={editEp}
+                            onChangeText={setEditEp}
+                          />
+                        </View>
+                      </View>
+                      <View style={{ flexDirection: "row", gap: 8 }}>
+                        <Pressable
+                          onPress={() => applyEpEdit(i)}
+                          style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
+                            paddingVertical: 9, backgroundColor: "rgba(26,107,181,0.5)", borderRadius: 8,
+                            borderWidth: 1, borderColor: "rgba(26,107,181,0.6)" }}
+                        >
+                          <Feather name="check" size={13} color="#60a5fa" />
+                          <Text style={{ color: "#60a5fa", fontWeight: "700", fontSize: 12 }}>Este arquivo</Text>
+                        </Pressable>
+                        {selected.size > 1 && (
+                          <Pressable
+                            onPress={() => applyEpEditToAll(i)}
+                            style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
+                              paddingVertical: 9, backgroundColor: "rgba(26,107,181,0.3)", borderRadius: 8,
+                              borderWidth: 1, borderColor: "rgba(26,107,181,0.5)" }}
+                          >
+                            <Feather name="layers" size={13} color="#93c5fd" />
+                            <Text style={{ color: "#93c5fd", fontWeight: "700", fontSize: 12 }}>Selecionados (T{editSeason||"?"})</Text>
+                          </Pressable>
+                        )}
+                        <Pressable
+                          onPress={() => { setEditingIdx(null); setEditSeason(""); setEditEp(""); }}
+                          style={{ paddingHorizontal: 14, paddingVertical: 9, backgroundColor: "rgba(255,255,255,0.07)", borderRadius: 8 }}
+                        >
+                          <Feather name="x" size={14} color="rgba(255,255,255,0.4)" />
+                        </Pressable>
+                      </View>
+                    </View>
+                  )}
+                </View>
               );
             })}
           </View>
@@ -2364,6 +2668,62 @@ function TeraBoxRegisterTab() {
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8, backgroundColor: "rgba(245,158,11,0.1)", borderRadius: 8, padding: 8, borderWidth: 1, borderColor: "rgba(245,158,11,0.25)" }}>
                 <Feather name="check-circle" size={13} color="#f59e0b" />
                 <Text style={{ color: "#f59e0b", fontSize: 12, fontWeight: "600" }} numberOfLines={1}>📁 {r2Folder.replace(/\/$/, "")}</Text>
+              </View>
+            )}
+
+            {/* ── Split-by-seasons toggle (TV only) ── */}
+            {mediaKind === "tv" && (
+              <View style={{ marginTop: 12 }}>
+                <Pressable
+                  onPress={() => setSplitBySeasons((v) => !v)}
+                  style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10, paddingHorizontal: 12,
+                    backgroundColor: splitBySeasons ? "rgba(245,158,11,0.15)" : "rgba(255,255,255,0.04)",
+                    borderRadius: 10, borderWidth: 1,
+                    borderColor: splitBySeasons ? `${TB_COLOR}55` : "rgba(255,255,255,0.1)" }}
+                >
+                  <Feather name="git-branch" size={14} color={splitBySeasons ? TB_COLOR : "rgba(255,255,255,0.35)"} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: splitBySeasons ? TB_COLOR : "rgba(255,255,255,0.55)", fontSize: 12, fontWeight: "600" }}>
+                      Dividir em subpastas por temporada
+                    </Text>
+                    <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 10, marginTop: 2 }}>
+                      {splitBySeasons
+                        ? `Cada arquivo vai para ${r2Folder ? `${r2Folder.replace(/\/$/, "")}/` : ""}Temporada N/`
+                        : "Ativa: cada temporada vai para uma subpasta separada"}
+                    </Text>
+                  </View>
+                  <View style={{ width: 36, height: 20, borderRadius: 10,
+                    backgroundColor: splitBySeasons ? TB_COLOR : "rgba(255,255,255,0.15)",
+                    justifyContent: "center", paddingHorizontal: 2 }}>
+                    <View style={{ width: 16, height: 16, borderRadius: 8, backgroundColor: "#fff",
+                      alignSelf: splitBySeasons ? "flex-end" : "flex-start" }} />
+                  </View>
+                </Pressable>
+
+                {splitBySeasons && (() => {
+                  const seasonSet = new Set<number>();
+                  parsedEps.forEach((ep, i) => { if (selected.has(i) && ep?.season) seasonSet.add(ep.season); });
+                  const seasons = [...seasonSet].sort((a, b) => a - b);
+                  if (seasons.length === 0) return null;
+                  const base = r2Folder ? (r2Folder.endsWith("/") ? r2Folder : `${r2Folder}/`) : "";
+                  return (
+                    <View style={{ marginTop: 8, backgroundColor: "rgba(245,158,11,0.07)", borderRadius: 8, padding: 10, borderWidth: 1, borderColor: `${TB_COLOR}22` }}>
+                      <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 10, marginBottom: 6 }}>Pastas que serão criadas:</Text>
+                      {seasons.map((s) => {
+                        const count = parsedEps.filter((ep, i) => selected.has(i) && ep?.season === s).length;
+                        return (
+                          <View key={s} style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                            <Feather name="folder" size={12} color={TB_COLOR} />
+                            <Text style={{ color: TB_COLOR, fontSize: 11, fontWeight: "600", flex: 1 }}>
+                              {base}Temporada {s}/
+                            </Text>
+                            <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 10 }}>{count} ep.</Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  );
+                })()}
               </View>
             )}
           </View>
