@@ -66,7 +66,4 @@ channel = "stable-25_05"
 [userenv]
 
 [userenv.shared]
-CF_ACCOUNT_ID = "9827b92a6b3a621e8c6f50274e68f37b"
-CF_API_TOKEN = "cfat_3R9XbiOI4RQUeAhwjwbSMS7ihhqoDi1RSDkOwUW4122bff89"
-CF_D1_DATABASE_ID = "92d64f95-6e44-4350-ac29-8f472a998d17"
 PORT = "8080"
