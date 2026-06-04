@@ -290,9 +290,10 @@ export default function R2PlayerScreen() {
 
   // ── Computed seasons ────────────────────────────────────────────────────────
   const displaySeasons: number[] = (() => {
-    if (r2Seasons.length > 0) return r2Seasons;
-    const folderSeasons = [...new Set(r2SeasonFolders.map((i) => i.season as number))].sort((a, b) => a - b);
-    if (folderSeasons.length > 0) return folderSeasons;
+    // Union episode-level seasons AND folder-level seasons so neither type hides the other
+    const folderSeasons = [...new Set(r2SeasonFolders.map((i) => i.season as number))];
+    const allRegistered = [...new Set([...r2Seasons, ...folderSeasons])].sort((a, b) => a - b);
+    if (allRegistered.length > 0) return allRegistered;
     return Array.from({ length: tmdbTotalSeasons }, (_, i) => i + 1);
   })();
 
