@@ -3,12 +3,14 @@ import {
   getAllPushTokens,
   sendToTokens,
   sendToAll,
+  addPushLog,
+  getPushLog,
 } from "../lib/push-notifications.js";
 
 const router = Router();
 
 router.post("/send", async (req, res) => {
-  const { title, body, data, imageUrl, tokens } = req.body ?? {};
+  const { title, body, data, imageUrl, tokens, source } = req.body ?? {};
 
   if (!title || typeof title !== "string") {
     res.status(400).json({ error: "title é obrigatório" });
@@ -29,6 +31,15 @@ router.post("/send", async (req, res) => {
       result = await sendToAll(title, body, data ?? {}, imageUrl);
     }
 
+    addPushLog({
+      title,
+      body,
+      source: typeof source === "string" ? source : "admin",
+      sent: result.sent,
+      failed: result.failed,
+      total: result.total ?? (result.sent + result.failed),
+    });
+
     res.json({ ok: true, ...result, errors: (result as any).errors ?? [] });
   } catch (e: any) {
     res.status(500).json({ error: e?.message ?? "Erro interno ao enviar push" });
@@ -47,6 +58,10 @@ router.get("/stats", async (_req, res) => {
   } catch {
     res.json({ total: 0, expo: 0, native: 0, fcmV1Active: false });
   }
+});
+
+router.get("/log", (_req, res) => {
+  res.json({ entries: getPushLog() });
 });
 
 export default router;

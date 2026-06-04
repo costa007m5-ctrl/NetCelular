@@ -554,6 +554,10 @@ export default function AdminScreen() {
   const [sendingMass, setSendingMass] = useState(false);
   const [lastMassResult, setLastMassResult] = useState<{ sent: number; failed: number } | null>(null);
 
+  interface PushLogEntry { id: string; sentAt: string; title: string; body: string; source: string; sent: number; failed: number; total: number; }
+  const [pushLog, setPushLog] = useState<PushLogEntry[]>([]);
+  const [pushLogLoading, setPushLogLoading] = useState(false);
+
   const loadRequests = useCallback(async () => {
     if (!isSupabaseConfigured) return;
     try {
@@ -569,6 +573,23 @@ export default function AdminScreen() {
       const tokens = await db.pushTokens.getAll();
       setTokenCount(tokens.length);
     } catch {}
+  }, []);
+
+  const loadPushLog = useCallback(async () => {
+    const base = getApiBase();
+    if (!base) return;
+    setPushLogLoading(true);
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8000);
+      const res = await fetch(`${base}/push/log`, { signal: controller.signal });
+      clearTimeout(timer);
+      if (res.ok) {
+        const json = await res.json();
+        setPushLog(json.entries ?? []);
+      }
+    } catch {}
+    finally { setPushLogLoading(false); }
   }, []);
 
   const handleSendTestNotification = async () => {
@@ -600,8 +621,8 @@ export default function AdminScreen() {
 
   useEffect(() => {
     if (activeTab === "indicacoes") loadRequests();
-    if (activeTab === "notifs") loadTokenCount();
-  }, [activeTab, loadRequests, loadTokenCount]);
+    if (activeTab === "notifs") { loadTokenCount(); loadPushLog(); }
+  }, [activeTab, loadRequests, loadTokenCount, loadPushLog]);
 
   const handleMarkAsAdded = async (tmdbId: number, type: "movie" | "tv", title: string) => {
     const key = `${type}_${tmdbId}`;
@@ -967,8 +988,89 @@ export default function AdminScreen() {
         {/* ── ABA PUSH ── */}
         {activeTab === "notifs" && (
           <>
+            {/* ── HISTÓRICO DE ENVIOS ── */}
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 20, marginBottom: 10 }}>
+              <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>HISTÓRICO DE ENVIOS</Text>
+              <TouchableOpacity onPress={loadPushLog} style={[styles.refreshBtn, { backgroundColor: colors.cardElevated ?? colors.border }]}>
+                <Feather name="refresh-cw" size={12} color={colors.mutedForeground} />
+                <Text style={[styles.refreshText, { color: colors.mutedForeground }]}>Atualizar</Text>
+              </TouchableOpacity>
+            </View>
+
+            {pushLogLoading ? (
+              <View style={[{ backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1, borderRadius: 16, padding: 24, alignItems: "center", marginBottom: 20 }]}>
+                <ActivityIndicator color={RED} />
+                <Text style={[{ fontSize: 12, marginTop: 8 }, { color: colors.mutedForeground }]}>Carregando histórico...</Text>
+              </View>
+            ) : pushLog.length === 0 ? (
+              <View style={[{ backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1, borderRadius: 16, padding: 20, alignItems: "center", marginBottom: 20 }]}>
+                <Feather name="inbox" size={28} color={colors.mutedForeground} style={{ marginBottom: 8 }} />
+                <Text style={[{ fontSize: 13, fontWeight: "600" }, { color: colors.mutedForeground }]}>Nenhum envio registrado</Text>
+                <Text style={[{ fontSize: 11, marginTop: 4, textAlign: "center" }, { color: colors.mutedForeground }]}>
+                  O histórico é mantido em memória pelo servidor. Reaparecem após o próximo envio.
+                </Text>
+              </View>
+            ) : (
+              <View style={[{ backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1, borderRadius: 16, overflow: "hidden", marginBottom: 20 }]}>
+                {pushLog.slice(0, 20).map((entry, i) => {
+                  const sentAt = new Date(entry.sentAt);
+                  const now = Date.now();
+                  const diffMs = now - sentAt.getTime();
+                  const diffMin = Math.floor(diffMs / 60000);
+                  const diffH = Math.floor(diffMin / 60);
+                  const timeAgo = diffMin < 1 ? "agora" : diffMin < 60 ? `${diffMin}min atrás` : diffH < 24 ? `${diffH}h atrás` : sentAt.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+                  const hasFail = entry.failed > 0;
+                  const allFail = entry.sent === 0 && entry.failed > 0;
+                  const sourceColors: Record<string, string> = { auto: "#3b82f6", admin: "#8b5cf6", r2: "#10b981", terabox: "#f59e0b" };
+                  const srcColor = sourceColors[entry.source] ?? "#6b7280";
+                  return (
+                    <View key={entry.id} style={[{ padding: 14 }, i > 0 && { borderTopWidth: 1, borderTopColor: colors.border }]}>
+                      <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
+                        <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: allFail ? "#e5091415" : "#4caf5015", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                          <Feather name={allFail ? "x-circle" : "check-circle"} size={18} color={allFail ? RED : "#4caf50"} />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 2 }}>
+                            <Text style={[{ fontSize: 13, fontWeight: "700", flexShrink: 1 }, { color: colors.foreground }]} numberOfLines={1}>{entry.title}</Text>
+                            <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, backgroundColor: `${srcColor}20`, borderWidth: 1, borderColor: `${srcColor}40` }}>
+                              <Text style={{ fontSize: 9, fontWeight: "700", color: srcColor, letterSpacing: 0.5 }}>{entry.source.toUpperCase()}</Text>
+                            </View>
+                          </View>
+                          <Text style={[{ fontSize: 11, marginBottom: 8 }, { color: colors.mutedForeground }]} numberOfLines={2}>{entry.body}</Text>
+                          <View style={{ flexDirection: "row", gap: 12, alignItems: "center" }}>
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                              <Feather name="check" size={11} color="#4caf50" />
+                              <Text style={{ fontSize: 11, fontWeight: "700", color: "#4caf50" }}>{entry.sent}</Text>
+                              <Text style={[{ fontSize: 11 }, { color: colors.mutedForeground }]}>enviados</Text>
+                            </View>
+                            {hasFail && (
+                              <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                                <Feather name="x" size={11} color={RED} />
+                                <Text style={{ fontSize: 11, fontWeight: "700", color: RED }}>{entry.failed}</Text>
+                                <Text style={[{ fontSize: 11 }, { color: colors.mutedForeground }]}>falharam</Text>
+                              </View>
+                            )}
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                              <Feather name="smartphone" size={11} color={colors.mutedForeground} />
+                              <Text style={[{ fontSize: 11 }, { color: colors.mutedForeground }]}>{entry.total} total</Text>
+                            </View>
+                            <Text style={[{ fontSize: 11, marginLeft: "auto" as any }, { color: colors.mutedForeground }]}>{timeAgo}</Text>
+                          </View>
+                        </View>
+                      </View>
+                    </View>
+                  );
+                })}
+                {pushLog.length > 20 && (
+                  <View style={[{ padding: 12, alignItems: "center" }, { borderTopWidth: 1, borderTopColor: colors.border }]}>
+                    <Text style={[{ fontSize: 12 }, { color: colors.mutedForeground }]}>+ {pushLog.length - 20} entradas mais antigas</Text>
+                  </View>
+                )}
+              </View>
+            )}
+
             {/* Contagem de tokens */}
-            <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginTop: 20 }]}>TOKENS REGISTRADOS</Text>
+            <Text style={[styles.sectionLabel, { color: colors.mutedForeground }]}>TOKENS REGISTRADOS</Text>
 
             {/* Card principal: tokens vs total de usuários */}
             <View style={[{ backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1, borderRadius: 16, padding: 16, marginBottom: 12 }]}>

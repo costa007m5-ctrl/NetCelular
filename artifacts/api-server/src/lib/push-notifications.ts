@@ -296,6 +296,35 @@ export async function sendToAll(
   return { ...result, total: tokens.length };
 }
 
+// ─── In-memory push log ────────────────────────────────────────────────────
+
+export interface PushLogEntry {
+  id: string;
+  sentAt: string;
+  title: string;
+  body: string;
+  source: string;
+  sent: number;
+  failed: number;
+  total: number;
+}
+
+const MAX_LOG = 100;
+const pushLog: PushLogEntry[] = [];
+
+export function addPushLog(entry: Omit<PushLogEntry, "id" | "sentAt">): void {
+  pushLog.unshift({
+    id: Math.random().toString(36).slice(2),
+    sentAt: new Date().toISOString(),
+    ...entry,
+  });
+  if (pushLog.length > MAX_LOG) pushLog.length = MAX_LOG;
+}
+
+export function getPushLog(): PushLogEntry[] {
+  return [...pushLog];
+}
+
 // ─── Episode / content helpers ─────────────────────────────────────────────
 
 async function storeNewEpisode(ep: {
@@ -322,7 +351,8 @@ export async function notifyNewEpisode(
   season: number,
   episode: number,
   episodeTitle: string,
-  posterPath?: string | null
+  posterPath?: string | null,
+  source = "auto"
 ): Promise<void> {
   const posterUrl = posterPath
     ? (posterPath.startsWith("http") ? posterPath : `https://image.tmdb.org/t/p/w780${posterPath}`)
@@ -335,12 +365,14 @@ export async function notifyNewEpisode(
   const body = `${showTitle} — T${season}:E${episode}${episodeTitle ? `: ${episodeTitle}` : ""}`;
   const data = { type: "new_episode", tmdbId, contentType: "tv", season, episode, deepLinkTo: "episodes", title: showTitle };
   const result = await sendToAll(title, body, data, posterUrl);
+  addPushLog({ title, body, source, sent: result.sent, failed: result.failed, total: result.total });
   console.log(`[push] new-episode "${showTitle}" S${season}E${episode} → sent:${result.sent} total:${result.total}`);
 }
 
 export async function notifyNewContent(
   newCount: number,
-  sampleTitle: string | null
+  sampleTitle: string | null,
+  source = "auto"
 ): Promise<void> {
   const title = "🔥 Novidades no NETPLAY";
   const body =
@@ -351,6 +383,7 @@ export async function notifyNewContent(
       : `${newCount} novo${newCount > 1 ? "s títulos" : " título"} adicionado${newCount > 1 ? "s" : ""} ao catálogo!`;
 
   const result = await sendToAll(title, body, { type: "new_content", count: newCount });
+  addPushLog({ title, body, source, sent: result.sent, failed: result.failed, total: result.total });
   console.log(
     `[push] new-content → sent:${result.sent} failed:${result.failed} skipped:${result.skipped} total:${result.total}`
   );
