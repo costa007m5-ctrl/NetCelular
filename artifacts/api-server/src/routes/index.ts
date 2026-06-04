@@ -7,6 +7,7 @@ import driveRouter from "./drive";
 import gstreamRouter from "./gstream";
 import r2Router from "./r2";
 import pushRouter from "./push";
+import d1ContentRouter from "./d1-content";
 
 const router: IRouter = Router();
 
@@ -18,5 +19,6 @@ router.use("/drive", driveRouter);
 router.use("/gstream", gstreamRouter);
 router.use("/r2", r2Router);
 router.use("/push", pushRouter);
+router.use("/content", d1ContentRouter);
 
 export default router;
