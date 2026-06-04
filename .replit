@@ -29,7 +29,7 @@ outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "cd artifacts/api-server && PORT=8080 node dist/index.mjs"
+args = "cd artifacts/api-server && pnpm run build && node dist/index.mjs"
 waitForPort = 8080
 
 [agent]
@@ -42,11 +42,7 @@ timeoutMs = 20000
 
 [[ports]]
 localPort = 8080
-externalPort = 80
-
-[[ports]]
-localPort = 8081
-externalPort = 8081
+externalPort = 8080
 
 [[ports]]
 localPort = 8082
@@ -69,3 +65,4 @@ channel = "stable-25_05"
 CF_ACCOUNT_ID = "9827b92a6b3a621e8c6f50274e68f37b"
 CF_API_TOKEN = "cfat_3R9XbiOI4RQUeAhwjwbSMS7ihhqoDi1RSDkOwUW4122bff89"
 CF_D1_DATABASE_ID = "92d64f95-6e44-4350-ac29-8f472a998d17"
+PORT = "8080"
