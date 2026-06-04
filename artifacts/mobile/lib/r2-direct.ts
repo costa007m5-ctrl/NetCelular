@@ -748,3 +748,80 @@ export async function r2Route<T>(path: string, options?: RequestInit): Promise<T
 
   return result as T;
 }
+
+// ─── TeraBox direct client (chamado direto do app, sem passar pelo servidor) ──
+// O servidor Replit tem latência/bloqueio ao chamar xapiverse.com.
+// Chamar direto do telefone é mais rápido e confiável.
+
+const XAPIVERSE_KEY = "sk_6d7363a619840df0a07afe194613bf9a";
+const XAPIVERSE_URL = "https://xapiverse.com/api/terabox-pro";
+const TB_ALIASES = ["1024terabox.com","1024tera.com","teraboxapp.com","terasharelink.com","4funbox.com","momerybox.com","terabox.app"];
+
+function normalizeTbUrl(url: string): string {
+  try {
+    const u = new URL(url.trim());
+    if (TB_ALIASES.includes(u.hostname)) u.hostname = "www.terabox.com";
+    return u.toString();
+  } catch { return url.trim(); }
+}
+
+export interface TeraBoxFileEntry {
+  name: string;
+  size?: number;
+  size_formatted?: string;
+  type?: string;
+  quality?: string;
+  duration?: string;
+  fast_dlink?: string;
+  stream_url?: string;
+  fast_stream_url?: Record<string, string>;
+  thumbnail?: string;
+  fs_id?: number;
+  file_path?: string;
+}
+
+export async function teraboxResolve(
+  url: string,
+  timeoutMs = 25_000,
+): Promise<{ list: TeraBoxFileEntry[]; total_files: number }> {
+  const normalized = normalizeTbUrl(url);
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(XAPIVERSE_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "xAPIverse-Key": XAPIVERSE_KEY },
+      body: JSON.stringify({ url: normalized }),
+      signal: ctrl.signal,
+    });
+    clearTimeout(tid);
+    const data = await res.json() as any;
+    if (data.status !== "success") {
+      throw new Error(data.message ?? data.error ?? "TeraBox API error");
+    }
+    const list: TeraBoxFileEntry[] = data.list ?? [];
+    return { list, total_files: list.length };
+  } catch (e: any) {
+    clearTimeout(tid);
+    if (e?.name === "AbortError") throw new Error("Tempo esgotado ao resolver TeraBox (25s)");
+    throw e;
+  }
+}
+
+export async function teraboxPlay(
+  url: string,
+  fileIndex?: number,
+  fileName?: string,
+): Promise<{ url: string; name: string }> {
+  const { list } = await teraboxResolve(url);
+  if (list.length === 0) throw new Error("Nenhum arquivo encontrado no link TeraBox");
+  let file: TeraBoxFileEntry | undefined;
+  if (fileName) file = list.find((f) => f.name === fileName);
+  if (!file) {
+    const idx = typeof fileIndex === "number" && fileIndex < list.length ? fileIndex : 0;
+    file = list[idx];
+  }
+  const streamUrl = file.fast_dlink ?? file.stream_url;
+  if (!streamUrl) throw new Error("URL de stream não disponível");
+  return { url: streamUrl, name: file.name };
+}

@@ -23,7 +23,7 @@ import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/lib/auth-context";
-import { r2Route } from "@/lib/r2-direct";
+import { r2Route, teraboxResolve } from "@/lib/r2-direct";
 
 const UPLOADED_URLS_KEY = "r2_uploaded_urls_v1";
 
@@ -758,7 +758,7 @@ function UploadPanel() {
     setTeraSelected(new Set());
     setTeraJobs([]);
     try {
-      const r = await apiPost<{ list: any[]; total_files: number }>("/terabox-resolve", { url: u });
+      const r = await teraboxResolve(u);
       setTeraFiles(r.list ?? []);
       const allIdxs = new Set((r.list ?? []).map((_: any, i: number) => i));
       setTeraSelected(allIdxs);
@@ -1803,10 +1803,10 @@ function TeraBoxRegisterTab() {
     setSaveResults([]);
     setAllDone(false);
     try {
-      const r = await apiPost<{ list: TeraBoxFile[] }>("/terabox-resolve", { url: u });
+      const r = await teraboxResolve(u);
       const list = r.list ?? [];
       if (list.length === 0) { setResolveError("Nenhum arquivo encontrado no link"); return; }
-      setFiles(list);
+      setFiles(list as any[]);
       setSelected(new Set(list.map((_, i) => i)));
       const parsed = list.map((f) => parseEpisode(f.name));
       setParsedEps(parsed);
@@ -2370,9 +2370,9 @@ function TeraBoxUploadTab() {
     setSelected(new Set());
     setJobs([]);
     try {
-      const r = await apiPost<{ list: TeraBoxFile[] }>("/terabox-resolve", { url: u });
+      const r = await teraboxResolve(u);
       const list = r.list ?? [];
-      setFiles(list);
+      setFiles(list as any[]);
       setSelected(new Set(list.map((_, i) => i)));
     } catch (e: any) { setError(e.message ?? "Erro na API TeraBox"); }
     finally { setLoading(false); }
@@ -2515,10 +2515,10 @@ function TeraBoxTestTab() {
     setResolved(null);
     setFiles([]);
     try {
-      const r = await apiPost<{ list: TeraBoxFile[] }>("/terabox-resolve", { url: u });
+      const r = await teraboxResolve(u);
       const list = r.list ?? [];
       if (list.length === 0) { setError("Nenhum arquivo encontrado"); return; }
-      setFiles(list);
+      setFiles(list as any[]);
       const f = list[0];
       const streamUrl = f.fast_dlink ?? f.stream_url;
       if (!streamUrl) { setError("URL de stream não disponível para este arquivo"); return; }

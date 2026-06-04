@@ -20,7 +20,7 @@ import {
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-import { apiList, apiSignedUrl, r2Route } from "@/lib/r2-direct";
+import { apiList, apiSignedUrl, r2Route, teraboxPlay } from "@/lib/r2-direct";
 import { useAuth } from "@/lib/auth-context";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
 import { checkAndStartSession, heartbeatSession, endSession, getWhatsAppLink } from "@/lib/session-manager";
@@ -56,7 +56,8 @@ const SPEEDS = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0] as const;
 const SLEEP_PRESETS = [15, 30, 45, 60, 90] as const;
 
 interface RegistryItem {
-  id: string; r2Key: string; teraboxUrl?: string; tmdbId: number; tmdbType: "movie" | "tv";
+  id: string; r2Key: string; teraboxUrl?: string; fileIndex?: number; fileName?: string;
+  tmdbId: number; tmdbType: "movie" | "tv";
   title: string; label: string; season: number | null; episode: number | null;
 }
 
@@ -125,10 +126,15 @@ async function fetchSignedUrlCached(key: string, episodeNum?: number | null): Pr
   return data.url;
 }
 
-async function fetchTeraboxUrlCached(registryItemId: string): Promise<string> {
+async function fetchTeraboxUrlCached(
+  registryItemId: string,
+  teraboxUrl: string,
+  fileIndex?: number,
+  fileName?: string,
+): Promise<string> {
   const cached = await getCachedTeraboxUrl(registryItemId);
   if (cached) return cached;
-  const data = await r2Route<{ url: string }>(`/terabox/play?id=${encodeURIComponent(registryItemId)}`);
+  const data = await teraboxPlay(teraboxUrl, fileIndex, fileName);
   await setCachedTeraboxUrl(registryItemId, data.url);
   return data.url;
 }
@@ -363,9 +369,11 @@ export default function R2PlayerScreen() {
     try {
       let url: string;
       if (isTerabox) {
-        // 1st attempt: server-side resolution (fast, uses cache)
+        // 1st attempt: direct client-side resolution via xapiverse (bypasses server)
+        const tbItem = r2Items.find((i) => i.id === params.registryItemId);
+        if (!tbItem?.teraboxUrl) throw new Error("Link TeraBox não encontrado no registry");
         try {
-          url = await fetchTeraboxUrlCached(params.registryItemId!);
+          url = await fetchTeraboxUrlCached(params.registryItemId!, tbItem.teraboxUrl, tbItem.fileIndex, tbItem.fileName);
         } catch {
           // 2nd attempt: client-side WebView resolution
           if (!currentTeraboxShareUrl) throw new Error("Link TeraBox não encontrado no registry");
@@ -462,7 +470,7 @@ export default function R2PlayerScreen() {
     if (!nextItem || preloadedNextUrlRef.current) return;
     preloadingRef.current = true;
     const fetchFn = nextItem.teraboxUrl
-      ? fetchTeraboxUrlCached(nextItem.id)
+      ? fetchTeraboxUrlCached(nextItem.id, nextItem.teraboxUrl, nextItem.fileIndex, nextItem.fileName)
       : fetchSignedUrlCached(nextItem.r2Key, nextItem.episode);
     fetchFn.then((url) => { preloadedNextUrlRef.current = url; }).catch(() => { preloadingRef.current = false; });
   }, [Math.floor(progress * 20), isTV, durationMs]);
