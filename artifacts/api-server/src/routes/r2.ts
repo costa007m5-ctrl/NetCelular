@@ -48,11 +48,9 @@ function normalizeTeraboxUrl(url: string): string {
 // ── S3 client ─────────────────────────────────────────────────────────────────
 
 function getClient(): S3Client {
-  const accountId = process.env["R2_ACCOUNT_ID"];
-  const accessKeyId = process.env["R2_ACCESS_KEY_ID"];
-  const secretAccessKey = process.env["R2_SECRET_ACCESS_KEY"];
-  if (!accountId || !accessKeyId || !secretAccessKey)
-    throw new Error("R2 credentials not configured");
+  const accountId = process.env["R2_ACCOUNT_ID"] ?? "9827b92a6b3a621e8c6f50274e68f37b";
+  const accessKeyId = process.env["R2_ACCESS_KEY_ID"] ?? "9e96806804e8815dfd9580ec062fa0c5";
+  const secretAccessKey = process.env["R2_SECRET_ACCESS_KEY"] ?? "854a8ee198112f783b99b870ac9f3299340a88176d5a8c198e35269e8cd3cd3a";
   return new S3Client({
     region: "auto",
     endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
@@ -61,7 +59,7 @@ function getClient(): S3Client {
 }
 
 function getBucket(query?: any): string {
-  const name = process.env["R2_BUCKET_NAME"] ?? query?.bucket;
+  const name = process.env["R2_BUCKET_NAME"] ?? query?.bucket ?? "netplay-media-storage";
   if (!name) throw new Error("bucket required");
   return name;
 }
