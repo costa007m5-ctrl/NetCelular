@@ -3,6 +3,7 @@
  * Cloudflare R2 client direto - sem API server, sem crypto.subtle.
  * Usa SHA-256 / HMAC-SHA256 puro em JS (compatível com Hermes/Android).
  */
+import Constants from "expo-constants";
 
 // ─── Credenciais ─────────────────────────────────────────────────────────────
 const ACCOUNT_ID = process.env.EXPO_PUBLIC_R2_ACCOUNT_ID      ?? "9827b92a6b3a621e8c6f50274e68f37b";
@@ -664,7 +665,10 @@ export async function apiCatalog(forceRefresh = false) {
 // ─── API server base URL ──────────────────────────────────────────────────────
 
 export function r2Base(): string | null {
-  const domain = (process.env.EXPO_PUBLIC_DOMAIN as string | undefined) ?? null;
+  const domain =
+    process.env.EXPO_PUBLIC_DOMAIN ||
+    (Constants.expoConfig?.extra as any)?.apiDomain ||
+    null;
   if (!domain) return null;
   return `https://${domain}/api/r2`;
 }
