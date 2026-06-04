@@ -18,6 +18,33 @@ import { notifyNewContent, notifyNewEpisode } from "../lib/push-notifications.js
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: {} });
 
+// ── TeraBox URL normalizer ─────────────────────────────────────────────────────
+// Many alternative domains exist (1024terabox.com, 1024tera.com, teraboxapp.com…)
+// but the xAPIverse API only accepts www.terabox.com links.
+function normalizeTeraboxUrl(url: string): string {
+  const TERABOX_ALIASES = [
+    "1024terabox.com",
+    "1024tera.com",
+    "teraboxapp.com",
+    "terasharelink.com",
+    "4funbox.com",
+    "momerybox.com",
+    "tibibox.com",
+    "terabox.app",
+    "gibibox.com",
+    "nephobox.com",
+  ];
+  try {
+    const u = new URL(url);
+    const host = u.hostname.replace(/^www\./, "");
+    if (TERABOX_ALIASES.includes(host)) {
+      u.hostname = "www.terabox.com";
+      return u.toString();
+    }
+  } catch {}
+  return url;
+}
+
 // ── S3 client ─────────────────────────────────────────────────────────────────
 
 function getClient(): S3Client {
@@ -899,6 +926,8 @@ router.get("/terabox/play", async (req, res) => {
     if (!item) { res.status(404).json({ error: "Registry item not found" }); return; }
     if (!item.teraboxUrl) { res.status(400).json({ error: "Item does not have a teraboxUrl" }); return; }
 
+    const normalizedUrl = normalizeTeraboxUrl(item.teraboxUrl);
+
     const ctrl = new AbortController();
     const tid = setTimeout(() => ctrl.abort(), 60_000);
     let r: Response;
@@ -909,7 +938,7 @@ router.get("/terabox/play", async (req, res) => {
           "Content-Type": "application/json",
           "xAPIverse-Key": "sk_6d7363a619840df0a07afe194613bf9a",
         },
-        body: JSON.stringify({ url: item.teraboxUrl }),
+        body: JSON.stringify({ url: normalizedUrl }),
         signal: ctrl.signal,
       });
     } finally { clearTimeout(tid); }
@@ -970,19 +999,21 @@ router.post("/terabox/register", async (req, res) => {
       return;
     }
 
+    const normalizedTeraboxUrl = normalizeTeraboxUrl(teraboxUrl.trim());
+
     const client = getClient();
     const bucket = getBucket();
     const registry = await readRegistry(client, bucket);
 
     // Deduplicate: if an item with same teraboxUrl + fileIndex already exists, update it
     const existingIdx = registry.items.findIndex(
-      (i) => i.teraboxUrl === teraboxUrl && i.fileIndex === fileIndex && i.tmdbId === tmdbId
+      (i) => i.teraboxUrl === normalizedTeraboxUrl && i.fileIndex === fileIndex && i.tmdbId === tmdbId
     );
 
     const newItem: RegistryItem = {
       id: existingIdx >= 0 ? registry.items[existingIdx].id : crypto.randomUUID(),
       r2Key: "",
-      teraboxUrl,
+      teraboxUrl: normalizedTeraboxUrl,
       fileIndex: typeof fileIndex === "number" ? fileIndex : undefined,
       fileName: fileName || undefined,
       tmdbId,
@@ -1031,6 +1062,8 @@ router.post("/terabox-resolve", async (req, res) => {
     const { url } = req.body as { url: string };
     if (!url) { res.status(400).json({ error: "url required" }); return; }
 
+    const normalizedUrl = normalizeTeraboxUrl(url.trim());
+
     const ctrl = new AbortController();
     const tid = setTimeout(() => ctrl.abort(), 30_000);
     let r: Response;
@@ -1041,7 +1074,7 @@ router.post("/terabox-resolve", async (req, res) => {
           "Content-Type": "application/json",
           "xAPIverse-Key": "sk_6d7363a619840df0a07afe194613bf9a",
         },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify({ url: normalizedUrl }),
         signal: ctrl.signal,
       });
     } finally { clearTimeout(tid); }

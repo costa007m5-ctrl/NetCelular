@@ -29,6 +29,7 @@ import {
   getCachedTeraboxUrl, setCachedTeraboxUrl,
   getCachedEpisodes, setCachedEpisodes,
 } from "@/lib/r2-cache";
+import { TeraboxWebViewResolver } from "@/lib/terabox-webview-resolver";
 
 let Video: any = null;
 let ResizeMode: any = null;
@@ -238,6 +239,11 @@ export default function R2PlayerScreen() {
   const [expandedEpOverview, setExpandedEpOverview] = useState<number | null>(null);
   const [sessionBlocked, setSessionBlocked] = useState<"trial_expired" | "plan_expired" | "limit_exceeded" | null>(null);
 
+  // ── TeraBox WebView resolver state ──────────────────────────────────────────
+  const [teraboxWebViewVisible, setTeraboxWebViewVisible] = useState(false);
+  const teraboxResolveCallbackRef = useRef<((url: string) => void) | null>(null);
+  const teraboxRejectCallbackRef = useRef<((err: string) => void) | null>(null);
+
   // ── Animated refs ───────────────────────────────────────────────────────────
   const panelAnim = useRef(new Animated.Value(0)).current;
   const loadProgress = useRef(new Animated.Value(0)).current;
@@ -349,10 +355,28 @@ export default function R2PlayerScreen() {
     fakeAnim.current = Animated.timing(loadProgress, { toValue: 80, duration: isTerabox ? 6000 : 3000, useNativeDriver: false });
     fakeAnim.current.start();
 
+    // Get the TeraBox share URL for WebView fallback
+    const currentTeraboxShareUrl = isTerabox
+      ? (r2Items.find((i) => i.id === params.registryItemId)?.teraboxUrl ?? "")
+      : "";
+
     try {
       let url: string;
       if (isTerabox) {
-        url = await fetchTeraboxUrlCached(params.registryItemId!);
+        // 1st attempt: server-side resolution (fast, uses cache)
+        try {
+          url = await fetchTeraboxUrlCached(params.registryItemId!);
+        } catch {
+          // 2nd attempt: client-side WebView resolution
+          if (!currentTeraboxShareUrl) throw new Error("Link TeraBox não encontrado no registry");
+          url = await new Promise<string>((resolve, reject) => {
+            teraboxResolveCallbackRef.current = resolve;
+            teraboxRejectCallbackRef.current = reject;
+            setTeraboxWebViewVisible(true);
+          });
+          setTeraboxWebViewVisible(false);
+          await setCachedTeraboxUrl(params.registryItemId!, url);
+        }
       } else {
         const cacheKey = `${params.key}__ep${episode ?? ""}`;
         const cached = await getCachedSignedUrl(cacheKey);
@@ -830,6 +854,30 @@ export default function R2PlayerScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: "#000", flexDirection: "row" }}>
       <StatusBar hidden />
+
+      {/* ── TeraBox WebView Resolver ─────────────────────────────────────────── */}
+      {teraboxWebViewVisible && (
+        <TeraboxWebViewResolver
+          teraboxUrl={r2Items.find((i) => i.id === params.registryItemId)?.teraboxUrl ?? ""}
+          visible={teraboxWebViewVisible}
+          onResolved={(url) => {
+            setTeraboxWebViewVisible(false);
+            teraboxResolveCallbackRef.current?.(url);
+            teraboxResolveCallbackRef.current = null;
+          }}
+          onError={(msg) => {
+            setTeraboxWebViewVisible(false);
+            teraboxRejectCallbackRef.current?.(msg);
+            teraboxRejectCallbackRef.current = null;
+          }}
+          onCancel={() => {
+            setTeraboxWebViewVisible(false);
+            teraboxRejectCallbackRef.current?.("Cancelado");
+            teraboxRejectCallbackRef.current = null;
+            router.back();
+          }}
+        />
+      )}
 
       {/* ── Session blocked modal ────────────────────────────────────────────── */}
       <Modal visible={!!sessionBlocked} animationType="fade" transparent={false} onRequestClose={() => router.back()}>

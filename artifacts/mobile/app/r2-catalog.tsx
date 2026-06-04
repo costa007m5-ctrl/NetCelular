@@ -1758,6 +1758,14 @@ function TeraBoxRegisterTab() {
   const [saveResults, setSaveResults] = useState<Array<{ success: boolean; error?: string } | null>>([]);
   const [allDone, setAllDone] = useState(false);
 
+  // Direct registration (no resolve needed)
+  const [directMode, setDirectMode] = useState(false);
+  const [directSeason, setDirectSeason] = useState("");
+  const [directEpisode, setDirectEpisode] = useState("");
+  const [directSaving, setDirectSaving] = useState(false);
+  const [directDone, setDirectDone] = useState(false);
+  const [directError, setDirectError] = useState<string | null>(null);
+
   const qualityColors: Record<string, string> = { "4K": "#a78bfa", "1080p": "#60a5fa", "720p": "#34d399", "480p": "#f59e0b", "360p": "#fb923c" };
 
   const parseEpisode = (filename: string): { season: number; episode: number } | null => {
@@ -1893,6 +1901,38 @@ function TeraBoxRegisterTab() {
     setInputUrl(""); setFiles([]); setSelected(new Set()); setParsedEps([]);
     setResolveError(null); setSelectedTmdb(null); setTmdbResults([]); setTmdbQuery("");
     setR2Folder(""); setNewFolderName(""); setSaveResults([]); setAllDone(false);
+    setDirectMode(false); setDirectSeason(""); setDirectEpisode("");
+    setDirectDone(false); setDirectError(null);
+  };
+
+  const registerDirect = async () => {
+    const u = inputUrl.trim();
+    if (!u) { setDirectError("Cole o link do TeraBox acima"); return; }
+    if (!selectedTmdb) { setDirectError("Pesquise e selecione um título do TMDB"); return; }
+    setDirectSaving(true);
+    setDirectError(null);
+    setDirectDone(false);
+    try {
+      const s = directSeason ? parseInt(directSeason, 10) : null;
+      const e = directEpisode ? parseInt(directEpisode, 10) : null;
+      const padS = s !== null ? String(s).padStart(2, "0") : null;
+      const padE = e !== null ? String(e).padStart(2, "0") : null;
+      const label = mediaKind === "tv" && padS && padE
+        ? `T${padS} E${padE}`
+        : selectedTmdb.title;
+      await apiPost("/terabox/register", {
+        teraboxUrl: u,
+        fileIndex: 0,
+        tmdbId: selectedTmdb.id,
+        tmdbType: mediaKind,
+        title: selectedTmdb.title,
+        label,
+        season: mediaKind === "tv" ? s : null,
+        episode: mediaKind === "tv" ? e : null,
+      });
+      setDirectDone(true);
+    } catch (e: any) { setDirectError(e.message ?? "Erro ao registrar"); }
+    finally { setDirectSaving(false); }
   };
 
   const successCount = saveResults.filter((r) => r?.success).length;
@@ -1954,8 +1994,146 @@ function TeraBoxRegisterTab() {
               </Pressable>
             )}
           </View>
-          {resolveError && <View style={styles.errorBox}><Feather name="alert-circle" size={13} color="#f87171" /><Text style={styles.errorBoxText}>{resolveError}</Text></View>}
+          {resolveError && (
+            <View>
+              <View style={styles.errorBox}>
+                <Feather name="alert-circle" size={13} color="#f87171" />
+                <Text style={styles.errorBoxText}>{resolveError}</Text>
+              </View>
+              {!directMode && (
+                <Pressable
+                  onPress={() => setDirectMode(true)}
+                  style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10, padding: 12,
+                    backgroundColor: "rgba(245,158,11,0.12)", borderRadius: 10, borderWidth: 1,
+                    borderColor: `${TB_COLOR}44` }}
+                >
+                  <Feather name="zap" size={14} color={TB_COLOR} />
+                  <Text style={{ color: TB_COLOR, fontSize: 13, fontWeight: "600" }}>Registrar Direto (sem resolver)</Text>
+                </Pressable>
+              )}
+            </View>
+          )}
+          {!resolveError && !files.length && (
+            <Pressable
+              onPress={() => setDirectMode((v) => !v)}
+              style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10, padding: 10,
+                backgroundColor: directMode ? `${TB_COLOR}18` : "rgba(255,255,255,0.04)", borderRadius: 10,
+                borderWidth: 1, borderColor: directMode ? `${TB_COLOR}55` : "rgba(255,255,255,0.08)" }}
+            >
+              <Feather name="zap" size={13} color={directMode ? TB_COLOR : "rgba(255,255,255,0.35)"} />
+              <Text style={{ color: directMode ? TB_COLOR : "rgba(255,255,255,0.45)", fontSize: 12 }}>
+                {directMode ? "Modo Direto ativo" : "Registrar Direto (sem resolver)"}
+              </Text>
+            </Pressable>
+          )}
         </View>
+
+        {/* ── Registrar Direto (no-resolve mode) ── */}
+        {directMode && files.length === 0 && (
+          <View style={[styles.sectionCard, { borderColor: `${TB_COLOR}44`, marginBottom: 12 }]}>
+            <View style={styles.sectionTitleRow}>
+              <Feather name="zap" size={14} color={TB_COLOR} />
+              <Text style={[styles.sectionTitle, { color: TB_COLOR, fontSize: 13 }]}>Registrar Direto</Text>
+            </View>
+            <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 11, marginBottom: 12 }}>
+              Salva o link no registry sem verificar. O player resolve na hora do play.
+            </Text>
+
+            {/* TMDB search */}
+            <Text style={styles.fieldLabel}>Buscar título no TMDB</Text>
+            <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
+              <TextInput
+                style={[styles.input, { flex: 1 }]}
+                placeholder="Nome do filme ou série…"
+                placeholderTextColor="rgba(255,255,255,0.25)"
+                value={tmdbQuery}
+                onChangeText={setTmdbQuery}
+                onSubmitEditing={searchTmdb}
+                returnKeyType="search"
+              />
+              <Pressable
+                onPress={searchTmdb}
+                style={[styles.actionBtn, { paddingHorizontal: 14, backgroundColor: "rgba(255,255,255,0.08)" }, tmdbSearching && { opacity: 0.5 }]}
+                disabled={tmdbSearching}
+              >
+                {tmdbSearching ? <ActivityIndicator size="small" color="#fff" /> : <Feather name="search" size={15} color="rgba(255,255,255,0.7)" />}
+              </Pressable>
+            </View>
+            {tmdbError && <Text style={{ color: "#f87171", fontSize: 11, marginBottom: 8 }}>{tmdbError}</Text>}
+            {tmdbResults.map((t) => (
+              <Pressable key={t.id} onPress={() => selectTmdb(t)}
+                style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8,
+                  borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.05)" }}>
+                <Feather name="film" size={14} color="rgba(255,255,255,0.4)" />
+                <Text style={{ color: "#fff", fontSize: 13, flex: 1 }}>{t.title}</Text>
+                <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 11 }}>{t.year} · {t.media_type}</Text>
+              </Pressable>
+            ))}
+            {selectedTmdb && (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginVertical: 10,
+                backgroundColor: "rgba(255,255,255,0.06)", padding: 10, borderRadius: 8 }}>
+                <Feather name="check-circle" size={14} color="#4ade80" />
+                <Text style={{ color: "#4ade80", fontSize: 13, flex: 1 }} numberOfLines={1}>{selectedTmdb.title} ({selectedTmdb.year})</Text>
+                <Pressable onPress={() => { setSelectedTmdb(null); setTmdbResults([]); }}>
+                  <Feather name="x" size={14} color="rgba(255,255,255,0.4)" />
+                </Pressable>
+              </View>
+            )}
+
+            {/* Season / Episode (TV only) */}
+            {mediaKind === "tv" && (
+              <View style={{ flexDirection: "row", gap: 10, marginBottom: 10 }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.fieldLabel}>Temporada</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="1"
+                    placeholderTextColor="rgba(255,255,255,0.25)"
+                    keyboardType="number-pad"
+                    value={directSeason}
+                    onChangeText={setDirectSeason}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.fieldLabel}>Episódio</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="1"
+                    placeholderTextColor="rgba(255,255,255,0.25)"
+                    keyboardType="number-pad"
+                    value={directEpisode}
+                    onChangeText={setDirectEpisode}
+                  />
+                </View>
+              </View>
+            )}
+
+            {directError && <View style={styles.errorBox}><Feather name="alert-circle" size={13} color="#f87171" /><Text style={styles.errorBoxText}>{directError}</Text></View>}
+            {directDone && (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(74,222,128,0.12)",
+                padding: 12, borderRadius: 8, marginTop: 8 }}>
+                <Feather name="check-circle" size={16} color="#4ade80" />
+                <Text style={{ color: "#4ade80", fontSize: 14, fontWeight: "600" }}>Link registrado com sucesso!</Text>
+              </View>
+            )}
+            {!directDone && (
+              <Pressable
+                onPress={registerDirect}
+                style={[styles.actionBtn, { marginTop: 10, backgroundColor: TB_COLOR }, (directSaving || !selectedTmdb) && { opacity: 0.5 }]}
+                disabled={directSaving || !selectedTmdb}
+              >
+                {directSaving ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="bookmark" size={15} color="#fff" />}
+                <Text style={styles.actionBtnText}>{directSaving ? "Salvando…" : "Salvar no Registry"}</Text>
+              </Pressable>
+            )}
+            {directDone && (
+              <Pressable onPress={reset} style={[styles.actionBtn, { marginTop: 8, backgroundColor: "rgba(255,255,255,0.08)" }]}>
+                <Feather name="plus" size={15} color="rgba(255,255,255,0.7)" />
+                <Text style={[styles.actionBtnText, { color: "rgba(255,255,255,0.7)" }]}>Registrar outro</Text>
+              </Pressable>
+            )}
+          </View>
+        )}
 
         {/* ── Arquivos com Selecionar Tudo ── */}
         {files.length > 0 && (
