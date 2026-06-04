@@ -173,6 +173,8 @@ export interface RegistryItem {
   driveUrl?: string;
   driveDirectUrl?: string;
   driveResolvedAt?: string;
+  driveNum?: number; // 0 or 1 — which Drive account
+  driveFilePath?: string; // full path inside Drive, e.g. "Séries/Show/ep01.mkv"
   fileIndex?: number;
   fileName?: string;
   tmdbId: number;
@@ -1265,10 +1267,10 @@ function buildDriveDirectUrl(fileId: string): string {
 }
 
 // ── Drive: registrar link (sem fazer upload do vídeo — economiza espaço no R2) ──
-// POST /drive/register  { driveUrl, tmdbId, tmdbType, title, label, season?, episode? }
+// POST /drive/register  { driveUrl, tmdbId, tmdbType, title, label, season?, episode?, driveNum?, driveFilePath? }
 router.post("/drive/register", async (req, res) => {
   try {
-    const { driveUrl, tmdbId, tmdbType, title, label, season, episode } = req.body;
+    const { driveUrl, tmdbId, tmdbType, title, label, season, episode, driveNum, driveFilePath } = req.body;
     if (!driveUrl || !tmdbId || !tmdbType) {
       res.status(400).json({ error: "driveUrl, tmdbId, tmdbType são obrigatórios" }); return;
     }
@@ -1289,6 +1291,8 @@ router.post("/drive/register", async (req, res) => {
       id: existingIdx >= 0 ? registry.items[existingIdx].id : crypto.randomUUID(),
       r2Key: "",
       driveUrl: driveUrl.trim(),
+      driveNum: driveNum != null ? Number(driveNum) : undefined,
+      driveFilePath: driveFilePath ? String(driveFilePath) : undefined,
       tmdbId: Number(tmdbId),
       tmdbType,
       title: title ?? "",
@@ -1320,7 +1324,10 @@ router.post("/drive/register", async (req, res) => {
 
 // ── Drive: resolver URL para reprodução nativa ─────────────────────────────────
 // GET /drive/play?id=<registryItemId>
-// Retorna a URL direta do Drive (e cacheia no registry como "backup no R2")
+// Se o item tem driveNum + driveFilePath → retorna URL do Worker (que tem OAuth do Drive)
+// Caso contrário (itens legados sem path) → retorna URL de download do Drive via file ID
+const DRIVE_WORKER_URL = "https://1.animezey23112022.workers.dev";
+
 router.get("/drive/play", async (req, res) => {
   try {
     const { id } = req.query as { id: string };
@@ -1331,31 +1338,66 @@ router.get("/drive/play", async (req, res) => {
     const registry = await readRegistry(client, bucket);
     const item = registry.items.find((i) => i.id === id);
     if (!item) { res.status(404).json({ error: "Item não encontrado no registry" }); return; }
-    if (!item.driveUrl) { res.status(400).json({ error: "Item não possui link do Drive" }); return; }
-
-    // Usa cache se resolvido há menos de 12h (backup armazenado no __registry.json do R2)
-    const CACHE_TTL_MS = 12 * 60 * 60 * 1000;
-    if (item.driveDirectUrl && item.driveResolvedAt) {
-      const age = Date.now() - new Date(item.driveResolvedAt).getTime();
-      if (age < CACHE_TTL_MS) {
-        res.json({ url: item.driveDirectUrl, cached: true });
-        return;
-      }
+    if (!item.driveUrl && item.driveNum == null) {
+      res.status(400).json({ error: "Item não possui link do Drive" }); return;
     }
 
+    // ── Prioridade 1: Worker URL (usa OAuth do Drive — funciona para arquivos privados) ──
+    // Itens registrados a partir do navegador de pastas têm driveNum + driveFilePath
+    if (item.driveNum != null && item.driveFilePath) {
+      const encoded = item.driveFilePath
+        .split("/")
+        .map((seg) => encodeURIComponent(seg))
+        .join("/");
+      const workerUrl = `${DRIVE_WORKER_URL}/${item.driveNum}:/${encoded}`;
+      res.json({ url: workerUrl, cached: false, via: "worker" });
+      return;
+    }
+
+    // ── Prioridade 2: itens legados (só têm driveUrl / file ID) ──
+    // Tenta resolver via redirect chain do Drive — funciona apenas para arquivos públicos
+    if (!item.driveUrl) { res.status(400).json({ error: "Item sem link do Drive" }); return; }
     const fileId = extractDriveFileId(item.driveUrl);
     if (!fileId) { res.status(400).json({ error: "URL do Drive inválida" }); return; }
-    const directUrl = buildDriveDirectUrl(fileId);
 
-    // Salva URL resolvida no registry (backup no R2, sem subir o vídeo — economiza espaço)
-    const idx = registry.items.findIndex((i) => i.id === id);
-    if (idx >= 0) {
-      registry.items[idx].driveDirectUrl = directUrl;
-      registry.items[idx].driveResolvedAt = new Date().toISOString();
-      writeRegistry(client, bucket, registry).catch(() => {});
+    // Tenta seguir o redirect do Drive para obter URL do CDN (funciona para arquivos públicos)
+    const downloadUrl = `https://drive.usercontent.google.com/download?id=${fileId}&export=download&confirm=t`;
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 25000);
+    try {
+      const resp = await fetch(downloadUrl, {
+        redirect: "follow",
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
+        },
+        signal: ctrl.signal,
+      });
+      clearTimeout(tid);
+      const finalUrl = resp.url;
+
+      // Se acabamos em uma página do Google (auth/virus-scan), o arquivo é privado
+      if (finalUrl.includes("accounts.google.com") || finalUrl.includes("ServiceLogin")) {
+        res.status(403).json({ error: "Arquivo privado — compartilhe como 'Qualquer pessoa com o link' no Google Drive, ou registre novamente via navegador de pastas." });
+        return;
+      }
+
+      // Salva a URL resolvida no cache (só para arquivos públicos — expira em 2h)
+      const idx = registry.items.findIndex((i) => i.id === id);
+      if (idx >= 0) {
+        registry.items[idx].driveDirectUrl = finalUrl;
+        registry.items[idx].driveResolvedAt = new Date().toISOString();
+        writeRegistry(client, bucket, registry).catch(() => {});
+      }
+
+      res.json({ url: finalUrl, cached: false, via: "redirect" });
+    } catch (fetchErr: any) {
+      clearTimeout(tid);
+      if (fetchErr?.name === "AbortError") {
+        res.status(504).json({ error: "Timeout ao resolver URL do Drive" });
+        return;
+      }
+      throw fetchErr;
     }
-
-    res.json({ url: directUrl, cached: false });
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? "error" });
   }

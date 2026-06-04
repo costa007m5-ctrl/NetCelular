@@ -36,8 +36,6 @@ let Video: any = null;
 let ResizeMode: any = null;
 try { const av = require("expo-av"); Video = av.Video; ResizeMode = av.ResizeMode; } catch {}
 
-let WebView: any = null;
-try { WebView = require("react-native-webview").WebView; } catch {}
 
 let ScreenOrientation: any = null;
 try { ScreenOrientation = require("expo-screen-orientation"); } catch {}
@@ -965,19 +963,7 @@ export default function R2PlayerScreen() {
             <Pressable style={styles.retryBtn} onPress={loadVideoUrl}><Text style={styles.retryText}>Tentar Novamente</Text></Pressable>
           </View>
         )}
-        {videoUrl && isDrive ? (
-          <iframe
-            src={videoUrl}
-            allow="autoplay; fullscreen"
-            style={{ width: "100%", height: "100%", border: "none", backgroundColor: "#000", display: phase === "loading" ? "none" : "block" } as any}
-            onLoad={() => {
-              if (phase === "loading") {
-                phaseRef.current = "ready";
-                setPhase("ready");
-              }
-            }}
-          />
-        ) : videoUrl ? (
+        {videoUrl ? (
           <video src={videoUrl} controls autoPlay style={{ width: "100%", height: "100%", backgroundColor: "#000", display: phase === "loading" ? "none" : "block" } as any} />
         ) : null}
         <Pressable style={[styles.backBtn, { top: topPad + 8 }]} onPress={() => router.back()}>
@@ -1083,30 +1069,7 @@ export default function R2PlayerScreen() {
 
       {/* ── Video container ──────────────────────────────────────────────────── */}
       <Animated.View style={{ width: videoWidthAnim, height: "100%", overflow: "hidden" }}>
-        {/* Drive content: rendered in WebView using Google Drive preview embed */}
-        {isDrive && videoUrl && WebView && (
-          <WebView
-            source={{ uri: videoUrl }}
-            style={[StyleSheet.absoluteFill, { opacity: phase === "ready" ? 1 : 0, backgroundColor: "#000" }]}
-            allowsInlineMediaPlayback
-            mediaPlaybackRequiresUserAction={false}
-            allowsFullscreenVideo
-            javaScriptEnabled
-            onLoad={() => {
-              if (phaseRef.current === "loading") {
-                fakeAnim.current?.stop();
-                phaseRef.current = "ready";
-                setPhase("ready");
-                setIsPlaying(true);
-              }
-            }}
-            onError={() => {
-              setPhase("error");
-              setErrorMsg("Erro ao carregar vídeo do Drive");
-            }}
-          />
-        )}
-        {!isDrive && videoUrl && Video && (
+        {videoUrl && Video && (
           <Video
             ref={videoRef}
             source={{

@@ -3556,8 +3556,8 @@ function TeraBoxPanel() {
 
 // ── Drive Register Modal (registra um arquivo do Drive no registry) ────────────
 
-function DriveRegisterModal({ item, onClose, onDone }: {
-  item: DriveItem; onClose: () => void; onDone: () => void;
+function DriveRegisterModal({ item, driveNum, driveFilePath, onClose, onDone }: {
+  item: DriveItem; driveNum?: number; driveFilePath?: string; onClose: () => void; onDone: () => void;
 }) {
   const parsed = parseEpisodeInfo(item.name);
   const [q, setQ] = useState(parsed.seriesTitle ?? item.name.replace(/\.[^.]+$/, "").replace(/[._]/g, " ").trim());
@@ -3592,6 +3592,8 @@ function DriveRegisterModal({ item, onClose, onDone }: {
         label,
         season: season ? parseInt(season, 10) : null,
         episode: ep ? parseInt(ep, 10) : null,
+        driveNum: driveNum,
+        driveFilePath: driveFilePath,
       });
       onDone();
     } catch (e: any) { setError(e.message); }
@@ -3722,6 +3724,7 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
   const [mgDriveError, setMgDriveError] = useState<string | null>(null);
   const [mgDrivePageToken, setMgDrivePageToken] = useState<string | null>(null);
   const [mgDriveRegisterItem, setMgDriveRegisterItem] = useState<DriveItem | null>(null);
+  const [mgDriveRegisterCtx, setMgDriveRegisterCtx] = useState<{ driveNum: number; filePath: string } | null>(null);
 
   useEffect(() => {
     if (!driveJobId || driveJobStatus !== "running") return;
@@ -3998,6 +4001,8 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
                             mgNavPush(mgCurrent!.drive, newPath, item.name);
                           } else if (isVid) {
                             setMgDriveRegisterItem(item);
+                            const filePath = mgCurrent ? `${mgCurrent.path}/${item.name}` : item.name;
+                            setMgDriveRegisterCtx({ driveNum: mgCurrent!.drive, filePath });
                           }
                         }}
                         style={{ flexDirection: "row", alignItems: "center", gap: 10,
@@ -4043,8 +4048,10 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
       {mgDriveRegisterItem && (
         <DriveRegisterModal
           item={mgDriveRegisterItem}
-          onClose={() => setMgDriveRegisterItem(null)}
-          onDone={() => { setMgDriveRegisterItem(null); Alert.alert("✅ Registrado", "Conteúdo adicionado ao Drive Registry!"); }}
+          driveNum={mgDriveRegisterCtx?.driveNum}
+          driveFilePath={mgDriveRegisterCtx?.filePath}
+          onClose={() => { setMgDriveRegisterItem(null); setMgDriveRegisterCtx(null); }}
+          onDone={() => { setMgDriveRegisterItem(null); setMgDriveRegisterCtx(null); Alert.alert("✅ Registrado", "Conteúdo adicionado ao Drive Registry!"); }}
         />
       )}
 
