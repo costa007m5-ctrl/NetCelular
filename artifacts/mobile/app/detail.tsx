@@ -34,7 +34,9 @@ import { searchDriveByTitle, getDriveSeasonEpisodes, DriveMatch } from "@/lib/gd
 import { DriveItem, parseEpisodeInfo } from "@/lib/gdrive-index";
 
 interface RegistryItem {
-  id: string; r2Key: string; teraboxUrl?: string; tmdbId: number; tmdbType: "movie" | "tv";
+  id: string; r2Key: string; teraboxUrl?: string;
+  driveUrl?: string; driveDirectUrl?: string;
+  tmdbId: number; tmdbType: "movie" | "tv";
   title: string; label: string; season: number | null; episode: number | null;
 }
 
@@ -67,6 +69,7 @@ function EpisodeRow({
   onPress,
   onGstreamPress,
   onR2Press,
+  onDrivePress,
 }: {
   ep: TmdbEpisode;
   watched: boolean;
@@ -76,6 +79,7 @@ function EpisodeRow({
   onPress?: () => void;
   onGstreamPress?: () => void;
   onR2Press?: () => void;
+  onDrivePress?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [imgFailed, setImgFailed] = useState(false);
@@ -186,6 +190,11 @@ function EpisodeRow({
         {onR2Press && (
           <Pressable onPress={onR2Press} style={[styles.epPlayBtn, { backgroundColor: "#e50914", borderRadius: 8, padding: 4, marginTop: onPress ? 4 : 0 }]}>
             <Feather name="play" size={16} color="#fff" />
+          </Pressable>
+        )}
+        {onDrivePress && (
+          <Pressable onPress={onDrivePress} style={[styles.epPlayBtn, { backgroundColor: "#16a34a", borderRadius: 8, padding: 4, marginTop: 4 }]}>
+            <Feather name="cloud" size={14} color="#fff" />
           </Pressable>
         )}
       </View>
@@ -764,6 +773,30 @@ export default function DetailScreen() {
     });
   };
 
+  const goToDrivePlayer = (item: RegistryItem, overrideSeason?: number, overrideEpisode?: number) => {
+    const seasonVal = overrideSeason != null ? overrideSeason : item.season;
+    const episodeVal = overrideEpisode != null ? overrideEpisode : item.episode;
+    router.push({
+      pathname: "/r2-player",
+      params: {
+        driveItemId: item.id,
+        key: "",
+        title: details?.title ?? details?.name ?? item.title,
+        label: item.label,
+        backdropPath: details?.backdrop_path ?? "",
+        posterPath: details?.poster_path ?? "",
+        tmdbId: String(tmdbId),
+        type,
+        season: seasonVal != null ? String(seasonVal) : "",
+        episode: episodeVal != null ? String(episodeVal) : "",
+        r2ItemsJson: JSON.stringify(r2Items),
+        watchSeason: watchProgress?.season != null ? String(watchProgress.season) : "",
+        watchEpisode: watchProgress?.episode != null ? String(watchProgress.episode) : "",
+        watchProgressRatio: watchProgress?.progress != null ? String(watchProgress.progress) : "",
+      },
+    });
+  };
+
   const goToDriveEpisode = (ep: TmdbEpisode) => {
     const driveItem = driveEpisodeMap[ep.episode_number];
     if (!driveItem) return;
@@ -1157,21 +1190,32 @@ export default function DetailScreen() {
                 const resumeE = (type === "tv" && watchProgress?.episode) ? watchProgress.episode : 1;
 
                 const hasR2 = type === "movie"
-                  ? r2Items.some((i) => i.season == null && i.episode == null)
-                  : r2Items.length > 0;
+                  ? r2Items.some((i) => !i.driveUrl && i.season == null && i.episode == null)
+                  : r2Items.some((i) => !i.driveUrl);
+
+                const hasDrive = type === "movie"
+                  ? r2Items.some((i) => !!i.driveUrl && i.season == null && i.episode == null)
+                  : r2Items.some((i) => !!i.driveUrl);
 
                 const pressR2 = () => {
                   if (type === "movie") {
-                    const item = r2Items.find((i) => i.season == null && i.episode == null);
+                    const item = r2Items.find((i) => !i.driveUrl && i.season == null && i.episode == null);
                     if (item) goToR2Player(item);
                   } else {
-                    const episodeItems = r2Items.filter((i) => i.episode != null);
-                    const lastAdded = episodeItems[episodeItems.length - 1] ?? r2Items[0];
+                    const episodeItems = r2Items.filter((i) => !i.driveUrl && i.episode != null);
+                    const lastAdded = episodeItems[episodeItems.length - 1] ?? r2Items.find((i) => !i.driveUrl);
                     const resumeItem = (watchProgress?.season && watchProgress?.episode)
-                      ? r2Items.find((i) => i.season === watchProgress.season && i.episode === watchProgress.episode) ?? lastAdded
+                      ? r2Items.find((i) => !i.driveUrl && i.season === watchProgress.season && i.episode === watchProgress.episode) ?? lastAdded
                       : lastAdded;
                     if (resumeItem) goToR2Player(resumeItem);
                   }
+                };
+
+                const pressDrive = () => {
+                  const item = type === "movie"
+                    ? r2Items.find((i) => !!i.driveUrl && i.season == null && i.episode == null)
+                    : r2Items.find((i) => !!i.driveUrl);
+                  if (item) goToDrivePlayer(item);
                 };
 
                 const pressGstream = () => goToGstreamPlayer(resumeS, resumeE);
@@ -1179,6 +1223,7 @@ export default function DetailScreen() {
 
                 const sources = [
                   hasR2 && { id: "r2", press: pressR2 },
+                  hasDrive && { id: "drive", press: pressDrive },
                   gstreamAvailable && { id: "gstream", press: pressGstream },
                 ].filter(Boolean) as { id: string; press: () => void }[];
 
@@ -1228,6 +1273,19 @@ export default function DetailScreen() {
                       >
                         <Feather name={type === "tv" ? "tv" : "film"} size={18} color="#fff" />
                         <Text style={styles.watchBtnText}>ASSISTIR AGORA</Text>
+                      </Pressable>
+                    )}
+                    {hasDrive && (
+                      <Pressable
+                        style={({ pressed }) => [
+                          styles.watchBtn,
+                          { backgroundColor: "#16a34a", marginTop: 8 },
+                          pressed && { opacity: 0.85 },
+                        ]}
+                        onPress={pressDrive}
+                      >
+                        <Feather name="cloud" size={18} color="#fff" />
+                        <Text style={styles.watchBtnText}>ASSISTIR (DRIVE)</Text>
                       </Pressable>
                     )}
                     {gstreamAvailable && (
@@ -1465,7 +1523,13 @@ export default function DetailScreen() {
                           fallbackImage={details?.backdrop_path ?? details?.poster_path ?? null}
                           onPress={!r2Ep ? () => goToPlayer(selectedSeason, ep.episode_number) : undefined}
                           onGstreamPress={gstreamAvailable ? () => goToGstreamPlayer(selectedSeason, ep.episode_number) : undefined}
-                          onR2Press={r2Ep ? () => goToR2Player(r2Ep, selectedSeason, ep.episode_number) : undefined}
+                          onR2Press={r2Ep && !r2Ep.driveUrl ? () => goToR2Player(r2Ep, selectedSeason, ep.episode_number) : undefined}
+                          onDrivePress={(() => {
+                            const driveEp = r2Items.find(
+                              (i) => !!i.driveUrl && Number(i.season) === selectedSeason && Number(i.episode) === ep.episode_number
+                            );
+                            return driveEp ? () => goToDrivePlayer(driveEp, selectedSeason, ep.episode_number) : undefined;
+                          })()}
                         />
                       );
                     });

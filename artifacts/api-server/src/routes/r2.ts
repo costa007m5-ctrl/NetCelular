@@ -170,6 +170,9 @@ export interface RegistryItem {
   id: string;
   r2Key: string;
   teraboxUrl?: string;
+  driveUrl?: string;
+  driveDirectUrl?: string;
+  driveResolvedAt?: string;
   fileIndex?: number;
   fileName?: string;
   tmdbId: number;
@@ -1197,6 +1200,185 @@ router.get("/tmdb-search", async (req, res) => {
         .map((x: any) => ({ ...x, title: x.title ?? x.name }));
     }
     res.json({ results });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "error" });
+  }
+});
+
+// ── Drive helpers ─────────────────────────────────────────────────────────────
+
+function extractDriveFileId(url: string): string | null {
+  const m = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) ?? url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  return m ? m[1] : null;
+}
+
+function buildDriveDirectUrl(fileId: string): string {
+  return `https://drive.usercontent.google.com/download?id=${fileId}&export=download&authuser=0&confirm=t`;
+}
+
+// ── Drive: registrar link (sem fazer upload do vídeo — economiza espaço no R2) ──
+// POST /drive/register  { driveUrl, tmdbId, tmdbType, title, label, season?, episode? }
+router.post("/drive/register", async (req, res) => {
+  try {
+    const { driveUrl, tmdbId, tmdbType, title, label, season, episode } = req.body;
+    if (!driveUrl || !tmdbId || !tmdbType) {
+      res.status(400).json({ error: "driveUrl, tmdbId, tmdbType são obrigatórios" }); return;
+    }
+    const fileId = extractDriveFileId(driveUrl);
+    if (!fileId) { res.status(400).json({ error: "URL do Google Drive inválida. Use o link de compartilhamento (ex: drive.google.com/file/d/ID/view)." }); return; }
+
+    const client = getClient();
+    const bucket = getBucket();
+    const registry = await readRegistry(client, bucket);
+
+    const existingIdx = registry.items.findIndex(
+      (i) => i.driveUrl === driveUrl.trim() && i.tmdbId === Number(tmdbId)
+        && (i.season ?? null) === (season != null ? Number(season) : null)
+        && (i.episode ?? null) === (episode != null ? Number(episode) : null)
+    );
+
+    const newItem: RegistryItem = {
+      id: existingIdx >= 0 ? registry.items[existingIdx].id : crypto.randomUUID(),
+      r2Key: "",
+      driveUrl: driveUrl.trim(),
+      tmdbId: Number(tmdbId),
+      tmdbType,
+      title: title ?? "",
+      label: label ?? title ?? "Drive",
+      season: season != null ? Number(season) : null,
+      episode: episode != null ? Number(episode) : null,
+      addedAt: new Date().toISOString(),
+    };
+
+    if (existingIdx >= 0) {
+      registry.items[existingIdx] = { ...registry.items[existingIdx], ...newItem };
+    } else {
+      registry.items.push(newItem);
+    }
+    await writeRegistry(client, bucket, registry);
+    res.json({ ok: true, item: newItem });
+
+    try {
+      if (newItem.episode != null && newItem.season != null && newItem.tmdbType === "tv") {
+        notifyNewEpisode(newItem.tmdbId, newItem.title, newItem.season, newItem.episode, newItem.label ?? "", null).catch(() => {});
+      } else {
+        notifyNewContent(1, newItem.title).catch(() => {});
+      }
+    } catch {}
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "error" });
+  }
+});
+
+// ── Drive: resolver URL para reprodução nativa ─────────────────────────────────
+// GET /drive/play?id=<registryItemId>
+// Retorna a URL direta do Drive (e cacheia no registry como "backup no R2")
+router.get("/drive/play", async (req, res) => {
+  try {
+    const { id } = req.query as { id: string };
+    if (!id) { res.status(400).json({ error: "id required" }); return; }
+
+    const client = getClient();
+    const bucket = getBucket();
+    const registry = await readRegistry(client, bucket);
+    const item = registry.items.find((i) => i.id === id);
+    if (!item) { res.status(404).json({ error: "Item não encontrado no registry" }); return; }
+    if (!item.driveUrl) { res.status(400).json({ error: "Item não possui link do Drive" }); return; }
+
+    // Usa cache se resolvido há menos de 12h (backup armazenado no __registry.json do R2)
+    const CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+    if (item.driveDirectUrl && item.driveResolvedAt) {
+      const age = Date.now() - new Date(item.driveResolvedAt).getTime();
+      if (age < CACHE_TTL_MS) {
+        res.json({ url: item.driveDirectUrl, cached: true });
+        return;
+      }
+    }
+
+    const fileId = extractDriveFileId(item.driveUrl);
+    if (!fileId) { res.status(400).json({ error: "URL do Drive inválida" }); return; }
+    const directUrl = buildDriveDirectUrl(fileId);
+
+    // Salva URL resolvida no registry (backup no R2, sem subir o vídeo — economiza espaço)
+    const idx = registry.items.findIndex((i) => i.id === id);
+    if (idx >= 0) {
+      registry.items[idx].driveDirectUrl = directUrl;
+      registry.items[idx].driveResolvedAt = new Date().toISOString();
+      writeRegistry(client, bucket, registry).catch(() => {});
+    }
+
+    res.json({ url: directUrl, cached: false });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "error" });
+  }
+});
+
+// ── Drive: extrair todos (job em background — continua mesmo após fechar o app) ──
+// POST /drive/extract-all
+router.post("/drive/extract-all", async (req, res) => {
+  try {
+    const jobId = crypto.randomUUID();
+    const job: Job = { status: "queued", progress: 0, downloaded: 0, total: 0, startedAt: Date.now() };
+    jobs.set(jobId, job);
+    res.json({ jobId });
+
+    // Job server-side: não depende do app estar aberto
+    (async () => {
+      try {
+        const client = getClient();
+        const bucket = getBucket();
+        const registry = await readRegistry(client, bucket);
+
+        const driveItems = registry.items.filter((i) => i.driveUrl);
+        job.total = driveItems.length;
+        job.status = "downloading";
+
+        if (driveItems.length === 0) {
+          job.status = "done";
+          job.progress = 100;
+          job.key = "Nenhum link do Drive encontrado no registry";
+          return;
+        }
+
+        let processed = 0;
+        let successCount = 0;
+        let errorCount = 0;
+
+        for (const item of driveItems) {
+          try {
+            const fileId = extractDriveFileId(item.driveUrl!);
+            if (!fileId) { errorCount++; processed++; continue; }
+
+            const directUrl = buildDriveDirectUrl(fileId);
+
+            const idx = registry.items.findIndex((i) => i.id === item.id);
+            if (idx >= 0) {
+              registry.items[idx].driveDirectUrl = directUrl;
+              registry.items[idx].driveResolvedAt = new Date().toISOString();
+            }
+            successCount++;
+          } catch {
+            errorCount++;
+          }
+          processed++;
+          job.downloaded = processed;
+          job.progress = Math.round((processed / driveItems.length) * 95);
+          job.key = item.title || item.driveUrl || "";
+          // Pequeno delay para não sobrecarregar
+          await new Promise<void>((r) => setTimeout(r, 120));
+        }
+
+        // Persiste o registry atualizado no R2 (backup das URLs resolvidas)
+        await writeRegistry(client, bucket, registry);
+
+        job.status = "done";
+        job.progress = 100;
+        job.key = `${successCount} resolvidos · ${errorCount} erros`;
+      } catch (e: any) {
+        const j = jobs.get(jobId);
+        if (j) { j.status = "error"; j.error = e?.message ?? "Erro na extração do Drive"; }
+      }
+    })();
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? "error" });
   }

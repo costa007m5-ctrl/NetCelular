@@ -3565,6 +3565,46 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
   const [movingName, setMovingName] = useState<string>("");
   const [showMovePicker, setShowMovePicker] = useState(false);
 
+  const [driveJobId, setDriveJobId] = useState<string | null>(null);
+  const [driveJobStatus, setDriveJobStatus] = useState<"idle" | "running" | "done" | "error">("idle");
+  const [driveJobProgress, setDriveJobProgress] = useState(0);
+  const [driveJobMessage, setDriveJobMessage] = useState("");
+
+  useEffect(() => {
+    if (!driveJobId || driveJobStatus !== "running") return;
+    const interval = setInterval(async () => {
+      try {
+        const data = await apiFetch<Job>(`/job/${driveJobId}`);
+        setDriveJobProgress(data.progress);
+        if (data.status === "done") {
+          setDriveJobStatus("done");
+          setDriveJobMessage(data.key ?? "Extração concluída!");
+        } else if (data.status === "error") {
+          setDriveJobStatus("error");
+          setDriveJobMessage(data.error ?? "Erro na extração");
+        } else {
+          setDriveJobMessage(
+            data.key ? `${data.key} (${data.downloaded}/${data.total})` : `${data.downloaded}/${data.total} processados`
+          );
+        }
+      } catch {}
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [driveJobId, driveJobStatus]);
+
+  const startDriveExtraction = async () => {
+    try {
+      setDriveJobStatus("running");
+      setDriveJobProgress(0);
+      setDriveJobMessage("Iniciando extração...");
+      const data = await apiPost<{ jobId: string }>("/drive/extract-all", {});
+      setDriveJobId(data.jobId);
+    } catch (e: any) {
+      setDriveJobStatus("error");
+      setDriveJobMessage(e.message ?? "Erro ao iniciar");
+    }
+  };
+
   const load = useCallback(async (prefix: string) => {
     setLoading(true);
     setError(null);
@@ -3625,6 +3665,52 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
 
   return (
     <View style={{ flex: 1 }}>
+      {/* ── Acervo Drive: extração em background ── */}
+      {path === "" && (
+        <View style={{ marginHorizontal: 12, marginTop: 10, marginBottom: 2, borderRadius: 12, borderWidth: 1,
+          borderColor: driveJobStatus === "done" ? "#16a34a55" : driveJobStatus === "error" ? "#f8717155" : "#22c55e25",
+          backgroundColor: "#061409", overflow: "hidden" }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingTop: 10, paddingBottom: 4 }}>
+            <Feather name="cloud" size={15} color="#22c55e" />
+            <Text style={{ color: "#22c55e", fontWeight: "700", fontSize: 13, flex: 1 }}>Acervo Drive</Text>
+            {driveJobStatus === "running" && <ActivityIndicator size="small" color="#22c55e" />}
+            {driveJobStatus === "done" && <Feather name="check-circle" size={14} color="#4ade80" />}
+            {driveJobStatus === "error" && <Feather name="alert-circle" size={14} color="#f87171" />}
+          </View>
+          {driveJobMessage ? (
+            <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 11, paddingHorizontal: 12, paddingBottom: 4 }} numberOfLines={2}>
+              {driveJobMessage}
+            </Text>
+          ) : (
+            <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 11, paddingHorizontal: 12, paddingBottom: 4 }}>
+              Resolve links do Drive e armazena URLs no R2 como backup (sem subir o vídeo)
+            </Text>
+          )}
+          {driveJobStatus === "running" && driveJobProgress > 0 && (
+            <View style={{ height: 3, backgroundColor: "rgba(255,255,255,0.08)", marginHorizontal: 12, borderRadius: 2, marginBottom: 6 }}>
+              <View style={{ height: 3, width: `${driveJobProgress}%` as any, backgroundColor: "#22c55e", borderRadius: 2 }} />
+            </View>
+          )}
+          <Pressable
+            onPress={startDriveExtraction}
+            disabled={driveJobStatus === "running"}
+            style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+              margin: 10, marginTop: 2, padding: 10, borderRadius: 8,
+              backgroundColor: driveJobStatus === "running" ? "rgba(34,197,94,0.1)" : "#16a34a",
+              opacity: driveJobStatus === "running" ? 0.6 : 1 }}
+          >
+            <Feather name={driveJobStatus === "running" ? "loader" : "download-cloud"} size={14} color="#fff" />
+            <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>
+              {driveJobStatus === "running"
+                ? `Extraindo… ${driveJobProgress}%`
+                : driveJobStatus === "done"
+                ? "Extrair novamente"
+                : "Extrair todos os conteúdos do Drive"}
+            </Text>
+          </Pressable>
+        </View>
+      )}
+
       {/* Breadcrumb */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.breadcrumb} contentContainerStyle={{ alignItems: "center", paddingHorizontal: 12, gap: 4 }}>
         <Pressable onPress={() => { setPath(""); load(""); }} style={styles.breadcrumbItem}>

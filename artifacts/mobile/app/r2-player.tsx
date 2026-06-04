@@ -58,6 +58,7 @@ const SLEEP_PRESETS = [15, 30, 45, 60, 90] as const;
 
 interface RegistryItem {
   id: string; r2Key: string; teraboxUrl?: string; fileIndex?: number; fileName?: string;
+  driveUrl?: string; driveDirectUrl?: string;
   tmdbId: number; tmdbType: "movie" | "tv";
   title: string; label: string; season: number | null; episode: number | null;
 }
@@ -177,7 +178,7 @@ function SeekFlash({ side, anim }: { side: "left" | "right"; anim: Animated.Valu
 export default function R2PlayerScreen() {
   const { width: W } = useWindowDimensions();
   const params = useLocalSearchParams<{
-    key: string; registryItemId?: string; title: string; episodeName?: string;
+    key: string; registryItemId?: string; driveItemId?: string; title: string; episodeName?: string;
     season?: string; episode?: string; backdropPath?: string; posterPath?: string;
     tmdbId?: string; type?: string; r2ItemsJson?: string;
     watchSeason?: string; watchEpisode?: string; watchProgressRatio?: string;
@@ -199,6 +200,7 @@ export default function R2PlayerScreen() {
   const isTV = contentType === "tv";
   const savedProgressRatio = params.watchProgressRatio ? Number(params.watchProgressRatio) : 0;
   const isTerabox = !!params.registryItemId;
+  const isDrive = !!params.driveItemId;
   const r2Items: RegistryItem[] = (() => {
     try { return params.r2ItemsJson ? JSON.parse(params.r2ItemsJson) : []; } catch { return []; }
   })();
@@ -407,7 +409,7 @@ export default function R2PlayerScreen() {
 
   // ── Fetch video URL (with cache) ────────────────────────────────────────────
   const loadVideoUrl = useCallback(async () => {
-    if (!isTerabox && !params.key) { setPhase("error"); setErrorMsg("Arquivo não especificado"); return; }
+    if (!isDrive && !isTerabox && !params.key) { setPhase("error"); setErrorMsg("Arquivo não especificado"); return; }
     phaseRef.current = "loading";
     setPhase("loading");
     setVideoUrl(null);
@@ -420,7 +422,7 @@ export default function R2PlayerScreen() {
     preloadedNextUrlRef.current = null;
     preloadingRef.current = false;
 
-    fakeAnim.current = Animated.timing(loadProgress, { toValue: 80, duration: isTerabox ? 6000 : 3000, useNativeDriver: false });
+    fakeAnim.current = Animated.timing(loadProgress, { toValue: 80, duration: (isTerabox || isDrive) ? 6000 : 3000, useNativeDriver: false });
     fakeAnim.current.start();
 
     // Get the TeraBox share URL for WebView fallback
@@ -430,7 +432,13 @@ export default function R2PlayerScreen() {
 
     try {
       let url: string;
-      if (isTerabox) {
+      if (isDrive) {
+        // Drive: resolve via server (/drive/play), which retorna URL direta do Google Drive
+        // O servidor cacheia a URL no __registry.json do R2 (backup sem subir o vídeo)
+        const driveId = params.driveItemId!;
+        const data = await r2Route<{ url: string; cached: boolean }>(`/drive/play?id=${driveId}`);
+        url = data.url;
+      } else if (isTerabox) {
         // 1st attempt: direct client-side resolution via xapiverse (bypasses server)
         const tbItem = r2Items.find((i) => i.id === params.registryItemId);
         if (!tbItem?.teraboxUrl) throw new Error("Link TeraBox não encontrado no registry");
