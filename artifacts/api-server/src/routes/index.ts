@@ -8,6 +8,7 @@ import gstreamRouter from "./gstream";
 import r2Router from "./r2";
 import pushRouter from "./push";
 import d1ContentRouter from "./d1-content";
+import streamRouter from "./stream";
 
 const router: IRouter = Router();
 
@@ -20,5 +21,6 @@ router.use("/gstream", gstreamRouter);
 router.use("/r2", r2Router);
 router.use("/push", pushRouter);
 router.use("/content", d1ContentRouter);
+router.use("/stream", streamRouter);
 
 export default router;

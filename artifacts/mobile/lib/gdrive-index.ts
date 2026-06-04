@@ -4,14 +4,33 @@ import Constants from "expo-constants";
 const DRIVE_WORKER = "https://1.animezey23112022.workers.dev";
 const DOWNLOAD_DOMAIN = "https://animezey16082023.animezey16082023.workers.dev";
 
-function getDriveProxyBase(): string {
-  if (Platform.OS === "web") return "/api/drive";
+function getApiBase(): string | null {
+  if (Platform.OS === "web") return "";
   const domain =
     process.env.EXPO_PUBLIC_DOMAIN ||
     (Constants.expoConfig?.extra as any)?.apiDomain ||
     null;
-  if (domain) return `https://${domain}/api/drive`;
+  return domain ? `https://${domain}` : null;
+}
+
+function getDriveProxyBase(): string {
+  if (Platform.OS === "web") return "/api/drive";
+  const base = getApiBase();
+  if (base) return `${base}/api/drive`;
   return DRIVE_WORKER;
+}
+
+/**
+ * Returns a stream URL that goes through the API server proxy when possible.
+ * The proxy correctly handles Range requests and upstream redirects so that
+ * expo-av can seek without issues on Android/iOS.
+ */
+export function getProxiedStreamUrl(rawUrl: string): string {
+  if (!rawUrl) return "";
+  if (Platform.OS === "web") return rawUrl;
+  const base = getApiBase();
+  if (!base) return rawUrl;
+  return `${base}/api/stream/proxy?url=${encodeURIComponent(rawUrl)}`;
 }
 
 export type DriveFile = {
@@ -60,7 +79,8 @@ export function isVideo(item: DriveItem): boolean {
 export function getStreamUrl(item: DriveItem): string {
   if (!item.link) return "";
   const rel = item.link.startsWith("/") ? item.link : `/${item.link}`;
-  return `${DOWNLOAD_DOMAIN}${rel}`;
+  const rawUrl = `${DOWNLOAD_DOMAIN}${rel}`;
+  return getProxiedStreamUrl(rawUrl);
 }
 
 export function formatSize(bytes?: string): string {

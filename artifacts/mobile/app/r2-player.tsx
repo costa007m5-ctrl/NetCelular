@@ -22,6 +22,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { apiList, apiSignedUrl, r2Route, teraboxPlay } from "@/lib/r2-direct";
+import { getProxiedStreamUrl } from "@/lib/gdrive-index";
 import { useAuth } from "@/lib/auth-context";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
 import { checkAndStartSession, heartbeatSession, endSession, getWhatsAppLink } from "@/lib/session-manager";
@@ -438,7 +439,8 @@ export default function R2PlayerScreen() {
         // O servidor cacheia a URL no __registry.json do R2 (backup sem subir o vídeo)
         const driveId = params.driveItemId!;
         const data = await r2Route<{ url: string; cached: boolean }>(`/drive/play?id=${driveId}`);
-        url = data.url;
+        // Proxy through the API server so the native player gets clean Range support
+        url = getProxiedStreamUrl(data.url);
       } else if (isTerabox) {
         // 1st attempt: direct client-side resolution via xapiverse (bypasses server)
         const tbItem = r2Items.find((i) => i.id === params.registryItemId);
