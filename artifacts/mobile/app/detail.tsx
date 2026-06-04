@@ -737,12 +737,16 @@ export default function DetailScreen() {
           ? { ...baseParams, directM3u8: resolved.m3u8, directReferer: resolved.embedUrl }
           : resolved.iframeUrl
           ? { ...baseParams, directEmbed: resolved.iframeUrl, directReferer: resolved.embedUrl }
+          : resolved.embedUrl
+          ? { ...baseParams, directEmbed: resolved.embedUrl, directReferer: resolved.embedUrl }
           : { ...baseParams, ...(type === "movie" && gstreamMovieUrl ? { gstreamMovieUrl } : {}) },
       });
     } catch {
       router.push({
         pathname: "/player",
-        params: { ...baseParams, ...(type === "movie" && gstreamMovieUrl ? { gstreamMovieUrl } : {}) },
+        params: type === "movie" && gstreamMovieUrl
+          ? { ...baseParams, directEmbed: gstreamMovieUrl, directReferer: gstreamMovieUrl }
+          : baseParams,
       });
     } finally {
       setGstreamResolving(false);

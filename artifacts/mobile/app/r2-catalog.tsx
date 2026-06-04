@@ -4,6 +4,7 @@ import {
   Alert,
   Dimensions,
   FlatList,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -1260,13 +1261,13 @@ function UploadPanel() {
               key={m.id}
               onPress={() => setUploadMode(m.id)}
               style={{
-                flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 10, borderRadius: 10,
+                flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 12, borderRadius: 10,
                 backgroundColor: uploadMode === m.id ? `${m.color}20` : "rgba(255,255,255,0.05)",
                 borderWidth: 1, borderColor: uploadMode === m.id ? m.color : "rgba(255,255,255,0.08)",
               }}
             >
-              <Feather name={m.icon as any} size={16} color={uploadMode === m.id ? m.color : "rgba(255,255,255,0.35)"} />
-              <Text style={{ color: uploadMode === m.id ? m.color : "rgba(255,255,255,0.35)", fontSize: 9, fontWeight: "700", marginTop: 4, textAlign: "center" }} numberOfLines={1}>{m.label}</Text>
+              <Feather name={m.icon as any} size={17} color={uploadMode === m.id ? m.color : "rgba(255,255,255,0.35)"} />
+              <Text style={{ color: uploadMode === m.id ? m.color : "rgba(255,255,255,0.35)", fontSize: 11, fontWeight: "700", marginTop: 5, textAlign: "center" }} numberOfLines={1}>{m.label}</Text>
             </Pressable>
           ))}
         </View>
@@ -3599,16 +3600,17 @@ function DriveRegisterModal({ item, onClose, onDone }: {
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.85)", justifyContent: "flex-end" }}>
-        <View style={{ backgroundColor: "#0f0f0f", borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, maxHeight: "90%" }}>
-          <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 14 }}>
-            <Feather name="cloud" size={17} color="#22c55e" />
-            <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15, marginLeft: 8, flex: 1 }}>Registrar no Drive</Text>
-            <Pressable onPress={onClose}><Feather name="x" size={20} color="rgba(255,255,255,0.5)" /></Pressable>
-          </View>
-          <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11, marginBottom: 14 }} numberOfLines={2}>📁 {item.name}</Text>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.85)", justifyContent: "flex-end" }}>
+          <View style={{ backgroundColor: "#0f0f0f", borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, maxHeight: "90%" }}>
+            <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 14 }}>
+              <Feather name="cloud" size={17} color="#22c55e" />
+              <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15, marginLeft: 8, flex: 1 }}>Registrar no Drive</Text>
+              <Pressable onPress={onClose}><Feather name="x" size={20} color="rgba(255,255,255,0.5)" /></Pressable>
+            </View>
+            <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11, marginBottom: 14 }} numberOfLines={2}>📁 {item.name}</Text>
 
-          <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
             <Text style={styles.fieldLabel}>Buscar título no TMDB</Text>
             <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
               <TextInput style={[styles.input, { flex: 1 }]} value={q} onChangeText={setQ}
@@ -3686,9 +3688,10 @@ function DriveRegisterModal({ item, onClose, onDone }: {
                 : <Feather name="save" size={15} color="#fff" />}
               <Text style={styles.actionBtnText}>{saving ? "Salvando…" : "Salvar no Registry"}</Text>
             </Pressable>
-          </ScrollView>
+            </ScrollView>
+          </View>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

@@ -127,21 +127,25 @@ router.get("/resolve-stream", async (req, res) => {
     // Step 2: Extract idS — it's an HTML attribute on .player_select_item div
     // Format: <div class="player_select_item" idS="HEXHASH">
     const idSPatterns = [
-      /\bidS="([a-fA-F0-9]{16,})"/,                   // HTML attribute (primary)
-      /\bidS='([a-fA-F0-9]{16,})'/,
-      /idS\s*=\s*["']([a-fA-F0-9]{16,})["']/i,
-      /var\s+idS\s*=\s*["']([a-zA-Z0-9_\-]{16,})["']/,
-      /['"]([\w]{40,})['"]/,                           // long hash fallback
+      /\bidS="([a-fA-F0-9]{8,})"/,                    // HTML attribute hex (primary)
+      /\bidS='([a-fA-F0-9]{8,})'/,
+      /\bidS="([a-zA-Z0-9_\-]{8,})"/,                 // HTML attribute alphanumeric
+      /\bidS='([a-zA-Z0-9_\-]{8,})'/,
+      /idS\s*=\s*["']([a-zA-Z0-9_\-]{8,})["']/i,
+      /var\s+idS\s*=\s*["']([a-zA-Z0-9_\-]{8,})["']/,
+      /"idS"\s*:\s*"([a-zA-Z0-9_\-]{8,})"/,           // JSON property
+      /['"]([\w]{32,})['"]/,                           // long hash fallback
     ];
 
     let idS: string | null = null;
     for (const p of idSPatterns) {
       const m = html.match(p);
-      if (m?.[1] && m[1].length >= 16) { idS = m[1]; break; }
+      if (m?.[1] && m[1].length >= 8) { idS = m[1]; break; }
     }
 
     if (!idS) {
-      return res.json({ m3u8: null, embedUrl, error: "idS not found in embed page" });
+      // Return embedUrl so client can load the page directly in WebView as fallback
+      return res.json({ m3u8: null, iframeUrl: null, embedUrl, error: "idS not found in embed page" });
     }
 
     // Step 3: POST to /stream
