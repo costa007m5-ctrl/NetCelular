@@ -862,6 +862,75 @@ router.delete("/registry/:id", async (req, res) => {
   }
 });
 
+// ── NEW: TeraBox resolve (xAPIverse) ──────────────────────────────────────────
+// POST /terabox-resolve  { url }
+router.post("/terabox-resolve", async (req, res) => {
+  try {
+    const { url } = req.body as { url: string };
+    if (!url) { res.status(400).json({ error: "url required" }); return; }
+
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 30_000);
+    let r: Response;
+    try {
+      r = await fetch("https://xapiverse.com/api/terabox-pro", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "xAPIverse-Key": "sk_6d7363a619840df0a07afe194613bf9a",
+        },
+        body: JSON.stringify({ url }),
+        signal: ctrl.signal,
+      });
+    } finally { clearTimeout(tid); }
+
+    const data = await r.json() as any;
+    if (!r.ok || data.status !== "success") {
+      res.status(400).json({ error: data.message ?? data.error ?? "TeraBox API error" });
+      return;
+    }
+    res.json({ list: data.list ?? [], total_files: data.total_files ?? 0, total_folders: data.total_folders ?? 0 });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "error" });
+  }
+});
+
+// ── NEW: Google Drive resolve ──────────────────────────────────────────────────
+// POST /gdrive-resolve  { url }
+router.post("/gdrive-resolve", async (req, res) => {
+  try {
+    const { url } = req.body as { url: string };
+    if (!url) { res.status(400).json({ error: "url required" }); return; }
+
+    const idMatch =
+      url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) ??
+      url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+    if (!idMatch) {
+      res.status(400).json({ error: "URL do Google Drive inválida. Use o link de compartilhamento (ex: drive.google.com/file/d/ID/view)." });
+      return;
+    }
+    const fileId = idMatch[1];
+    const directUrl = `https://drive.usercontent.google.com/download?id=${fileId}&export=download&authuser=0&confirm=t`;
+
+    let name = `gdrive_${fileId}.mp4`;
+    try {
+      const ctrl = new AbortController();
+      const tid = setTimeout(() => ctrl.abort(), 10_000);
+      let head: Response;
+      try {
+        head = await fetch(directUrl, { method: "HEAD", redirect: "follow", signal: ctrl.signal });
+      } finally { clearTimeout(tid); }
+      const disp = head.headers.get("content-disposition") ?? "";
+      const m = disp.match(/filename\*?=(?:UTF-8'')?["']?([^"';\r\n]+)["']?/i);
+      if (m) { try { name = decodeURIComponent(m[1].trim()); } catch { name = m[1].trim(); } }
+    } catch {}
+
+    res.json({ directUrl, fileId, name });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "error" });
+  }
+});
+
 // ── NEW: TMDB search proxy ─────────────────────────────────────────────────────
 // GET /tmdb-search?q=...&type=multi|movie|tv
 router.get("/tmdb-search", async (req, res) => {

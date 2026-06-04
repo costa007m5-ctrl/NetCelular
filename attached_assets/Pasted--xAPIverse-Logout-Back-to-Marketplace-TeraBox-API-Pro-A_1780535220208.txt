@@ -1,0 +1,175 @@
+"
+xAPIverse
+Logout
+Back to Marketplace
+
+TeraBox API Pro ⚡️
+Active
+|
+Published by iTeraPlay
+
+Unsubscribe
+API Overview
+The TeraBox API provides a powerful and programmatic way to interact with TeraBox file links. Whether you're building a video streaming app, a file downloader, or a metadata scraper, this API delivers the data you need in a clean JSON format.
+
+Key Features:
+Fast Download Link: Get fast download links for maximum speed.
+Multiple Streaming Options: HLS fast streams up to 4K (360p, 480p, 720p, 1080p, 4K) and standard MP4 streaming.
+Multi-language Subtitles: M3U8 format subtitle files with support for multiple languages.
+Complete Metadata: File size, duration, quality, type, and thumbnail extraction.
+Video Quality Detection: Automatic detection of video resolution up to 4K.
+Unlimited Bandwidth: No extra cost for streaming or downloading - unlimited bandwidth included with every request.
+Transparent Pricing
+$1 = 10,000 requests
+That's only $0.000100 per successful request.
+
+ERRORS
+Free
+MODEL
+Pay-as-you-go
+API Playground
+100/100 free credits available(monthly)
+ENDPOINT
+POST
+/api/terabox-pro
+REQUIRED PARAMETERS
+url *
+
+API KEY
+sk_6d7363a619840df0a07afe194613bf9a
+Test Endpoint
+Code Snippets
+Response
+
+cURL
+Copy
+curl --request POST \
+  --url 'https://xapiverse.com/api/terabox-pro
+' \
+  --header 'Content-Type: application/json' \
+  --header 'xAPIverse-Key: sk_6d7363a619840df0a07afe194613bf9a' \
+  --data '{"url":"https://1024terabox.com/s/123abcxyz
+"} '
+How to Use
+BASE URL
+https://xapiverse.com/api/terabox-pro
+
+REQUIRED HEADERS
+// Add these headers to your request
+Content-Type: application/json
+xAPIverse-Key: sk_6d7363a619840df0a07afe194613bf9a
+CURL EXAMPLE
+curl --request POST \
+  --url 'https://xapiverse.com/api/terabox-pro
+' \
+  --header 'Content-Type: application/json' \
+  --header 'xAPIverse-Key: sk_6d7363a619840df0a07afe194613bf9a' \
+  --data '{"url":"https://1024terabox.com/s/123abcxyz
+"}'
+JAVASCRIPT (FETCH)
+const response = await fetch(
+  'https://xapiverse.com/api/terabox-pro
+',
+  {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'xAPIverse-Key': 'sk_6d7363a619840df0a07afe194613bf9a'
+    },
+    body: JSON.stringify({
+  "url": "https://1024terabox.com/s/123abcxyz
+"
+})
+  }
+);
+const data = await response.json();
+console.log(data);
+PYTHON (REQUESTS)
+import requests
+
+url = "https://xapiverse.com/api/terabox-pro
+"
+payload = {
+  "url": "https://1024terabox.com/s/123abcxyz
+"
+}
+headers = {
+    "Content-Type": "application/json",
+    "xAPIverse-Key": "sk_6d7363a619840df0a07afe194613bf9a"
+}
+
+response = requests.post(url, json=payload, headers=headers)
+print(response.json())
+PHP (CURL)
+<?php
+$curl = curl_init();
+
+curl_setopt_array($curl, [
+    CURLOPT_URL => "https://xapiverse.com/api/terabox-pro
+",
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_POST => true,
+    CURLOPT_POSTFIELDS => json_encode([
+        
+            
+                "url" => "https://1024terabox.com/s/123abcxyz
+"
+            
+        
+    ]),
+    CURLOPT_HTTPHEADER => [
+        "Content-Type: application/json",
+        "xAPIverse-Key: sk_6d7363a619840df0a07afe194613bf9a"
+    ]
+]);
+
+$response = curl_exec($curl);
+curl_close($curl);
+echo $response;
+Response Structure
+SUCCESS RESPONSE EXAMPLE
+{
+  "list": [
+    {
+      "name": "video_example.mp4",
+      "size": 43162336,
+      "type": "video",
+      "fs_id": 684569192062313,
+      "folder": "root",
+      "is_dir": "0",
+      "quality": "480p",
+      "duration": "09:16",
+      "file_path": "/video_example.mp4",
+      "thumbnail": "https://api.iteraplay.com/thumbnail?token
+=...",
+      "fast_dlink": "https://api.iteraplay.com/download?token
+=...",
+      "stream_url": "https://api.iteraplay.com/stream?token
+=...",
+      "subtitle_url": "https://api.iteraplay.com/subtitle?token
+=...",
+      "size_formatted": "41.16 MB",
+      "fast_stream_url": {
+        "360p": "https://api.iteraplay.com/fast_stream?token=...m3u8
+",
+        "480p": "https://api.iteraplay.com/fast_stream?token=...m3u8
+"
+      }
+    }
+  ],
+  "status": "success",
+  "total_files": 1,
+  "total_folders": "0"
+}
+RESPONSE FIELDS
+Field	Type	Description
+status	string	"success" or "error"
+total_files	integer	Number of files in the response
+fs_id	integer	Unique file system identifier
+name	string	Original file name
+file_path	string	Original file path
+size / size_formatted	int / string	File size in bytes and human-readable format
+type	string	File type (video, audio, document, etc.)
+duration	string	Video duration in MM:SS format
+quality	string	Video resolution (360p, 480p, 720p, 1080p)"
+ https://xapiverse.com/apis/terabox-pro#:~:text=xAPIverse,480p%2C%20720p%2C%201080p)

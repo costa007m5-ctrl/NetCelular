@@ -600,6 +600,41 @@ export async function apiCatalog(forceRefresh = false) {
   return { catalog: entries, cached: false, builtAt: new Date(_catalogCache.builtAt).toISOString() };
 }
 
+// ─── API server base URL ──────────────────────────────────────────────────────
+
+export function r2Base(): string | null {
+  const domain = (process.env.EXPO_PUBLIC_DOMAIN as string | undefined) ?? null;
+  if (!domain) return null;
+  return `https://${domain}/api/r2`;
+}
+
+// Routes that must be forwarded to the API server (can't run client-side)
+const SERVER_ONLY_ROUTES = new Set([
+  "/download-url",
+  "/terabox-resolve",
+  "/gdrive-resolve",
+  "/upload",
+]);
+
+async function forwardToServer<T>(path: string, options?: RequestInit): Promise<T> {
+  const base = r2Base();
+  if (!base) throw new Error("Servidor de API não configurado. Defina EXPO_PUBLIC_DOMAIN.");
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), 120_000);
+  try {
+    const res = await fetch(`${base}${path}`, { ...options, signal: ctrl.signal });
+    clearTimeout(tid);
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
+      throw new Error(txt || `Erro ${res.status}`);
+    }
+    return res.json() as Promise<T>;
+  } catch (e) {
+    clearTimeout(tid);
+    throw e;
+  }
+}
+
 // ─── Universal router (drop-in para apiFetch / apiPost) ───────────────────────
 
 export async function r2Route<T>(path: string, options?: RequestInit): Promise<T> {
@@ -607,6 +642,11 @@ export async function r2Route<T>(path: string, options?: RequestInit): Promise<T
   const route = u.pathname;
   const q = (k: string) => u.searchParams.get(k) ?? "";
   const body = options?.body ? JSON.parse(options.body as string) : null;
+
+  // Server-only routes: forward to API server
+  if (SERVER_ONLY_ROUTES.has(route) || route.startsWith("/job/")) {
+    return forwardToServer<T>(path, options);
+  }
 
   let result: unknown;
 
@@ -635,10 +675,6 @@ export async function r2Route<T>(path: string, options?: RequestInit): Promise<T
     result = await apiRenameFolder(body.oldPrefix, body.newPrefix);
   } else if (route === "/catalog-meta") {
     result = await apiCatalogMeta(body.key, body.tmdbId, body.tmdbType, body.displayName);
-  } else if (route.startsWith("/job/")) {
-    result = { status: "done", progress: 100, downloaded: 0, total: 0 };
-  } else if (route === "/download-url") {
-    throw new Error("Download via servidor não disponível em modo direto. Use o app web.");
   } else {
     throw new Error(`Endpoint desconhecido: ${route}`);
   }

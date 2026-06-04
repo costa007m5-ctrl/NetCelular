@@ -5,6 +5,7 @@ import {
   Dimensions,
   FlatList,
   Modal,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -18,6 +19,8 @@ import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as DocumentPicker from "expo-document-picker";
+import * as FileSystem from "expo-file-system";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/lib/auth-context";
 import { r2Route } from "@/lib/r2-direct";
@@ -63,7 +66,8 @@ interface TmdbSearchResult {
   id: number; title: string; poster_path: string | null; media_type: "movie" | "tv";
 }
 
-type Tab = "catalog" | "upload" | "manage";
+type Tab = "catalog" | "upload" | "manage" | "terabox";
+type UploadMode = "url" | "gdrive" | "terabox" | "local";
 type CatalogView =
   | { screen: "catalog" }
   | { screen: "seasons"; entry: CatalogEntry }
@@ -590,6 +594,9 @@ interface BulkJobItem {
 
 function UploadPanel() {
   const insets = useSafeAreaInsets();
+  const [uploadMode, setUploadMode] = useState<UploadMode>("url");
+
+  // ── URL / bulk state ──
   const [url, setUrl] = useState("");
   const [selectedFolder, setSelectedFolder] = useState("");
   const [fileName, setFileName] = useState("");
@@ -612,6 +619,41 @@ function UploadPanel() {
   const bulkPollRefs = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const [uploadedUrls, setUploadedUrls] = useState<Set<string>>(new Set());
 
+  // ── Google Drive state ──
+  const [gdriveUrl, setGdriveUrl] = useState("");
+  const [gdriveFolder, setGdriveFolder] = useState("");
+  const [showGdriveFolderPicker, setShowGdriveFolderPicker] = useState(false);
+  const [gdriveResolved, setGdriveResolved] = useState<{ directUrl: string; name: string } | null>(null);
+  const [gdriveFileName, setGdriveFileName] = useState("");
+  const [gdriveLoading, setGdriveLoading] = useState(false);
+  const [gdriveJob, setGdriveJob] = useState<Job | null>(null);
+  const [gdriveJobId, setGdriveJobId] = useState<string | null>(null);
+  const [gdriveError, setGdriveError] = useState<string | null>(null);
+  const [gdriveSuccess, setGdriveSuccess] = useState<string | null>(null);
+  const gdrivePollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── TeraBox link → R2 state ──
+  const [teraUrl, setTeraUrl] = useState("");
+  const [teraFolder, setTeraFolder] = useState("");
+  const [showTeraFolderPicker, setShowTeraFolderPicker] = useState(false);
+  const [teraFiles, setTeraFiles] = useState<any[]>([]);
+  const [teraSelected, setTeraSelected] = useState<Set<number>>(new Set());
+  const [teraLoading, setTeraLoading] = useState(false);
+  const [teraError, setTeraError] = useState<string | null>(null);
+  const [teraJobs, setTeraJobs] = useState<BulkJobItem[]>([]);
+  const [teraRunning, setTeraRunning] = useState(false);
+  const teraPollRefs = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  // ── Local file upload state ──
+  const [localFile, setLocalFile] = useState<{ name: string; uri: string; size: number; mimeType: string } | null>(null);
+  const [localFolder, setLocalFolder] = useState("");
+  const [showLocalFolderPicker, setShowLocalFolderPicker] = useState(false);
+  const [localFileName, setLocalFileName] = useState("");
+  const [localUploading, setLocalUploading] = useState(false);
+  const [localProgress, setLocalProgress] = useState(0);
+  const [localError, setLocalError] = useState<string | null>(null);
+  const [localSuccess, setLocalSuccess] = useState<string | null>(null);
+
   // Load previously uploaded URLs from storage
   useEffect(() => {
     AsyncStorage.getItem(UPLOADED_URLS_KEY)
@@ -629,6 +671,161 @@ function UploadPanel() {
   };
 
   const stopPoll = () => { if (pollRef.current) clearTimeout(pollRef.current); };
+
+  // ── Google Drive helpers ──
+  const resolveGdrive = async () => {
+    const u = gdriveUrl.trim();
+    if (!u) { setGdriveError("Cole o link do Google Drive"); return; }
+    setGdriveLoading(true);
+    setGdriveError(null);
+    setGdriveResolved(null);
+    setGdriveJob(null);
+    setGdriveSuccess(null);
+    try {
+      const r = await apiPost<{ directUrl: string; fileId: string; name: string }>("/gdrive-resolve", { url: u });
+      setGdriveResolved(r);
+      setGdriveFileName(r.name);
+    } catch (e: any) { setGdriveError(e.message ?? "Erro ao resolver link"); }
+    finally { setGdriveLoading(false); }
+  };
+
+  const startGdriveDownload = async () => {
+    if (!gdriveResolved) return;
+    const fn = gdriveFileName.trim() || gdriveResolved.name;
+    const folderBase = gdriveFolder ? (gdriveFolder.endsWith("/") ? gdriveFolder : `${gdriveFolder}/`) : "";
+    const key = `${folderBase}${fn}`;
+    setGdriveLoading(true);
+    setGdriveError(null);
+    setGdriveSuccess(null);
+    setGdriveJob(null);
+    try {
+      const r = await apiPost<{ jobId: string }>("/download-url", { url: gdriveResolved.directUrl, key });
+      setGdriveJobId(r.jobId);
+      const poll = async () => {
+        try {
+          const j = await apiFetch<Job>(`/job/${r.jobId}`);
+          setGdriveJob(j);
+          if (j.status === "done") {
+            setGdriveSuccess(`✅ Enviado: ${j.key ?? key}`);
+            setGdriveLoading(false);
+            setGdriveUrl("");
+            setGdriveResolved(null);
+            setGdriveFileName("");
+          } else if (j.status === "error") {
+            setGdriveError(j.error ?? "Falha no download");
+            setGdriveLoading(false);
+          } else {
+            gdrivePollRef.current = setTimeout(poll, 1200);
+          }
+        } catch { gdrivePollRef.current = setTimeout(poll, 2000); }
+      };
+      poll();
+    } catch (e: any) { setGdriveError(e.message ?? "Erro"); setGdriveLoading(false); }
+  };
+
+  // ── TeraBox link → R2 helpers ──
+  const resolveTeraBox = async () => {
+    const u = teraUrl.trim();
+    if (!u) { setTeraError("Cole o link do TeraBox"); return; }
+    setTeraLoading(true);
+    setTeraError(null);
+    setTeraFiles([]);
+    setTeraSelected(new Set());
+    setTeraJobs([]);
+    try {
+      const r = await apiPost<{ list: any[]; total_files: number }>("/terabox-resolve", { url: u });
+      setTeraFiles(r.list ?? []);
+      const allIdxs = new Set((r.list ?? []).map((_: any, i: number) => i));
+      setTeraSelected(allIdxs);
+    } catch (e: any) { setTeraError(e.message ?? "Erro ao resolver link TeraBox"); }
+    finally { setTeraLoading(false); }
+  };
+
+  const startTeraDownload = async () => {
+    const toUpload = teraFiles.filter((_, i) => teraSelected.has(i));
+    if (toUpload.length === 0) return;
+    const folderBase = teraFolder ? (teraFolder.endsWith("/") ? teraFolder : `${teraFolder}/`) : "__auto__";
+    const initial: BulkJobItem[] = toUpload.map((f) => ({
+      url: f.fast_dlink, jobId: null, status: "queued", progress: 0, key: folderBase,
+    }));
+    setTeraJobs(initial);
+    setTeraRunning(true);
+
+    const runOne = async (idx: number, file: any): Promise<void> => {
+      try {
+        const r = await apiPost<{ jobId: string; key: string }>("/download-url", {
+          url: file.fast_dlink,
+          key: `${folderBase === "__auto__" ? "" : folderBase}${file.name}`,
+        });
+        setTeraJobs((prev) => { const n = [...prev]; n[idx] = { ...n[idx], jobId: r.jobId, status: "downloading", key: r.key }; return n; });
+        await new Promise<void>((resolve) => {
+          const poll = async () => {
+            try {
+              const j = await apiFetch<Job>(`/job/${r.jobId}`);
+              setTeraJobs((prev) => { const n = [...prev]; n[idx] = { ...n[idx], status: j.status, progress: j.progress, key: j.key ?? n[idx].key, error: j.error }; return n; });
+              if (j.status === "done" || j.status === "error") resolve();
+              else { const t = setTimeout(poll, 1500); teraPollRefs.current.set(r.jobId, t); }
+            } catch { const t = setTimeout(poll, 2500); teraPollRefs.current.set(r.jobId, t); }
+          };
+          poll();
+        });
+      } catch (e: any) {
+        setTeraJobs((prev) => { const n = [...prev]; n[idx] = { ...n[idx], status: "error", error: e.message }; return n; });
+      }
+    };
+
+    let cursor = 0;
+    const worker = async () => { while (cursor < toUpload.length) { const i = cursor++; await runOne(i, toUpload[i]); } };
+    await Promise.all(Array.from({ length: Math.min(3, toUpload.length) }, worker));
+    setTeraRunning(false);
+  };
+
+  // ── Local file upload helpers ──
+  const pickLocalFile = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ["video/*", "application/octet-stream"],
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled || !result.assets?.[0]) return;
+      const asset = result.assets[0];
+      setLocalFile({ name: asset.name, uri: asset.uri, size: asset.size ?? 0, mimeType: asset.mimeType ?? "application/octet-stream" });
+      setLocalFileName(asset.name);
+      setLocalError(null);
+      setLocalSuccess(null);
+    } catch (e: any) { setLocalError(e.message ?? "Erro ao abrir arquivo"); }
+  };
+
+  const startLocalUpload = async () => {
+    if (!localFile) return;
+    const fn = localFileName.trim() || localFile.name;
+    const folderBase = localFolder ? (localFolder.endsWith("/") ? localFolder : `${localFolder}/`) : "";
+    const key = `${folderBase}${fn}`;
+    setLocalUploading(true);
+    setLocalProgress(0);
+    setLocalError(null);
+    setLocalSuccess(null);
+    try {
+      const apiBase = (await import("@/lib/r2-direct")).r2Base();
+      const uploadResult = await FileSystem.uploadAsync(`${apiBase}/upload`, localFile.uri, {
+        httpMethod: "POST",
+        uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+        fieldName: "file",
+        parameters: { key },
+        mimeType: localFile.mimeType,
+      });
+      if (uploadResult.status >= 200 && uploadResult.status < 300) {
+        setLocalSuccess(`✅ Enviado: ${key}`);
+        setLocalFile(null);
+        setLocalFileName("");
+        setLocalFolder("");
+      } else {
+        const body = JSON.parse(uploadResult.body || "{}");
+        setLocalError(body.error ?? `HTTP ${uploadResult.status}`);
+      }
+    } catch (e: any) { setLocalError(e.message ?? "Erro no upload"); }
+    finally { setLocalUploading(false); }
+  };
 
   // ── Bulk upload ──
   const stopBulkPoll = (id: string) => {
@@ -847,11 +1044,284 @@ function UploadPanel() {
   const downloaded = job?.downloaded ?? 0;
   const total = job?.total ?? 0;
 
+  const UPLOAD_MODES: { id: UploadMode; label: string; icon: string; color: string }[] = [
+    { id: "url", label: "URL", icon: "link", color: RED },
+    { id: "gdrive", label: "Google Drive", icon: "cloud", color: "#1a73e8" },
+    { id: "terabox", label: "TeraBox", icon: "package", color: "#f59e0b" },
+    { id: "local", label: "Armazenamento", icon: "smartphone", color: "#10b981" },
+  ];
+
   return (
     <>
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 80 }}>
+
+        {/* Mode selector */}
+        <View style={{ flexDirection: "row", gap: 6, marginBottom: 16 }}>
+          {UPLOAD_MODES.map((m) => (
+            <Pressable
+              key={m.id}
+              onPress={() => setUploadMode(m.id)}
+              style={{
+                flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 10, borderRadius: 10,
+                backgroundColor: uploadMode === m.id ? `${m.color}20` : "rgba(255,255,255,0.05)",
+                borderWidth: 1, borderColor: uploadMode === m.id ? m.color : "rgba(255,255,255,0.08)",
+              }}
+            >
+              <Feather name={m.icon as any} size={16} color={uploadMode === m.id ? m.color : "rgba(255,255,255,0.35)"} />
+              <Text style={{ color: uploadMode === m.id ? m.color : "rgba(255,255,255,0.35)", fontSize: 9, fontWeight: "700", marginTop: 4, textAlign: "center" }} numberOfLines={1}>{m.label}</Text>
+            </Pressable>
+          ))}
+        </View>
+
+        {/* ── Google Drive section ── */}
+        {uploadMode === "gdrive" && (
+          <View style={styles.sectionCard}>
+            <View style={styles.sectionTitleRow}>
+              <Feather name="cloud" size={18} color="#1a73e8" />
+              <Text style={[styles.sectionTitle, { color: "#1a73e8" }]}>Google Drive → R2</Text>
+            </View>
+            <Text style={styles.sectionHint}>Cole o link de compartilhamento do Google Drive. O servidor resolve e baixa diretamente para o R2.</Text>
+
+            <Text style={styles.fieldLabel}>Link do Google Drive</Text>
+            <TextInput
+              style={[styles.input, gdriveLoading && { opacity: 0.5 }]}
+              placeholder="https://drive.google.com/file/d/ID/view"
+              placeholderTextColor="rgba(255,255,255,0.25)"
+              value={gdriveUrl}
+              onChangeText={(v) => { setGdriveUrl(v); setGdriveResolved(null); setGdriveError(null); }}
+              autoCapitalize="none"
+              autoCorrect={false}
+              editable={!gdriveLoading}
+              multiline
+            />
+
+            {!gdriveResolved ? (
+              <Pressable style={[styles.actionBtn, { backgroundColor: "#1a73e8" }, gdriveLoading && { opacity: 0.5 }]} onPress={resolveGdrive} disabled={gdriveLoading}>
+                {gdriveLoading ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="search" size={16} color="#fff" />}
+                <Text style={styles.actionBtnText}>{gdriveLoading ? "Resolvendo…" : "Resolver link"}</Text>
+              </Pressable>
+            ) : (
+              <>
+                <View style={{ marginTop: 12, backgroundColor: "rgba(26,115,232,0.1)", borderRadius: 10, padding: 12, borderWidth: 1, borderColor: "rgba(26,115,232,0.3)" }}>
+                  <Text style={{ color: "#93c5fd", fontSize: 11, marginBottom: 6 }}>✅ Link resolvido</Text>
+                  <Text style={styles.fieldLabel}>Nome do arquivo</Text>
+                  <TextInput
+                    style={[styles.input, gdriveLoading && { opacity: 0.5 }]}
+                    value={gdriveFileName}
+                    onChangeText={setGdriveFileName}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    editable={!gdriveLoading}
+                  />
+                  <Text style={[styles.fieldLabel, { marginTop: 10 }]}>Pasta de destino</Text>
+                  <Pressable
+                    style={[styles.input, { flexDirection: "row", alignItems: "center", gap: 10 }, gdriveLoading && { opacity: 0.5 }]}
+                    onPress={() => !gdriveLoading && setShowGdriveFolderPicker(true)}
+                  >
+                    <Feather name="folder" size={16} color={gdriveFolder ? "#f59e0b" : "rgba(255,255,255,0.25)"} />
+                    <Text style={{ flex: 1, color: gdriveFolder ? "#fff" : "rgba(255,255,255,0.3)", fontSize: 14 }} numberOfLines={1}>
+                      {gdriveFolder ? gdriveFolder.replace(/\/$/, "") : "Toque para escolher pasta…"}
+                    </Text>
+                  </Pressable>
+                </View>
+
+                {gdriveJob && (
+                  <View style={styles.progressWrap}>
+                    <View style={styles.progressBar}>
+                      <View style={[styles.progressFill, { width: `${gdriveJob.progress}%` as any, backgroundColor: "#1a73e8" }]} />
+                    </View>
+                    <Text style={styles.progressText}>
+                      {gdriveJob.status === "downloading" ? "Baixando do Drive…" : "Enviando para R2…"}{" "}
+                      {gdriveJob.progress > 0 ? `${gdriveJob.progress}%` : ""}
+                    </Text>
+                  </View>
+                )}
+
+                <Pressable style={[styles.actionBtn, { backgroundColor: "#1a73e8" }, gdriveLoading && { opacity: 0.5 }]} onPress={startGdriveDownload} disabled={gdriveLoading}>
+                  {gdriveLoading ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="upload-cloud" size={16} color="#fff" />}
+                  <Text style={styles.actionBtnText}>{gdriveLoading ? "Enviando…" : "Enviar para R2"}</Text>
+                </Pressable>
+              </>
+            )}
+
+            {gdriveError && <View style={styles.errorBox}><Feather name="alert-circle" size={14} color="#f87171" /><Text style={styles.errorBoxText}>{gdriveError}</Text></View>}
+            {gdriveSuccess && <View style={[styles.errorBox, { borderColor: "#22c55e40", backgroundColor: "#22c55e10" }]}><Text style={[styles.errorBoxText, { color: "#4ade80" }]}>{gdriveSuccess}</Text></View>}
+          </View>
+        )}
+
+        {/* ── TeraBox link → R2 section ── */}
+        {uploadMode === "terabox" && (
+          <View style={styles.sectionCard}>
+            <View style={styles.sectionTitleRow}>
+              <Feather name="package" size={18} color="#f59e0b" />
+              <Text style={[styles.sectionTitle, { color: "#f59e0b" }]}>TeraBox → R2</Text>
+            </View>
+            <Text style={styles.sectionHint}>Cole um link do TeraBox. O servidor resolve via API e baixa o vídeo direto para o R2.</Text>
+
+            <Text style={styles.fieldLabel}>Link do TeraBox</Text>
+            <TextInput
+              style={[styles.input, (teraLoading || teraRunning) && { opacity: 0.5 }]}
+              placeholder="https://1024terabox.com/s/..."
+              placeholderTextColor="rgba(255,255,255,0.25)"
+              value={teraUrl}
+              onChangeText={(v) => { setTeraUrl(v); setTeraFiles([]); setTeraError(null); setTeraJobs([]); }}
+              autoCapitalize="none"
+              autoCorrect={false}
+              editable={!teraLoading && !teraRunning}
+              multiline
+            />
+
+            {teraFiles.length === 0 ? (
+              <Pressable style={[styles.actionBtn, { backgroundColor: "#92400e" }, (teraLoading) && { opacity: 0.5 }]} onPress={resolveTeraBox} disabled={teraLoading}>
+                {teraLoading ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="search" size={16} color="#fff" />}
+                <Text style={styles.actionBtnText}>{teraLoading ? "Resolvendo via API…" : "Resolver TeraBox"}</Text>
+              </Pressable>
+            ) : (
+              <>
+                <Text style={styles.fieldLabel}>{teraFiles.length} arquivo{teraFiles.length > 1 ? "s" : ""} encontrado{teraFiles.length > 1 ? "s" : ""}</Text>
+                {teraFiles.map((f, i) => {
+                  const sel = teraSelected.has(i);
+                  const tj = teraJobs[i];
+                  return (
+                    <Pressable
+                      key={i}
+                      onPress={() => !teraRunning && setTeraSelected((prev) => {
+                        const n = new Set(prev);
+                        n.has(i) ? n.delete(i) : n.add(i);
+                        return n;
+                      })}
+                      style={{ flexDirection: "row", alignItems: "center", gap: 10, padding: 10, marginBottom: 4, borderRadius: 8, backgroundColor: sel ? "rgba(245,158,11,0.1)" : "rgba(255,255,255,0.04)", borderWidth: 1, borderColor: sel ? "rgba(245,158,11,0.3)" : "rgba(255,255,255,0.07)" }}
+                    >
+                      <Feather name={tj?.status === "done" ? "check-circle" : sel ? "check-square" : "square"} size={18} color={tj?.status === "done" ? "#4ade80" : sel ? "#f59e0b" : "rgba(255,255,255,0.3)"} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600" }} numberOfLines={1}>{f.name}</Text>
+                        <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 10, marginTop: 2 }}>{f.quality ?? ""}{f.quality && f.duration ? "  ·  " : ""}{f.duration ?? ""}{f.size_formatted ? `  ·  ${f.size_formatted}` : ""}</Text>
+                        {tj && tj.status !== "queued" && tj.status !== "done" && (
+                          <View style={[styles.progressBar, { marginTop: 4 }]}>
+                            <View style={[styles.progressFill, { width: `${tj.progress}%` as any, backgroundColor: "#f59e0b" }]} />
+                          </View>
+                        )}
+                        {tj?.status === "error" && <Text style={{ color: "#f87171", fontSize: 10, marginTop: 2 }}>❌ {tj.error}</Text>}
+                      </View>
+                    </Pressable>
+                  );
+                })}
+
+                <Text style={[styles.fieldLabel, { marginTop: 10 }]}>Pasta de destino</Text>
+                <Pressable
+                  style={[styles.input, { flexDirection: "row", alignItems: "center", gap: 10 }, teraRunning && { opacity: 0.5 }]}
+                  onPress={() => !teraRunning && setShowTeraFolderPicker(true)}
+                >
+                  <Feather name="folder" size={16} color={teraFolder ? "#f59e0b" : "rgba(255,255,255,0.25)"} />
+                  <Text style={{ flex: 1, color: teraFolder ? "#fff" : "rgba(255,255,255,0.3)", fontSize: 14 }} numberOfLines={1}>
+                    {teraFolder ? teraFolder.replace(/\/$/, "") : "Toque para escolher pasta…"}
+                  </Text>
+                </Pressable>
+
+                <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
+                  <Pressable
+                    style={[styles.actionBtn, { flex: 1, backgroundColor: "#92400e" }, (teraRunning || teraSelected.size === 0) && { opacity: 0.4 }]}
+                    onPress={startTeraDownload}
+                    disabled={teraRunning || teraSelected.size === 0}
+                  >
+                    {teraRunning ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="upload-cloud" size={16} color="#fff" />}
+                    <Text style={styles.actionBtnText}>{teraRunning ? `Enviando ${teraJobs.filter(j => j.status === "done").length}/${teraJobs.length}…` : `Enviar ${teraSelected.size} para R2`}</Text>
+                  </Pressable>
+                  {!teraRunning && (
+                    <Pressable style={[styles.actionBtn, { paddingHorizontal: 14, backgroundColor: "rgba(255,255,255,0.08)" }]} onPress={() => { setTeraFiles([]); setTeraJobs([]); setTeraUrl(""); }}>
+                      <Feather name="x" size={16} color="rgba(255,255,255,0.6)" />
+                    </Pressable>
+                  )}
+                </View>
+              </>
+            )}
+
+            {teraError && <View style={styles.errorBox}><Feather name="alert-circle" size={14} color="#f87171" /><Text style={styles.errorBoxText}>{teraError}</Text></View>}
+          </View>
+        )}
+
+        {/* ── Local file upload section ── */}
+        {uploadMode === "local" && (
+          <View style={styles.sectionCard}>
+            <View style={styles.sectionTitleRow}>
+              <Feather name="smartphone" size={18} color="#10b981" />
+              <Text style={[styles.sectionTitle, { color: "#10b981" }]}>Armazenamento → R2</Text>
+            </View>
+            <Text style={styles.sectionHint}>Selecione um vídeo do armazenamento do dispositivo. O arquivo será enviado direto para o R2.</Text>
+
+            <Pressable
+              style={{ flexDirection: "row", alignItems: "center", gap: 12, padding: 16, borderRadius: 12, borderWidth: 2, borderColor: localFile ? "#10b981" : "rgba(255,255,255,0.1)", borderStyle: "dashed", backgroundColor: localFile ? "rgba(16,185,129,0.07)" : "rgba(255,255,255,0.04)", marginBottom: 12 }}
+              onPress={pickLocalFile}
+              disabled={localUploading}
+            >
+              <Feather name={localFile ? "file-text" : "folder-plus"} size={28} color={localFile ? "#10b981" : "rgba(255,255,255,0.3)"} />
+              <View style={{ flex: 1 }}>
+                {localFile ? (
+                  <>
+                    <Text style={{ color: "#10b981", fontSize: 13, fontWeight: "700" }} numberOfLines={1}>{localFile.name}</Text>
+                    <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11, marginTop: 2 }}>{formatBytes(localFile.size)}  ·  {localFile.mimeType}</Text>
+                  </>
+                ) : (
+                  <>
+                    <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 14, fontWeight: "600" }}>Toque para selecionar arquivo</Text>
+                    <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 11, marginTop: 2 }}>Vídeos: mp4, mkv, mov, avi…</Text>
+                  </>
+                )}
+              </View>
+              {localFile && <Feather name="refresh-cw" size={16} color="rgba(255,255,255,0.4)" />}
+            </Pressable>
+
+            {localFile && (
+              <>
+                <Text style={styles.fieldLabel}>Nome do arquivo no R2</Text>
+                <TextInput
+                  style={[styles.input, localUploading && { opacity: 0.5 }]}
+                  value={localFileName}
+                  onChangeText={setLocalFileName}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  editable={!localUploading}
+                />
+
+                <Text style={[styles.fieldLabel, { marginTop: 12 }]}>Pasta de destino</Text>
+                <Pressable
+                  style={[styles.input, { flexDirection: "row", alignItems: "center", gap: 10 }, localUploading && { opacity: 0.5 }]}
+                  onPress={() => !localUploading && setShowLocalFolderPicker(true)}
+                >
+                  <Feather name="folder" size={16} color={localFolder ? "#f59e0b" : "rgba(255,255,255,0.25)"} />
+                  <Text style={{ flex: 1, color: localFolder ? "#fff" : "rgba(255,255,255,0.3)", fontSize: 14 }} numberOfLines={1}>
+                    {localFolder ? localFolder.replace(/\/$/, "") : "Toque para escolher pasta…"}
+                  </Text>
+                </Pressable>
+
+                <View style={{ marginTop: 10, backgroundColor: "rgba(255,255,255,0.04)", borderRadius: 8, padding: 10 }}>
+                  <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 11, marginBottom: 2 }}>Caminho no R2:</Text>
+                  <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 12, fontFamily: "monospace" }} numberOfLines={2}>
+                    {`${localFolder ? (localFolder.endsWith("/") ? localFolder : `${localFolder}/`) : ""}${localFileName || localFile.name}` || "—"}
+                  </Text>
+                </View>
+
+                {localUploading && (
+                  <View style={styles.progressWrap}>
+                    <ActivityIndicator color="#10b981" style={{ marginBottom: 6 }} />
+                    <Text style={styles.progressText}>Enviando arquivo para R2…</Text>
+                  </View>
+                )}
+
+                <Pressable style={[styles.actionBtn, { backgroundColor: "#10b981" }, localUploading && { opacity: 0.5 }]} onPress={startLocalUpload} disabled={localUploading}>
+                  {localUploading ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="upload" size={16} color="#fff" />}
+                  <Text style={styles.actionBtnText}>{localUploading ? "Enviando…" : "Enviar para R2"}</Text>
+                </Pressable>
+              </>
+            )}
+
+            {localError && <View style={styles.errorBox}><Feather name="alert-circle" size={14} color="#f87171" /><Text style={styles.errorBoxText}>{localError}</Text></View>}
+            {localSuccess && <View style={[styles.errorBox, { borderColor: "#22c55e40", backgroundColor: "#22c55e10" }]}><Text style={[styles.errorBoxText, { color: "#4ade80" }]}>{localSuccess}</Text></View>}
+          </View>
+        )}
+
         {/* Via URL */}
-        <View style={styles.sectionCard}>
+        {uploadMode === "url" && <View style={styles.sectionCard}>
           <View style={styles.sectionTitleRow}>
             <Feather name="download-cloud" size={18} color={RED} />
             <Text style={styles.sectionTitle}>Baixar via URL para o R2</Text>
@@ -950,10 +1420,10 @@ function UploadPanel() {
             {downloading ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="download-cloud" size={16} color="#fff" />}
             <Text style={styles.actionBtnText}>{downloading ? "Enviando…" : "Baixar e enviar para R2"}</Text>
           </Pressable>
-        </View>
+        </View>}
 
         {/* Upload em lote */}
-        <View style={[styles.sectionCard, { marginTop: 16 }]}>
+        {uploadMode === "url" && <View style={[styles.sectionCard, { marginTop: 16 }]}>
           <View style={styles.sectionTitleRow}>
             <Feather name="list" size={18} color="#f59e0b" />
             <Text style={[styles.sectionTitle, { color: "#f59e0b" }]}>Upload em lote</Text>
@@ -1149,7 +1619,7 @@ function UploadPanel() {
               </Pressable>
             )}
           </View>
-        </View>
+        </View>}
 
         {/* Nova pasta */}
         <View style={[styles.sectionCard, { marginTop: 16 }]}>
@@ -1187,6 +1657,285 @@ function UploadPanel() {
         <FolderPickerModal
           onSelect={(prefix) => setBulkFolder(prefix)}
           onClose={() => setShowBulkFolderPicker(false)}
+        />
+      )}
+      {showGdriveFolderPicker && (
+        <FolderPickerModal
+          onSelect={(prefix) => setGdriveFolder(prefix)}
+          onClose={() => setShowGdriveFolderPicker(false)}
+        />
+      )}
+      {showTeraFolderPicker && (
+        <FolderPickerModal
+          onSelect={(prefix) => setTeraFolder(prefix)}
+          onClose={() => setShowTeraFolderPicker(false)}
+        />
+      )}
+      {showLocalFolderPicker && (
+        <FolderPickerModal
+          onSelect={(prefix) => setLocalFolder(prefix)}
+          onClose={() => setShowLocalFolderPicker(false)}
+        />
+      )}
+    </>
+  );
+}
+
+// ── TeraBox API Tab ─────────────────────────────────────────────────────────────
+
+interface TeraBoxFile {
+  name: string; size: number; size_formatted: string; type: string;
+  quality: string; duration: string; fast_dlink: string; stream_url: string;
+  fast_stream_url: Record<string, string>; thumbnail: string; fs_id: number; file_path: string;
+}
+
+function TeraBoxPanel() {
+  const insets = useSafeAreaInsets();
+  const [inputUrl, setInputUrl] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [files, setFiles] = useState<TeraBoxFile[]>([]);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [destFolder, setDestFolder] = useState("");
+  const [showFolderPicker, setShowFolderPicker] = useState(false);
+  const [jobs, setJobs] = useState<BulkJobItem[]>([]);
+  const [running, setRunning] = useState(false);
+  const pollRefs = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  const resolve = async () => {
+    const u = inputUrl.trim();
+    if (!u) { setError("Cole um link do TeraBox"); return; }
+    setLoading(true);
+    setError(null);
+    setFiles([]);
+    setSelected(new Set());
+    setJobs([]);
+    try {
+      const r = await apiPost<{ list: TeraBoxFile[]; total_files: number }>("/terabox-resolve", { url: u });
+      const list = r.list ?? [];
+      setFiles(list);
+      setSelected(new Set(list.map((_, i) => i)));
+    } catch (e: any) { setError(e.message ?? "Erro na API TeraBox"); }
+    finally { setLoading(false); }
+  };
+
+  const sendToR2 = async () => {
+    const toUpload = files.filter((_, i) => selected.has(i));
+    if (toUpload.length === 0) return;
+    const folderBase = destFolder ? (destFolder.endsWith("/") ? destFolder : `${destFolder}/`) : "";
+    const initial: BulkJobItem[] = toUpload.map((f) => ({
+      url: f.fast_dlink, jobId: null, status: "queued", progress: 0, key: `${folderBase}${f.name}`,
+    }));
+    setJobs(initial);
+    setRunning(true);
+
+    const runOne = async (idx: number, file: TeraBoxFile): Promise<void> => {
+      try {
+        const r = await apiPost<{ jobId: string; key: string }>("/download-url", {
+          url: file.fast_dlink,
+          key: `${folderBase}${file.name}`,
+        });
+        setJobs((prev) => { const n = [...prev]; n[idx] = { ...n[idx], jobId: r.jobId, status: "downloading", key: r.key }; return n; });
+        await new Promise<void>((resolve) => {
+          const poll = async () => {
+            try {
+              const j = await apiFetch<Job>(`/job/${r.jobId}`);
+              setJobs((prev) => { const n = [...prev]; n[idx] = { ...n[idx], status: j.status, progress: j.progress, key: j.key ?? n[idx].key, error: j.error }; return n; });
+              if (j.status === "done" || j.status === "error") resolve();
+              else { const t = setTimeout(poll, 1500); pollRefs.current.set(r.jobId, t); }
+            } catch { const t = setTimeout(poll, 2500); pollRefs.current.set(r.jobId, t); }
+          };
+          poll();
+        });
+      } catch (e: any) {
+        setJobs((prev) => { const n = [...prev]; n[idx] = { ...n[idx], status: "error", error: e.message }; return n; });
+      }
+    };
+
+    let cursor = 0;
+    const worker = async () => { while (cursor < toUpload.length) { const i = cursor++; await runOne(i, toUpload[i]); } };
+    await Promise.all(Array.from({ length: Math.min(3, toUpload.length) }, worker));
+    setRunning(false);
+  };
+
+  const reset = () => {
+    pollRefs.current.forEach((t) => clearTimeout(t));
+    pollRefs.current.clear();
+    setFiles([]);
+    setJobs([]);
+    setInputUrl("");
+    setSelected(new Set());
+    setError(null);
+  };
+
+  const TB_COLOR = "#f59e0b";
+
+  return (
+    <>
+      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 80 }}>
+        {/* Header info */}
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 14, backgroundColor: "rgba(245,158,11,0.08)", borderRadius: 12, padding: 14, borderWidth: 1, borderColor: "rgba(245,158,11,0.2)" }}>
+          <Feather name="zap" size={20} color={TB_COLOR} />
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: TB_COLOR, fontWeight: "800", fontSize: 14 }}>TeraBox API Pro</Text>
+            <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11, marginTop: 2 }}>xAPIverse · Resolve links, detecta qualidade e envia para R2</Text>
+          </View>
+        </View>
+
+        {/* Input */}
+        <View style={styles.sectionCard}>
+          <Text style={styles.fieldLabel}>Link do TeraBox</Text>
+          <TextInput
+            style={[styles.input, loading && { opacity: 0.5 }]}
+            placeholder="https://1024terabox.com/s/... ou https://terabox.com/s/..."
+            placeholderTextColor="rgba(255,255,255,0.25)"
+            value={inputUrl}
+            onChangeText={(v) => { setInputUrl(v); if (files.length > 0) reset(); }}
+            autoCapitalize="none"
+            autoCorrect={false}
+            editable={!loading && !running}
+            multiline
+          />
+
+          <Pressable
+            style={[styles.actionBtn, { backgroundColor: TB_COLOR }, (loading || running) && { opacity: 0.5 }]}
+            onPress={resolve}
+            disabled={loading || running}
+          >
+            {loading ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="search" size={16} color="#fff" />}
+            <Text style={styles.actionBtnText}>{loading ? "Consultando API…" : "Resolver TeraBox"}</Text>
+          </Pressable>
+
+          {error && <View style={styles.errorBox}><Feather name="alert-circle" size={14} color="#f87171" /><Text style={styles.errorBoxText}>{error}</Text></View>}
+        </View>
+
+        {/* File results */}
+        {files.length > 0 && (
+          <View style={[styles.sectionCard, { marginTop: 14 }]}>
+            <View style={styles.sectionTitleRow}>
+              <Feather name="package" size={16} color={TB_COLOR} />
+              <Text style={[styles.sectionTitle, { color: TB_COLOR }]}>{files.length} arquivo{files.length > 1 ? "s" : ""} encontrado{files.length > 1 ? "s" : ""}</Text>
+            </View>
+
+            {files.map((f, i) => {
+              const sel = selected.has(i);
+              const j = jobs[i];
+              const qualityColors: Record<string, string> = { "4K": "#a78bfa", "1080p": "#60a5fa", "720p": "#34d399", "480p": "#f59e0b", "360p": "#fb923c" };
+              const qColor = qualityColors[f.quality] ?? "rgba(255,255,255,0.4)";
+              return (
+                <Pressable
+                  key={i}
+                  onPress={() => !running && setSelected((prev) => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n; })}
+                  style={{ flexDirection: "row", alignItems: "flex-start", gap: 10, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.05)" }}
+                >
+                  <Feather
+                    name={j?.status === "done" ? "check-circle" : sel ? "check-square" : "square"}
+                    size={20}
+                    color={j?.status === "done" ? "#4ade80" : sel ? TB_COLOR : "rgba(255,255,255,0.25)"}
+                    style={{ marginTop: 2 }}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600", marginBottom: 4 }} numberOfLines={2}>{f.name}</Text>
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 4 }}>
+                      {f.quality ? <View style={{ backgroundColor: `${qColor}20`, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1, borderColor: `${qColor}50` }}><Text style={{ color: qColor, fontSize: 10, fontWeight: "700" }}>{f.quality}</Text></View> : null}
+                      {f.duration ? <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11 }}>⏱ {f.duration}</Text> : null}
+                      {f.size_formatted ? <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11 }}>💾 {f.size_formatted}</Text> : null}
+                      {f.type ? <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 11 }}>{f.type}</Text> : null}
+                    </View>
+                    {f.fast_stream_url && Object.keys(f.fast_stream_url).length > 0 && (
+                      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
+                        {Object.keys(f.fast_stream_url).map((q) => (
+                          <View key={q} style={{ backgroundColor: "rgba(255,255,255,0.06)", borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2 }}>
+                            <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 9 }}>HLS {q}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+                    {j && j.status !== "queued" && (
+                      <View style={{ marginTop: 6 }}>
+                        {j.status === "done" ? (
+                          <Text style={{ color: "#4ade80", fontSize: 11 }}>✅ Salvo em R2: {(j.key || "").split("/").pop()}</Text>
+                        ) : j.status === "error" ? (
+                          <Text style={{ color: "#f87171", fontSize: 11 }}>❌ {j.error}</Text>
+                        ) : (
+                          <>
+                            <View style={[styles.progressBar, { marginBottom: 3 }]}>
+                              <View style={[styles.progressFill, { width: `${j.progress}%` as any, backgroundColor: TB_COLOR }]} />
+                            </View>
+                            <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 10 }}>
+                              {j.status === "downloading" ? `Baixando… ${j.progress}%` : `Enviando para R2… ${j.progress}%`}
+                            </Text>
+                          </>
+                        )}
+                      </View>
+                    )}
+                  </View>
+                </Pressable>
+              );
+            })}
+
+            <Text style={[styles.fieldLabel, { marginTop: 14 }]}>Pasta de destino no R2</Text>
+            <Pressable
+              style={[styles.input, { flexDirection: "row", alignItems: "center", gap: 10 }, running && { opacity: 0.5 }]}
+              onPress={() => !running && setShowFolderPicker(true)}
+            >
+              <Feather name="folder" size={16} color={destFolder ? "#f59e0b" : "rgba(255,255,255,0.25)"} />
+              <Text style={{ flex: 1, color: destFolder ? "#fff" : "rgba(255,255,255,0.3)", fontSize: 14 }} numberOfLines={1}>
+                {destFolder ? destFolder.replace(/\/$/, "") : "Toque para escolher pasta…"}
+              </Text>
+              {destFolder && (
+                <Pressable onPress={() => setDestFolder("")}>
+                  <Feather name="x" size={14} color="rgba(255,255,255,0.4)" />
+                </Pressable>
+              )}
+            </Pressable>
+
+            <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
+              <Pressable
+                style={[styles.actionBtn, { flex: 1, backgroundColor: TB_COLOR }, (running || selected.size === 0) && { opacity: 0.4 }]}
+                onPress={sendToR2}
+                disabled={running || selected.size === 0}
+              >
+                {running ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="upload-cloud" size={16} color="#fff" />}
+                <Text style={styles.actionBtnText}>
+                  {running
+                    ? `Enviando ${jobs.filter((j) => j.status === "done").length}/${jobs.length}…`
+                    : `Enviar ${selected.size} para R2`}
+                </Text>
+              </Pressable>
+              {!running && (
+                <Pressable style={[styles.actionBtn, { paddingHorizontal: 14, backgroundColor: "rgba(255,255,255,0.08)" }]} onPress={reset}>
+                  <Feather name="refresh-cw" size={16} color="rgba(255,255,255,0.6)" />
+                </Pressable>
+              )}
+            </View>
+          </View>
+        )}
+
+        {/* Info card */}
+        <View style={[styles.sectionCard, { marginTop: 14 }]}>
+          <View style={styles.sectionTitleRow}>
+            <Feather name="info" size={16} color="rgba(255,255,255,0.3)" />
+            <Text style={[styles.sectionTitle, { color: "rgba(255,255,255,0.4)", fontSize: 13 }]}>Sobre a API</Text>
+          </View>
+          {[
+            ["Provedor", "xAPIverse · TeraBox API Pro"],
+            ["Funcionalidades", "Links rápidos, HLS até 4K, metadados completos"],
+            ["Formatos HLS", "360p, 480p, 720p, 1080p, 4K"],
+            ["Fluxo", "Resolve → Seleciona arquivos → Baixa direto no servidor → Salva no R2"],
+          ].map(([k, v]) => (
+            <View key={k} style={{ flexDirection: "row", gap: 8, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.04)" }}>
+              <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 12, width: 90 }}>{k}</Text>
+              <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 12, flex: 1 }}>{v}</Text>
+            </View>
+          ))}
+        </View>
+      </ScrollView>
+
+      {showFolderPicker && (
+        <FolderPickerModal
+          onSelect={(prefix) => setDestFolder(prefix)}
+          onClose={() => setShowFolderPicker(false)}
         />
       )}
     </>
@@ -1733,20 +2482,25 @@ export default function R2CatalogScreen() {
 
       {/* Tab bar */}
       {catalogView.screen === "catalog" && (
-        <View style={styles.tabBar}>
-          {(["catalog", "upload", "manage"] as Tab[]).map((t) => (
-            <Pressable key={t} style={[styles.tabItem, activeTab === t && styles.tabItemActive]} onPress={() => setActiveTab(t)}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)" }} contentContainerStyle={{ flexDirection: "row" }}>
+          {([
+            { id: "catalog", icon: "grid", label: "Catálogo" },
+            { id: "upload", icon: "upload-cloud", label: "Upload" },
+            { id: "manage", icon: "folder", label: "Gerenciar" },
+            { id: "terabox", icon: "package", label: "TeraBox" },
+          ] as { id: Tab; icon: string; label: string }[]).map((t) => (
+            <Pressable key={t.id} style={[styles.tabItem, { paddingHorizontal: 14 }, activeTab === t.id && styles.tabItemActive]} onPress={() => setActiveTab(t.id)}>
               <Feather
-                name={t === "catalog" ? "grid" : t === "upload" ? "upload-cloud" : "folder"}
+                name={t.icon as any}
                 size={14}
-                color={activeTab === t ? RED : "rgba(255,255,255,0.4)"}
+                color={activeTab === t.id ? (t.id === "terabox" ? "#f59e0b" : RED) : "rgba(255,255,255,0.4)"}
               />
-              <Text style={[styles.tabLabel, activeTab === t && { color: RED }]}>
-                {t === "catalog" ? "Catálogo" : t === "upload" ? "Upload" : "Gerenciar"}
+              <Text style={[styles.tabLabel, activeTab === t.id && { color: t.id === "terabox" ? "#f59e0b" : RED }]}>
+                {t.label}
               </Text>
             </Pressable>
           ))}
-        </View>
+        </ScrollView>
       )}
 
       {/* Content */}
@@ -1778,6 +2532,7 @@ export default function R2CatalogScreen() {
 
       {activeTab === "upload" && <UploadPanel />}
       {activeTab === "manage" && <ManagePanel onRegister={openRegister} />}
+      {activeTab === "terabox" && <TeraBoxPanel />}
 
       {/* Register modal */}
       {registerKey && (

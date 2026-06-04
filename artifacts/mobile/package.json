@@ -59,8 +59,10 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",
     "expo-av": "^16.0.8",
-    "expo-build-properties": "~0.14.0",
+    "expo-build-properties": "~1.0.10",
     "expo-crypto": "~15.0.9",
+    "expo-document-picker": "~14.0.8",
+    "expo-file-system": "~19.0.23",
     "expo-navigation-bar": "^5.0.10",
     "expo-notifications": "^0.32.17",
     "expo-screen-orientation": "~9.0.9",
