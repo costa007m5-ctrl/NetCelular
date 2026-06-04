@@ -4526,7 +4526,7 @@ export default function R2CatalogScreen() {
                 size={14}
                 color={activeTab === t.id ? (t.id === "terabox" ? "#f59e0b" : RED) : "rgba(255,255,255,0.4)"}
               />
-              <Text style={[styles.tabLabel, activeTab === t.id && { color: t.id === "terabox" ? "#f59e0b" : RED }]}>
+              <Text style={[styles.tabLabel, activeTab === t.id && { color: t.id === "terabox" ? "#f59e0b" : RED }]} numberOfLines={1}>
                 {t.label}
               </Text>
             </Pressable>
@@ -4618,9 +4618,9 @@ const styles = StyleSheet.create({
   iconBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
 
   tabBar: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)" },
-  tabItem: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, paddingVertical: 10, paddingHorizontal: 8 },
+  tabItem: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, paddingVertical: 10, paddingHorizontal: 4 },
   tabItemActive: { borderBottomWidth: 2, borderBottomColor: RED },
-  tabLabel: { color: "rgba(255,255,255,0.4)", fontSize: 12, fontWeight: "600" },
+  tabLabel: { color: "rgba(255,255,255,0.4)", fontSize: 11, fontWeight: "600" },
 
   searchRow: { flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: 12, marginVertical: 10, backgroundColor: "rgba(255,255,255,0.07)", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 },
   searchInput: { flex: 1, color: "#fff", fontSize: 14 },
