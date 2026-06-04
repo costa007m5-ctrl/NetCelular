@@ -145,7 +145,7 @@ function EpisodeList({ entry, season, onBack, onRegister }: {
 
   return (
     <View style={styles.subScreen}>
-      <View style={[styles.subHeader, { paddingTop: insets.top + 12 }]}>
+      <View style={[styles.subHeader, { paddingTop: (Platform.OS === "web" ? 0 : insets.top) + 12 }]}>
         <Pressable onPress={onBack} style={styles.iconBtn}>
           <Feather name="arrow-left" size={22} color="#fff" />
         </Pressable>
@@ -230,7 +230,7 @@ function SeasonList({ entry, onBack, onSelectSeason, onEdit }: {
           <View style={styles.backdropGrad} />
         </>
       )}
-      <View style={[styles.subHeader, { paddingTop: insets.top + 12 }]}>
+      <View style={[styles.subHeader, { paddingTop: (Platform.OS === "web" ? 0 : insets.top) + 12 }]}>
         <Pressable onPress={onBack} style={styles.iconBtn}><Feather name="arrow-left" size={22} color="#fff" /></Pressable>
         <View style={{ flex: 1 }} />
         <Pressable onPress={() => onEdit(entry)} style={[styles.iconBtn, { backgroundColor: "rgba(255,255,255,0.08)", borderRadius: 8, marginRight: 4 }]}>
@@ -4496,7 +4496,7 @@ export default function R2CatalogScreen() {
     <View style={{ flex: 1, backgroundColor: "#000" }}>
       {/* Header */}
       {catalogView.screen === "catalog" && (
-        <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+        <View style={[styles.header, { paddingTop: (Platform.OS === "web" ? 0 : insets.top) + 12 }]}>
           <Pressable onPress={() => router.back()} style={styles.iconBtn}>
             <Feather name="arrow-left" size={22} color="#fff" />
           </Pressable>
@@ -4513,14 +4513,14 @@ export default function R2CatalogScreen() {
 
       {/* Tab bar */}
       {catalogView.screen === "catalog" && (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)" }} contentContainerStyle={{ flexDirection: "row" }}>
+        <View style={{ flexDirection: "row", borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)", flexShrink: 0 }}>
           {([
             { id: "catalog", icon: "grid", label: "Catálogo" },
             { id: "upload", icon: "upload-cloud", label: "Upload" },
             { id: "manage", icon: "folder", label: "Gerenciar" },
             { id: "terabox", icon: "package", label: "TeraBox" },
           ] as { id: Tab; icon: string; label: string }[]).map((t) => (
-            <Pressable key={t.id} style={[styles.tabItem, { paddingHorizontal: 14 }, activeTab === t.id && styles.tabItemActive]} onPress={() => setActiveTab(t.id)}>
+            <Pressable key={t.id} style={[styles.tabItem, activeTab === t.id && styles.tabItemActive]} onPress={() => setActiveTab(t.id)}>
               <Feather
                 name={t.icon as any}
                 size={14}
@@ -4531,39 +4531,41 @@ export default function R2CatalogScreen() {
               </Text>
             </Pressable>
           ))}
-        </ScrollView>
+        </View>
       )}
 
       {/* Content */}
-      {activeTab === "catalog" && catalogView.screen === "catalog" && (
-        <CatalogGrid
-          onSelect={(entry) => setCatalogView({ screen: "seasons", entry })}
-          onRegister={openRegister}
-          onEdit={(entry) => setEditEntry(entry)}
-        />
-      )}
+      <View style={{ flex: 1 }}>
+        {activeTab === "catalog" && catalogView.screen === "catalog" && (
+          <CatalogGrid
+            onSelect={(entry) => setCatalogView({ screen: "seasons", entry })}
+            onRegister={openRegister}
+            onEdit={(entry) => setEditEntry(entry)}
+          />
+        )}
 
-      {activeTab === "catalog" && catalogView.screen === "seasons" && (
-        <SeasonList
-          entry={(catalogView as any).entry}
-          onBack={() => setCatalogView({ screen: "catalog" })}
-          onSelectSeason={(season) => setCatalogView({ screen: "episodes", entry: (catalogView as any).entry, season })}
-          onEdit={(e) => setEditEntry(e)}
-        />
-      )}
+        {activeTab === "catalog" && catalogView.screen === "seasons" && (
+          <SeasonList
+            entry={(catalogView as any).entry}
+            onBack={() => setCatalogView({ screen: "catalog" })}
+            onSelectSeason={(season) => setCatalogView({ screen: "episodes", entry: (catalogView as any).entry, season })}
+            onEdit={(e) => setEditEntry(e)}
+          />
+        )}
 
-      {activeTab === "catalog" && catalogView.screen === "episodes" && (
-        <EpisodeList
-          entry={(catalogView as any).entry}
-          season={(catalogView as any).season}
-          onBack={() => setCatalogView({ screen: "seasons", entry: (catalogView as any).entry })}
-          onRegister={openRegister}
-        />
-      )}
+        {activeTab === "catalog" && catalogView.screen === "episodes" && (
+          <EpisodeList
+            entry={(catalogView as any).entry}
+            season={(catalogView as any).season}
+            onBack={() => setCatalogView({ screen: "seasons", entry: (catalogView as any).entry })}
+            onRegister={openRegister}
+          />
+        )}
 
-      {activeTab === "upload" && <UploadPanel />}
-      {activeTab === "manage" && <ManagePanel onRegister={openRegister} />}
-      {activeTab === "terabox" && <TeraBoxPanel />}
+        {activeTab === "upload" && <UploadPanel />}
+        {activeTab === "manage" && <ManagePanel onRegister={openRegister} />}
+        {activeTab === "terabox" && <TeraBoxPanel />}
+      </View>
 
       {/* Register modal */}
       {registerKey && (
@@ -4616,7 +4618,7 @@ const styles = StyleSheet.create({
   iconBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
 
   tabBar: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)" },
-  tabItem: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, paddingVertical: 10 },
+  tabItem: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, paddingVertical: 10, paddingHorizontal: 8 },
   tabItemActive: { borderBottomWidth: 2, borderBottomColor: RED },
   tabLabel: { color: "rgba(255,255,255,0.4)", fontSize: 12, fontWeight: "600" },
 
