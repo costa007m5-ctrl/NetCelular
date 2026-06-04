@@ -48,6 +48,10 @@ export async function setCachedTeraboxUrl(itemId: string, url: string): Promise<
   await cSet<string>(`tera_url:${itemId}`, url, TERABOX_URL_TTL);
 }
 
+export async function clearCachedTeraboxUrl(itemId: string): Promise<void> {
+  try { await AsyncStorage.removeItem(`tera_url:${itemId}`); } catch {}
+}
+
 export async function getCachedEpisodes(tmdbId: number, season: number): Promise<any[] | null> {
   return cGet<any[]>(`tmdb_eps:${tmdbId}:${season}`);
 }

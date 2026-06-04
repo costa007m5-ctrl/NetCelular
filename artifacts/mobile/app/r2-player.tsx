@@ -27,7 +27,7 @@ import { db, isSupabaseConfigured } from "@/lib/supabase";
 import { checkAndStartSession, heartbeatSession, endSession, getWhatsAppLink } from "@/lib/session-manager";
 import {
   getCachedSignedUrl, setCachedSignedUrl,
-  getCachedTeraboxUrl, setCachedTeraboxUrl,
+  getCachedTeraboxUrl, setCachedTeraboxUrl, clearCachedTeraboxUrl,
   getCachedEpisodes, setCachedEpisodes,
 } from "@/lib/r2-cache";
 import { TeraboxWebViewResolver } from "@/lib/terabox-webview-resolver";
@@ -468,14 +468,39 @@ export default function R2PlayerScreen() {
       } else {
         fakeAnim.current = Animated.timing(loadProgress, { toValue: 95, duration: 1200, useNativeDriver: false });
         fakeAnim.current.start();
-        readyTimer.current = setTimeout(() => transitionToReady(0), 12000);
+        readyTimer.current = setTimeout(async () => {
+          // If it's a TeraBox item and duration is still 0, the URL was likely invalid
+          // (e.g. fast_dlink redirect requiring auth). Clear the bad cache and try WebView.
+          if (isTerabox && durationMsRef.current === 0 && params.registryItemId) {
+            await clearCachedTeraboxUrl(params.registryItemId);
+            const tbItem = r2Items.find((i) => i.id === params.registryItemId);
+            const shareUrl = tbItem?.teraboxUrl ?? "";
+            if (shareUrl && phaseRef.current === "loading") {
+              try {
+                const webViewUrl = await new Promise<string>((resolve, reject) => {
+                  teraboxResolveCallbackRef.current = resolve;
+                  teraboxRejectCallbackRef.current = reject;
+                  setTeraboxWebViewVisible(true);
+                });
+                setTeraboxWebViewVisible(false);
+                await setCachedTeraboxUrl(params.registryItemId, webViewUrl);
+                setVideoUrl(webViewUrl);
+                transitionToReady(0);
+                return;
+              } catch {
+                setTeraboxWebViewVisible(false);
+              }
+            }
+          }
+          transitionToReady(0);
+        }, 12000);
       }
     } catch (e: any) {
       setPhase("error");
       setErrorMsg(e.message ?? "Erro ao carregar vídeo");
       fakeAnim.current?.stop();
     }
-  }, [params.key, params.registryItemId, isTerabox, episode]);
+  }, [params.key, params.registryItemId, isTerabox, episode, r2Items]);
 
   useEffect(() => { loadVideoUrl(); }, [params.key, params.registryItemId]);
 

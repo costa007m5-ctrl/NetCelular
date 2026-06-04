@@ -853,8 +853,27 @@ export async function teraboxPlay(
     const idx = typeof fileIndex === "number" && fileIndex < list.length ? fileIndex : 0;
     file = list[idx];
   }
-  // Prefer stream_url (designed for playback); fall back to fast_dlink (CDN download link)
-  const streamUrl = file.stream_url ?? file.fast_dlink;
-  if (!streamUrl) throw new Error("URL de stream não disponível");
-  return { url: streamUrl, name: file.name };
+
+  // Priority order:
+  // 1. stream_url — direct stream URL, works without auth (single-file shares)
+  // 2. fast_stream_url best quality — quality-keyed stream map, often available for album files
+  // 3. fast_dlink — CDN download redirect, may require TeraBox auth (last resort)
+  let streamUrl: string | undefined = file.stream_url ?? undefined;
+
+  if (!streamUrl && file.fast_stream_url) {
+    // Pick highest available quality from the map
+    const qualityOrder = ["1080p", "720p", "480p", "360p", "240p"];
+    for (const q of qualityOrder) {
+      if (file.fast_stream_url[q]) { streamUrl = file.fast_stream_url[q]; break; }
+    }
+    // Fallback: any first value in the map
+    if (!streamUrl) {
+      const vals = Object.values(file.fast_stream_url);
+      if (vals.length > 0) streamUrl = vals[0];
+    }
+  }
+
+  if (!streamUrl) streamUrl = file.fast_dlink ?? undefined;
+  if (!streamUrl) throw new Error("URL de stream não disponível para este arquivo");
+  return { url: streamUrl, name: file.name ?? "" };
 }
