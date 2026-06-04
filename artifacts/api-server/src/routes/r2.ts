@@ -13,6 +13,7 @@ import { Readable, PassThrough } from "stream";
 import { tmdb } from "../lib/tmdb";
 import multer from "multer";
 import crypto from "crypto";
+import { notifyNewContent, notifyNewEpisode } from "../lib/push-notifications.js";
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: {} });
@@ -610,6 +611,8 @@ router.post("/download-url", async (req, res) => {
         job.progress = 100;
         // Invalidate catalog cache so new content appears
         catalogCache = null;
+        // Notify users of new content added via URL download
+        notifyNewContent(1, null).catch(() => {});
       } catch (e: any) {
         job.status = "error";
         job.error = e?.message ?? "download failed";
@@ -824,6 +827,22 @@ router.post("/registry/add", async (req, res) => {
     registry.items.push(newItem);
     await writeRegistry(client, bucket, registry);
     res.json({ ok: true, item: newItem });
+
+    // Fire push notification for new content (non-blocking)
+    try {
+      if (newItem.episode != null && newItem.season != null && newItem.tmdbType === "tv") {
+        notifyNewEpisode(
+          newItem.tmdbId,
+          newItem.title,
+          newItem.season,
+          newItem.episode,
+          newItem.label ?? "",
+          null
+        ).catch(() => {});
+      } else {
+        notifyNewContent(1, newItem.title).catch(() => {});
+      }
+    } catch {}
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? "error" });
   }
@@ -964,6 +983,22 @@ router.post("/terabox/register", async (req, res) => {
     registry.items.push(newItem);
     await writeRegistry(client, bucket, registry);
     res.json({ ok: true, item: newItem });
+
+    // Fire push notification for new content (non-blocking)
+    try {
+      if (newItem.episode != null && newItem.season != null && newItem.tmdbType === "tv") {
+        notifyNewEpisode(
+          newItem.tmdbId,
+          newItem.title,
+          newItem.season,
+          newItem.episode,
+          newItem.label ?? "",
+          null
+        ).catch(() => {});
+      } else {
+        notifyNewContent(1, newItem.title).catch(() => {});
+      }
+    } catch {}
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? "error" });
   }

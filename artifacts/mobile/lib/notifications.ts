@@ -6,6 +6,7 @@ const NOTIF_KEY = "netplay_notif_enabled";
 const HISTORY_KEY = "netplay_notif_history";
 const UNREAD_KEY = "netplay_notif_unread";
 const CONTINUE_NOTIF_ID_KEY = "netplay_continue_notif_id";
+const DAILY_CONTENT_NOTIF_ID_KEY = "netplay_daily_content_notif_id";
 const MAX_HISTORY = 50;
 
 export type NotifHistoryItem = {
@@ -196,8 +197,13 @@ export async function scheduleNewContentNotification(): Promise<void> {
   if (Platform.OS === "web") return;
   try {
     const Notifications = require("expo-notifications");
-    await Notifications.cancelAllScheduledNotificationsAsync();
-    await Notifications.scheduleNotificationAsync({
+    // Cancel only the previously scheduled daily content notification (not ALL notifications)
+    const prevId = await AsyncStorage.getItem(DAILY_CONTENT_NOTIF_ID_KEY);
+    if (prevId) {
+      await Notifications.cancelScheduledNotificationAsync(prevId).catch(() => {});
+      await AsyncStorage.removeItem(DAILY_CONTENT_NOTIF_ID_KEY);
+    }
+    const id = await Notifications.scheduleNotificationAsync({
       content: {
         title: "🔥 Novidades no NETPLAY",
         body: "Novos filmes e séries foram adicionados ao catálogo hoje!",
@@ -209,6 +215,7 @@ export async function scheduleNewContentNotification(): Promise<void> {
         repeats: true,
       } as any,
     });
+    await AsyncStorage.setItem(DAILY_CONTENT_NOTIF_ID_KEY, id);
   } catch {}
 }
 
