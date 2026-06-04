@@ -1342,9 +1342,20 @@ router.post("/drive/extract-all", async (req, res) => {
 
         let processed = 0;
         let successCount = 0;
+        let skippedCount = 0;
         let errorCount = 0;
 
         for (const item of driveItems) {
+          // Pular itens que já foram resolvidos — evita duplicatas e retrabalho
+          if (item.driveDirectUrl && item.driveResolvedAt) {
+            skippedCount++;
+            processed++;
+            job.downloaded = processed;
+            job.progress = Math.round((processed / driveItems.length) * 95);
+            job.key = `[já extraído] ${item.title || item.driveUrl || ""}`;
+            continue;
+          }
+
           try {
             const fileId = extractDriveFileId(item.driveUrl!);
             if (!fileId) { errorCount++; processed++; continue; }
@@ -1368,12 +1379,14 @@ router.post("/drive/extract-all", async (req, res) => {
           await new Promise<void>((r) => setTimeout(r, 120));
         }
 
-        // Persiste o registry atualizado no R2 (backup das URLs resolvidas)
-        await writeRegistry(client, bucket, registry);
+        // Persiste o registry atualizado no R2 (somente se algo novo foi resolvido)
+        if (successCount > 0) {
+          await writeRegistry(client, bucket, registry);
+        }
 
         job.status = "done";
         job.progress = 100;
-        job.key = `${successCount} resolvidos · ${errorCount} erros`;
+        job.key = `${successCount} resolvidos · ${skippedCount} já extraídos · ${errorCount} erros`;
       } catch (e: any) {
         const j = jobs.get(jobId);
         if (j) { j.status = "error"; j.error = e?.message ?? "Erro na extração do Drive"; }

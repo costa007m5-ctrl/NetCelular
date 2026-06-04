@@ -711,6 +711,9 @@ const SERVER_ONLY_ROUTES = new Set([
   "/terabox/play",
   "/gdrive-resolve",
   "/upload",
+  "/drive/register",
+  "/drive/play",
+  "/drive/extract-all",
 ]);
 
 async function forwardToServer<T>(path: string, options?: RequestInit): Promise<T> {
