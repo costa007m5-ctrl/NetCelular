@@ -3556,6 +3556,427 @@ function TeraBoxPanel() {
 
 // ── Drive Register Modal (registra um arquivo do Drive no registry) ────────────
 
+// ── FolderBulkModal — registrar pasta inteira com intensificação ──────────────
+
+type FolderBulkTarget = { drive: 0 | 1; path: string; name: string };
+type BulkScanItem = { filePath: string; fileName: string; size?: string; season?: number; episode?: number };
+
+function FolderBulkModal({ target, onClose, onDone }: {
+  target: FolderBulkTarget;
+  onClose: () => void;
+  onDone: (count: number) => void;
+}) {
+  const [contentType, setContentType] = useState<"movie" | "series" | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [scanItems, setScanItems] = useState<BulkScanItem[]>([]);
+  const [scanError, setScanError] = useState<string | null>(null);
+
+  const [q, setQ] = useState(target.name);
+  const [searching, setSearching] = useState(false);
+  const [tmdbResults, setTmdbResults] = useState<TmdbSearchResult[]>([]);
+  const [selectedTmdb, setSelectedTmdb] = useState<TmdbSearchResult | null>(null);
+  const [label, setLabel] = useState("Dublado 1080p");
+
+  const [registering, setRegistering] = useState(false);
+  const [regProgress, setRegProgress] = useState(0);
+  const [regDone, setRegDone] = useState<number | null>(null);
+
+  const scan = async (type: "movie" | "series") => {
+    setContentType(type);
+    setScanning(true);
+    setScanItems([]);
+    setScanError(null);
+    setSelectedTmdb(null);
+    setTmdbResults([]);
+    setRegDone(null);
+    try {
+      const data = await apiPost<{ items: BulkScanItem[] }>("/drive/scan-folder", {
+        drive: target.drive,
+        path: target.path,
+        type,
+      });
+      setScanItems(data.items);
+    } catch (e: any) {
+      setScanError(e.message ?? "Erro ao escanear pasta");
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  const searchTmdb = async () => {
+    if (!q.trim()) return;
+    setSearching(true);
+    setTmdbResults([]);
+    try {
+      const mediaType = contentType === "series" ? "tv" : "movie";
+      const data = await apiFetch<{ results: TmdbSearchResult[] }>(
+        `/tmdb-search?q=${encodeURIComponent(q)}&type=${mediaType}`
+      );
+      setTmdbResults(data.results);
+    } catch (e: any) {
+      setScanError(e.message);
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const registerAll = async () => {
+    if (!selectedTmdb || scanItems.length === 0) return;
+    setRegistering(true);
+    setRegProgress(0);
+    setRegDone(null);
+    let done = 0;
+    let errors = 0;
+    for (const item of scanItems) {
+      try {
+        await apiPost("/drive/register", {
+          driveFilePath: item.filePath,
+          driveNum: target.drive,
+          tmdbId: selectedTmdb.id,
+          tmdbType: selectedTmdb.media_type,
+          title: selectedTmdb.title,
+          label,
+          season: item.season ?? null,
+          episode: item.episode ?? null,
+        });
+        done++;
+      } catch { errors++; }
+      setRegProgress(Math.round(((done + errors) / scanItems.length) * 100));
+    }
+    setRegistering(false);
+    setRegDone(done);
+    if (done > 0) onDone(done);
+  };
+
+  const bySeason = useMemo(() => {
+    if (contentType !== "series" || scanItems.length === 0) return null;
+    const map = new Map<number, BulkScanItem[]>();
+    for (const item of scanItems) {
+      const s = item.season ?? 1;
+      if (!map.has(s)) map.set(s, []);
+      map.get(s)!.push(item);
+    }
+    return map;
+  }, [scanItems, contentType]);
+
+  const GREEN = "#22c55e";
+  const RED_CONTENT = "#e50914";
+
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.88)", justifyContent: "flex-end" }}>
+          <View style={{ backgroundColor: "#070f07", borderTopLeftRadius: 22, borderTopRightRadius: 22,
+            borderWidth: 1, borderColor: "rgba(34,197,94,0.25)", maxHeight: "92%", padding: 18 }}>
+
+            {/* Header */}
+            <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 4 }}>
+              <Feather name="folder" size={17} color={GREEN} />
+              <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15, marginLeft: 8, flex: 1 }}>Registrar pasta</Text>
+              <Pressable onPress={onClose}>
+                <Feather name="x" size={20} color="rgba(255,255,255,0.5)" />
+              </Pressable>
+            </View>
+            <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11, marginBottom: 16 }} numberOfLines={2}>
+              📂 {target.path}
+            </Text>
+
+            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+
+              {/* ── Step 1: tipo de conteúdo (intensificação) ── */}
+              {!contentType && !scanning && (
+                <View>
+                  <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 12, marginBottom: 14, textAlign: "center" }}>
+                    Qual o tipo de conteúdo desta pasta?
+                  </Text>
+                  <View style={{ flexDirection: "row", gap: 12, marginBottom: 10 }}>
+                    <Pressable onPress={() => scan("movie")}
+                      style={{ flex: 1, alignItems: "center", paddingVertical: 20, borderRadius: 14,
+                        backgroundColor: "rgba(229,9,20,0.09)", borderWidth: 1, borderColor: "rgba(229,9,20,0.35)", gap: 10 }}>
+                      <Feather name="film" size={30} color={RED_CONTENT} />
+                      <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14 }}>🎬 Filmes</Text>
+                      <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 10, textAlign: "center", paddingHorizontal: 8 }}>
+                        Cada vídeo é um filme individual
+                      </Text>
+                    </Pressable>
+                    <Pressable onPress={() => scan("series")}
+                      style={{ flex: 1, alignItems: "center", paddingVertical: 20, borderRadius: 14,
+                        backgroundColor: "rgba(34,197,94,0.08)", borderWidth: 1, borderColor: "rgba(34,197,94,0.3)", gap: 10 }}>
+                      <Feather name="tv" size={30} color={GREEN} />
+                      <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14 }}>📺 Séries</Text>
+                      <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 10, textAlign: "center", paddingHorizontal: 8 }}>
+                        Detecta temporadas e episódios
+                      </Text>
+                    </Pressable>
+                  </View>
+                </View>
+              )}
+
+              {/* ── Scanning ── */}
+              {scanning && (
+                <View style={{ alignItems: "center", paddingVertical: 44, gap: 14 }}>
+                  <ActivityIndicator size="large" color={GREEN} />
+                  <Text style={{ color: GREEN, fontWeight: "700", fontSize: 15 }}>Escaneando pasta…</Text>
+                  <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 12, textAlign: "center" }}>
+                    {contentType === "series"
+                      ? "Detectando temporadas e episódios automaticamente"
+                      : "Listando arquivos de vídeo"}
+                  </Text>
+                </View>
+              )}
+
+              {/* ── Erro ── */}
+              {!scanning && scanError && (
+                <View style={{ flexDirection: "row", gap: 8, alignItems: "flex-start", padding: 12, borderRadius: 10,
+                  backgroundColor: "rgba(248,113,113,0.1)", borderWidth: 1, borderColor: "rgba(248,113,113,0.3)", marginBottom: 12 }}>
+                  <Feather name="alert-circle" size={14} color="#f87171" style={{ marginTop: 1 }} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: "#fca5a5", fontSize: 12 }}>{scanError}</Text>
+                    <Pressable onPress={() => { setContentType(null); setScanError(null); }} style={{ marginTop: 8 }}>
+                      <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 11 }}>↩ Tentar novamente</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              )}
+
+              {/* ── Pasta vazia ── */}
+              {!scanning && contentType && scanItems.length === 0 && !scanError && (
+                <View style={{ alignItems: "center", paddingVertical: 34, gap: 12 }}>
+                  <Feather name="inbox" size={36} color="rgba(255,255,255,0.1)" />
+                  <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 13 }}>Nenhum vídeo encontrado nesta pasta</Text>
+                  <Pressable onPress={() => { setContentType(null); setScanItems([]); }}
+                    style={{ paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8, backgroundColor: "rgba(255,255,255,0.07)" }}>
+                    <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 12 }}>Tentar outro tipo</Text>
+                  </Pressable>
+                </View>
+              )}
+
+              {/* ── Resultados + registro ── */}
+              {!scanning && contentType && scanItems.length > 0 && regDone === null && (
+                <>
+                  {/* Badge de tipo + botão alterar */}
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 14 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 5,
+                      borderRadius: 20, borderWidth: 1,
+                      backgroundColor: contentType === "series" ? "rgba(34,197,94,0.1)" : "rgba(229,9,20,0.1)",
+                      borderColor: contentType === "series" ? "rgba(34,197,94,0.35)" : "rgba(229,9,20,0.35)" }}>
+                      <Feather name={contentType === "series" ? "tv" : "film"} size={12}
+                        color={contentType === "series" ? GREEN : RED_CONTENT} />
+                      <Text style={{ color: contentType === "series" ? GREEN : RED_CONTENT, fontSize: 12, fontWeight: "700" }}>
+                        {contentType === "series" ? "Série" : "Filmes"} • {scanItems.length} arquivo{scanItems.length !== 1 ? "s" : ""}
+                      </Text>
+                    </View>
+                    <Pressable onPress={() => { setContentType(null); setScanItems([]); setSelectedTmdb(null); }}
+                      style={{ paddingHorizontal: 8, paddingVertical: 5, borderRadius: 8, backgroundColor: "rgba(255,255,255,0.05)" }}>
+                      <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11 }}>↩ Alterar tipo</Text>
+                    </Pressable>
+                  </View>
+
+                  {/* Preview — séries por temporada */}
+                  {contentType === "series" && bySeason && (
+                    <View style={{ marginBottom: 16, borderRadius: 10, borderWidth: 1, borderColor: "rgba(34,197,94,0.15)", overflow: "hidden" }}>
+                      {Array.from(bySeason.entries()).map(([season, eps]) => (
+                        <View key={season}>
+                          <View style={{ backgroundColor: "rgba(34,197,94,0.09)", paddingHorizontal: 12, paddingVertical: 7,
+                            flexDirection: "row", alignItems: "center", gap: 8 }}>
+                            <Feather name="layers" size={13} color={GREEN} />
+                            <Text style={{ color: GREEN, fontWeight: "700", fontSize: 12 }}>
+                              Temporada {season} — {eps.length} episódio{eps.length !== 1 ? "s" : ""}
+                            </Text>
+                          </View>
+                          {eps.slice(0, 3).map((ep, i) => (
+                            <View key={i} style={{ paddingHorizontal: 12, paddingVertical: 7,
+                              borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.05)",
+                              flexDirection: "row", alignItems: "center", gap: 8 }}>
+                              <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 11, width: 36 }}>
+                                {ep.episode != null ? `E${String(ep.episode).padStart(2, "0")}` : `#${i + 1}`}
+                              </Text>
+                              <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 11, flex: 1 }} numberOfLines={1}>
+                                {ep.fileName}
+                              </Text>
+                              {ep.size && (
+                                <Text style={{ color: "rgba(255,255,255,0.25)", fontSize: 10 }}>{ep.size}</Text>
+                              )}
+                            </View>
+                          ))}
+                          {eps.length > 3 && (
+                            <View style={{ paddingHorizontal: 12, paddingVertical: 6,
+                              borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.05)" }}>
+                              <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 11 }}>+ {eps.length - 3} episódios…</Text>
+                            </View>
+                          )}
+                        </View>
+                      ))}
+                    </View>
+                  )}
+
+                  {/* Preview — filmes lista plana */}
+                  {contentType === "movie" && (
+                    <View style={{ marginBottom: 16, borderRadius: 10, borderWidth: 1, borderColor: "rgba(229,9,20,0.15)", overflow: "hidden" }}>
+                      {scanItems.slice(0, 5).map((item, i) => (
+                        <View key={i} style={{ paddingHorizontal: 12, paddingVertical: 9,
+                          borderTopWidth: i > 0 ? 1 : 0, borderTopColor: "rgba(255,255,255,0.05)",
+                          flexDirection: "row", alignItems: "center", gap: 8 }}>
+                          <Feather name="film" size={13} color="rgba(229,9,20,0.5)" />
+                          <Text style={{ color: "rgba(255,255,255,0.65)", fontSize: 11, flex: 1 }} numberOfLines={1}>
+                            {item.fileName}
+                          </Text>
+                          {item.size && <Text style={{ color: "rgba(255,255,255,0.28)", fontSize: 10 }}>{item.size}</Text>}
+                        </View>
+                      ))}
+                      {scanItems.length > 5 && (
+                        <View style={{ paddingHorizontal: 12, paddingVertical: 6,
+                          borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.05)" }}>
+                          <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 11 }}>+ {scanItems.length - 5} arquivos…</Text>
+                        </View>
+                      )}
+                    </View>
+                  )}
+
+                  {/* TMDB search */}
+                  <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 11, fontWeight: "700",
+                    textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 8 }}>
+                    Vincular ao TMDB
+                  </Text>
+
+                  {!selectedTmdb ? (
+                    <>
+                      <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
+                        <TextInput
+                          style={{ flex: 1, backgroundColor: "#111", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
+                            borderRadius: 8, padding: 10, color: "#fff", fontSize: 13 }}
+                          value={q}
+                          onChangeText={setQ}
+                          placeholder={contentType === "series" ? "Nome da série…" : "Nome do filme ou coleção…"}
+                          placeholderTextColor="rgba(255,255,255,0.3)"
+                          onSubmitEditing={searchTmdb}
+                          returnKeyType="search"
+                        />
+                        <Pressable onPress={searchTmdb} disabled={searching}
+                          style={{ paddingHorizontal: 14, borderRadius: 8, backgroundColor: "#374151",
+                            alignItems: "center", justifyContent: "center" }}>
+                          {searching
+                            ? <ActivityIndicator size="small" color="#fff" />
+                            : <Feather name="search" size={15} color="#fff" />}
+                        </Pressable>
+                      </View>
+
+                      {tmdbResults.map((r) => (
+                        <Pressable key={r.id}
+                          onPress={() => { setSelectedTmdb(r); setTmdbResults([]); }}
+                          style={{ flexDirection: "row", alignItems: "center", gap: 10, padding: 10, marginBottom: 4, borderRadius: 8,
+                            backgroundColor: "rgba(255,255,255,0.04)", borderWidth: 1, borderColor: "rgba(255,255,255,0.08)" }}>
+                          {r.poster_path ? (
+                            <Image source={{ uri: `https://image.tmdb.org/t/p/w92${r.poster_path}` }}
+                              style={{ width: 30, height: 44, borderRadius: 4 }} />
+                          ) : (
+                            <View style={{ width: 30, height: 44, borderRadius: 4, backgroundColor: "#1a1a1a",
+                              alignItems: "center", justifyContent: "center" }}>
+                              <Feather name="film" size={12} color="rgba(255,255,255,0.3)" />
+                            </View>
+                          )}
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600" }} numberOfLines={1}>{r.title}</Text>
+                            <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 10 }}>
+                              {r.media_type === "tv" ? "📺 Série" : "🎬 Filme"}
+                            </Text>
+                          </View>
+                          <Feather name="chevron-right" size={14} color="rgba(255,255,255,0.3)" />
+                        </Pressable>
+                      ))}
+                    </>
+                  ) : (
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 10, padding: 12, marginBottom: 14, borderRadius: 10,
+                      backgroundColor: "rgba(34,197,94,0.08)", borderWidth: 1, borderColor: "rgba(34,197,94,0.25)" }}>
+                      {selectedTmdb.poster_path && (
+                        <Image source={{ uri: `https://image.tmdb.org/t/p/w92${selectedTmdb.poster_path}` }}
+                          style={{ width: 34, height: 50, borderRadius: 5 }} />
+                      )}
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: "#4ade80", fontSize: 13, fontWeight: "700" }} numberOfLines={1}>
+                          {selectedTmdb.title}
+                        </Text>
+                        <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11 }}>
+                          {selectedTmdb.media_type === "tv" ? "📺 Série" : "🎬 Filme"}
+                        </Text>
+                      </View>
+                      <Pressable onPress={() => setSelectedTmdb(null)}>
+                        <Feather name="x" size={16} color="rgba(255,255,255,0.4)" />
+                      </Pressable>
+                    </View>
+                  )}
+
+                  {/* Label */}
+                  {selectedTmdb && !registering && (
+                    <View style={{ marginBottom: 14 }}>
+                      <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11, fontWeight: "700",
+                        textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 6 }}>
+                        Qualidade / Label
+                      </Text>
+                      <TextInput
+                        style={{ backgroundColor: "#111", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
+                          borderRadius: 8, padding: 10, color: "#fff", fontSize: 13 }}
+                        value={label}
+                        onChangeText={setLabel}
+                        placeholder="Dublado 1080p"
+                        placeholderTextColor="rgba(255,255,255,0.3)"
+                      />
+                    </View>
+                  )}
+
+                  {/* Progress bar */}
+                  {registering && (
+                    <View style={{ marginBottom: 12 }}>
+                      <View style={{ height: 5, backgroundColor: "rgba(255,255,255,0.08)", borderRadius: 3 }}>
+                        <View style={{ height: 5, width: `${regProgress}%` as any, backgroundColor: GREEN, borderRadius: 3 }} />
+                      </View>
+                      <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11, marginTop: 5, textAlign: "center" }}>
+                        {regProgress}% — registrando arquivos…
+                      </Text>
+                    </View>
+                  )}
+
+                  {/* Register button */}
+                  {selectedTmdb && (
+                    <Pressable onPress={registerAll} disabled={registering}
+                      style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10,
+                        padding: 14, borderRadius: 12, marginBottom: 20,
+                        backgroundColor: registering ? "rgba(34,197,94,0.15)" : "#16a34a",
+                        opacity: registering ? 0.7 : 1 }}>
+                      {registering
+                        ? <><ActivityIndicator size="small" color="#fff" /><Text style={{ color: "#fff", fontWeight: "700", fontSize: 14 }}>Registrando…</Text></>
+                        : <><Feather name="cloud" size={16} color="#fff" /><Text style={{ color: "#fff", fontWeight: "700", fontSize: 14 }}>Registrar {scanItems.length} arquivo{scanItems.length !== 1 ? "s" : ""}</Text></>
+                      }
+                    </Pressable>
+                  )}
+                </>
+              )}
+
+              {/* ── Concluído ── */}
+              {regDone !== null && (
+                <View style={{ alignItems: "center", paddingVertical: 32, gap: 14 }}>
+                  <Feather name="check-circle" size={48} color={GREEN} />
+                  <Text style={{ color: GREEN, fontWeight: "700", fontSize: 20 }}>Concluído!</Text>
+                  <Text style={{ color: "rgba(255,255,255,0.55)", fontSize: 13, textAlign: "center", lineHeight: 20 }}>
+                    {regDone} arquivo{regDone !== 1 ? "s" : ""} registrado{regDone !== 1 ? "s" : ""} com sucesso no Drive Registry
+                  </Text>
+                  <Pressable onPress={onClose}
+                    style={{ paddingHorizontal: 28, paddingVertical: 12, borderRadius: 12, backgroundColor: "#16a34a", marginTop: 4 }}>
+                    <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14 }}>Fechar</Text>
+                  </Pressable>
+                </View>
+              )}
+
+            </ScrollView>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 function DriveRegisterModal({ item, driveNum, driveFilePath, onClose, onDone }: {
   item: DriveItem; driveNum?: number; driveFilePath?: string; onClose: () => void; onDone: () => void;
 }) {
@@ -3725,6 +4146,7 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
   const [mgDrivePageToken, setMgDrivePageToken] = useState<string | null>(null);
   const [mgDriveRegisterItem, setMgDriveRegisterItem] = useState<DriveItem | null>(null);
   const [mgDriveRegisterCtx, setMgDriveRegisterCtx] = useState<{ driveNum: number; filePath: string } | null>(null);
+  const [folderBulkTarget, setFolderBulkTarget] = useState<FolderBulkTarget | null>(null);
 
   useEffect(() => {
     if (!driveJobId || driveJobStatus !== "running") return;
@@ -3993,16 +4415,40 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
                   {mgDriveItems.map((item) => {
                     const isDir = driveIsFolder(item);
                     const isVid = driveIsVideo(item);
+                    const folderPath = mgCurrent ? `${mgCurrent.path}/${item.name}` : item.name;
+
+                    if (isDir) {
+                      return (
+                        <View key={item.id} style={{ flexDirection: "row", alignItems: "center", gap: 5, marginBottom: 3 }}>
+                          {/* Nav into folder */}
+                          <Pressable
+                            onPress={() => mgNavPush(mgCurrent!.drive, folderPath, item.name)}
+                            style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 10,
+                              paddingVertical: 9, paddingHorizontal: 10, borderRadius: 8,
+                              backgroundColor: "rgba(255,255,255,0.03)", borderWidth: 1, borderColor: "rgba(255,255,255,0.07)" }}>
+                            <Feather name="folder" size={16} color="#f59e0b" />
+                            <Text style={{ flex: 1, color: "rgba(255,255,255,0.75)", fontSize: 12, fontWeight: "600" }} numberOfLines={1}>
+                              {item.name}
+                            </Text>
+                            <Feather name="chevron-right" size={13} color="rgba(255,255,255,0.25)" />
+                          </Pressable>
+                          {/* 📂 Usar — abre FolderBulkModal */}
+                          <Pressable
+                            onPress={() => setFolderBulkTarget({ drive: mgCurrent!.drive, path: folderPath, name: item.name })}
+                            style={{ paddingHorizontal: 10, paddingVertical: 9, borderRadius: 8,
+                              backgroundColor: "rgba(34,197,94,0.07)", borderWidth: 1, borderColor: "rgba(34,197,94,0.25)" }}>
+                            <Text style={{ color: "#4ade80", fontSize: 11, fontWeight: "700" }}>📂 Usar</Text>
+                          </Pressable>
+                        </View>
+                      );
+                    }
+
                     return (
                       <Pressable key={item.id}
                         onPress={() => {
-                          if (isDir) {
-                            const newPath = mgCurrent ? `${mgCurrent.path}/${item.name}` : item.name;
-                            mgNavPush(mgCurrent!.drive, newPath, item.name);
-                          } else if (isVid) {
+                          if (isVid) {
                             setMgDriveRegisterItem(item);
-                            const filePath = mgCurrent ? `${mgCurrent.path}/${item.name}` : item.name;
-                            setMgDriveRegisterCtx({ driveNum: mgCurrent!.drive, filePath });
+                            setMgDriveRegisterCtx({ driveNum: mgCurrent!.drive, filePath: folderPath });
                           }
                         }}
                         style={{ flexDirection: "row", alignItems: "center", gap: 10,
@@ -4010,17 +4456,18 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
                           backgroundColor: isVid ? "rgba(34,197,94,0.05)" : "rgba(255,255,255,0.03)",
                           borderWidth: 1, borderColor: isVid ? "rgba(34,197,94,0.12)" : "rgba(255,255,255,0.06)" }}>
                         <Feather
-                          name={isDir ? "folder" : isVid ? "film" : "file"}
+                          name={isVid ? "film" : "file"}
                           size={16}
-                          color={isDir ? "#f59e0b" : isVid ? "#22c55e" : "rgba(255,255,255,0.3)"}
+                          color={isVid ? "#22c55e" : "rgba(255,255,255,0.3)"}
                         />
                         <View style={{ flex: 1 }}>
-                          <Text style={{ color: isDir ? "rgba(255,255,255,0.75)" : isVid ? "#e2fbe8" : "rgba(255,255,255,0.5)", fontSize: 12, fontWeight: isDir ? "600" : "400" }} numberOfLines={1}>{item.name}</Text>
+                          <Text style={{ color: isVid ? "#e2fbe8" : "rgba(255,255,255,0.5)", fontSize: 12 }} numberOfLines={1}>
+                            {item.name}
+                          </Text>
                           {isVid && item.size && (
                             <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 10, marginTop: 1 }}>{driveFormatSize(item.size)}</Text>
                           )}
                         </View>
-                        {isDir && <Feather name="chevron-right" size={13} color="rgba(255,255,255,0.25)" />}
                         {isVid && (
                           <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor: "rgba(34,197,94,0.15)" }}>
                             <Text style={{ color: "#4ade80", fontSize: 10, fontWeight: "700" }}>+ Registrar</Text>
@@ -4044,7 +4491,7 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
         </View>
       )}
 
-      {/* Drive Register Modal */}
+      {/* Drive Register Modal (arquivo individual) */}
       {mgDriveRegisterItem && (
         <DriveRegisterModal
           item={mgDriveRegisterItem}
@@ -4052,6 +4499,18 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
           driveFilePath={mgDriveRegisterCtx?.filePath}
           onClose={() => { setMgDriveRegisterItem(null); setMgDriveRegisterCtx(null); }}
           onDone={() => { setMgDriveRegisterItem(null); setMgDriveRegisterCtx(null); Alert.alert("✅ Registrado", "Conteúdo adicionado ao Drive Registry!"); }}
+        />
+      )}
+
+      {/* Folder Bulk Modal — registrar pasta inteira com intensificação */}
+      {folderBulkTarget && (
+        <FolderBulkModal
+          target={folderBulkTarget}
+          onClose={() => setFolderBulkTarget(null)}
+          onDone={(count) => {
+            setFolderBulkTarget(null);
+            Alert.alert("✅ Pasta registrada!", `${count} arquivo${count !== 1 ? "s" : ""} adicionado${count !== 1 ? "s" : ""} ao Drive Registry.`);
+          }}
         />
       )}
 

@@ -1267,30 +1267,48 @@ function buildDriveDirectUrl(fileId: string): string {
 }
 
 // ── Drive: registrar link (sem fazer upload do vídeo — economiza espaço no R2) ──
-// POST /drive/register  { driveUrl, tmdbId, tmdbType, title, label, season?, episode?, driveNum?, driveFilePath? }
+// POST /drive/register  { driveUrl?, tmdbId, tmdbType, title, label, season?, episode?, driveNum?, driveFilePath? }
+// Aceita driveUrl (link compartilhável do Drive) OU (driveFilePath + driveNum) — para registro via navegador de pastas.
 router.post("/drive/register", async (req, res) => {
   try {
     const { driveUrl, tmdbId, tmdbType, title, label, season, episode, driveNum, driveFilePath } = req.body;
-    if (!driveUrl || !tmdbId || !tmdbType) {
-      res.status(400).json({ error: "driveUrl, tmdbId, tmdbType são obrigatórios" }); return;
+
+    if (!tmdbId || !tmdbType) {
+      res.status(400).json({ error: "tmdbId e tmdbType são obrigatórios" }); return;
     }
-    const fileId = extractDriveFileId(driveUrl);
-    if (!fileId) { res.status(400).json({ error: "URL do Google Drive inválida. Use o link de compartilhamento (ex: drive.google.com/file/d/ID/view)." }); return; }
+    const hasPathSource = driveFilePath != null && driveNum != null;
+    const rawUrl = driveUrl ? String(driveUrl).trim() : "";
+    const hasUrlSource = rawUrl !== "";
+    if (!hasPathSource && !hasUrlSource) {
+      res.status(400).json({ error: "Forneça driveUrl ou (driveNum + driveFilePath)" }); return;
+    }
+
+    let fileId: string | null = null;
+    if (hasUrlSource) {
+      fileId = extractDriveFileId(rawUrl);
+      if (!fileId) {
+        res.status(400).json({ error: "URL do Google Drive inválida. Use o link de compartilhamento (ex: drive.google.com/file/d/ID/view)." }); return;
+      }
+    }
 
     const client = getClient();
     const bucket = getBucket();
     const registry = await readRegistry(client, bucket);
 
-    const existingIdx = registry.items.findIndex(
-      (i) => i.driveUrl === driveUrl.trim() && i.tmdbId === Number(tmdbId)
-        && (i.season ?? null) === (season != null ? Number(season) : null)
+    const existingIdx = registry.items.findIndex((i) => {
+      const sameEp = (i.season ?? null) === (season != null ? Number(season) : null)
         && (i.episode ?? null) === (episode != null ? Number(episode) : null)
-    );
+        && i.tmdbId === Number(tmdbId);
+      if (!sameEp) return false;
+      if (hasPathSource && i.driveFilePath === String(driveFilePath)) return true;
+      if (hasUrlSource && i.driveUrl === rawUrl) return true;
+      return false;
+    });
 
     const newItem: RegistryItem = {
       id: existingIdx >= 0 ? registry.items[existingIdx].id : crypto.randomUUID(),
       r2Key: "",
-      driveUrl: driveUrl.trim(),
+      driveUrl: hasUrlSource ? rawUrl : undefined,
       driveNum: driveNum != null ? Number(driveNum) : undefined,
       driveFilePath: driveFilePath ? String(driveFilePath) : undefined,
       tmdbId: Number(tmdbId),
@@ -1544,6 +1562,144 @@ router.post("/drive/extract-all", async (req, res) => {
       }
     })();
   } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "error" });
+  }
+});
+
+// ── Drive: escanear pasta e retornar vídeos com metadados ──────────────────────
+// POST /drive/scan-folder  { drive: 0|1, path: string, type: "movie"|"series" }
+// Para "series": detecta subpastas de temporada e episódios automaticamente.
+// Para "movie": retorna lista plana de vídeos na pasta.
+router.post("/drive/scan-folder", async (req, res) => {
+  const { drive, path, type } = req.body as { drive: 0 | 1; path: string; type: "movie" | "series" };
+  if (drive == null || !path || !type) {
+    res.status(400).json({ error: "drive, path e type são obrigatórios" }); return;
+  }
+
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), 45_000);
+
+  const VIDEO_EXTS = new Set([".mp4", ".mkv", ".avi", ".mov", ".webm", ".m4v", ".ts", ".m2ts", ".flv"]);
+  function isVid(f: any): boolean {
+    const mime = (f.mimeType ?? "").toLowerCase();
+    if (mime.startsWith("video/")) return true;
+    const ext = (f.name ?? "").match(/\.[^.]+$/)?.[0]?.toLowerCase();
+    return ext ? VIDEO_EXTS.has(ext) : false;
+  }
+
+  async function listAll(folderPath: string, pageToken = ""): Promise<any[]> {
+    const encoded = folderPath.split("/").map(encodeURIComponent).join("/");
+    const url = `${DRIVE_WORKER_URL}/${drive}:/${encoded}/`;
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pageToken }),
+      signal: ctrl.signal,
+    });
+    if (!resp.ok) return [];
+    const data = (await resp.json()) as any;
+    const files: any[] = data?.data?.files ?? [];
+    if (data?.nextPageToken) {
+      const more = await listAll(folderPath, data.nextPageToken);
+      return [...files, ...more];
+    }
+    return files;
+  }
+
+  function detectSeason(name: string): number | null {
+    const m1 = name.match(/^(?:temporada|season|temp(?:orada)?)\s*(\d+)$/i);
+    if (m1) return parseInt(m1[1], 10);
+    const m2 = name.match(/^[TS](\d{1,2})$/i);
+    if (m2) return parseInt(m2[1], 10);
+    const m3 = name.match(/^(\d{1,2})$/);
+    if (m3) return parseInt(m3[1], 10);
+    return null;
+  }
+
+  function detectEp(fileName: string): { season?: number; episode?: number } {
+    const bare = fileName.replace(/\.[^.]+$/, "");
+    const sxe = bare.match(/[Ss](\d{1,2})[Ee][Pp]?(\d{1,3})/);
+    if (sxe) return { season: parseInt(sxe[1], 10), episode: parseInt(sxe[2], 10) };
+    const alt = bare.match(/(\d{1,2})x(\d{1,3})/i);
+    if (alt) return { season: parseInt(alt[1], 10), episode: parseInt(alt[2], 10) };
+    const ep = bare.match(/[Ee][Pp]?\.?\s*(\d{1,3})/);
+    if (ep) return { episode: parseInt(ep[1], 10) };
+    const lead = bare.match(/^(\d{1,3})[\s.\-_]/);
+    if (lead) return { episode: parseInt(lead[1], 10) };
+    return {};
+  }
+
+  function fmtSize(s?: string): string | undefined {
+    if (!s) return undefined;
+    const n = parseInt(s, 10);
+    if (isNaN(n)) return undefined;
+    if (n >= 1e9) return `${(n / 1e9).toFixed(1)} GB`;
+    if (n >= 1e6) return `${Math.round(n / 1e6)} MB`;
+    return `${Math.round(n / 1e3)} KB`;
+  }
+
+  type ScanResult = { filePath: string; fileName: string; size?: string; season?: number; episode?: number };
+
+  try {
+    const results: ScanResult[] = [];
+
+    if (type === "movie") {
+      const items = await listAll(path);
+      for (const f of items) {
+        if (isVid(f) && f.link) {
+          results.push({ filePath: `${path}/${f.name}`, fileName: f.name, size: fmtSize(f.size) });
+        }
+      }
+    } else {
+      const rootItems = await listAll(path);
+      const seasonFolders = rootItems
+        .filter((f) => f.mimeType === "application/vnd.google-apps.folder" && detectSeason(f.name) !== null)
+        .sort((a, b) => (detectSeason(a.name) ?? 0) - (detectSeason(b.name) ?? 0));
+
+      if (seasonFolders.length > 0) {
+        for (const sf of seasonFolders) {
+          const seasonNum = detectSeason(sf.name)!;
+          const seasonPath = `${path}/${sf.name}`;
+          const eps = await listAll(seasonPath);
+          for (const ep of eps) {
+            if (isVid(ep) && ep.link) {
+              const info = detectEp(ep.name);
+              results.push({
+                filePath: `${seasonPath}/${ep.name}`,
+                fileName: ep.name,
+                size: fmtSize(ep.size),
+                season: info.season ?? seasonNum,
+                episode: info.episode,
+              });
+            }
+          }
+        }
+      } else {
+        // Sem subpastas de temporada — detecta pelo nome do arquivo
+        for (const f of rootItems) {
+          if (isVid(f) && f.link) {
+            const info = detectEp(f.name);
+            results.push({
+              filePath: `${path}/${f.name}`,
+              fileName: f.name,
+              size: fmtSize(f.size),
+              season: info.season ?? 1,
+              episode: info.episode,
+            });
+          }
+        }
+      }
+    }
+
+    clearTimeout(tid);
+    results.sort((a, b) => {
+      if ((a.season ?? 0) !== (b.season ?? 0)) return (a.season ?? 0) - (b.season ?? 0);
+      return (a.episode ?? 0) - (b.episode ?? 0);
+    });
+    res.json({ items: results, total: results.length });
+  } catch (err: any) {
+    clearTimeout(tid);
+    if (err?.name === "AbortError") { res.status(504).json({ error: "Timeout ao escanear pasta" }); return; }
     res.status(500).json({ error: err?.message ?? "error" });
   }
 });
