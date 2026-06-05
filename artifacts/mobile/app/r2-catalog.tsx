@@ -3571,11 +3571,23 @@ function FolderBulkModal({ target, onClose, onDone }: {
   const [scanItems, setScanItems] = useState<BulkScanItem[]>([]);
   const [scanError, setScanError] = useState<string | null>(null);
 
+  // Selection state: paths of selected items
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
+  // Registration mode: "bulk" = one TMDB for all, "unit" = each file its own TMDB
+  const [regMode, setRegMode] = useState<"bulk" | "unit">("bulk");
+
   const [q, setQ] = useState(target.name);
   const [searching, setSearching] = useState(false);
   const [tmdbResults, setTmdbResults] = useState<TmdbSearchResult[]>([]);
   const [selectedTmdb, setSelectedTmdb] = useState<TmdbSearchResult | null>(null);
   const [label, setLabel] = useState("Dublado 1080p");
+
+  // Per-unit TMDB links: filePath → TmdbSearchResult
+  const [unitLinks, setUnitLinks] = useState<Map<string, TmdbSearchResult>>(new Map());
+  const [unitSearchPath, setUnitSearchPath] = useState<string | null>(null);
+  const [unitQ, setUnitQ] = useState("");
+  const [unitSearching, setUnitSearching] = useState(false);
+  const [unitResults, setUnitResults] = useState<TmdbSearchResult[]>([]);
 
   const [registering, setRegistering] = useState(false);
   const [regProgress, setRegProgress] = useState(0);
@@ -3589,6 +3601,9 @@ function FolderBulkModal({ target, onClose, onDone }: {
     setSelectedTmdb(null);
     setTmdbResults([]);
     setRegDone(null);
+    setUnitLinks(new Map());
+    setUnitSearchPath(null);
+    setRegMode("bulk");
     try {
       const data = await apiPost<{ items: BulkScanItem[] }>("/drive/scan-folder", {
         drive: target.drive,
@@ -3596,10 +3611,27 @@ function FolderBulkModal({ target, onClose, onDone }: {
         type,
       });
       setScanItems(data.items);
+      setSelectedPaths(new Set(data.items.map((i) => i.filePath)));
     } catch (e: any) {
       setScanError(e.message ?? "Erro ao escanear pasta");
     } finally {
       setScanning(false);
+    }
+  };
+
+  const toggleItem = (filePath: string) => {
+    setSelectedPaths((prev) => {
+      const next = new Set(prev);
+      if (next.has(filePath)) next.delete(filePath); else next.add(filePath);
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    if (selectedPaths.size === scanItems.length) {
+      setSelectedPaths(new Set());
+    } else {
+      setSelectedPaths(new Set(scanItems.map((i) => i.filePath)));
     }
   };
 
@@ -3620,28 +3652,51 @@ function FolderBulkModal({ target, onClose, onDone }: {
     }
   };
 
+  const searchUnitTmdb = async (filePath: string, qText: string) => {
+    if (!qText.trim()) return;
+    setUnitSearching(true);
+    setUnitResults([]);
+    try {
+      const data = await apiFetch<{ results: TmdbSearchResult[] }>(
+        `/tmdb-search?q=${encodeURIComponent(qText)}&type=movie`
+      );
+      setUnitResults(data.results);
+    } catch {
+    } finally {
+      setUnitSearching(false);
+    }
+  };
+
   const registerAll = async () => {
-    if (!selectedTmdb || scanItems.length === 0) return;
+    const itemsToRegister = scanItems.filter((i) => selectedPaths.has(i.filePath));
+    if (itemsToRegister.length === 0) return;
+
+    if (regMode === "bulk" && !selectedTmdb) return;
+    if (regMode === "unit" && unitLinks.size === 0) return;
+
     setRegistering(true);
     setRegProgress(0);
     setRegDone(null);
     let done = 0;
     let errors = 0;
-    for (const item of scanItems) {
+
+    for (const item of itemsToRegister) {
+      const tmdb = regMode === "unit" ? (unitLinks.get(item.filePath) ?? null) : selectedTmdb;
+      if (!tmdb) { errors++; setRegProgress(Math.round(((done + errors) / itemsToRegister.length) * 100)); continue; }
       try {
         await apiPost("/drive/register", {
           driveFilePath: item.filePath,
           driveNum: target.drive,
-          tmdbId: selectedTmdb.id,
-          tmdbType: selectedTmdb.media_type,
-          title: selectedTmdb.title,
+          tmdbId: tmdb.id,
+          tmdbType: tmdb.media_type,
+          title: tmdb.title,
           label,
           season: item.season ?? null,
           episode: item.episode ?? null,
         });
         done++;
       } catch { errors++; }
-      setRegProgress(Math.round(((done + errors) / scanItems.length) * 100));
+      setRegProgress(Math.round(((done + errors) / itemsToRegister.length) * 100));
     }
     setRegistering(false);
     setRegDone(done);
@@ -3661,6 +3716,7 @@ function FolderBulkModal({ target, onClose, onDone }: {
 
   const GREEN = "#22c55e";
   const RED_CONTENT = "#e50914";
+  const selectedCount = scanItems.filter((i) => selectedPaths.has(i.filePath)).length;
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
@@ -3683,7 +3739,7 @@ function FolderBulkModal({ target, onClose, onDone }: {
 
             <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
-              {/* ── Step 1: tipo de conteúdo (intensificação) ── */}
+              {/* ── Step 1: tipo de conteúdo ── */}
               {!contentType && !scanning && (
                 <View>
                   <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 12, marginBottom: 14, textAlign: "center" }}>
@@ -3754,8 +3810,8 @@ function FolderBulkModal({ target, onClose, onDone }: {
               {/* ── Resultados + registro ── */}
               {!scanning && contentType && scanItems.length > 0 && regDone === null && (
                 <>
-                  {/* Badge de tipo + botão alterar */}
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 14 }}>
+                  {/* Badge de tipo + botão alterar + seleção */}
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 }}>
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 5,
                       borderRadius: 20, borderWidth: 1,
                       backgroundColor: contentType === "series" ? "rgba(34,197,94,0.1)" : "rgba(229,9,20,0.1)",
@@ -3763,16 +3819,52 @@ function FolderBulkModal({ target, onClose, onDone }: {
                       <Feather name={contentType === "series" ? "tv" : "film"} size={12}
                         color={contentType === "series" ? GREEN : RED_CONTENT} />
                       <Text style={{ color: contentType === "series" ? GREEN : RED_CONTENT, fontSize: 12, fontWeight: "700" }}>
-                        {contentType === "series" ? "Série" : "Filmes"} • {scanItems.length} arquivo{scanItems.length !== 1 ? "s" : ""}
+                        {selectedCount}/{scanItems.length} selecionado{scanItems.length !== 1 ? "s" : ""}
                       </Text>
                     </View>
-                    <Pressable onPress={() => { setContentType(null); setScanItems([]); setSelectedTmdb(null); }}
+                    <Pressable onPress={toggleAll}
+                      style={{ paddingHorizontal: 8, paddingVertical: 5, borderRadius: 8, backgroundColor: "rgba(255,255,255,0.07)" }}>
+                      <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 11 }}>
+                        {selectedCount === scanItems.length ? "Desmarcar todos" : "Marcar todos"}
+                      </Text>
+                    </Pressable>
+                    <Pressable onPress={() => { setContentType(null); setScanItems([]); setSelectedTmdb(null); setUnitLinks(new Map()); }}
                       style={{ paddingHorizontal: 8, paddingVertical: 5, borderRadius: 8, backgroundColor: "rgba(255,255,255,0.05)" }}>
-                      <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11 }}>↩ Alterar tipo</Text>
+                      <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11 }}>↩ Alterar</Text>
                     </Pressable>
                   </View>
 
-                  {/* Preview — séries por temporada */}
+                  {/* ── Modo de Registro (apenas para filmes) ── */}
+                  {contentType === "movie" && (
+                    <View style={{ flexDirection: "row", gap: 8, marginBottom: 14 }}>
+                      <Pressable onPress={() => { setRegMode("bulk"); setUnitLinks(new Map()); setUnitSearchPath(null); }}
+                        style={{ flex: 1, alignItems: "center", paddingVertical: 10, borderRadius: 10, gap: 4,
+                          backgroundColor: regMode === "bulk" ? "rgba(229,9,20,0.15)" : "rgba(255,255,255,0.04)",
+                          borderWidth: 1, borderColor: regMode === "bulk" ? "rgba(229,9,20,0.5)" : "rgba(255,255,255,0.08)" }}>
+                        <Feather name="layers" size={16} color={regMode === "bulk" ? RED_CONTENT : "rgba(255,255,255,0.4)"} />
+                        <Text style={{ color: regMode === "bulk" ? "#fff" : "rgba(255,255,255,0.4)", fontSize: 11, fontWeight: "700" }}>
+                          Todos juntos
+                        </Text>
+                        <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 9, textAlign: "center" }}>
+                          Um TMDB para todos
+                        </Text>
+                      </Pressable>
+                      <Pressable onPress={() => { setRegMode("unit"); setSelectedTmdb(null); setTmdbResults([]); }}
+                        style={{ flex: 1, alignItems: "center", paddingVertical: 10, borderRadius: 10, gap: 4,
+                          backgroundColor: regMode === "unit" ? "rgba(139,92,246,0.15)" : "rgba(255,255,255,0.04)",
+                          borderWidth: 1, borderColor: regMode === "unit" ? "rgba(139,92,246,0.5)" : "rgba(255,255,255,0.08)" }}>
+                        <Feather name="target" size={16} color={regMode === "unit" ? "#8b5cf6" : "rgba(255,255,255,0.4)"} />
+                        <Text style={{ color: regMode === "unit" ? "#fff" : "rgba(255,255,255,0.4)", fontSize: 11, fontWeight: "700" }}>
+                          Por Unidade
+                        </Text>
+                        <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 9, textAlign: "center" }}>
+                          TMDB individual por arquivo
+                        </Text>
+                      </Pressable>
+                    </View>
+                  )}
+
+                  {/* Preview — séries por temporada com checkboxes */}
                   {contentType === "series" && bySeason && (
                     <View style={{ marginBottom: 16, borderRadius: 10, borderWidth: 1, borderColor: "rgba(34,197,94,0.15)", overflow: "hidden" }}>
                       {Array.from(bySeason.entries()).map(([season, eps]) => (
@@ -3785,9 +3877,13 @@ function FolderBulkModal({ target, onClose, onDone }: {
                             </Text>
                           </View>
                           {eps.slice(0, 3).map((ep, i) => (
-                            <View key={i} style={{ paddingHorizontal: 12, paddingVertical: 7,
+                            <Pressable key={i} onPress={() => toggleItem(ep.filePath)}
+                              style={{ paddingHorizontal: 12, paddingVertical: 7,
                               borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.05)",
-                              flexDirection: "row", alignItems: "center", gap: 8 }}>
+                              flexDirection: "row", alignItems: "center", gap: 8,
+                              backgroundColor: selectedPaths.has(ep.filePath) ? "rgba(34,197,94,0.04)" : "transparent" }}>
+                              <Feather name={selectedPaths.has(ep.filePath) ? "check-square" : "square"} size={14}
+                                color={selectedPaths.has(ep.filePath) ? GREEN : "rgba(255,255,255,0.25)"} />
                               <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 11, width: 36 }}>
                                 {ep.episode != null ? `E${String(ep.episode).padStart(2, "0")}` : `#${i + 1}`}
                               </Text>

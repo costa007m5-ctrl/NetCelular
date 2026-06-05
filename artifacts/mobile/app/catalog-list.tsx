@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useCatalog } from "@/lib/catalog-context";
 import { api } from "@/lib/api";
 import type { TmdbItem } from "@/lib/api";
+import { apiGetRegistry } from "@/lib/r2-direct";
 
 const { width: SW } = Dimensions.get("window");
 const NUM_COLS = 3;
@@ -79,7 +80,33 @@ export default function CatalogListScreen() {
 
   const { byType } = useCatalog();
   const catalogType = (catalog_type as CatalogType) ?? "movie";
-  const allIds = byType[catalogType] ?? [];
+  const catalogIds = byType[catalogType] ?? [];
+
+  const [r2ExtraIds, setR2ExtraIds] = useState<number[]>([]);
+
+  useEffect(() => {
+    const loadR2 = async () => {
+      try {
+        const reg = await apiGetRegistry();
+        const registryItems: any[] = reg.items ?? [];
+        const targetType = (catalogType === "movie") ? "movie" : "tv";
+        const uniqueIds = [...new Set(
+          registryItems
+            .filter((i: any) => i.tmdbType === targetType)
+            .map((i: any) => i.tmdbId)
+            .filter(Boolean)
+        )] as number[];
+        setR2ExtraIds(uniqueIds);
+      } catch {}
+    };
+    loadR2();
+  }, [catalogType]);
+
+  const allIds = (() => {
+    const catalogSet = new Set(catalogIds);
+    const extra = r2ExtraIds.filter((id) => !catalogSet.has(id));
+    return [...extra, ...catalogIds];
+  })();
 
   const [items, setItems] = useState<TmdbItem[]>([]);
   const [page, setPage] = useState(0);

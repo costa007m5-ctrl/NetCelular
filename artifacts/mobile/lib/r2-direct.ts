@@ -715,6 +715,7 @@ const SERVER_ONLY_ROUTES = new Set([
   "/drive/register",
   "/drive/play",
   "/drive/extract-all",
+  "/drive/scan-folder",
 ]);
 
 async function forwardToServer<T>(path: string, options?: RequestInit): Promise<T> {
