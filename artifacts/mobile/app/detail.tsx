@@ -36,9 +36,13 @@ import { DriveItem, parseEpisodeInfo } from "@/lib/gdrive-index";
 interface RegistryItem {
   id: string; r2Key: string; teraboxUrl?: string;
   driveUrl?: string; driveDirectUrl?: string;
+  driveFilePath?: string; driveNum?: number;
   tmdbId: number; tmdbType: "movie" | "tv";
   title: string; label: string; season: number | null; episode: number | null;
 }
+
+// Um item é "Drive" se tiver driveUrl (link compartilhável) OU driveFilePath (registrado via navegador de pastas)
+const isDriveItem = (i: RegistryItem) => !!i.driveUrl || i.driveFilePath != null;
 
 let WebView: any = null;
 try { WebView = require("react-native-webview").WebView; } catch {}
@@ -1194,22 +1198,22 @@ export default function DetailScreen() {
                 const resumeE = (type === "tv" && watchProgress?.episode) ? watchProgress.episode : 1;
 
                 const hasR2 = type === "movie"
-                  ? r2Items.some((i) => !i.driveUrl && i.season == null && i.episode == null)
-                  : r2Items.some((i) => !i.driveUrl);
+                  ? r2Items.some((i) => !isDriveItem(i) && i.season == null && i.episode == null)
+                  : r2Items.some((i) => !isDriveItem(i));
 
                 const hasDrive = type === "movie"
-                  ? r2Items.some((i) => !!i.driveUrl && i.season == null && i.episode == null)
-                  : r2Items.some((i) => !!i.driveUrl);
+                  ? r2Items.some((i) => isDriveItem(i) && i.season == null && i.episode == null)
+                  : r2Items.some((i) => isDriveItem(i));
 
                 const pressR2 = () => {
                   if (type === "movie") {
-                    const item = r2Items.find((i) => !i.driveUrl && i.season == null && i.episode == null);
+                    const item = r2Items.find((i) => !isDriveItem(i) && i.season == null && i.episode == null);
                     if (item) goToR2Player(item);
                   } else {
-                    const episodeItems = r2Items.filter((i) => !i.driveUrl && i.episode != null);
-                    const lastAdded = episodeItems[episodeItems.length - 1] ?? r2Items.find((i) => !i.driveUrl);
+                    const episodeItems = r2Items.filter((i) => !isDriveItem(i) && i.episode != null);
+                    const lastAdded = episodeItems[episodeItems.length - 1] ?? r2Items.find((i) => !isDriveItem(i));
                     const resumeItem = (watchProgress?.season && watchProgress?.episode)
-                      ? r2Items.find((i) => !i.driveUrl && i.season === watchProgress.season && i.episode === watchProgress.episode) ?? lastAdded
+                      ? r2Items.find((i) => !isDriveItem(i) && i.season === watchProgress.season && i.episode === watchProgress.episode) ?? lastAdded
                       : lastAdded;
                     if (resumeItem) goToR2Player(resumeItem);
                   }
@@ -1217,8 +1221,8 @@ export default function DetailScreen() {
 
                 const pressDrive = () => {
                   const item = type === "movie"
-                    ? r2Items.find((i) => !!i.driveUrl && i.season == null && i.episode == null)
-                    : r2Items.find((i) => !!i.driveUrl);
+                    ? r2Items.find((i) => isDriveItem(i) && i.season == null && i.episode == null)
+                    : r2Items.find((i) => isDriveItem(i));
                   if (item) goToDrivePlayer(item);
                 };
 
@@ -1527,10 +1531,10 @@ export default function DetailScreen() {
                           fallbackImage={details?.backdrop_path ?? details?.poster_path ?? null}
                           onPress={!r2Ep ? () => goToPlayer(selectedSeason, ep.episode_number) : undefined}
                           onGstreamPress={gstreamAvailable ? () => goToGstreamPlayer(selectedSeason, ep.episode_number) : undefined}
-                          onR2Press={r2Ep && !r2Ep.driveUrl ? () => goToR2Player(r2Ep, selectedSeason, ep.episode_number) : undefined}
+                          onR2Press={r2Ep && !isDriveItem(r2Ep) ? () => goToR2Player(r2Ep, selectedSeason, ep.episode_number) : undefined}
                           onDrivePress={(() => {
                             const driveEp = r2Items.find(
-                              (i) => !!i.driveUrl && Number(i.season) === selectedSeason && Number(i.episode) === ep.episode_number
+                              (i) => isDriveItem(i) && Number(i.season) === selectedSeason && Number(i.episode) === ep.episode_number
                             );
                             return driveEp ? () => goToDrivePlayer(driveEp, selectedSeason, ep.episode_number) : undefined;
                           })()}
