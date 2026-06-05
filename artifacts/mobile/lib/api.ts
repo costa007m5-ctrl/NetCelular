@@ -168,6 +168,7 @@ export interface TmdbItem {
   number_of_seasons?: number;
   media_type?: string;
   original_language?: string;
+  vote_count?: number;
 }
 
 export interface TmdbSearchResult {

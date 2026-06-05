@@ -82,13 +82,14 @@ interface R2RegItem {
   title: string; label: string; season: number | null; episode: number | null; addedAt: string;
 }
 
-type Filter = "Todos" | "Filmes" | "Séries" | "Animes" | "Doramas";
+type Filter = "Todos" | "Filmes" | "Séries" | "Animes" | "Doramas" | "Em Breve";
 const FILTERS: { id: Filter; icon: keyof typeof Feather.glyphMap; color: string }[] = [
-  { id: "Todos",   icon: "grid",   color: RED },
-  { id: "Filmes",  icon: "film",   color: "#3b82f6" },
-  { id: "Séries",  icon: "tv",     color: "#8b5cf6" },
-  { id: "Animes",  icon: "zap",    color: "#f97316" },
-  { id: "Doramas", icon: "heart",  color: "#ec4899" },
+  { id: "Todos",    icon: "grid",    color: RED },
+  { id: "Filmes",   icon: "film",    color: "#3b82f6" },
+  { id: "Séries",   icon: "tv",      color: "#8b5cf6" },
+  { id: "Animes",   icon: "zap",     color: "#f97316" },
+  { id: "Doramas",  icon: "heart",   color: "#ec4899" },
+  { id: "Em Breve", icon: "clock",   color: "#f59e0b" },
 ];
 
 // ─── Shimmer animation hook ────────────────────────────────────────────────────
@@ -1023,6 +1024,405 @@ const div = StyleSheet.create({
   label: { fontSize: 9, fontWeight: "800", color: "rgba(255,255,255,0.3)", letterSpacing: 1.8 },
 });
 
+// ─── 16. COUNTDOWN BADGE ─────────────────────────────────────────────────────
+function CountdownBadge({ days, size = "md" }: { days: number; size?: "sm" | "md" | "lg" }) {
+  const pulse = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    if (days <= 7) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulse, { toValue: 1.12, duration: 800, useNativeDriver: true }),
+          Animated.timing(pulse, { toValue: 1,    duration: 800, useNativeDriver: true }),
+        ])
+      ).start();
+    }
+  }, [days]);
+
+  const isUrgent = days <= 7;
+  const accent = days === 0 ? "#22c55e" : isUrgent ? "#f59e0b" : "#64748b";
+  const label = days === 0 ? "HOJE" : days === 1 ? "AMANHÃ" : `${days} DIAS`;
+
+  if (size === "lg") {
+    return (
+      <Animated.View style={[cdb.lgWrap, { transform: [{ scale: pulse }] }]}>
+        <LinearGradient
+          colors={days === 0 ? ["#22c55e", "#16a34a"] : isUrgent ? ["#f59e0b", "#d97706"] : ["#334155", "#1e293b"]}
+          style={cdb.lgGradient}
+        >
+          {days > 1 && <Text style={cdb.lgNum}>{days}</Text>}
+          <Text style={cdb.lgLabel}>{days <= 1 ? label : "DIAS"}</Text>
+        </LinearGradient>
+      </Animated.View>
+    );
+  }
+
+  return (
+    <Animated.View style={[cdb.badge, { backgroundColor: `${accent}22`, borderColor: `${accent}55`, transform: [{ scale: pulse }] }]}>
+      <Feather name="clock" size={size === "sm" ? 8 : 9} color={accent} />
+      <Text style={[cdb.badgeTxt, { color: accent, fontSize: size === "sm" ? 8 : 9 }]}>{label}</Text>
+    </Animated.View>
+  );
+}
+const cdb = StyleSheet.create({
+  badge: { flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 6, borderWidth: 1, paddingHorizontal: 7, paddingVertical: 3 },
+  badgeTxt: { fontWeight: "900", letterSpacing: 0.6 },
+  lgWrap: { alignItems: "center" },
+  lgGradient: { width: 70, height: 70, borderRadius: 20, alignItems: "center", justifyContent: "center", ...Platform.select({ ios: { shadowColor: "#f59e0b", shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.5, shadowRadius: 16 }, android: { elevation: 12 } }) },
+  lgNum: { fontSize: 28, fontWeight: "900", color: "#fff", letterSpacing: -1.5, lineHeight: 30 },
+  lgLabel: { fontSize: 9, fontWeight: "900", color: "rgba(255,255,255,0.85)", letterSpacing: 1.5 },
+});
+
+// ─── 17. UPCOMING CARD ────────────────────────────────────────────────────────
+function UpcomingCard({ item, onPress, onRemind }: {
+  item: TmdbItem; onPress: () => void; onRemind?: () => void;
+}) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const [imgErr, setImgErr] = useState(false);
+  const [reminded, setReminded] = useState(false);
+  const img = !imgErr
+    ? tmdbImg(item.backdrop_path, "w780") ?? tmdbImg(item.poster_path, "w500")
+    : null;
+  const releaseDate = item.release_date ?? item.first_air_date;
+  const days = daysUntil(releaseDate);
+  const formattedDate = releaseDate
+    ? new Date(releaseDate).toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" })
+    : null;
+  const isMovie = itemIsMovie(item);
+  const rating = itemRating(item);
+
+  return (
+    <Pressable
+      onPress={onPress}
+      onPressIn={() => Animated.spring(scale, { toValue: 0.96, useNativeDriver: true, speed: 28 }).start()}
+      onPressOut={() => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 24 }).start()}
+    >
+      <Animated.View style={[upc.card, { transform: [{ scale }] }]}>
+        {img ? (
+          <Image source={{ uri: img }} style={StyleSheet.absoluteFill} contentFit="cover" transition={200} onError={() => setImgErr(true)} />
+        ) : (
+          <LinearGradient colors={["#1a1020", "#0d0a14"]} style={StyleSheet.absoluteFill} />
+        )}
+
+        {/* Amber top gradient for "future" feel */}
+        <LinearGradient
+          colors={["rgba(245,158,11,0.14)", "transparent", "rgba(0,0,0,0.82)", "rgba(0,0,0,0.97)"]}
+          locations={[0, 0.22, 0.65, 1]}
+          style={StyleSheet.absoluteFill}
+        />
+
+        {/* EM BREVE badge */}
+        <View style={upc.topRow}>
+          <View style={upc.emBreve}>
+            <Feather name="clock" size={9} color="#f59e0b" />
+            <Text style={upc.emBreveTxt}>EM BREVE</Text>
+          </View>
+          <View style={[upc.typePill, { backgroundColor: isMovie ? "rgba(59,130,246,0.18)" : "rgba(139,92,246,0.18)" }]}>
+            <Feather name={isMovie ? "film" : "tv"} size={9} color={isMovie ? "#3b82f6" : "#8b5cf6"} />
+            <Text style={[upc.typeTxt, { color: isMovie ? "#3b82f6" : "#8b5cf6" }]}>{isMovie ? "FILME" : "SÉRIE"}</Text>
+          </View>
+        </View>
+
+        {/* Countdown circle (top-right) */}
+        {days != null && (
+          <View style={upc.countdownWrap}>
+            <View style={[upc.countdownCircle, days <= 7 && { borderColor: "#f59e0b" }]}>
+              <Text style={[upc.countdownNum, days <= 7 && { color: "#f59e0b" }]}>
+                {days === 0 ? "🎬" : days}
+              </Text>
+              {days > 0 && <Text style={upc.countdownLabel}>dias</Text>}
+            </View>
+          </View>
+        )}
+
+        {/* Bottom info */}
+        <View style={upc.bottom}>
+          <Text style={upc.title} numberOfLines={2}>{itemTitle(item)}</Text>
+
+          <View style={upc.meta}>
+            {formattedDate && (
+              <View style={upc.dateRow}>
+                <Feather name="calendar" size={10} color="#f59e0b" />
+                <Text style={upc.dateTxt}>{formattedDate}</Text>
+              </View>
+            )}
+            {rating != null && (
+              <View style={upc.ratingRow}>
+                <Feather name="star" size={10} color="#f59e0b" />
+                <Text style={upc.ratingTxt}>{rating}</Text>
+              </View>
+            )}
+          </View>
+
+          {item.overview ? (
+            <Text style={upc.overview} numberOfLines={2}>{item.overview}</Text>
+          ) : null}
+
+          <View style={upc.actions}>
+            <Pressable
+              style={[upc.remindBtn, reminded && upc.remindBtnActive]}
+              onPress={() => { setReminded((r) => !r); onRemind?.(); }}
+            >
+              <Feather name={reminded ? "bell" : "bell-off"} size={12} color={reminded ? "#f59e0b" : "rgba(255,255,255,0.5)"} />
+              <Text style={[upc.remindTxt, reminded && { color: "#f59e0b" }]}>
+                {reminded ? "Lembrete ativo" : "Lembrar"}
+              </Text>
+            </Pressable>
+
+            <Pressable style={upc.detailBtn} onPress={onPress}>
+              <Feather name="info" size={12} color="rgba(255,255,255,0.7)" />
+              <Text style={upc.detailTxt}>Detalhes</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Animated.View>
+    </Pressable>
+  );
+}
+const upc = StyleSheet.create({
+  card: { width: SW - 40, marginHorizontal: 20, height: 210, borderRadius: 20, overflow: "hidden", backgroundColor: "#0d0d18", marginBottom: 14, ...Platform.select({ ios: { shadowColor: "#f59e0b", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.18, shadowRadius: 20 }, android: { elevation: 10 } }) },
+  topRow: { position: "absolute", top: 12, left: 14, right: 14, flexDirection: "row", alignItems: "center", gap: 8 },
+  emBreve: { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "rgba(245,158,11,0.18)", borderWidth: 1, borderColor: "rgba(245,158,11,0.4)", borderRadius: 7, paddingHorizontal: 9, paddingVertical: 4 },
+  emBreveTxt: { fontSize: 9, fontWeight: "900", color: "#f59e0b", letterSpacing: 1.4 },
+  typePill: { flexDirection: "row", alignItems: "center", gap: 5, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 },
+  typeTxt: { fontSize: 9, fontWeight: "800", letterSpacing: 0.5 },
+  countdownWrap: { position: "absolute", top: 10, right: 14 },
+  countdownCircle: { width: 52, height: 52, borderRadius: 26, borderWidth: 2, borderColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.5)" },
+  countdownNum: { fontSize: 18, fontWeight: "900", color: "#fff", letterSpacing: -1 },
+  countdownLabel: { fontSize: 7, color: "rgba(255,255,255,0.5)", fontWeight: "700", letterSpacing: 0.5, marginTop: -2 },
+  bottom: { position: "absolute", bottom: 0, left: 0, right: 0, padding: 14, gap: 6 },
+  title: { fontSize: 18, fontWeight: "900", color: "#fff", letterSpacing: -0.5, textShadowColor: "rgba(0,0,0,0.8)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 8 },
+  meta: { flexDirection: "row", alignItems: "center", gap: 12 },
+  dateRow: { flexDirection: "row", alignItems: "center", gap: 5 },
+  dateTxt: { fontSize: 11, color: "#f59e0b", fontWeight: "700" },
+  ratingRow: { flexDirection: "row", alignItems: "center", gap: 4 },
+  ratingTxt: { fontSize: 11, fontWeight: "700", color: "#f59e0b" },
+  overview: { fontSize: 11, color: "rgba(255,255,255,0.38)", lineHeight: 16 },
+  actions: { flexDirection: "row", gap: 10, marginTop: 2 },
+  remindBtn: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(255,255,255,0.08)", borderWidth: 1, borderColor: "rgba(255,255,255,0.14)", paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10 },
+  remindBtnActive: { backgroundColor: "rgba(245,158,11,0.18)", borderColor: "rgba(245,158,11,0.45)" },
+  remindTxt: { fontSize: 12, fontWeight: "700", color: "rgba(255,255,255,0.55)" },
+  detailBtn: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(255,255,255,0.06)", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10 },
+  detailTxt: { fontSize: 12, fontWeight: "600", color: "rgba(255,255,255,0.5)" },
+});
+
+// ─── 18. COUNTDOWN HERO BANNER ────────────────────────────────────────────────
+function CountdownHeroBanner({ item, onPress }: { item: TmdbItem; onPress: () => void }) {
+  const [imgErr, setImgErr] = useState(false);
+  const img = !imgErr
+    ? tmdbImg(item.backdrop_path, "w1280") ?? tmdbImg(item.poster_path, "w500")
+    : null;
+  const releaseDate = item.release_date ?? item.first_air_date;
+  const days = daysUntil(releaseDate);
+  const formattedDate = releaseDate
+    ? new Date(releaseDate).toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" })
+    : null;
+  const scale = useRef(new Animated.Value(1)).current;
+
+  // Animated ring pulse
+  const ringScale = useRef(new Animated.Value(1)).current;
+  const ringOpacity = useRef(new Animated.Value(0.6)).current;
+  useEffect(() => {
+    Animated.loop(
+      Animated.parallel([
+        Animated.sequence([
+          Animated.timing(ringScale,   { toValue: 1.3, duration: 1400, useNativeDriver: true }),
+          Animated.timing(ringScale,   { toValue: 1,   duration: 1400, useNativeDriver: true }),
+        ]),
+        Animated.sequence([
+          Animated.timing(ringOpacity, { toValue: 0,   duration: 1400, useNativeDriver: true }),
+          Animated.timing(ringOpacity, { toValue: 0.6, duration: 1400, useNativeDriver: true }),
+        ]),
+      ])
+    ).start();
+  }, []);
+
+  return (
+    <Pressable
+      onPress={onPress}
+      onPressIn={() => Animated.spring(scale, { toValue: 0.97, useNativeDriver: true, speed: 28 }).start()}
+      onPressOut={() => Animated.spring(scale, { toValue: 1,    useNativeDriver: true, speed: 24 }).start()}
+      style={chero.wrap}
+    >
+      <Animated.View style={[chero.card, { transform: [{ scale }] }]}>
+        {img ? (
+          <Image source={{ uri: img }} style={StyleSheet.absoluteFill} contentFit="cover" transition={300} onError={() => setImgErr(true)} />
+        ) : (
+          <LinearGradient colors={["#1a0e06", "#0d0a04"]} style={StyleSheet.absoluteFill} />
+        )}
+        <LinearGradient
+          colors={["rgba(245,158,11,0.16)", "transparent", "rgba(0,0,0,0.65)", "rgba(0,0,0,0.98)"]}
+          locations={[0, 0.2, 0.55, 1]}
+          style={StyleSheet.absoluteFill}
+        />
+
+        {/* MAIS AGUARDADO badge */}
+        <View style={chero.topBadge}>
+          <Feather name="award" size={11} color="#f59e0b" />
+          <Text style={chero.topBadgeTxt}>MAIS AGUARDADO</Text>
+        </View>
+
+        {/* Countdown circle center-right */}
+        <View style={chero.countdownArea}>
+          {/* Pulsing ring */}
+          <Animated.View style={[chero.ring, { transform: [{ scale: ringScale }], opacity: ringOpacity }]} />
+          <View style={chero.countdownInner}>
+            {days != null && days > 0 ? (
+              <>
+                <Text style={chero.countdownNum}>{days}</Text>
+                <Text style={chero.countdownLabel}>dias</Text>
+              </>
+            ) : (
+              <Text style={chero.countdownToday}>HOJE</Text>
+            )}
+          </View>
+        </View>
+
+        {/* Bottom content */}
+        <View style={chero.bottom}>
+          <Text style={chero.title} numberOfLines={2}>{itemTitle(item)}</Text>
+          {formattedDate && (
+            <View style={chero.dateRow}>
+              <Feather name="calendar" size={12} color="#f59e0b" />
+              <Text style={chero.dateTxt}>{formattedDate}</Text>
+            </View>
+          )}
+          {item.overview ? (
+            <Text style={chero.overview} numberOfLines={2}>{item.overview}</Text>
+          ) : null}
+          <View style={chero.playBtn}>
+            <Feather name="info" size={13} color="#fff" />
+            <Text style={chero.playTxt}>Ver detalhes</Text>
+          </View>
+        </View>
+      </Animated.View>
+    </Pressable>
+  );
+}
+const chero = StyleSheet.create({
+  wrap: { paddingHorizontal: 20, marginBottom: 28 },
+  card: { height: 230, borderRadius: 22, overflow: "hidden", ...Platform.select({ ios: { shadowColor: "#f59e0b", shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.25, shadowRadius: 24 }, android: { elevation: 18 } }) },
+  topBadge: { position: "absolute", top: 14, left: 16, flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(245,158,11,0.2)", borderWidth: 1, borderColor: "rgba(245,158,11,0.5)", borderRadius: 9, paddingHorizontal: 12, paddingVertical: 6 },
+  topBadgeTxt: { fontSize: 9, fontWeight: "900", color: "#f59e0b", letterSpacing: 1.6 },
+  countdownArea: { position: "absolute", top: 42, right: 20, width: 76, height: 76, alignItems: "center", justifyContent: "center" },
+  ring: { position: "absolute", width: 76, height: 76, borderRadius: 38, borderWidth: 2.5, borderColor: "#f59e0b" },
+  countdownInner: { width: 62, height: 62, borderRadius: 31, backgroundColor: "rgba(0,0,0,0.72)", borderWidth: 2, borderColor: "rgba(245,158,11,0.55)", alignItems: "center", justifyContent: "center" },
+  countdownNum: { fontSize: 24, fontWeight: "900", color: "#f59e0b", letterSpacing: -1.5, lineHeight: 26 },
+  countdownLabel: { fontSize: 8, color: "#f59e0b", fontWeight: "800", letterSpacing: 1 },
+  countdownToday: { fontSize: 11, fontWeight: "900", color: "#22c55e", letterSpacing: 0.5 },
+  bottom: { position: "absolute", bottom: 16, left: 16, right: 16, gap: 7 },
+  title: { fontSize: 24, fontWeight: "900", color: "#fff", letterSpacing: -0.7, textShadowColor: "rgba(0,0,0,0.9)", textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 10 },
+  dateRow: { flexDirection: "row", alignItems: "center", gap: 7 },
+  dateTxt: { fontSize: 12, color: "#f59e0b", fontWeight: "700" },
+  overview: { fontSize: 12, color: "rgba(255,255,255,0.4)", lineHeight: 17 },
+  playBtn: { flexDirection: "row", alignItems: "center", gap: 8, alignSelf: "flex-start", backgroundColor: "rgba(245,158,11,0.22)", borderWidth: 1, borderColor: "rgba(245,158,11,0.45)", paddingHorizontal: 16, paddingVertical: 9, borderRadius: 11, marginTop: 2 },
+  playTxt: { fontSize: 13, fontWeight: "800", color: "#f59e0b" },
+});
+
+// ─── 19. ON-AIR CARD (currently airing series) ───────────────────────────────
+function OnAirCard({ item, onPress }: { item: TmdbItem; onPress: () => void }) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const [imgErr, setImgErr] = useState(false);
+  const img = !imgErr ? tmdbImg(item.backdrop_path, "w780") ?? tmdbImg(item.poster_path, "w500") : null;
+  const rating = itemRating(item);
+  const airDate = item.first_air_date
+    ? new Date(item.first_air_date).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })
+    : null;
+
+  return (
+    <Pressable
+      onPress={onPress}
+      onPressIn={() => Animated.spring(scale, { toValue: 0.94, useNativeDriver: true, speed: 28 }).start()}
+      onPressOut={() => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 24 }).start()}
+    >
+      <Animated.View style={[oac.card, { transform: [{ scale }] }]}>
+        {img ? (
+          <Image source={{ uri: img }} style={StyleSheet.absoluteFill} contentFit="cover" transition={200} onError={() => setImgErr(true)} />
+        ) : (
+          <LinearGradient colors={["#0a1218", "#06090e"]} style={StyleSheet.absoluteFill} />
+        )}
+        <LinearGradient colors={["transparent", "rgba(0,0,0,0.95)"]} locations={[0.3, 1]} style={StyleSheet.absoluteFill} />
+
+        {/* AO VIVO badge with pulse dot */}
+        <View style={oac.aovivoBadge}>
+          <View style={oac.pulseDot} />
+          <Text style={oac.aovivaTxt}>AO VIVO</Text>
+        </View>
+
+        {rating != null && (
+          <View style={oac.ratingBadge}>
+            <Feather name="star" size={8} color="#f59e0b" />
+            <Text style={oac.ratingTxt}>{rating}</Text>
+          </View>
+        )}
+
+        <View style={oac.bottom}>
+          <Text style={oac.title} numberOfLines={2}>{itemTitle(item)}</Text>
+          {airDate && (
+            <View style={oac.dateRow}>
+              <Feather name="calendar" size={9} color="#22c55e" />
+              <Text style={oac.dateTxt}>{airDate}</Text>
+            </View>
+          )}
+          <View style={oac.playBtn}>
+            <Feather name="play" size={10} color="#fff" />
+            <Text style={oac.playTxt}>Assistir</Text>
+          </View>
+        </View>
+      </Animated.View>
+    </Pressable>
+  );
+}
+const oac = StyleSheet.create({
+  card: { width: 190, height: 120, borderRadius: 14, overflow: "hidden", backgroundColor: "#0d0d18", marginRight: 10, borderWidth: 1, borderColor: "rgba(34,197,94,0.2)" },
+  aovivoBadge: { position: "absolute", top: 8, left: 8, flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "rgba(229,9,20,0.22)", borderWidth: 1, borderColor: "rgba(229,9,20,0.5)", borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3 },
+  pulseDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: RED },
+  aovivaTxt: { fontSize: 8, fontWeight: "900", color: RED, letterSpacing: 1 },
+  ratingBadge: { position: "absolute", top: 8, right: 8, flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: "rgba(245,158,11,0.18)", borderRadius: 5, paddingHorizontal: 5, paddingVertical: 2 },
+  ratingTxt: { fontSize: 9, fontWeight: "700", color: "#f59e0b" },
+  bottom: { position: "absolute", bottom: 8, left: 10, right: 10, gap: 4 },
+  title: { fontSize: 12, fontWeight: "800", color: "#fff", lineHeight: 15 },
+  dateRow: { flexDirection: "row", alignItems: "center", gap: 5 },
+  dateTxt: { fontSize: 9, color: "#22c55e", fontWeight: "700" },
+  playBtn: { flexDirection: "row", alignItems: "center", gap: 5, alignSelf: "flex-start", backgroundColor: RED, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, marginTop: 2 },
+  playTxt: { fontSize: 9, fontWeight: "800", color: "#fff" },
+});
+
+// ─── 20. UPCOMING MINI CARD (compact horizontal strip) ───────────────────────
+function UpcomingMiniCard({ item, onPress }: { item: TmdbItem; onPress: () => void }) {
+  const [imgErr, setImgErr] = useState(false);
+  const img = !imgErr ? tmdbImg(item.poster_path, "w185") : null;
+  const days = daysUntil(item.release_date ?? item.first_air_date);
+
+  return (
+    <Pressable onPress={onPress} style={umc.card}>
+      <View style={umc.posterWrap}>
+        {img ? (
+          <Image source={{ uri: img }} style={StyleSheet.absoluteFill} contentFit="cover" transition={200} onError={() => setImgErr(true)} />
+        ) : (
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: "#1a1a24", alignItems: "center", justifyContent: "center" }]}>
+            <Feather name="film" size={16} color="rgba(255,255,255,0.1)" />
+          </View>
+        )}
+      </View>
+      <View style={umc.info}>
+        <Text style={umc.title} numberOfLines={2}>{itemTitle(item)}</Text>
+        {days != null && <CountdownBadge days={days} size="sm" />}
+        {item.overview ? (
+          <Text style={umc.overview} numberOfLines={2}>{item.overview}</Text>
+        ) : null}
+      </View>
+    </Pressable>
+  );
+}
+const umc = StyleSheet.create({
+  card: { flexDirection: "row", backgroundColor: "rgba(245,158,11,0.04)", borderWidth: 1, borderColor: "rgba(245,158,11,0.12)", borderRadius: 12, overflow: "hidden", marginBottom: 10 },
+  posterWrap: { width: 72, height: 102, backgroundColor: "#1a1a24" },
+  info: { flex: 1, padding: 10, gap: 6, justifyContent: "center" },
+  title: { fontSize: 13, fontWeight: "800", color: "#fff", lineHeight: 17 },
+  overview: { fontSize: 10, color: "rgba(255,255,255,0.3)", lineHeight: 14 },
+});
+
 // ══════════════════ MAIN SCREEN ══════════════════════════════════════════════
 export default function NovidadesScreen() {
   const router = useRouter();
@@ -1048,6 +1448,10 @@ export default function NovidadesScreen() {
   const [r2EpSeries, setR2EpSeries] = useState<(TmdbItem & { last_episode_to_air: any })[]>([]);
   const [r2MovieSet, setR2MovieSet] = useState<Set<number>>(new Set());
   const [r2TvSet, setR2TvSet] = useState<Set<number>>(new Set());
+
+  // Em Breve
+  const [upcomingMovies, setUpcomingMovies] = useState<TmdbItem[]>([]);
+  const [onTheAirSeries, setOnTheAirSeries] = useState<TmdbItem[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1097,6 +1501,27 @@ export default function NovidadesScreen() {
   }, [byType]);
 
   useEffect(() => { if (!catalogLoading) load(); }, [load, catalogLoading]);
+
+  // Load Em Breve data non-blocking
+  useEffect(() => {
+    const loadEmBreve = async () => {
+      try {
+        const [upcoming, onAir] = await Promise.all([
+          api.tmdb.upcoming().catch(() => [] as TmdbItem[]),
+          api.tmdb.onTheAir().catch(() => [] as TmdbItem[]),
+        ]);
+        // Sort by release date ascending (soonest first)
+        const sorted = [...upcoming].sort((a, b) => {
+          const da = new Date(a.release_date ?? "9999").getTime();
+          const db2 = new Date(b.release_date ?? "9999").getTime();
+          return da - db2;
+        });
+        setUpcomingMovies(sorted.slice(0, 12));
+        setOnTheAirSeries(onAir.slice(0, 12));
+      } catch {}
+    };
+    loadEmBreve();
+  }, []);
 
   useEffect(() => {
     const loadR2 = async () => {
@@ -1179,6 +1604,14 @@ export default function NovidadesScreen() {
   const showEpisodes = filter === "Todos" || filter === "Séries";
   const showAnimes   = filter === "Todos" || filter === "Animes";
   const showDoramas  = filter === "Todos" || filter === "Doramas";
+  const showEmBreve  = filter === "Todos" || filter === "Em Breve";
+
+  // Most anticipated = soonest release with highest vote_count
+  const mostAnticipated = useMemo(() => {
+    const pool = upcomingMovies.filter((i) => daysUntil(i.release_date) != null);
+    if (!pool.length) return null;
+    return pool.sort((a, b) => (b.vote_count ?? 0) - (a.vote_count ?? 0))[0] ?? null;
+  }, [upcomingMovies]);
 
   if (loading && !refreshing) {
     return (
@@ -1494,6 +1927,114 @@ export default function NovidadesScreen() {
           </>
         )}
 
+        {/* ── EM BREVE ── */}
+        {showEmBreve && (upcomingMovies.length > 0 || onTheAirSeries.length > 0) && (
+          <>
+            <SectionDivider label="EM BREVE" />
+
+            <CategoryHeaderBanner
+              emoji="⏳"
+              title="Em Breve no NETPLAY"
+              sub="Próximas estreias e séries em cartaz"
+              accent="#f59e0b"
+              count={upcomingMovies.length + onTheAirSeries.length}
+            />
+
+            {/* Most anticipated hero */}
+            {mostAnticipated && (
+              <CountdownHeroBanner
+                item={mostAnticipated}
+                onPress={() => navigate(mostAnticipated)}
+              />
+            )}
+
+            {/* Upcoming movies — full-width cards with countdown */}
+            {upcomingMovies.length > 0 && (
+              <View style={st.section}>
+                <SectionHeader
+                  title="Próximas Estreias"
+                  icon="film"
+                  accent="#f59e0b"
+                  subtitle="Filmes em breve nos cinemas"
+                  badge="EM BREVE"
+                />
+                {upcomingMovies
+                  .filter((it) => it.id !== mostAnticipated?.id)
+                  .slice(0, 5)
+                  .map((it) => (
+                    <UpcomingCard
+                      key={`upc-${it.id}`}
+                      item={it}
+                      onPress={() => navigate(it)}
+                    />
+                  ))}
+              </View>
+            )}
+
+            {/* Compact mini-list for remaining upcoming */}
+            {upcomingMovies.length > 6 && (
+              <View style={[st.section, { paddingHorizontal: 20 }]}>
+                <SectionHeader
+                  title="Mais em Breve"
+                  icon="list"
+                  accent="#f59e0b"
+                  subtitle="Outros lançamentos aguardados"
+                />
+                {upcomingMovies.slice(5, 10).map((it) => (
+                  <UpcomingMiniCard
+                    key={`umini-${it.id}`}
+                    item={it}
+                    onPress={() => navigate(it)}
+                  />
+                ))}
+              </View>
+            )}
+
+            {/* On the air series */}
+            {onTheAirSeries.length > 0 && (
+              <View style={st.section}>
+                <SectionHeader
+                  title="Séries em Exibição"
+                  icon="radio"
+                  accent="#22c55e"
+                  subtitle="Séries atualmente no ar"
+                  badge="AO VIVO"
+                />
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={st.hscroll}
+                  decelerationRate="fast"
+                  snapToInterval={200}
+                  snapToAlignment="start"
+                >
+                  {onTheAirSeries.map((it) => (
+                    <OnAirCard key={`oac-${it.id}`} item={it} onPress={() => navigate(it)} />
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+
+            {/* Countdown grid — top 6 upcoming with large badge */}
+            {upcomingMovies.length >= 3 && (
+              <View style={[st.section, { marginBottom: 10 }]}>
+                <SectionHeader title="Contagem Regressiva" icon="clock" accent="#f59e0b" />
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[st.hscroll, { alignItems: "center", gap: 14 }]} decelerationRate="fast">
+                  {upcomingMovies.slice(0, 6).map((it) => {
+                    const d = daysUntil(it.release_date);
+                    return (
+                      <Pressable key={`cdg-${it.id}`} onPress={() => navigate(it)} style={cdgrid.item}>
+                        <CountdownBadge days={d ?? 99} size="lg" />
+                        <Text style={cdgrid.title} numberOfLines={2}>{itemTitle(it)}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            )}
+          </>
+        )}
+
         {/* ── FINAL PROMO BANNER ── */}
         {filter === "Todos" && (
           <InlineBanner
@@ -1534,4 +2075,9 @@ const st = StyleSheet.create({
   emptyTxt: { fontSize: 13, color: "rgba(255,255,255,0.28)", textAlign: "center", lineHeight: 19 },
   retryBtn: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 12, paddingHorizontal: 22, paddingVertical: 12, marginTop: 4 },
   retryTxt: { fontSize: 14, fontWeight: "700", color: "#fff" },
+});
+
+const cdgrid = StyleSheet.create({
+  item: { width: 90, alignItems: "center", gap: 8 },
+  title: { fontSize: 10, fontWeight: "700", color: "rgba(255,255,255,0.65)", textAlign: "center", lineHeight: 13 },
 });
