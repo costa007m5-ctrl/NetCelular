@@ -167,6 +167,7 @@ export interface TmdbItem {
   runtime?: number;
   number_of_seasons?: number;
   media_type?: string;
+  original_language?: string;
 }
 
 export interface TmdbSearchResult {
@@ -520,6 +521,6 @@ export function tmdbItemToContent(item: TmdbItem) {
     description: item.overview,
     genres: item.genres?.map((g) => g.name) ?? [],
     type: (isMovie ? "movie" : "series") as "movie" | "series",
-    mediaType: isMovie ? "movie" : "tv",
+    mediaType: (isMovie ? "movie" : "tv") as "movie" | "tv",
   };
 }
