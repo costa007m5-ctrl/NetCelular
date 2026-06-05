@@ -25,6 +25,8 @@ import { TopTenCard } from "@/components/TopTenCard";
 import { SyncBar } from "@/components/SyncBar";
 import { SkeletonRow } from "@/components/SkeletonLoader";
 import { GenreRow } from "@/components/GenreRow";
+import { NotificationBell } from "@/components/NotificationBell";
+import { PromoBanner } from "@/components/PromoBanner";
 import { api, tmdbItemToContent } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useCatalog } from "@/lib/catalog-context";
