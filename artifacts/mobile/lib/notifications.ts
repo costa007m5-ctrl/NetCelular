@@ -353,6 +353,79 @@ export async function scheduleWeeklyContentReminder(): Promise<void> {
   } catch {}
 }
 
+/* ── Release Reminders (Em Breve) ── */
+
+const REMINDER_NOTIF_PREFIX = "netplay_release_reminder_";
+
+/**
+ * Schedule a local push notification for a movie/series release.
+ * Returns the notification ID (to be stored in Supabase for later cancellation).
+ */
+export async function scheduleReleaseReminder(
+  tmdbId: number,
+  title: string,
+  releaseDate: string,
+  posterUrl?: string
+): Promise<string | null> {
+  if (Platform.OS === "web") return null;
+  try {
+    const Notifications = require("expo-notifications");
+
+    // Parse release date and schedule notification for 8AM on that day
+    const release = new Date(releaseDate + "T08:00:00");
+    const now = new Date();
+
+    // If already past, fire immediately (within 2 seconds)
+    const secondsUntil = Math.max(2, Math.floor((release.getTime() - now.getTime()) / 1000));
+
+    const content: any = {
+      title: "🎬 Já disponível no NETPLAY!",
+      body: `"${title}" chegou! Assista agora.`,
+      sound: true,
+      data: { type: "release_reminder", tmdbId, title },
+    };
+    if (posterUrl) {
+      content.attachments = [{ url: posterUrl, identifier: "poster" }];
+    }
+
+    const id = await Notifications.scheduleNotificationAsync({
+      content,
+      trigger: { seconds: secondsUntil } as any,
+    });
+
+    // Also schedule a "1 day before" reminder if more than 24h away
+    if (secondsUntil > 86400) {
+      const earlyContent: any = {
+        title: "⏳ Estreia amanhã!",
+        body: `"${title}" estreia amanhã no NETPLAY. Não perca!`,
+        sound: true,
+        data: { type: "release_reminder_early", tmdbId, title },
+      };
+      if (posterUrl) earlyContent.attachments = [{ url: posterUrl, identifier: "poster" }];
+      await Notifications.scheduleNotificationAsync({
+        content: earlyContent,
+        trigger: { seconds: secondsUntil - 86400 } as any,
+      }).catch(() => {});
+    }
+
+    return id as string;
+  } catch (e) {
+    console.warn("[Push] Erro ao agendar lembrete de estreia:", e);
+    return null;
+  }
+}
+
+/**
+ * Cancel a previously scheduled release reminder notification.
+ */
+export async function cancelReleaseReminder(notifId: string | null | undefined): Promise<void> {
+  if (Platform.OS === "web" || !notifId) return;
+  try {
+    const Notifications = require("expo-notifications");
+    await Notifications.cancelScheduledNotificationAsync(notifId).catch(() => {});
+  } catch {}
+}
+
 /* ── Push (remote) notifications via API server (FCM) ── */
 
 export async function sendNewEpisodeNotification(

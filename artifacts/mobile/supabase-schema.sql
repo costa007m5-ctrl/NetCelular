@@ -248,5 +248,35 @@ CREATE POLICY "anon_all_support_tickets"
 
 
 -- ────────────────────────────────────────────────────────────
+-- RELEASE REMINDERS (Em Breve)
+-- ────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS public.release_reminders (
+  id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id      UUID        NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  tmdb_id      INTEGER     NOT NULL,
+  type         TEXT        NOT NULL CHECK (type IN ('movie', 'tv')),
+  title        TEXT        NOT NULL,
+  poster_path  TEXT,
+  release_date TEXT,
+  notif_id     TEXT,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT release_reminders_unique UNIQUE (user_id, tmdb_id, type)
+);
+
+ALTER TABLE public.release_reminders ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "auth_all_release_reminders" ON public.release_reminders;
+CREATE POLICY "auth_all_release_reminders"
+  ON public.release_reminders FOR ALL TO authenticated
+  USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "anon_all_release_reminders" ON public.release_reminders;
+CREATE POLICY "anon_all_release_reminders"
+  ON public.release_reminders FOR ALL TO anon
+  USING (true) WITH CHECK (true);
+
+
+-- ────────────────────────────────────────────────────────────
 -- FIM — todas as tabelas e permissoes prontas
 -- ────────────────────────────────────────────────────────────

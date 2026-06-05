@@ -29,6 +29,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/lib/auth-context";
 import { useColors } from "@/hooks/useColors";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
+import type { ReleaseReminder } from "@/lib/supabase";
+import { scheduleReleaseReminder, cancelReleaseReminder } from "@/lib/notifications";
 import { api, getApiBase } from "@/lib/api";
 import { useCatalog } from "@/lib/catalog-context";
 import type { TmdbItem } from "@/lib/api";
@@ -1074,12 +1076,11 @@ const cdb = StyleSheet.create({
 });
 
 // ─── 17. UPCOMING CARD ────────────────────────────────────────────────────────
-function UpcomingCard({ item, onPress, onRemind }: {
-  item: TmdbItem; onPress: () => void; onRemind?: () => void;
+function UpcomingCard({ item, onPress, onRemind, reminded = false }: {
+  item: TmdbItem; onPress: () => void; onRemind?: () => void; reminded?: boolean;
 }) {
   const scale = useRef(new Animated.Value(1)).current;
   const [imgErr, setImgErr] = useState(false);
-  const [reminded, setReminded] = useState(false);
   const img = !imgErr
     ? tmdbImg(item.backdrop_path, "w780") ?? tmdbImg(item.poster_path, "w500")
     : null;
@@ -1161,7 +1162,7 @@ function UpcomingCard({ item, onPress, onRemind }: {
           <View style={upc.actions}>
             <Pressable
               style={[upc.remindBtn, reminded && upc.remindBtnActive]}
-              onPress={() => { setReminded((r) => !r); onRemind?.(); }}
+              onPress={() => { onRemind?.(); }}
             >
               <Feather name={reminded ? "bell" : "bell-off"} size={12} color={reminded ? "#f59e0b" : "rgba(255,255,255,0.5)"} />
               <Text style={[upc.remindTxt, reminded && { color: "#f59e0b" }]}>
@@ -1389,7 +1390,9 @@ const oac = StyleSheet.create({
 });
 
 // ─── 20. UPCOMING MINI CARD (compact horizontal strip) ───────────────────────
-function UpcomingMiniCard({ item, onPress }: { item: TmdbItem; onPress: () => void }) {
+function UpcomingMiniCard({ item, onPress, reminded = false, onRemind }: {
+  item: TmdbItem; onPress: () => void; reminded?: boolean; onRemind?: () => void;
+}) {
   const [imgErr, setImgErr] = useState(false);
   const img = !imgErr ? tmdbImg(item.poster_path, "w185") : null;
   const days = daysUntil(item.release_date ?? item.first_air_date);
@@ -1412,6 +1415,11 @@ function UpcomingMiniCard({ item, onPress }: { item: TmdbItem; onPress: () => vo
           <Text style={umc.overview} numberOfLines={2}>{item.overview}</Text>
         ) : null}
       </View>
+      {onRemind && (
+        <Pressable onPress={onRemind} style={umc.bellBtn} hitSlop={10}>
+          <Feather name={reminded ? "bell" : "bell-off"} size={14} color={reminded ? "#f59e0b" : "rgba(255,255,255,0.3)"} />
+        </Pressable>
+      )}
     </Pressable>
   );
 }
@@ -1421,6 +1429,7 @@ const umc = StyleSheet.create({
   info: { flex: 1, padding: 10, gap: 6, justifyContent: "center" },
   title: { fontSize: 13, fontWeight: "800", color: "#fff", lineHeight: 17 },
   overview: { fontSize: 10, color: "rgba(255,255,255,0.3)", lineHeight: 14 },
+  bellBtn: { width: 44, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.2)" },
 });
 
 // ══════════════════ MAIN SCREEN ══════════════════════════════════════════════
@@ -1452,6 +1461,9 @@ export default function NovidadesScreen() {
   // Em Breve
   const [upcomingMovies, setUpcomingMovies] = useState<TmdbItem[]>([]);
   const [onTheAirSeries, setOnTheAirSeries] = useState<TmdbItem[]>([]);
+  // reminderMap: tmdbId → notifId (for cancellation)
+  const [reminderMap, setReminderMap] = useState<Map<number, string | null>>(new Map());
+  const [reminderItems, setReminderItems] = useState<ReleaseReminder[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1501,6 +1513,55 @@ export default function NovidadesScreen() {
   }, [byType]);
 
   useEffect(() => { if (!catalogLoading) load(); }, [load, catalogLoading]);
+
+  // Load user's existing reminders from Supabase (non-blocking)
+  useEffect(() => {
+    const loadReminders = async () => {
+      if (!user?.id || !isSupabaseConfigured) return;
+      try {
+        const items = await db.reminders.list(user.id);
+        setReminderItems(items);
+        const map = new Map<number, string | null>();
+        items.forEach((r) => map.set(r.tmdb_id, r.notif_id ?? null));
+        setReminderMap(map);
+      } catch {}
+    };
+    loadReminders();
+  }, [user?.id]);
+
+  // Toggle reminder for an upcoming item
+  const toggleReminder = useCallback(async (item: TmdbItem) => {
+    if (!user?.id) return;
+    const id = item.id;
+    const isReminded = reminderMap.has(id);
+    const type: "movie" | "tv" = itemIsMovie(item) ? "movie" : "tv";
+    const releaseDate = item.release_date ?? item.first_air_date ?? "";
+    const title = itemTitle(item);
+    const posterUrl = item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : undefined;
+
+    if (isReminded) {
+      // Remove reminder
+      const prevNotifId = reminderMap.get(id);
+      await cancelReleaseReminder(prevNotifId ?? null).catch(() => {});
+      await db.reminders.remove(user.id, id, type).catch(() => {});
+      setReminderMap((prev) => { const next = new Map(prev); next.delete(id); return next; });
+      setReminderItems((prev) => prev.filter((r) => r.tmdb_id !== id));
+    } else {
+      // Add reminder + schedule local notification
+      const notifId = await scheduleReleaseReminder(id, title, releaseDate, posterUrl).catch(() => null);
+      const saved = await db.reminders.add({
+        user_id: user.id,
+        tmdb_id: id,
+        type,
+        title,
+        poster_path: item.poster_path ?? undefined,
+        release_date: releaseDate || undefined,
+        notif_id: notifId ?? undefined,
+      }).catch(() => null);
+      setReminderMap((prev) => new Map(prev).set(id, notifId ?? null));
+      if (saved) setReminderItems((prev) => [...prev, saved]);
+    }
+  }, [user?.id, reminderMap]);
 
   // Load Em Breve data non-blocking
   useEffect(() => {
@@ -1940,6 +2001,78 @@ export default function NovidadesScreen() {
               count={upcomingMovies.length + onTheAirSeries.length}
             />
 
+            {/* Meus Lembretes — saved reminders row */}
+            {reminderItems.length > 0 && (
+              <View style={[st.section, { marginTop: 4 }]}>
+                <SectionHeader
+                  title="Meus Lembretes"
+                  icon="bell"
+                  accent="#f59e0b"
+                  subtitle={`${reminderItems.length} ${reminderItems.length === 1 ? "lembrete ativo" : "lembretes ativos"}`}
+                  badge="ATIVO"
+                />
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={[st.hscroll, { gap: 12 }]}
+                  decelerationRate="fast"
+                  snapToInterval={160}
+                  snapToAlignment="start"
+                >
+                  {reminderItems.map((r) => {
+                    const days = daysUntil(r.release_date);
+                    const posterUrl = r.poster_path ? `https://image.tmdb.org/t/p/w342${r.poster_path}` : null;
+                    const asItem: TmdbItem = {
+                      id: r.tmdb_id,
+                      title: r.type === "movie" ? r.title : undefined,
+                      name: r.type === "tv" ? r.title : undefined,
+                      poster_path: r.poster_path ?? null,
+                      backdrop_path: null,
+                      overview: "",
+                      vote_average: 0,
+                      media_type: r.type,
+                    };
+                    return (
+                      <Pressable
+                        key={`rem-${r.tmdb_id}`}
+                        style={mrl.card}
+                        onPress={() => navigate(asItem)}
+                      >
+                        <View style={mrl.poster}>
+                          {posterUrl ? (
+                            <Image source={{ uri: posterUrl }} style={StyleSheet.absoluteFill} contentFit="cover" transition={200} />
+                          ) : (
+                            <LinearGradient colors={["#1a1020", "#0d0a14"]} style={StyleSheet.absoluteFill} />
+                          )}
+                          <LinearGradient colors={["transparent", "rgba(0,0,0,0.85)"]} style={StyleSheet.absoluteFill} />
+                          {days != null && (
+                            <View style={mrl.badge}>
+                              <CountdownBadge days={days} size="sm" />
+                            </View>
+                          )}
+                        </View>
+                        <View style={mrl.info}>
+                          <Text style={mrl.title} numberOfLines={2}>{r.title}</Text>
+                          {r.release_date ? (
+                            <Text style={mrl.date}>
+                              {new Date(r.release_date).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}
+                            </Text>
+                          ) : null}
+                          <Pressable
+                            style={mrl.removeBtn}
+                            onPress={() => toggleReminder(asItem)}
+                          >
+                            <Feather name="bell-off" size={10} color="rgba(255,255,255,0.4)" />
+                            <Text style={mrl.removeTxt}>Cancelar</Text>
+                          </Pressable>
+                        </View>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            )}
+
             {/* Most anticipated hero */}
             {mostAnticipated && (
               <CountdownHeroBanner
@@ -1966,6 +2099,8 @@ export default function NovidadesScreen() {
                       key={`upc-${it.id}`}
                       item={it}
                       onPress={() => navigate(it)}
+                      reminded={reminderMap.has(it.id)}
+                      onRemind={() => toggleReminder(it)}
                     />
                   ))}
               </View>
@@ -1985,6 +2120,8 @@ export default function NovidadesScreen() {
                     key={`umini-${it.id}`}
                     item={it}
                     onPress={() => navigate(it)}
+                    reminded={reminderMap.has(it.id)}
+                    onRemind={() => toggleReminder(it)}
                   />
                 ))}
               </View>
@@ -2080,4 +2217,15 @@ const st = StyleSheet.create({
 const cdgrid = StyleSheet.create({
   item: { width: 90, alignItems: "center", gap: 8 },
   title: { fontSize: 10, fontWeight: "700", color: "rgba(255,255,255,0.65)", textAlign: "center", lineHeight: 13 },
+});
+
+const mrl = StyleSheet.create({
+  card: { width: 148, backgroundColor: "rgba(245,158,11,0.06)", borderWidth: 1, borderColor: "rgba(245,158,11,0.2)", borderRadius: 14, overflow: "hidden" },
+  poster: { width: "100%", height: 96, backgroundColor: "#1a1a24" },
+  badge: { position: "absolute", bottom: 6, left: 6 },
+  info: { padding: 10, gap: 4 },
+  title: { fontSize: 12, fontWeight: "800", color: "#fff", lineHeight: 16 },
+  date: { fontSize: 10, fontWeight: "700", color: "#f59e0b" },
+  removeBtn: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 },
+  removeTxt: { fontSize: 9, color: "rgba(255,255,255,0.35)", fontWeight: "600" },
 });

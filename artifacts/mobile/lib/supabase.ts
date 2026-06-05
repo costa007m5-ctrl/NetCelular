@@ -103,6 +103,18 @@ export type PushToken = {
   created_at?: string;
 };
 
+export type ReleaseReminder = {
+  id?: string;
+  user_id: string;
+  tmdb_id: number;
+  type: "movie" | "tv";
+  title: string;
+  poster_path?: string;
+  release_date?: string;
+  notif_id?: string;
+  created_at?: string;
+};
+
 export type DbSubscription = {
   id?: string;
   user_id: string;
@@ -364,6 +376,45 @@ export const db = {
       await supabase
         .from("new_episodes")
         .upsert({ ...ep, notified_at: new Date().toISOString() }, { onConflict: "tmdb_id,season,episode" });
+    },
+  },
+
+  reminders: {
+    list: async (userId: string): Promise<ReleaseReminder[]> => {
+      const { data } = await supabase
+        .from("release_reminders")
+        .select("*")
+        .eq("user_id", userId)
+        .order("release_date", { ascending: true });
+      return (data ?? []) as ReleaseReminder[];
+    },
+
+    add: async (reminder: Omit<ReleaseReminder, "id" | "created_at">): Promise<ReleaseReminder | null> => {
+      const { data, error } = await supabase
+        .from("release_reminders")
+        .upsert(reminder, { onConflict: "user_id,tmdb_id,type" })
+        .select()
+        .maybeSingle();
+      if (error) return null;
+      return data as ReleaseReminder | null;
+    },
+
+    remove: async (userId: string, tmdbId: number, type: "movie" | "tv"): Promise<void> => {
+      await supabase
+        .from("release_reminders")
+        .delete()
+        .eq("user_id", userId)
+        .eq("tmdb_id", tmdbId)
+        .eq("type", type);
+    },
+
+    updateNotifId: async (userId: string, tmdbId: number, type: "movie" | "tv", notifId: string): Promise<void> => {
+      await supabase
+        .from("release_reminders")
+        .update({ notif_id: notifId })
+        .eq("user_id", userId)
+        .eq("tmdb_id", tmdbId)
+        .eq("type", type);
     },
   },
 
