@@ -1227,22 +1227,47 @@ router.post("/gdrive-resolve", async (req, res) => {
   }
 });
 
+// Removes quality/codec/audio tags from a filename/folder name, returning the clean title
+function cleanTmdbQuery(raw: string): string {
+  let s = raw;
+  // Remove extensão
+  s = s.replace(/\.[a-zA-Z0-9]{2,5}$/, "");
+  // Remove tudo entre colchetes: [1080p][Dublado][BluRay]...
+  s = s.replace(/\[[^\]]*\]/g, " ");
+  // Remove tudo entre parênteses que seja ano ou tag: (2006), (4K), (Dublado)
+  s = s.replace(/\(\s*(?:\d{4}|[A-Z\d][^)]{0,25})\s*\)/gi, " ");
+  // Remove tags de qualidade e codec soltos
+  s = s.replace(/\b(?:4K|UHD|2160p|1080p|720p|480p|360p|BluRay|BDRip|WEBRip|WEB-DL|HDRip|HDTV|DVDRip|Blu-Ray|H\.?264|H\.?265|HEVC|AVC|XVID|x265|x264|AAC|AC3|DTS|DDP5|EAC3|OPUS|FLAC|Remux|Rip|BR)\b/gi, " ");
+  // Remove tags de idioma/legenda
+  s = s.replace(/\b(?:Dublado|Dub|Legendado|Leg|PT[-\s]?BR|PTBR|Portuguese|English|Español|Spanish|Multi|Audio)\b/gi, " ");
+  // Remove separadores comuns de filenames
+  s = s.replace(/[._]/g, " ");
+  // Remove múltiplos espaços e trim
+  s = s.replace(/\s{2,}/g, " ").trim();
+  // Remove sufixo de tamanho: "2,15 GB", "700 MB", etc.
+  s = s.replace(/[\d,.]+ (?:GB|MB|TB)/gi, " ").trim();
+  // Remove traço isolado no início/fim
+  s = s.replace(/^[-\s]+|[-\s]+$/g, "").trim();
+  return s;
+}
+
 // ── NEW: TMDB search proxy ─────────────────────────────────────────────────────
 // GET /tmdb-search?q=...&type=multi|movie|tv
 router.get("/tmdb-search", async (req, res) => {
   try {
-    const q = (req.query["q"] as string ?? "").trim();
+    const rawQ = (req.query["q"] as string ?? "").trim();
     const type = (req.query["type"] as string) ?? "multi";
-    const yearRaw = req.query["year"] as string | undefined;
-    const year = yearRaw ? parseInt(yearRaw, 10) : undefined;
-    if (!q) { res.status(400).json({ error: "q required" }); return; }
+    if (!rawQ) { res.status(400).json({ error: "q required" }); return; }
+
+    // Limpa o título automaticamente (remove tags de qualidade, ano, etc.)
+    const q = cleanTmdbQuery(rawQ);
 
     const TMDB_KEY = process.env.TMDB_API_KEY ?? "8f0beb08cf016ec8de49e454e09879ec";
     const TMDB_BASE = "https://api.themoviedb.org/3";
     const TMDB_LANG = "pt-BR";
 
-    async function tmdbFetch(endpoint: string, extraParams: Record<string, string> = {}): Promise<any> {
-      const params = new URLSearchParams({ api_key: TMDB_KEY, language: TMDB_LANG, query: q, page: "1", ...extraParams });
+    async function tmdbFetch(endpoint: string): Promise<any> {
+      const params = new URLSearchParams({ api_key: TMDB_KEY, language: TMDB_LANG, query: q, page: "1" });
       const r = await fetch(`${TMDB_BASE}${endpoint}?${params}`);
       if (!r.ok) throw new Error(`TMDB ${r.status}`);
       return r.json();
@@ -1251,24 +1276,11 @@ router.get("/tmdb-search", async (req, res) => {
     let results: any[] = [];
 
     if (type === "movie") {
-      // Tenta com ano primeiro para match exato
-      if (year) {
-        const d = await tmdbFetch("/search/movie", { year: String(year) });
-        results = (d.results ?? []).slice(0, 10).map((x: any) => ({ ...x, media_type: "movie" }));
-      }
-      if (results.length === 0) {
-        const d = await tmdbFetch("/search/movie");
-        results = (d.results ?? []).slice(0, 10).map((x: any) => ({ ...x, media_type: "movie" }));
-      }
+      const d = await tmdbFetch("/search/movie");
+      results = (d.results ?? []).slice(0, 10).map((x: any) => ({ ...x, media_type: "movie" }));
     } else if (type === "tv") {
-      if (year) {
-        const d = await tmdbFetch("/search/tv", { first_air_date_year: String(year) });
-        results = (d.results ?? []).slice(0, 10).map((x: any) => ({ ...x, title: x.name, media_type: "tv" }));
-      }
-      if (results.length === 0) {
-        const d = await tmdbFetch("/search/tv");
-        results = (d.results ?? []).slice(0, 10).map((x: any) => ({ ...x, title: x.name, media_type: "tv" }));
-      }
+      const d = await tmdbFetch("/search/tv");
+      results = (d.results ?? []).slice(0, 10).map((x: any) => ({ ...x, title: x.name, media_type: "tv" }));
     } else {
       const d = await tmdbFetch("/search/multi");
       results = (d.results ?? [])

@@ -429,31 +429,18 @@ export async function apiMkdir(prefix: string) {
   return { ok: true };
 }
 
-export async function apiTmdbSearch(q: string, type: string, year?: number) {
+export async function apiTmdbSearch(q: string, type: string) {
   const ep = type === "movie" ? "movie" : type === "tv" ? "tv" : "multi";
-  const yearParam = year
-    ? ep === "tv" ? `&first_air_date_year=${year}` : `&year=${year}`
-    : "";
+  const { title: cleanQ } = extractTitleAndYear(q);
+  const searchQ = cleanQ || q;
   const res = await fetch(
-    `${TMDB_BASE}/search/${ep}?api_key=${TMDB_KEY}&language=${TMDB_LANG}&query=${encodeURIComponent(q)}&page=1${yearParam}`,
+    `${TMDB_BASE}/search/${ep}?api_key=${TMDB_KEY}&language=${TMDB_LANG}&query=${encodeURIComponent(searchQ)}&page=1`,
   );
   if (!res.ok) throw new Error(`TMDB ${res.status}`);
   const data = await res.json();
-  let results = (data.results ?? []).slice(0, 10).map((r: any) => ({
+  const results = (data.results ?? []).slice(0, 10).map((r: any) => ({
     id: r.id, title: r.title ?? r.name, poster_path: r.poster_path, media_type: r.media_type ?? ep,
   }));
-  // Se buscou com ano e não achou resultados, tenta sem o filtro de ano
-  if (results.length === 0 && year) {
-    const resFallback = await fetch(
-      `${TMDB_BASE}/search/${ep}?api_key=${TMDB_KEY}&language=${TMDB_LANG}&query=${encodeURIComponent(q)}&page=1`,
-    );
-    if (resFallback.ok) {
-      const dataFb = await resFallback.json();
-      results = (dataFb.results ?? []).slice(0, 10).map((r: any) => ({
-        id: r.id, title: r.title ?? r.name, poster_path: r.poster_path, media_type: r.media_type ?? ep,
-      }));
-    }
-  }
   return { results };
 }
 
@@ -581,14 +568,12 @@ async function hasVideoFilesInFolder(prefix: string): Promise<boolean> {
 
 async function searchTmdbByName(name: string, hint?: "movie" | "tv"): Promise<TmdbMatch | null> {
   try {
-    const { title: cleaned, year } = extractTitleAndYear(name);
+    const cleaned = cleanTitle(name);
     if (!cleaned) return null;
     const lang = TMDB_LANG;
-    const yearQ = year ? `&year=${year}` : "";
-    const firstAirQ = year ? `&first_air_date_year=${year}` : "";
 
     if (hint === "tv") {
-      const res = await fetch(`${TMDB_BASE}/search/tv?api_key=${TMDB_KEY}&language=${lang}&query=${encodeURIComponent(cleaned)}&page=1${firstAirQ}`);
+      const res = await fetch(`${TMDB_BASE}/search/tv?api_key=${TMDB_KEY}&language=${lang}&query=${encodeURIComponent(cleaned)}&page=1`);
       if (res.ok) {
         const d = await res.json();
         const hit = d.results?.[0];
@@ -596,15 +581,6 @@ async function searchTmdbByName(name: string, hint?: "movie" | "tv"): Promise<Tm
       }
     }
     if (hint === "movie") {
-      // Tenta primeiro com o ano para match exato
-      if (year) {
-        const resYear = await fetch(`${TMDB_BASE}/search/movie?api_key=${TMDB_KEY}&language=${lang}&query=${encodeURIComponent(cleaned)}&page=1${yearQ}`);
-        if (resYear.ok) {
-          const dYear = await resYear.json();
-          const hitYear = dYear.results?.[0];
-          if (hitYear) return { id: hitYear.id, title: hitYear.title, poster_path: hitYear.poster_path, backdrop_path: hitYear.backdrop_path, overview: hitYear.overview ?? "", vote_average: hitYear.vote_average ?? 0, release_date: hitYear.release_date, media_type: "movie" };
-        }
-      }
       const res = await fetch(`${TMDB_BASE}/search/movie?api_key=${TMDB_KEY}&language=${lang}&query=${encodeURIComponent(cleaned)}&page=1`);
       if (res.ok) {
         const d = await res.json();
@@ -863,8 +839,7 @@ export async function r2Route<T>(path: string, options?: RequestInit): Promise<T
   } else if (route === "/mkdir") {
     result = await apiMkdir(body.prefix);
   } else if (route === "/tmdb-search") {
-    const yearStr = q("year");
-    result = await apiTmdbSearch(q("q"), q("type"), yearStr ? parseInt(yearStr, 10) : undefined);
+    result = await apiTmdbSearch(q("q"), q("type"));
   } else if (route === "/rename-folder") {
     result = await apiRenameFolder(body.oldPrefix, body.newPrefix);
   } else if (route === "/catalog-meta") {

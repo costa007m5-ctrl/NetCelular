@@ -3576,8 +3576,17 @@ function FolderBulkModal({ target, onClose, onDone }: {
   // Registration mode: "bulk" = one TMDB for all, "unit" = each file its own TMDB
   const [regMode, setRegMode] = useState<"bulk" | "unit">("bulk");
 
-  const { title: cleanedFolderTitle } = extractTitleAndYear(target.name);
-  const [q, setQ] = useState(cleanedFolderTitle || target.name);
+  // Procura o título nas pastas pai (do mais interno para o mais externo)
+  // Ex: "Filmes/A Era do Gelo 2 (2006)/Dublado - 1080p" → "A Era do Gelo 2"
+  const bestFolderTitle = (() => {
+    const segments = target.path.split("/").filter(Boolean);
+    for (let i = segments.length - 1; i >= 0; i--) {
+      const { title } = extractTitleAndYear(segments[i]);
+      if (title && title.length > 2) return title;
+    }
+    return target.name;
+  })();
+  const [q, setQ] = useState(bestFolderTitle);
   const [searching, setSearching] = useState(false);
   const [tmdbResults, setTmdbResults] = useState<TmdbSearchResult[]>([]);
   const [selectedTmdb, setSelectedTmdb] = useState<TmdbSearchResult | null>(null);
@@ -3642,11 +3651,10 @@ function FolderBulkModal({ target, onClose, onDone }: {
     setTmdbResults([]);
     try {
       const mediaType = contentType === "series" ? "tv" : "movie";
-      const { title: cleanQ, year } = extractTitleAndYear(q);
+      const { title: cleanQ } = extractTitleAndYear(q);
       const searchQ = cleanQ || q;
-      const yearParam = year ? `&year=${year}` : "";
       const data = await apiFetch<{ results: TmdbSearchResult[] }>(
-        `/tmdb-search?q=${encodeURIComponent(searchQ)}&type=${mediaType}${yearParam}`
+        `/tmdb-search?q=${encodeURIComponent(searchQ)}&type=${mediaType}`
       );
       setTmdbResults(data.results);
     } catch (e: any) {
@@ -3661,11 +3669,10 @@ function FolderBulkModal({ target, onClose, onDone }: {
     setUnitSearching(true);
     setUnitResults([]);
     try {
-      const { title: cleanQ, year } = extractTitleAndYear(qText);
+      const { title: cleanQ } = extractTitleAndYear(qText);
       const searchQ = cleanQ || qText;
-      const yearParam = year ? `&year=${year}` : "";
       const data = await apiFetch<{ results: TmdbSearchResult[] }>(
-        `/tmdb-search?q=${encodeURIComponent(searchQ)}&type=movie${yearParam}`
+        `/tmdb-search?q=${encodeURIComponent(searchQ)}&type=movie`
       );
       setUnitResults(data.results);
     } catch {
@@ -4206,7 +4213,8 @@ function DriveRegisterModal({ item, driveNum, driveFilePath, onClose, onDone }: 
   item: DriveItem; driveNum?: number; driveFilePath?: string; onClose: () => void; onDone: () => void;
 }) {
   const parsed = parseEpisodeInfo(item.name);
-  const [q, setQ] = useState(parsed.seriesTitle ?? item.name.replace(/\.[^.]+$/, "").replace(/[._]/g, " ").trim());
+  const { title: autoTitle } = extractTitleAndYear(item.name);
+  const [q, setQ] = useState(autoTitle || parsed.seriesTitle || item.name.replace(/\.[^.]+$/, "").replace(/[._]/g, " ").trim());
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState<TmdbSearchResult[]>([]);
   const [selected, setSelected] = useState<TmdbSearchResult | null>(null);
@@ -4220,7 +4228,9 @@ function DriveRegisterModal({ item, driveNum, driveFilePath, onClose, onDone }: 
     if (!q.trim()) return;
     setSearching(true);
     try {
-      const data = await apiFetch<{ results: TmdbSearchResult[] }>(`/tmdb-search?q=${encodeURIComponent(q)}&type=multi`);
+      const { title: cleanQ } = extractTitleAndYear(q);
+      const searchQ = cleanQ || q;
+      const data = await apiFetch<{ results: TmdbSearchResult[] }>(`/tmdb-search?q=${encodeURIComponent(searchQ)}&type=multi`);
       setResults(data.results);
     } catch (e: any) { setError(e.message); }
     finally { setSearching(false); }
