@@ -435,12 +435,13 @@ export default function R2PlayerScreen() {
     try {
       let url: string;
       if (isDrive) {
-        // Drive: resolve via server (/drive/play), which retorna URL direta do Google Drive
-        // O servidor cacheia a URL no __registry.json do R2 (backup sem subir o vídeo)
+        // Drive: resolve via server (/drive/play)
+        // O servidor busca o link assinado via API de listagem e retorna a URL de download
+        // direta (download.aspx?file=...&expiry=...&mac=...) que suporta Range requests (HTTP 206).
+        // Não precisa de proxy — a URL já funciona direto no expo-av.
         const driveId = params.driveItemId!;
-        const data = await r2Route<{ url: string; cached: boolean }>(`/drive/play?id=${driveId}`);
-        // Proxy through the API server so the native player gets clean Range support
-        url = getProxiedStreamUrl(data.url);
+        const data = await r2Route<{ url: string; cached: boolean; via?: string }>(`/drive/play?id=${driveId}`);
+        url = data.url;
       } else if (isTerabox) {
         // 1st attempt: direct client-side resolution via xapiverse (bypasses server)
         const tbItem = r2Items.find((i) => i.id === params.registryItemId);

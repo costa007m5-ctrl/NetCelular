@@ -1324,9 +1324,50 @@ router.post("/drive/register", async (req, res) => {
 
 // ── Drive: resolver URL para reprodução nativa ─────────────────────────────────
 // GET /drive/play?id=<registryItemId>
-// Se o item tem driveNum + driveFilePath → retorna URL do Worker (que tem OAuth do Drive)
-// Caso contrário (itens legados sem path) → retorna URL de download do Drive via file ID
+// Se o item tem driveNum + driveFilePath → busca link assinado via API de listagem
+// e retorna URL de download direta (download.aspx?file=...&expiry=...&mac=...)
+// que suporta Range requests (HTTP 206) nativamente — sem proxy necessário.
 const DRIVE_WORKER_URL = "https://1.animezey23112022.workers.dev";
+const DRIVE_DOWNLOAD_URL = "https://animezey16082023.animezey16082023.workers.dev";
+
+/**
+ * Busca o link assinado de um arquivo na API de listagem do Worker.
+ * O Worker retorna um JSON com files[].link = "/download.aspx?file=...&expiry=...&mac=..."
+ * Este link combinado com DRIVE_DOWNLOAD_URL produz uma URL que suporta Range requests (HTTP 206).
+ */
+async function resolveSignedDriveLink(
+  driveNum: number,
+  driveFilePath: string,
+  signal: AbortSignal
+): Promise<string | null> {
+  const parts = driveFilePath.split("/");
+  const fileName = parts[parts.length - 1];
+  const folderParts = parts.slice(0, -1);
+
+  const encodedFolder = folderParts.map((s) => encodeURIComponent(s)).join("/");
+  const listUrl = `${DRIVE_WORKER_URL}/${driveNum}:/${encodedFolder ? encodedFolder + "/" : ""}`;
+
+  let pageToken = "";
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const listResp = await fetch(listUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pageToken }),
+      signal,
+    });
+    if (!listResp.ok) break;
+
+    const listData = (await listResp.json()) as any;
+    const files: any[] = listData?.data?.files ?? [];
+
+    const found = files.find((f) => f.name === fileName && f.link);
+    if (found) return found.link as string;
+
+    pageToken = listData?.nextPageToken ?? "";
+    if (!pageToken) break;
+  }
+  return null;
+}
 
 router.get("/drive/play", async (req, res) => {
   try {
@@ -1342,15 +1383,35 @@ router.get("/drive/play", async (req, res) => {
       res.status(400).json({ error: "Item não possui link do Drive" }); return;
     }
 
-    // ── Prioridade 1: Worker URL (usa OAuth do Drive — funciona para arquivos privados) ──
-    // Itens registrados a partir do navegador de pastas têm driveNum + driveFilePath
+    // ── Prioridade 1: Link assinado via API de listagem (suporta Range requests) ──
+    // Itens registrados via navegador de pastas têm driveNum + driveFilePath.
+    // A API de listagem retorna um link /download.aspx?file=...&expiry=...&mac=...
+    // que quando combinado com o DOWNLOAD_DOMAIN serve o vídeo com HTTP 206.
     if (item.driveNum != null && item.driveFilePath) {
+      const ctrl = new AbortController();
+      const tid = setTimeout(() => ctrl.abort(), 25000);
+      try {
+        const signedLink = await resolveSignedDriveLink(item.driveNum, item.driveFilePath, ctrl.signal);
+        clearTimeout(tid);
+
+        if (signedLink) {
+          const rel = signedLink.startsWith("/") ? signedLink : `/${signedLink}`;
+          const downloadUrl = `${DRIVE_DOWNLOAD_URL}${rel}`;
+          res.json({ url: downloadUrl, cached: false, via: "signed" });
+          return;
+        }
+      } catch (e: any) {
+        clearTimeout(tid);
+        // timeout or network error — fall through to legacy path
+      }
+
+      // Fallback: usar download domain com o path direto
       const encoded = item.driveFilePath
         .split("/")
         .map((seg) => encodeURIComponent(seg))
         .join("/");
-      const workerUrl = `${DRIVE_WORKER_URL}/${item.driveNum}:/${encoded}`;
-      res.json({ url: workerUrl, cached: false, via: "worker" });
+      const fallbackUrl = `${DRIVE_DOWNLOAD_URL}/${item.driveNum}:/${encoded}`;
+      res.json({ url: fallbackUrl, cached: false, via: "path-fallback" });
       return;
     }
 

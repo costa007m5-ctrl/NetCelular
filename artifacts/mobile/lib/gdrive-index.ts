@@ -79,8 +79,9 @@ export function isVideo(item: DriveItem): boolean {
 export function getStreamUrl(item: DriveItem): string {
   if (!item.link) return "";
   const rel = item.link.startsWith("/") ? item.link : `/${item.link}`;
-  const rawUrl = `${DOWNLOAD_DOMAIN}${rel}`;
-  return getProxiedStreamUrl(rawUrl);
+  // URLs assinadas (download.aspx?file=...&expiry=...&mac=...) já suportam
+  // Range requests nativamente (HTTP 206) — não precisa de proxy.
+  return `${DOWNLOAD_DOMAIN}${rel}`;
 }
 
 export function formatSize(bytes?: string): string {
