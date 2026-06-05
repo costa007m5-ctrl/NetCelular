@@ -35,6 +35,25 @@ const POSTER_W = (W - 48) / 3;
 const POSTER_H = POSTER_W * 1.5;
 const TMDB_IMG = (path: string | null, size = "w500") =>
   path ? `https://image.tmdb.org/t/p/${size}${path}` : null;
+const TMDB_KEY = "8f0beb08cf016ec8de49e454e09879ec";
+const TMDB_BASE_URL = "https://api.themoviedb.org/3";
+
+async function fetchTmdbById(id: number): Promise<TmdbSearchResult | null> {
+  for (const type of ["movie", "tv"] as const) {
+    try {
+      const ctrl = new AbortController();
+      const tid = setTimeout(() => ctrl.abort(), 8000);
+      const res = await fetch(`${TMDB_BASE_URL}/${type}/${id}?api_key=${TMDB_KEY}&language=pt-BR`, { signal: ctrl.signal });
+      clearTimeout(tid);
+      if (!res.ok) continue;
+      const d = await res.json();
+      const title: string = type === "movie" ? (d.title ?? d.original_title ?? "") : (d.name ?? d.original_name ?? "");
+      if (!title) continue;
+      return { id: d.id, title, poster_path: d.poster_path ?? null, media_type: type };
+    } catch {}
+  }
+  return null;
+}
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -2223,6 +2242,8 @@ function TeraBoxRegisterTab() {
   const [tmdbResults, setTmdbResults] = useState<TmdbResult[]>([]);
   const [tmdbError, setTmdbError] = useState<string | null>(null);
   const [selectedTmdb, setSelectedTmdb] = useState<TmdbResult | null>(null);
+  const [tmdbIdInput, setTmdbIdInput] = useState("");
+  const [searchingById, setSearchingById] = useState(false);
 
   const [r2Folder, setR2Folder] = useState("");
   const [showFolderPicker, setShowFolderPicker] = useState(false);
@@ -2363,6 +2384,24 @@ function TeraBoxRegisterTab() {
       if (results.length === 0) setTmdbError("Nenhum resultado encontrado");
     } catch (e: any) { setTmdbError(e.message ?? "Erro TMDB"); }
     finally { setTmdbSearching(false); }
+  };
+
+  const searchTmdbById = async () => {
+    const id = parseInt(tmdbIdInput.trim(), 10);
+    if (!id) { setTmdbError("Digite um ID numérico válido"); return; }
+    setSearchingById(true);
+    setTmdbError(null);
+    setTmdbResults([]);
+    try {
+      const result = await fetchTmdbById(id);
+      if (result) {
+        selectTmdb(result as TmdbResult);
+        setTmdbIdInput("");
+      } else {
+        setTmdbError(`ID ${id} não encontrado no TMDB`);
+      }
+    } catch (e: any) { setTmdbError(e.message ?? "Erro"); }
+    finally { setSearchingById(false); }
   };
 
   const selectTmdb = (t: TmdbResult) => {
@@ -2680,6 +2719,30 @@ function TeraBoxRegisterTab() {
                 disabled={tmdbSearching}
               >
                 {tmdbSearching ? <ActivityIndicator size="small" color="#fff" /> : <Feather name="search" size={15} color="rgba(255,255,255,0.7)" />}
+              </Pressable>
+            </View>
+            <View style={{ flexDirection: "row", gap: 8, marginBottom: 8, alignItems: "center" }}>
+              <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 6,
+                backgroundColor: "rgba(255,255,255,0.04)", borderRadius: 8, borderWidth: 1,
+                borderColor: "rgba(255,255,255,0.1)", paddingLeft: 10, paddingRight: 4 }}>
+                <Feather name="hash" size={13} color="rgba(255,255,255,0.35)" />
+                <TextInput
+                  style={{ flex: 1, color: "#fff", fontSize: 13, paddingVertical: 9 }}
+                  placeholder="ID do TMDB (ex: 950)"
+                  placeholderTextColor="rgba(255,255,255,0.25)"
+                  keyboardType="number-pad"
+                  value={tmdbIdInput}
+                  onChangeText={setTmdbIdInput}
+                  onSubmitEditing={searchTmdbById}
+                  returnKeyType="search"
+                />
+              </View>
+              <Pressable
+                onPress={searchTmdbById}
+                style={[styles.actionBtn, { paddingHorizontal: 14, backgroundColor: "rgba(229,9,20,0.18)", borderWidth: 1, borderColor: "rgba(229,9,20,0.35)" }, searchingById && { opacity: 0.5 }]}
+                disabled={searchingById}
+              >
+                {searchingById ? <ActivityIndicator size="small" color={RED} /> : <Feather name="crosshair" size={15} color={RED} />}
               </Pressable>
             </View>
             {tmdbError && <Text style={{ color: "#f87171", fontSize: 11, marginBottom: 8 }}>{tmdbError}</Text>}
@@ -3590,6 +3653,8 @@ function FolderBulkModal({ target, onClose, onDone }: {
   const [searching, setSearching] = useState(false);
   const [tmdbResults, setTmdbResults] = useState<TmdbSearchResult[]>([]);
   const [selectedTmdb, setSelectedTmdb] = useState<TmdbSearchResult | null>(null);
+  const [tmdbIdInputBulk, setTmdbIdInputBulk] = useState("");
+  const [searchingByIdBulk, setSearchingByIdBulk] = useState(false);
   const [label, setLabel] = useState("Dublado 1080p");
 
   // Per-unit TMDB links: filePath → TmdbSearchResult
@@ -3662,6 +3727,23 @@ function FolderBulkModal({ target, onClose, onDone }: {
     } finally {
       setSearching(false);
     }
+  };
+
+  const searchTmdbByIdBulk = async () => {
+    const id = parseInt(tmdbIdInputBulk.trim(), 10);
+    if (!id) return;
+    setSearchingByIdBulk(true);
+    try {
+      const result = await fetchTmdbById(id);
+      if (result) {
+        setSelectedTmdb(result);
+        setTmdbResults([]);
+        setTmdbIdInputBulk("");
+      } else {
+        setScanError(`ID ${id} não encontrado no TMDB`);
+      }
+    } catch (e: any) { setScanError(e.message ?? "Erro"); }
+    finally { setSearchingByIdBulk(false); }
   };
 
   const searchUnitTmdb = async (_filePath: string, qText: string) => {
@@ -4069,6 +4151,31 @@ function FolderBulkModal({ target, onClose, onDone }: {
                                 : <Feather name="search" size={15} color="#fff" />}
                             </Pressable>
                           </View>
+                          <View style={{ flexDirection: "row", gap: 8, marginBottom: 8, alignItems: "center" }}>
+                            <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 6,
+                              backgroundColor: "rgba(255,255,255,0.04)", borderRadius: 8, borderWidth: 1,
+                              borderColor: "rgba(255,255,255,0.1)", paddingLeft: 10, paddingRight: 4 }}>
+                              <Feather name="hash" size={13} color="rgba(255,255,255,0.35)" />
+                              <TextInput
+                                style={{ flex: 1, color: "#fff", fontSize: 13, paddingVertical: 9 }}
+                                placeholder="ID do TMDB (ex: 1396)"
+                                placeholderTextColor="rgba(255,255,255,0.25)"
+                                keyboardType="number-pad"
+                                value={tmdbIdInputBulk}
+                                onChangeText={setTmdbIdInputBulk}
+                                onSubmitEditing={searchTmdbByIdBulk}
+                                returnKeyType="search"
+                              />
+                            </View>
+                            <Pressable onPress={searchTmdbByIdBulk} disabled={searchingByIdBulk}
+                              style={{ paddingHorizontal: 14, borderRadius: 8, backgroundColor: "rgba(229,9,20,0.18)",
+                                borderWidth: 1, borderColor: "rgba(229,9,20,0.35)", alignItems: "center", justifyContent: "center",
+                                height: 42, opacity: searchingByIdBulk ? 0.5 : 1 }}>
+                              {searchingByIdBulk
+                                ? <ActivityIndicator size="small" color={RED} />
+                                : <Feather name="crosshair" size={15} color={RED} />}
+                            </Pressable>
+                          </View>
 
                           {tmdbResults.map((r) => (
                             <Pressable key={r.id}
@@ -4223,6 +4330,8 @@ function DriveRegisterModal({ item, driveNum, driveFilePath, onClose, onDone }: 
   const [ep, setEp] = useState(parsed.episode != null ? String(parsed.episode) : "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tmdbIdInputDrive, setTmdbIdInputDrive] = useState("");
+  const [searchingByIdDrive, setSearchingByIdDrive] = useState(false);
 
   const search = async () => {
     if (!q.trim()) return;
@@ -4234,6 +4343,24 @@ function DriveRegisterModal({ item, driveNum, driveFilePath, onClose, onDone }: 
       setResults(data.results);
     } catch (e: any) { setError(e.message); }
     finally { setSearching(false); }
+  };
+
+  const searchByIdDrive = async () => {
+    const id = parseInt(tmdbIdInputDrive.trim(), 10);
+    if (!id) { setError("Digite um ID numérico válido"); return; }
+    setSearchingByIdDrive(true);
+    setError(null);
+    try {
+      const result = await fetchTmdbById(id);
+      if (result) {
+        setSelected(result);
+        setResults([]);
+        setTmdbIdInputDrive("");
+      } else {
+        setError(`ID ${id} não encontrado no TMDB`);
+      }
+    } catch (e: any) { setError(e.message ?? "Erro"); }
+    finally { setSearchingByIdDrive(false); }
   };
 
   const save = async () => {
@@ -4277,6 +4404,31 @@ function DriveRegisterModal({ item, driveNum, driveFilePath, onClose, onDone }: 
               <Pressable onPress={search} disabled={searching}
                 style={{ paddingHorizontal: 14, borderRadius: 8, backgroundColor: "#374151", alignItems: "center", justifyContent: "center" }}>
                 {searching ? <ActivityIndicator size="small" color="#fff" /> : <Feather name="search" size={15} color="#fff" />}
+              </Pressable>
+            </View>
+            <View style={{ flexDirection: "row", gap: 8, marginBottom: 8, alignItems: "center" }}>
+              <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 6,
+                backgroundColor: "rgba(255,255,255,0.04)", borderRadius: 8, borderWidth: 1,
+                borderColor: "rgba(255,255,255,0.1)", paddingLeft: 10, paddingRight: 4 }}>
+                <Feather name="hash" size={13} color="rgba(255,255,255,0.35)" />
+                <TextInput
+                  style={{ flex: 1, color: "#fff", fontSize: 13, paddingVertical: 9 }}
+                  placeholder="ID do TMDB (ex: 950)"
+                  placeholderTextColor="rgba(255,255,255,0.25)"
+                  keyboardType="number-pad"
+                  value={tmdbIdInputDrive}
+                  onChangeText={setTmdbIdInputDrive}
+                  onSubmitEditing={searchByIdDrive}
+                  returnKeyType="search"
+                />
+              </View>
+              <Pressable onPress={searchByIdDrive} disabled={searchingByIdDrive}
+                style={{ paddingHorizontal: 14, borderRadius: 8, backgroundColor: "rgba(229,9,20,0.18)",
+                  borderWidth: 1, borderColor: "rgba(229,9,20,0.35)", alignItems: "center", justifyContent: "center",
+                  height: 42, opacity: searchingByIdDrive ? 0.5 : 1 }}>
+                {searchingByIdDrive
+                  ? <ActivityIndicator size="small" color={RED} />
+                  : <Feather name="crosshair" size={15} color={RED} />}
               </Pressable>
             </View>
 
