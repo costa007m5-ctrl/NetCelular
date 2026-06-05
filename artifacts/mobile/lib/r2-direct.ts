@@ -429,16 +429,31 @@ export async function apiMkdir(prefix: string) {
   return { ok: true };
 }
 
-export async function apiTmdbSearch(q: string, type: string) {
+export async function apiTmdbSearch(q: string, type: string, year?: number) {
   const ep = type === "movie" ? "movie" : type === "tv" ? "tv" : "multi";
+  const yearParam = year
+    ? ep === "tv" ? `&first_air_date_year=${year}` : `&year=${year}`
+    : "";
   const res = await fetch(
-    `${TMDB_BASE}/search/${ep}?api_key=${TMDB_KEY}&language=${TMDB_LANG}&query=${encodeURIComponent(q)}&page=1`,
+    `${TMDB_BASE}/search/${ep}?api_key=${TMDB_KEY}&language=${TMDB_LANG}&query=${encodeURIComponent(q)}&page=1${yearParam}`,
   );
   if (!res.ok) throw new Error(`TMDB ${res.status}`);
   const data = await res.json();
-  const results = (data.results ?? []).slice(0, 10).map((r: any) => ({
+  let results = (data.results ?? []).slice(0, 10).map((r: any) => ({
     id: r.id, title: r.title ?? r.name, poster_path: r.poster_path, media_type: r.media_type ?? ep,
   }));
+  // Se buscou com ano e não achou resultados, tenta sem o filtro de ano
+  if (results.length === 0 && year) {
+    const resFallback = await fetch(
+      `${TMDB_BASE}/search/${ep}?api_key=${TMDB_KEY}&language=${TMDB_LANG}&query=${encodeURIComponent(q)}&page=1`,
+    );
+    if (resFallback.ok) {
+      const dataFb = await resFallback.json();
+      results = (dataFb.results ?? []).slice(0, 10).map((r: any) => ({
+        id: r.id, title: r.title ?? r.name, poster_path: r.poster_path, media_type: r.media_type ?? ep,
+      }));
+    }
+  }
   return { results };
 }
 
@@ -487,13 +502,71 @@ function parseSeasonNumber(folderName: string): number | null {
   return m ? parseInt(m[1], 10) : null;
 }
 
+/**
+ * Extrai título limpo + ano de lançamento de qualquer nome de arquivo/pasta.
+ *
+ * Suporta formatos como:
+ *   "A Era Do Gelo 3 (2009) [1080p][Dublado]"  → { title: "A Era Do Gelo 3", year: 2009 }
+ *   "era.do.gelo.4"                             → { title: "era do gelo 4" }
+ *   "The.Dark.Knight.2008.BluRay.1080p"         → { title: "The Dark Knight", year: 2008 }
+ *   "S01E01 - Episodio Piloto [720p]"           → { title: "Episodio Piloto" }
+ */
+export function extractTitleAndYear(raw: string): { title: string; year?: number } {
+  // 1. Remove extensão de arquivo se presente
+  let s = raw.replace(/\.[a-zA-Z0-9]{2,4}$/, "");
+
+  // 2. Se usa ponto como separador de palavra (ex: era.do.gelo.4), troca por espaço.
+  //    Critério: mais de 2 pontos no nome sem espaços → separador de palavra
+  const hasDotSeparators = !s.includes(" ") && (s.match(/\./g) ?? []).length >= 2;
+  if (hasDotSeparators) {
+    s = s.replace(/\./g, " ");
+  }
+
+  // 3. Extrai o ano (antes de remover parênteses) — 4 dígitos entre 1900-2099
+  let year: number | undefined;
+  const yearMatch = s.match(/\b((?:19|20)\d{2})\b/);
+  if (yearMatch) {
+    year = parseInt(yearMatch[1], 10);
+  }
+
+  // 4. Remove tags de qualidade e técnicas (case-insensitive)
+  const QUALITY_TAGS = [
+    /\b(?:4K|UHD|2160p?|1080p?|1080i|720p?|480p?|360p?|240p?)\b/gi,
+    /\b(?:BluRay|BDRip|BDRemux|BRRip|DVDRip|DVDScr|DVDSCR|WEBRip|WEB[-.]?DL|WEBiP|HDTV|HDTS|HDRIP|HDRip|CAM|TS|TC|SCR|R5|DVDR)\b/gi,
+    /\b(?:x\.?264|x\.?265|H\.?264|H\.?265|HEVC|AVC|xvid|XviD|divx|DivX|MPEG[-.]?2|MPEG[-.]?4|VP9|AV1)\b/gi,
+    /\b(?:AAC|AAC2|AC3|DTS[-.]?HD|DTS|TrueHD|Atmos|EAC3|MP3|FLAC|OPUS|DD[25]\.1|5\.1|7\.1|2\.0|PCM)\b/gi,
+    /\b(?:HDR|HDR10\+?|SDR|Dolby|Vision|DoVi|10bit|10-bit|8bit|8-bit|REMUX|REPACK|PROPER|EXTENDED|THEATRICAL|DIRECTORS?[-. ]CUT|UNRATED|IMAX|3D|HFR)\b/gi,
+    /\b(?:Dual|Dublado|Dub|Legendado|Sub(?:titled)?|PT[-.]?BR|PTBR|ENG|POR|ESP|FRE|ITA|GER|BRS?)\b/gi,
+    /\b(?:Nacional|Nac|National|Dub\.?Nac|Dublagem)\b/gi,
+    /\b(?:720|1080|2160|480|360)\b/g,
+  ];
+  for (const tag of QUALITY_TAGS) s = s.replace(tag, " ");
+
+  // 5. Remove qualquer coisa entre colchetes [ ], parênteses ( ) e chaves { }
+  s = s.replace(/\[.*?\]/g, " ").replace(/\(.*?\)/g, " ").replace(/\{.*?\}/g, " ");
+
+  // 6. Remove marcadores de episódio para séries (SxxExx, 1x01, etc.) — deixa apenas o título
+  s = s.replace(/[Ss]\d{1,2}[Ee]\d{1,3}.*/g, " ");
+  s = s.replace(/\d{1,2}x\d{1,3}.*/gi, " ");
+
+  // 7. Remove o ano do meio do título (já foi extraído acima)
+  if (year) s = s.replace(new RegExp(`\\b${year}\\b`, "g"), " ");
+
+  // 8. Remove traços/underscores restantes usados como separadores
+  s = s.replace(/[_]/g, " ").replace(/\s*[-–]\s*/g, " ");
+
+  // 9. Remove pontuação solta e múltiplos espaços
+  s = s.replace(/[!@#$%^&*+=|\\<>:;,?]/g, " ");
+  s = s.replace(/\s{2,}/g, " ").trim();
+
+  // 10. Remove palavras de 1 caractere isoladas (artefatos)
+  s = s.replace(/\b[a-zA-Z]\b/g, " ").replace(/\s{2,}/g, " ").trim();
+
+  return { title: s, year };
+}
+
 function cleanTitle(name: string): string {
-  return name
-    .replace(/\s*\(\d{4}\)\s*/g, " ")
-    .replace(/\s*\[\d{4}\]\s*/g, " ")
-    .replace(/\s*\[.*?\]\s*/g, " ")
-    .replace(/\s*\(.*?\)\s*/g, " ")
-    .trim();
+  return extractTitleAndYear(name).title;
 }
 
 async function listPrefixesOnly(prefix: string): Promise<string[]> {
@@ -508,12 +581,14 @@ async function hasVideoFilesInFolder(prefix: string): Promise<boolean> {
 
 async function searchTmdbByName(name: string, hint?: "movie" | "tv"): Promise<TmdbMatch | null> {
   try {
-    const cleaned = cleanTitle(name);
+    const { title: cleaned, year } = extractTitleAndYear(name);
     if (!cleaned) return null;
     const lang = TMDB_LANG;
+    const yearQ = year ? `&year=${year}` : "";
+    const firstAirQ = year ? `&first_air_date_year=${year}` : "";
 
     if (hint === "tv") {
-      const res = await fetch(`${TMDB_BASE}/search/tv?api_key=${TMDB_KEY}&language=${lang}&query=${encodeURIComponent(cleaned)}&page=1`);
+      const res = await fetch(`${TMDB_BASE}/search/tv?api_key=${TMDB_KEY}&language=${lang}&query=${encodeURIComponent(cleaned)}&page=1${firstAirQ}`);
       if (res.ok) {
         const d = await res.json();
         const hit = d.results?.[0];
@@ -521,6 +596,15 @@ async function searchTmdbByName(name: string, hint?: "movie" | "tv"): Promise<Tm
       }
     }
     if (hint === "movie") {
+      // Tenta primeiro com o ano para match exato
+      if (year) {
+        const resYear = await fetch(`${TMDB_BASE}/search/movie?api_key=${TMDB_KEY}&language=${lang}&query=${encodeURIComponent(cleaned)}&page=1${yearQ}`);
+        if (resYear.ok) {
+          const dYear = await resYear.json();
+          const hitYear = dYear.results?.[0];
+          if (hitYear) return { id: hitYear.id, title: hitYear.title, poster_path: hitYear.poster_path, backdrop_path: hitYear.backdrop_path, overview: hitYear.overview ?? "", vote_average: hitYear.vote_average ?? 0, release_date: hitYear.release_date, media_type: "movie" };
+        }
+      }
       const res = await fetch(`${TMDB_BASE}/search/movie?api_key=${TMDB_KEY}&language=${lang}&query=${encodeURIComponent(cleaned)}&page=1`);
       if (res.ok) {
         const d = await res.json();
@@ -779,7 +863,8 @@ export async function r2Route<T>(path: string, options?: RequestInit): Promise<T
   } else if (route === "/mkdir") {
     result = await apiMkdir(body.prefix);
   } else if (route === "/tmdb-search") {
-    result = await apiTmdbSearch(q("q"), q("type"));
+    const yearStr = q("year");
+    result = await apiTmdbSearch(q("q"), q("type"), yearStr ? parseInt(yearStr, 10) : undefined);
   } else if (route === "/rename-folder") {
     result = await apiRenameFolder(body.oldPrefix, body.newPrefix);
   } else if (route === "/catalog-meta") {

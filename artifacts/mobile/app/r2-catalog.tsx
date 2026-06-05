@@ -24,7 +24,7 @@ import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/lib/auth-context";
-import { r2Route, teraboxResolve } from "@/lib/r2-direct";
+import { r2Route, teraboxResolve, extractTitleAndYear } from "@/lib/r2-direct";
 import { listFolder, isFolder as driveIsFolder, isVideo as driveIsVideo, getStreamUrl, formatSize as driveFormatSize, DRIVE_ROOTS, DriveItem, parseEpisodeInfo } from "@/lib/gdrive-index";
 
 const UPLOADED_URLS_KEY = "r2_uploaded_urls_v1";
@@ -3576,7 +3576,8 @@ function FolderBulkModal({ target, onClose, onDone }: {
   // Registration mode: "bulk" = one TMDB for all, "unit" = each file its own TMDB
   const [regMode, setRegMode] = useState<"bulk" | "unit">("bulk");
 
-  const [q, setQ] = useState(target.name);
+  const { title: cleanedFolderTitle } = extractTitleAndYear(target.name);
+  const [q, setQ] = useState(cleanedFolderTitle || target.name);
   const [searching, setSearching] = useState(false);
   const [tmdbResults, setTmdbResults] = useState<TmdbSearchResult[]>([]);
   const [selectedTmdb, setSelectedTmdb] = useState<TmdbSearchResult | null>(null);
@@ -3641,8 +3642,11 @@ function FolderBulkModal({ target, onClose, onDone }: {
     setTmdbResults([]);
     try {
       const mediaType = contentType === "series" ? "tv" : "movie";
+      const { title: cleanQ, year } = extractTitleAndYear(q);
+      const searchQ = cleanQ || q;
+      const yearParam = year ? `&year=${year}` : "";
       const data = await apiFetch<{ results: TmdbSearchResult[] }>(
-        `/tmdb-search?q=${encodeURIComponent(q)}&type=${mediaType}`
+        `/tmdb-search?q=${encodeURIComponent(searchQ)}&type=${mediaType}${yearParam}`
       );
       setTmdbResults(data.results);
     } catch (e: any) {
@@ -3652,13 +3656,16 @@ function FolderBulkModal({ target, onClose, onDone }: {
     }
   };
 
-  const searchUnitTmdb = async (filePath: string, qText: string) => {
+  const searchUnitTmdb = async (_filePath: string, qText: string) => {
     if (!qText.trim()) return;
     setUnitSearching(true);
     setUnitResults([]);
     try {
+      const { title: cleanQ, year } = extractTitleAndYear(qText);
+      const searchQ = cleanQ || qText;
+      const yearParam = year ? `&year=${year}` : "";
       const data = await apiFetch<{ results: TmdbSearchResult[] }>(
-        `/tmdb-search?q=${encodeURIComponent(qText)}&type=movie`
+        `/tmdb-search?q=${encodeURIComponent(searchQ)}&type=movie${yearParam}`
       );
       setUnitResults(data.results);
     } catch {
@@ -3963,7 +3970,7 @@ function FolderBulkModal({ target, onClose, onDone }: {
                               <Pressable
                                 onPress={() => {
                                   if (isSearching) { setUnitSearchPath(null); setUnitResults([]); }
-                                  else { setUnitSearchPath(item.filePath); setUnitQ(item.fileName.replace(/\.[^.]+$/, "").replace(/[._-]/g, " ")); setUnitResults([]); }
+                                  else { const { title: autoQ } = extractTitleAndYear(item.fileName); setUnitSearchPath(item.filePath); setUnitQ(autoQ || item.fileName.replace(/\.[^.]+$/, "").replace(/[._-]/g, " ")); setUnitResults([]); }
                                 }}
                                 style={{ paddingHorizontal: 8, paddingVertical: 5, borderRadius: 6,
                                   backgroundColor: linked ? "rgba(139,92,246,0.2)" : "rgba(255,255,255,0.07)" }}>
