@@ -3893,7 +3893,7 @@ function FolderBulkModal({ target, onClose, onDone }: {
                               {ep.size && (
                                 <Text style={{ color: "rgba(255,255,255,0.25)", fontSize: 10 }}>{ep.size}</Text>
                               )}
-                            </View>
+                            </Pressable>
                           ))}
                           {eps.length > 3 && (
                             <View style={{ paddingHorizontal: 12, paddingVertical: 6,
@@ -3906,104 +3906,223 @@ function FolderBulkModal({ target, onClose, onDone }: {
                     </View>
                   )}
 
-                  {/* Preview — filmes lista plana */}
-                  {contentType === "movie" && (
+                  {/* Preview — filmes lista plana com checkboxes (bulk) */}
+                  {contentType === "movie" && regMode === "bulk" && (
                     <View style={{ marginBottom: 16, borderRadius: 10, borderWidth: 1, borderColor: "rgba(229,9,20,0.15)", overflow: "hidden" }}>
-                      {scanItems.slice(0, 5).map((item, i) => (
-                        <View key={i} style={{ paddingHorizontal: 12, paddingVertical: 9,
-                          borderTopWidth: i > 0 ? 1 : 0, borderTopColor: "rgba(255,255,255,0.05)",
-                          flexDirection: "row", alignItems: "center", gap: 8 }}>
-                          <Feather name="film" size={13} color="rgba(229,9,20,0.5)" />
+                      {scanItems.slice(0, 6).map((item, i) => (
+                        <Pressable key={i} onPress={() => toggleItem(item.filePath)}
+                          style={{ paddingHorizontal: 12, paddingVertical: 9,
+                            borderTopWidth: i > 0 ? 1 : 0, borderTopColor: "rgba(255,255,255,0.05)",
+                            flexDirection: "row", alignItems: "center", gap: 8,
+                            backgroundColor: selectedPaths.has(item.filePath) ? "rgba(229,9,20,0.06)" : "transparent" }}>
+                          <Feather name={selectedPaths.has(item.filePath) ? "check-square" : "square"} size={14}
+                            color={selectedPaths.has(item.filePath) ? RED_CONTENT : "rgba(255,255,255,0.25)"} />
                           <Text style={{ color: "rgba(255,255,255,0.65)", fontSize: 11, flex: 1 }} numberOfLines={1}>
                             {item.fileName}
                           </Text>
                           {item.size && <Text style={{ color: "rgba(255,255,255,0.28)", fontSize: 10 }}>{item.size}</Text>}
-                        </View>
+                        </Pressable>
                       ))}
-                      {scanItems.length > 5 && (
+                      {scanItems.length > 6 && (
                         <View style={{ paddingHorizontal: 12, paddingVertical: 6,
                           borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.05)" }}>
-                          <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 11 }}>+ {scanItems.length - 5} arquivos…</Text>
+                          <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 11 }}>+ {scanItems.length - 6} arquivos…</Text>
                         </View>
                       )}
                     </View>
                   )}
 
-                  {/* TMDB search */}
-                  <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 11, fontWeight: "700",
-                    textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 8 }}>
-                    Vincular ao TMDB
-                  </Text>
-
-                  {!selectedTmdb ? (
-                    <>
-                      <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
-                        <TextInput
-                          style={{ flex: 1, backgroundColor: "#111", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
-                            borderRadius: 8, padding: 10, color: "#fff", fontSize: 13 }}
-                          value={q}
-                          onChangeText={setQ}
-                          placeholder={contentType === "series" ? "Nome da série…" : "Nome do filme ou coleção…"}
-                          placeholderTextColor="rgba(255,255,255,0.3)"
-                          onSubmitEditing={searchTmdb}
-                          returnKeyType="search"
-                        />
-                        <Pressable onPress={searchTmdb} disabled={searching}
-                          style={{ paddingHorizontal: 14, borderRadius: 8, backgroundColor: "#374151",
-                            alignItems: "center", justifyContent: "center" }}>
-                          {searching
-                            ? <ActivityIndicator size="small" color="#fff" />
-                            : <Feather name="search" size={15} color="#fff" />}
-                        </Pressable>
-                      </View>
-
-                      {tmdbResults.map((r) => (
-                        <Pressable key={r.id}
-                          onPress={() => { setSelectedTmdb(r); setTmdbResults([]); }}
-                          style={{ flexDirection: "row", alignItems: "center", gap: 10, padding: 10, marginBottom: 4, borderRadius: 8,
-                            backgroundColor: "rgba(255,255,255,0.04)", borderWidth: 1, borderColor: "rgba(255,255,255,0.08)" }}>
-                          {r.poster_path ? (
-                            <Image source={{ uri: `https://image.tmdb.org/t/p/w92${r.poster_path}` }}
-                              style={{ width: 30, height: 44, borderRadius: 4 }} />
-                          ) : (
-                            <View style={{ width: 30, height: 44, borderRadius: 4, backgroundColor: "#1a1a1a",
-                              alignItems: "center", justifyContent: "center" }}>
-                              <Feather name="film" size={12} color="rgba(255,255,255,0.3)" />
+                  {/* Preview — Por Unidade: cada arquivo com TMDB individual */}
+                  {contentType === "movie" && regMode === "unit" && (
+                    <View style={{ marginBottom: 16 }}>
+                      <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11, marginBottom: 10, textAlign: "center" }}>
+                        Toque em um arquivo para vinculá-lo individualmente ao TMDB
+                      </Text>
+                      {scanItems.map((item, i) => {
+                        const linked = unitLinks.get(item.filePath);
+                        const isSearching = unitSearchPath === item.filePath;
+                        return (
+                          <View key={i} style={{ marginBottom: 8, borderRadius: 10, borderWidth: 1,
+                            borderColor: linked ? "rgba(139,92,246,0.35)" : selectedPaths.has(item.filePath) ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.05)",
+                            backgroundColor: linked ? "rgba(139,92,246,0.06)" : "rgba(255,255,255,0.02)", overflow: "hidden" }}>
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 10 }}>
+                              <Pressable onPress={() => toggleItem(item.filePath)}>
+                                <Feather name={selectedPaths.has(item.filePath) ? "check-square" : "square"} size={14}
+                                  color={selectedPaths.has(item.filePath) ? "#8b5cf6" : "rgba(255,255,255,0.25)"} />
+                              </Pressable>
+                              <View style={{ flex: 1 }}>
+                                <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 11 }} numberOfLines={1}>
+                                  {item.fileName}
+                                </Text>
+                                {linked && (
+                                  <Text style={{ color: "#a78bfa", fontSize: 10, marginTop: 2 }} numberOfLines={1}>
+                                    🎬 {linked.title}
+                                  </Text>
+                                )}
+                              </View>
+                              <Pressable
+                                onPress={() => {
+                                  if (isSearching) { setUnitSearchPath(null); setUnitResults([]); }
+                                  else { setUnitSearchPath(item.filePath); setUnitQ(item.fileName.replace(/\.[^.]+$/, "").replace(/[._-]/g, " ")); setUnitResults([]); }
+                                }}
+                                style={{ paddingHorizontal: 8, paddingVertical: 5, borderRadius: 6,
+                                  backgroundColor: linked ? "rgba(139,92,246,0.2)" : "rgba(255,255,255,0.07)" }}>
+                                <Text style={{ color: linked ? "#a78bfa" : "rgba(255,255,255,0.5)", fontSize: 10, fontWeight: "700" }}>
+                                  {linked ? "✏️ Alterar" : "🔍 Vincular"}
+                                </Text>
+                              </Pressable>
+                              {linked && (
+                                <Pressable onPress={() => { setUnitLinks((m) => { const n = new Map(m); n.delete(item.filePath); return n; }); }}>
+                                  <Feather name="x" size={13} color="rgba(255,255,255,0.3)" />
+                                </Pressable>
+                              )}
                             </View>
-                          )}
-                          <View style={{ flex: 1 }}>
-                            <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600" }} numberOfLines={1}>{r.title}</Text>
-                            <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 10 }}>
-                              {r.media_type === "tv" ? "📺 Série" : "🎬 Filme"}
-                            </Text>
+                            {isSearching && (
+                              <View style={{ padding: 8, borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.07)" }}>
+                                <View style={{ flexDirection: "row", gap: 6, marginBottom: 6 }}>
+                                  <TextInput
+                                    style={{ flex: 1, backgroundColor: "#111", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
+                                      borderRadius: 6, padding: 7, color: "#fff", fontSize: 12 }}
+                                    value={unitQ}
+                                    onChangeText={setUnitQ}
+                                    placeholder="Buscar no TMDB…"
+                                    placeholderTextColor="rgba(255,255,255,0.3)"
+                                    autoFocus
+                                    onSubmitEditing={() => searchUnitTmdb(item.filePath, unitQ)}
+                                    returnKeyType="search"
+                                  />
+                                  <Pressable onPress={() => searchUnitTmdb(item.filePath, unitQ)} disabled={unitSearching}
+                                    style={{ paddingHorizontal: 10, borderRadius: 6, backgroundColor: "#374151",
+                                      alignItems: "center", justifyContent: "center" }}>
+                                    {unitSearching
+                                      ? <ActivityIndicator size="small" color="#fff" />
+                                      : <Feather name="search" size={13} color="#fff" />}
+                                  </Pressable>
+                                </View>
+                                {unitResults.map((r) => (
+                                  <Pressable key={r.id}
+                                    onPress={() => {
+                                      setUnitLinks((m) => new Map(m).set(item.filePath, r));
+                                      setSelectedPaths((prev) => { const n = new Set(prev); n.add(item.filePath); return n; });
+                                      setUnitSearchPath(null);
+                                      setUnitResults([]);
+                                    }}
+                                    style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 7, marginBottom: 3, borderRadius: 6,
+                                      backgroundColor: "rgba(255,255,255,0.04)", borderWidth: 1, borderColor: "rgba(255,255,255,0.08)" }}>
+                                    {r.poster_path
+                                      ? <Image source={{ uri: `https://image.tmdb.org/t/p/w92${r.poster_path}` }} style={{ width: 22, height: 32, borderRadius: 3 }} />
+                                      : <View style={{ width: 22, height: 32, borderRadius: 3, backgroundColor: "#1a1a1a", alignItems: "center", justifyContent: "center" }}>
+                                          <Feather name="film" size={10} color="rgba(255,255,255,0.3)" />
+                                        </View>}
+                                    <Text style={{ color: "#fff", fontSize: 11, flex: 1 }} numberOfLines={1}>{r.title}</Text>
+                                    <Feather name="chevron-right" size={12} color="rgba(255,255,255,0.3)" />
+                                  </Pressable>
+                                ))}
+                              </View>
+                            )}
                           </View>
-                          <Feather name="chevron-right" size={14} color="rgba(255,255,255,0.3)" />
-                        </Pressable>
-                      ))}
-                    </>
-                  ) : (
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 10, padding: 12, marginBottom: 14, borderRadius: 10,
-                      backgroundColor: "rgba(34,197,94,0.08)", borderWidth: 1, borderColor: "rgba(34,197,94,0.25)" }}>
-                      {selectedTmdb.poster_path && (
-                        <Image source={{ uri: `https://image.tmdb.org/t/p/w92${selectedTmdb.poster_path}` }}
-                          style={{ width: 34, height: 50, borderRadius: 5 }} />
-                      )}
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ color: "#4ade80", fontSize: 13, fontWeight: "700" }} numberOfLines={1}>
-                          {selectedTmdb.title}
-                        </Text>
-                        <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11 }}>
-                          {selectedTmdb.media_type === "tv" ? "📺 Série" : "🎬 Filme"}
-                        </Text>
-                      </View>
-                      <Pressable onPress={() => setSelectedTmdb(null)}>
-                        <Feather name="x" size={16} color="rgba(255,255,255,0.4)" />
-                      </Pressable>
+                        );
+                      })}
                     </View>
                   )}
 
-                  {/* Label */}
-                  {selectedTmdb && !registering && (
+                  {/* TMDB search — apenas no modo bulk */}
+                  {regMode === "bulk" && (
+                    <>
+                      <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 11, fontWeight: "700",
+                        textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 8 }}>
+                        Vincular ao TMDB
+                      </Text>
+
+                      {!selectedTmdb ? (
+                        <>
+                          <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
+                            <TextInput
+                              style={{ flex: 1, backgroundColor: "#111", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
+                                borderRadius: 8, padding: 10, color: "#fff", fontSize: 13 }}
+                              value={q}
+                              onChangeText={setQ}
+                              placeholder={contentType === "series" ? "Nome da série…" : "Nome do filme ou coleção…"}
+                              placeholderTextColor="rgba(255,255,255,0.3)"
+                              onSubmitEditing={searchTmdb}
+                              returnKeyType="search"
+                            />
+                            <Pressable onPress={searchTmdb} disabled={searching}
+                              style={{ paddingHorizontal: 14, borderRadius: 8, backgroundColor: "#374151",
+                                alignItems: "center", justifyContent: "center" }}>
+                              {searching
+                                ? <ActivityIndicator size="small" color="#fff" />
+                                : <Feather name="search" size={15} color="#fff" />}
+                            </Pressable>
+                          </View>
+
+                          {tmdbResults.map((r) => (
+                            <Pressable key={r.id}
+                              onPress={() => { setSelectedTmdb(r); setTmdbResults([]); }}
+                              style={{ flexDirection: "row", alignItems: "center", gap: 10, padding: 10, marginBottom: 4, borderRadius: 8,
+                                backgroundColor: "rgba(255,255,255,0.04)", borderWidth: 1, borderColor: "rgba(255,255,255,0.08)" }}>
+                              {r.poster_path ? (
+                                <Image source={{ uri: `https://image.tmdb.org/t/p/w92${r.poster_path}` }}
+                                  style={{ width: 30, height: 44, borderRadius: 4 }} />
+                              ) : (
+                                <View style={{ width: 30, height: 44, borderRadius: 4, backgroundColor: "#1a1a1a",
+                                  alignItems: "center", justifyContent: "center" }}>
+                                  <Feather name="film" size={12} color="rgba(255,255,255,0.3)" />
+                                </View>
+                              )}
+                              <View style={{ flex: 1 }}>
+                                <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600" }} numberOfLines={1}>{r.title}</Text>
+                                <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 10 }}>
+                                  {r.media_type === "tv" ? "📺 Série" : "🎬 Filme"}
+                                </Text>
+                              </View>
+                              <Feather name="chevron-right" size={14} color="rgba(255,255,255,0.3)" />
+                            </Pressable>
+                          ))}
+                        </>
+                      ) : (
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 10, padding: 12, marginBottom: 14, borderRadius: 10,
+                          backgroundColor: "rgba(34,197,94,0.08)", borderWidth: 1, borderColor: "rgba(34,197,94,0.25)" }}>
+                          {selectedTmdb.poster_path && (
+                            <Image source={{ uri: `https://image.tmdb.org/t/p/w92${selectedTmdb.poster_path}` }}
+                              style={{ width: 34, height: 50, borderRadius: 5 }} />
+                          )}
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ color: "#4ade80", fontSize: 13, fontWeight: "700" }} numberOfLines={1}>
+                              {selectedTmdb.title}
+                            </Text>
+                            <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11 }}>
+                              {selectedTmdb.media_type === "tv" ? "📺 Série" : "🎬 Filme"}
+                            </Text>
+                          </View>
+                          <Pressable onPress={() => setSelectedTmdb(null)}>
+                            <Feather name="x" size={16} color="rgba(255,255,255,0.4)" />
+                          </Pressable>
+                        </View>
+                      )}
+
+                      {/* Label */}
+                      {selectedTmdb && !registering && (
+                        <View style={{ marginBottom: 14 }}>
+                          <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11, fontWeight: "700",
+                            textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 6 }}>
+                            Qualidade / Label
+                          </Text>
+                          <TextInput
+                            style={{ backgroundColor: "#111", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
+                              borderRadius: 8, padding: 10, color: "#fff", fontSize: 13 }}
+                            value={label}
+                            onChangeText={setLabel}
+                            placeholder="Dublado 1080p"
+                            placeholderTextColor="rgba(255,255,255,0.3)"
+                          />
+                        </View>
+                      )}
+                    </>
+                  )}
+
+                  {/* Label (modo unit) */}
+                  {regMode === "unit" && unitLinks.size > 0 && !registering && (
                     <View style={{ marginBottom: 14 }}>
                       <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11, fontWeight: "700",
                         textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 6 }}>
@@ -4033,15 +4152,18 @@ function FolderBulkModal({ target, onClose, onDone }: {
                   )}
 
                   {/* Register button */}
-                  {selectedTmdb && (
-                    <Pressable onPress={registerAll} disabled={registering}
+                  {(regMode === "bulk" ? selectedTmdb != null : unitLinks.size > 0) && (
+                    <Pressable onPress={registerAll}
+                      disabled={registering || selectedCount === 0}
                       style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10,
                         padding: 14, borderRadius: 12, marginBottom: 20,
-                        backgroundColor: registering ? "rgba(34,197,94,0.15)" : "#16a34a",
-                        opacity: registering ? 0.7 : 1 }}>
+                        backgroundColor: registering ? "rgba(34,197,94,0.15)" : regMode === "unit" ? "#6d28d9" : "#16a34a",
+                        opacity: (registering || selectedCount === 0) ? 0.5 : 1 }}>
                       {registering
                         ? <><ActivityIndicator size="small" color="#fff" /><Text style={{ color: "#fff", fontWeight: "700", fontSize: 14 }}>Registrando…</Text></>
-                        : <><Feather name="cloud" size={16} color="#fff" /><Text style={{ color: "#fff", fontWeight: "700", fontSize: 14 }}>Registrar {scanItems.length} arquivo{scanItems.length !== 1 ? "s" : ""}</Text></>
+                        : regMode === "unit"
+                          ? <><Feather name="target" size={16} color="#fff" /><Text style={{ color: "#fff", fontWeight: "700", fontSize: 14 }}>Registrar {unitLinks.size} vinculado{unitLinks.size !== 1 ? "s" : ""}</Text></>
+                          : <><Feather name="cloud" size={16} color="#fff" /><Text style={{ color: "#fff", fontWeight: "700", fontSize: 14 }}>Registrar {selectedCount} arquivo{selectedCount !== 1 ? "s" : ""}</Text></>
                       }
                     </Pressable>
                   )}
