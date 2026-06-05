@@ -11,6 +11,7 @@ interface SectionHeaderProps {
   onSeeAll?: () => void;
   seeAllLabel?: string;
   rightContent?: React.ReactNode;
+  badge?: string;
 }
 
 export function SectionHeader({

@@ -737,14 +737,16 @@ export default function ProfileScreen() {
         {/* ── APARÊNCIA ───────────────────────────────────── */}
         <Section title="APARÊNCIA">
           <Row
-            icon={theme === "dark" ? "moon" : "sun"}
+            icon={theme === "dark" ? "moon" : theme === "light" ? "sun" : "monitor"}
             label="Tema do Aplicativo"
-            value={theme === "dark" ? "Escuro" : "Claro"}
-            toggle
-            toggleValue={theme === "light"}
-            onToggle={(v) => updateLocalSetting("theme", v ? "light" : "dark")}
-            iconBg={theme === "dark" ? "#4f46e522" : "#f59e0b22"}
-            iconColor={theme === "dark" ? "#818cf8" : "#f59e0b"}
+            value={theme === "dark" ? "Escuro" : theme === "light" ? "Claro" : "Sistema"}
+            onPress={() => {
+              const next = theme === "dark" ? "light" : theme === "light" ? "system" : "dark";
+              setTheme(next as any);
+              updateLocalSetting("theme", next === "system" ? "dark" : next as "dark" | "light");
+            }}
+            iconBg={theme === "dark" ? "#4f46e522" : theme === "light" ? "#f59e0b22" : "#06b6d422"}
+            iconColor={theme === "dark" ? "#818cf8" : theme === "light" ? "#f59e0b" : "#06b6d4"}
             last
           />
         </Section>

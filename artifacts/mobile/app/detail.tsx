@@ -1419,7 +1419,7 @@ export default function DetailScreen() {
                       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 10 }}>
                         <View style={{ flexDirection: "row", gap: 12, paddingRight: 20 }}>
                           {castList.map((person: any) => (
-                            <View key={person.id} style={styles.castItem}>
+                            <View key={person.id} style={styles.castItem as any}>
                               {person.profile_path ? (
                                 <Image
                                   source={{ uri: `https://image.tmdb.org/t/p/w185${person.profile_path}` }}

@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { d1Query, d1Run, isD1Configured } from "../lib/d1";
+import { requireAdminKey } from "../middleware/auth.js";
 
 const router = Router();
 
@@ -174,7 +175,7 @@ router.get("/:id/seasons/:season/episodes", async (req, res) => {
 // ═════════════════════════════════════════════════════════════════════════════
 
 // ── POST /api/content — adicionar conteúdo ────────────────────────────────
-router.post("/", async (req, res) => {
+router.post("/", requireAdminKey, async (req, res) => {
   try {
     const {
       tmdb_id, type, title, original_title, overview,
@@ -223,7 +224,7 @@ router.post("/", async (req, res) => {
 });
 
 // ── POST /api/content/batch — importar vários conteúdos de uma vez ─────────
-router.post("/batch", async (req, res) => {
+router.post("/batch", requireAdminKey, async (req, res) => {
   try {
     const { items } = req.body as { items: any[] };
     if (!Array.isArray(items) || items.length === 0) {
@@ -268,7 +269,7 @@ router.post("/batch", async (req, res) => {
 });
 
 // ── POST /api/content/:id/sources — adicionar fonte de vídeo ──────────────
-router.post("/:id/sources", async (req, res) => {
+router.post("/:id/sources", requireAdminKey, async (req, res) => {
   try {
     const contentId = Number(req.params.id);
     const {
@@ -304,7 +305,7 @@ router.post("/:id/sources", async (req, res) => {
 });
 
 // ── DELETE /api/content/:id/sources/:sourceId — remover fonte ────────────
-router.delete("/:id/sources/:sourceId", async (req, res) => {
+router.delete("/:id/sources/:sourceId", requireAdminKey, async (req, res) => {
   try {
     const contentId = Number(req.params.id);
     const sourceId = Number(req.params.sourceId);
@@ -320,7 +321,7 @@ router.delete("/:id/sources/:sourceId", async (req, res) => {
 });
 
 // ── DELETE /api/content/:id — remover conteúdo ────────────────────────────
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", requireAdminKey, async (req, res) => {
   try {
     const { changes } = await d1Run("DELETE FROM content WHERE id = ?", [Number(req.params.id)]);
     if (!changes) { res.status(404).json({ error: "Conteúdo não encontrado" }); return; }
@@ -331,7 +332,7 @@ router.delete("/:id", async (req, res) => {
 });
 
 // ── POST /api/content/:id/seasons/:season/episodes — adicionar episódios ──
-router.post("/:id/seasons/:season/episodes", async (req, res) => {
+router.post("/:id/seasons/:season/episodes", requireAdminKey, async (req, res) => {
   try {
     const contentId = Number(req.params.id);
     const seasonNum = Number(req.params.season);

@@ -488,10 +488,20 @@ export default function HomeScreen() {
                 items={displayTrending.length > 0 ? displayTrending : trendingItems}
                 cardWidth={150}
                 cardHeight={210}
+                showRating
                 seeAllLabel="Ver mais"
                 maxItems={6}
                 onSeeAll={() => router.push({ pathname: "/genre-browse", params: { genre_id: "0", type: "movie", title: "Em Alta" } })}
                 onItemPress={goToPlayer}
+              />
+
+              <PromoBanner
+                icon="zap"
+                title="Novidades desta semana"
+                subtitle="Novos filmes e séries adicionados ao catálogo"
+                actionLabel="Ver tudo"
+                onPress={() => router.push("/(tabs)/novidades")}
+                gradient={[colors.primary, colors.primaryDim]}
               />
 
               <View style={styles.topTenSection}>
@@ -563,6 +573,7 @@ export default function HomeScreen() {
         <View style={styles.headerContent}>
           <Text style={[styles.logo, { color: colors.primary }]}>NETPLAY</Text>
           <View style={styles.headerActions}>
+            <NotificationBell onPress={() => router.push("/(tabs)/profile")} />
             <TouchableOpacity
               style={styles.iconBtn}
               onPress={() => router.push("/(tabs)/search")}

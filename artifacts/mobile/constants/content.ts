@@ -9,7 +9,7 @@ export type ContentItem = {
   posterPath: string;
   backdropPath: string;
   description: string;
-  genres: string[];
+  genres: (string | number)[];
   type: "movie" | "series";
   mediaType?: "movie" | "tv";
   duration?: string;

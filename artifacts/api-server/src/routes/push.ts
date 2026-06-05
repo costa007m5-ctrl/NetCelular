@@ -6,10 +6,11 @@ import {
   addPushLog,
   getPushLog,
 } from "../lib/push-notifications.js";
+import { requireAdminKey } from "../middleware/auth.js";
 
 const router = Router();
 
-router.post("/send", async (req, res) => {
+router.post("/send", requireAdminKey, async (req, res) => {
   const { title, body, data, imageUrl, tokens, source } = req.body ?? {};
 
   if (!title || typeof title !== "string") {
@@ -53,7 +54,6 @@ router.get("/stats", async (_req, res) => {
       (t) => t.startsWith("ExponentPushToken") || t.startsWith("ExpoToken")
     ).length;
     const nativeCount = tokens.length - expoCount;
-    // fcmV1Active: true if env var is set OR if the hardcoded default service account is present
     const fcmV1Active = !!(process.env["FIREBASE_SERVICE_ACCOUNT_JSON"] || true);
     res.json({ total: tokens.length, expo: expoCount, native: nativeCount, fcmV1Active });
   } catch {
