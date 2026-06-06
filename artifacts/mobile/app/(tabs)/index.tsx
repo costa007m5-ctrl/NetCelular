@@ -1569,8 +1569,15 @@ export default function HomeScreen() {
     });
   }, [router]);
 
+  const BROWSE_GENRE: Record<string, number> = {
+    "Ação & Aventura": 28, "Drama": 18, "Dramas": 18, "Comédia": 35,
+    "Terror": 27, "Ficção Científica": 878, "Animações": 16,
+    "Animes": 16, "Thriller": 53, "Mini-Séries": 18,
+    "Aventura": 12, "Internacional": 18, "Premiados": 18,
+  };
   const browseTo = useCallback((type: string, title: string) => {
-    router.push({ pathname: "/genre-browse", params: { genre_id: "0", type, title } });
+    const genre_id = String(BROWSE_GENRE[title] ?? 0);
+    router.push({ pathname: "/genre-browse", params: { genre_id, type, title } });
   }, [router]);
 
   // ── derived slices (sections use different offsets for variety) ───────────

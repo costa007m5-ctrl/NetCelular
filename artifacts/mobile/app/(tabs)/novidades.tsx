@@ -32,6 +32,7 @@ import { HeroBanner } from "@/components/HeroBanner";
 import { TopTenCard } from "@/components/TopTenCard";
 import { SearchTriggerBar } from "@/components/SearchTriggerBar";
 import type { ContentItem } from "@/constants/content";
+import { api, tmdbItemToContent } from "@/lib/api";
 
 const { width: W, height: H } = Dimensions.get("window");
 const STATUS_H = RNStatusBar.currentHeight ?? 0;
@@ -59,6 +60,12 @@ const GENRE_MAP: Record<number, string> = {
   99:"Documentário",18:"Drama",10751:"Família",14:"Fantasia",
   27:"Terror",9648:"Mistério",10749:"Romance",878:"Ficção Científica",
   53:"Suspense",10752:"Guerra",37:"Faroeste",
+};
+
+const GENRE_LABEL_ID: Record<string, number> = {
+  "Ação":28, "Drama":18, "Comédia":35, "Terror":27,
+  "Sci-Fi":878, "Romance":10749, "Animação":16,
+  "Crime":80, "Doc":99, "Família":10751,
 };
 
 async function tfetch(path: string, params: Record<string,string> = {}): Promise<any> {
@@ -593,30 +600,69 @@ function AnimatedSection({ anim, children }: { anim: Animated.Value; children: R
 // ─── Ver Mais Modal ───────────────────────────────────────────────────────────
 function VerMaisModal({
   visible, title, items, accentColor = RED, onClose, onItemPress,
+  fetchMoreFn,
 }: {
   visible: boolean; title: string; items: ContentItem[];
   accentColor?: string; onClose: () => void; onItemPress: (item: ContentItem) => void;
+  fetchMoreFn?: (page: number) => Promise<ContentItem[]>;
 }) {
-  const slideY  = useRef(new Animated.Value(H)).current;
+  const slideY   = useRef(new Animated.Value(H)).current;
   const backdrop = useRef(new Animated.Value(0)).current;
-  const [page, setPage] = useState(1);
+  const [page,        setPage]        = useState(1);
+  const [extraItems,  setExtraItems]  = useState<ContentItem[]>([]);
+  const [tmdbPage,    setTmdbPage]    = useState(1);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [noMoreTmdb,  setNoMoreTmdb]  = useState(false);
   const PAGE = 20;
-  const shown = useMemo(() => items.slice(0, page * PAGE), [items, page]);
+
+  const allItems = useMemo(() => [...items, ...extraItems], [items, extraItems]);
+  const shown    = useMemo(() => allItems.slice(0, page * PAGE), [allItems, page]);
 
   useEffect(() => {
     if (visible) {
       setPage(1);
+      setExtraItems([]);
+      setTmdbPage(1);
+      setNoMoreTmdb(false);
       Animated.parallel([
-        Animated.timing(slideY,   { toValue: 0,   duration: 340, useNativeDriver: true }),
-        Animated.timing(backdrop, { toValue: 1,   duration: 280, useNativeDriver: true }),
+        Animated.timing(slideY,   { toValue: 0, duration: 340, useNativeDriver: true }),
+        Animated.timing(backdrop, { toValue: 1, duration: 280, useNativeDriver: true }),
       ]).start();
     } else {
       Animated.parallel([
-        Animated.timing(slideY,   { toValue: H,   duration: 300, useNativeDriver: true }),
-        Animated.timing(backdrop, { toValue: 0,   duration: 240, useNativeDriver: true }),
+        Animated.timing(slideY,   { toValue: H, duration: 300, useNativeDriver: true }),
+        Animated.timing(backdrop, { toValue: 0, duration: 240, useNativeDriver: true }),
       ]).start();
     }
   }, [visible]);
+
+  const loadMoreTmdb = useCallback(async () => {
+    if (!fetchMoreFn || loadingMore || noMoreTmdb) return;
+    setLoadingMore(true);
+    try {
+      const nextPage = tmdbPage + 1;
+      const newItems = await fetchMoreFn(nextPage);
+      if (!newItems.length) {
+        setNoMoreTmdb(true);
+      } else {
+        setExtraItems((prev) => [...prev, ...newItems]);
+        setTmdbPage(nextPage);
+        setPage((p) => p + 1);
+      }
+    } catch {
+      setNoMoreTmdb(true);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [fetchMoreFn, loadingMore, noMoreTmdb, tmdbPage]);
+
+  const handleEndReached = useCallback(() => {
+    if (shown.length < allItems.length) {
+      setPage((p) => p + 1);
+    } else if (fetchMoreFn && !noMoreTmdb && !loadingMore) {
+      loadMoreTmdb();
+    }
+  }, [shown.length, allItems.length, fetchMoreFn, noMoreTmdb, loadingMore, loadMoreTmdb]);
 
   const CARD_W = (W - 48) / 3;
   const CARD_H = CARD_W * 1.5;
@@ -660,7 +706,7 @@ function VerMaisModal({
             <View style={[sty.modalAccent, { backgroundColor: accentColor }]} />
             <Text style={sty.modalTitle}>{title}</Text>
             <View style={[sty.badge, { backgroundColor:`${accentColor}20`, borderColor:`${accentColor}40` }]}>
-              <Text style={[sty.badgeText, { color: accentColor }]}>{items.length}</Text>
+              <Text style={[sty.badgeText, { color: accentColor }]}>{allItems.length}</Text>
             </View>
           </View>
           <TouchableOpacity onPress={onClose} activeOpacity={0.7} style={sty.modalClose}>
@@ -675,13 +721,19 @@ function VerMaisModal({
           contentContainerStyle={{ paddingBottom: 120, paddingTop: 4 }}
           showsVerticalScrollIndicator={false}
           renderItem={renderItem}
+          onEndReached={handleEndReached}
+          onEndReachedThreshold={0.4}
           ListFooterComponent={
-            shown.length < items.length ? (
+            loadingMore ? (
+              <View style={{ paddingVertical: 20, alignItems: "center" }}>
+                <ActivityIndicator size="small" color={accentColor} />
+              </View>
+            ) : shown.length < allItems.length ? (
               <TouchableOpacity onPress={() => setPage((p) => p + 1)} style={sty.loadMoreBtn} activeOpacity={0.8}>
                 <LinearGradient colors={[`${accentColor}22`, `${accentColor}10`]} style={StyleSheet.absoluteFill} />
                 <Feather name="chevrons-down" size={14} color={accentColor} />
                 <Text style={[sty.loadMoreText, { color: accentColor }]}>
-                  Carregar mais ({items.length - shown.length} restantes)
+                  Carregar mais ({allItems.length - shown.length} restantes)
                 </Text>
               </TouchableOpacity>
             ) : null
@@ -870,12 +922,15 @@ export default function NovidadesScreen() {
   const [crimeSeries,    setCrimeSeries]    = useState<ContentItem[]>([]);
 
   // modal state
-  const [modal, setModal] = useState<{ visible:boolean; title:string; items:ContentItem[]; accent:string }>({
-    visible: false, title: "", items: [], accent: RED,
-  });
+  const [modal, setModal] = useState<{
+    visible: boolean; title: string; items: ContentItem[]; accent: string;
+    fetchMoreFn?: (page: number) => Promise<ContentItem[]>;
+  }>({ visible: false, title: "", items: [], accent: RED });
 
-  const openModal = (title: string, items: ContentItem[], accent = RED) =>
-    setModal({ visible: true, title, items, accent });
+  const openModal = (
+    title: string, items: ContentItem[], accent = RED,
+    fetchMoreFn?: (page: number) => Promise<ContentItem[]>
+  ) => setModal({ visible: true, title, items, accent, fetchMoreFn });
   const closeModal = () => setModal((m) => ({ ...m, visible: false }));
 
   // ── Fetch all data (hero first, rest in background) ────────────────────────
@@ -1091,7 +1146,7 @@ export default function NovidadesScreen() {
                     accentColor={TEAL} />
                   <GenreRow onPress={(g) => router.push({
                     pathname:"/genre-browse",
-                    params:{ genre:g, type:"all" }
+                    params:{ genre_id: String(GENRE_LABEL_ID[g] ?? 28), type:"movie", title: g }
                   })} />
                 </View>
               </AnimatedSection>
@@ -1202,7 +1257,7 @@ export default function NovidadesScreen() {
                   <View style={sty.sec}>
                     <SectionHeader title="Ação & Aventura" icon="zap"
                       accentColor={RED}
-                      onSeeAll={() => openModal("Ação & Aventura", actionMovies, RED)} />
+                      onSeeAll={() => openModal("Ação & Aventura", actionMovies, RED, async (p) => (await api.tmdb.discover("movie", 28, p)).results.map(tmdbItemToContent))} />
                     <WideRow items={actionMovies} onPress={goTo}
                       badgeFn={(i) => i.rating >= 7.5 ? "ÉPICO" : undefined}
                       accentColor={RED} />
@@ -1216,7 +1271,7 @@ export default function NovidadesScreen() {
                   <View style={sty.sec}>
                     <SectionHeader title="Drama" icon="heart"
                       accentColor={BLUE}
-                      onSeeAll={() => openModal("Drama", dramaMovies, BLUE)} />
+                      onSeeAll={() => openModal("Drama", dramaMovies, BLUE, async (p) => (await api.tmdb.discover("movie", 18, p)).results.map(tmdbItemToContent))} />
                     <PosterRow items={dramaMovies} onPress={goTo} showTitle />
                   </View>
                 </AnimatedSection>
@@ -1238,7 +1293,7 @@ export default function NovidadesScreen() {
                   <View style={sty.sec}>
                     <SectionHeader title="Comédia" icon="smile"
                       accentColor={ORANGE}
-                      onSeeAll={() => openModal("Comédia", comedyMovies, ORANGE)} />
+                      onSeeAll={() => openModal("Comédia", comedyMovies, ORANGE, async (p) => (await api.tmdb.discover("movie", 35, p)).results.map(tmdbItemToContent))} />
                     <FeaturedRow items={comedyMovies} onPress={goTo} accentColor={ORANGE} />
                   </View>
                 </AnimatedSection>
@@ -1250,7 +1305,7 @@ export default function NovidadesScreen() {
                   <View style={sty.sec}>
                     <SectionHeader title="Terror & Suspense" icon="eye"
                       accentColor={DARK}
-                      onSeeAll={() => openModal("Terror & Suspense", horrorMovies, DARK)} />
+                      onSeeAll={() => openModal("Terror & Suspense", horrorMovies, DARK, async (p) => (await api.tmdb.discover("movie", 27, p)).results.map(tmdbItemToContent))} />
                     <MoodRow items={horrorMovies} onPress={goTo} accentColor={DARK} />
                   </View>
                 </AnimatedSection>
@@ -1262,7 +1317,7 @@ export default function NovidadesScreen() {
                   <View style={sty.sec}>
                     <SectionHeader title="Ficção Científica" icon="cpu"
                       accentColor={TEAL}
-                      onSeeAll={() => openModal("Ficção Científica", scifiMovies, TEAL)} />
+                      onSeeAll={() => openModal("Ficção Científica", scifiMovies, TEAL, async (p) => (await api.tmdb.discover("movie", 878, p)).results.map(tmdbItemToContent))} />
                     <WideRow items={scifiMovies} onPress={goTo} accentColor={TEAL} />
                   </View>
                 </AnimatedSection>
@@ -1283,7 +1338,7 @@ export default function NovidadesScreen() {
                   <View style={sty.sec}>
                     <SectionHeader title="Romance" icon="heart"
                       accentColor={PINK}
-                      onSeeAll={() => openModal("Romance", romanceMovies, PINK)} />
+                      onSeeAll={() => openModal("Romance", romanceMovies, PINK, async (p) => (await api.tmdb.discover("movie", 10749, p)).results.map(tmdbItemToContent))} />
                     <PosterRow items={romanceMovies} onPress={goTo} />
                   </View>
                 </AnimatedSection>
@@ -1307,7 +1362,7 @@ export default function NovidadesScreen() {
                   <View style={sty.sec}>
                     <SectionHeader title="Dramas Envolventes" icon="heart"
                       accentColor={BLUE}
-                      onSeeAll={() => openModal("Dramas Envolventes", dramaSeries, BLUE)} />
+                      onSeeAll={() => openModal("Dramas Envolventes", dramaSeries, BLUE, async (p) => (await api.tmdb.discover("tv", 18, p)).results.map(tmdbItemToContent))} />
                     <FeaturedRow items={dramaSeries} onPress={goTo} accentColor={BLUE} />
                   </View>
                 </AnimatedSection>
@@ -1331,7 +1386,7 @@ export default function NovidadesScreen() {
                   <View style={sty.sec}>
                     <SectionHeader title="Crime & Investigação" icon="search"
                       accentColor={INDIGO}
-                      onSeeAll={() => openModal("Crime & Investigação", crimeSeries, INDIGO)} />
+                      onSeeAll={() => openModal("Crime & Investigação", crimeSeries, INDIGO, async (p) => (await api.tmdb.discover("tv", 80, p)).results.map(tmdbItemToContent))} />
                     <CompactRow items={crimeSeries} onPress={goTo} />
                   </View>
                 </AnimatedSection>
@@ -1541,6 +1596,7 @@ export default function NovidadesScreen() {
         accentColor={modal.accent}
         onClose={closeModal}
         onItemPress={goTo}
+        fetchMoreFn={modal.fetchMoreFn}
       />
 
       {/* ═══ SCROLL TOP FAB ══════════════════════════════════════════════════ */}

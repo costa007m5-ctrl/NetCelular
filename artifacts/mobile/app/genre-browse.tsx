@@ -76,6 +76,11 @@ export default function GenreBrowseScreen() {
   const [initialLoading, setInitialLoading] = useState(true);
   const loadingRef = useRef(false);
 
+  // genre_id=0 or NaN means "popular content" — no genre filter
+  const resolvedGenreId = Number(genre_id) > 0 ? Number(genre_id) : 0;
+  const resolvedType: "movie" | "tv" =
+    type === "tv" ? "tv" : "movie";
+
   const fetchPage = useCallback(
     async (page: number) => {
       if (loadingRef.current || page > totalPages) return;
@@ -83,8 +88,8 @@ export default function GenreBrowseScreen() {
       setLoading(true);
       try {
         const data = await api.tmdb.discover(
-          (type as "movie" | "tv") ?? "movie",
-          Number(genre_id),
+          resolvedType,
+          resolvedGenreId,
           page
         );
         const newItems = data.results.map(tmdbItemToContent);
@@ -109,8 +114,8 @@ export default function GenreBrowseScreen() {
       setLoading(true);
       try {
         const [d1, d2] = await Promise.all([
-          api.tmdb.discover((type as "movie" | "tv") ?? "movie", Number(genre_id), 1),
-          api.tmdb.discover((type as "movie" | "tv") ?? "movie", Number(genre_id), 2),
+          api.tmdb.discover(resolvedType, resolvedGenreId, 1),
+          api.tmdb.discover(resolvedType, resolvedGenreId, 2),
         ]);
         setItems([
           ...d1.results.map(tmdbItemToContent),
