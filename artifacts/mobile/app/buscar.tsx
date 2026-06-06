@@ -26,6 +26,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import type { ContentItem } from "@/constants/content";
 import { r2Base } from "@/lib/r2-direct";
+import { useR2Catalog } from "@/lib/r2-catalog-hook";
 
 type Flix2RawItem = { title: string; _type: string; thumbnail?: string | null };
 
@@ -156,6 +157,18 @@ const MOODS = [
 ];
 
 const HOT_TAGS = ["#Marvel", "#Netflix", "#Anime", "#KDrama", "#Oscar", "#Pixar", "#DC", "#Disney"];
+
+type SourceFilter = "global" | "tmdb" | "flix2" | "drive";
+
+const SOURCE_FILTERS: {
+  id: SourceFilter; label: string; icon: keyof typeof Feather.glyphMap;
+  color: string; bg: string;
+}[] = [
+  { id: "global", label: "Global",    icon: "globe",      color: "#fff",     bg: "rgba(255,255,255,0.12)" },
+  { id: "tmdb",   label: "TMDB",      icon: "database",   color: "#01b4e4",  bg: "rgba(1,180,228,0.14)" },
+  { id: "flix2",  label: "Flix 2.0",  icon: "zap",        color: "#a855f7",  bg: "rgba(168,85,247,0.14)" },
+  { id: "drive",  label: "Drive",     icon: "hard-drive",  color: "#22c55e",  bg: "rgba(34,197,94,0.14)" },
+];
 
 function PosterCard({ item, onPress, showRating = true, width = CARD_W_3, inFlix2 = false }: {
   item: ContentItem;
@@ -331,13 +344,17 @@ export default function BuscarScreen() {
   const inputRef = useRef<TextInput>(null);
   const topPad   = insets.top + (Platform.OS === "web" ? 67 : 0);
 
+  // ── R2/Drive catalog ─────────────────────────────────────────────────────
+  const { r2All } = useR2Catalog();
+
   const [query,         setQuery]         = useState(params.q ?? "");
   const [results,       setResults]       = useState<ContentItem[]>([]);
   const [loading,       setLoading]       = useState(false);
   const [flix2Titles,      setFlix2Titles]      = useState<Set<string>>(new Set());
   const [flix2RawResults,  setFlix2RawResults]  = useState<Flix2RawItem[]>([]);
   const [flix2Loading,     setFlix2Loading]      = useState(false);
-  const [flix2FilterActive,setFlix2FilterActive] = useState(false);
+  const [sourceFilter,     setSourceFilter]      = useState<SourceFilter>("global");
+  const [r2SearchResults,  setR2SearchResults]   = useState<ContentItem[]>([]);
 
   // ── Catálogo Flix 2.0 (browse mode) ─────────────────────────────────────
   const [showFlix2Catalog, setShowFlix2Catalog] = useState(false);
@@ -432,11 +449,21 @@ export default function BuscarScreen() {
 
   useEffect(() => {
     const q = query.trim();
-    if (q.length < 2) { setResults([]); setFlix2Titles(new Set()); setFlix2RawResults([]); setFlix2FilterActive(false); return; }
+    if (q.length < 2) {
+      setResults([]); setFlix2Titles(new Set()); setFlix2RawResults([]);
+      setR2SearchResults([]);
+      return;
+    }
     setLoading(true);
     setFlix2Loading(true);
+
+    // R2/Drive search is instant (in-memory filter)
+    const r2Matches = r2All.filter(item =>
+      item.title.toLowerCase().includes(q.toLowerCase())
+    );
+    setR2SearchResults(r2Matches);
+
     const timer = setTimeout(async () => {
-      // Run TMDB search and Flix 2.0 search in parallel
       const [tmdbResult, flix2Result] = await Promise.allSettled([
         tfetch("/search/multi", { query: q, include_adult: "false", page: "1" }),
         flix2Search(q),
@@ -455,7 +482,7 @@ export default function BuscarScreen() {
       setFlix2Loading(false);
     }, 380);
     return () => clearTimeout(timer);
-  }, [query]);
+  }, [query, r2All]);
 
   const goTo = useCallback((item: ContentItem) => {
     router.push({
@@ -553,54 +580,115 @@ export default function BuscarScreen() {
         </LinearGradient>
       </View>
 
+      {/* ── SOURCE FILTER PILLS (always visible) ────────────────────────────── */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false}
+        nestedScrollEnabled keyboardShouldPersistTaps="handled"
+        contentContainerStyle={{ paddingHorizontal: 16, gap: 8, paddingBottom: 10 }}>
+        {SOURCE_FILTERS.map((sf) => {
+          const active = sourceFilter === sf.id;
+          return (
+            <Pressable
+              key={sf.id}
+              style={[
+                styles.sourcePill,
+                active && { backgroundColor: sf.bg, borderColor: sf.color },
+              ]}
+              onPress={() => {
+                setSourceFilter(sf.id);
+                if (sf.id === "flix2" && !isSearching) setShowFlix2Catalog(true);
+                if (sf.id !== "flix2") setShowFlix2Catalog(false);
+              }}>
+              <Feather
+                name={sf.icon}
+                size={12}
+                color={active ? sf.color : "rgba(255,255,255,0.4)"}
+              />
+              <Text style={[styles.sourcePillText, active && { color: sf.color, fontWeight: "800" }]}>
+                {sf.label}
+              </Text>
+              {sf.id === "global" && active && (
+                <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: RED }} />
+              )}
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+
       {isSearching ? (
         /* ─────────────────── SEARCH RESULTS ───────────────────────────────── */
         <View style={{ flex: 1 }}>
-          {/* ── results bar + Flix 2.0 filter chip ─────────────────────────── */}
+          {/* ── results bar ─────────────────────────────────────────────────── */}
           <View style={styles.resultsBar}>
             <View style={{ gap: 4, flex: 1 }}>
               {loading ? (
                 <ActivityIndicator color={RED} size="small" />
               ) : (
                 <Text style={styles.resultsLabel}>
-                  {results.length > 0
-                    ? `${results.length} resultado${results.length !== 1 ? "s" : ""} · "${query.trim()}"`
-                    : `Nenhum resultado para "${query.trim()}"`}
+                  {(() => {
+                    const sf = SOURCE_FILTERS.find(s => s.id === sourceFilter)!;
+                    const cnt = sourceFilter === "drive"
+                      ? r2SearchResults.length
+                      : sourceFilter === "flix2"
+                        ? flix2Titles.size + flix2RawResults.filter(r => !results.some(t => t.title.toLowerCase().trim() === r.title.toLowerCase().trim())).length
+                        : results.length;
+                    return cnt > 0
+                      ? `${cnt} resultado${cnt !== 1 ? "s" : ""} em ${sf.label} · "${query.trim()}"`
+                      : `Nenhum resultado em ${sf.label} para "${query.trim()}"`;
+                  })()}
                 </Text>
               )}
-              {flix2Loading ? (
+              {sourceFilter !== "drive" && flix2Loading && (
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
                   <ActivityIndicator color="#a855f7" size="small" />
                   <Text style={[styles.resultsLabel, { fontSize: 11, color: "#a855f7" }]}>Buscando Flix 2.0…</Text>
                 </View>
-              ) : flix2Titles.size > 0 ? (
-                <View style={styles.flix2CountRow}>
-                  <Feather name="zap" size={10} color="#a855f7" />
-                  <Text style={styles.flix2CountText}>{flix2Titles.size} no catálogo Flix 2.0</Text>
-                </View>
-              ) : null}
+              )}
             </View>
-            {!flix2Loading && flix2Titles.size > 0 && (
-              <Pressable
-                style={[styles.flix2FilterChip, flix2FilterActive && styles.flix2FilterChipActive]}
-                onPress={() => setFlix2FilterActive(v => !v)}>
-                <Feather name="zap" size={10} color={flix2FilterActive ? "#fff" : "#a855f7"} />
-                <Text style={[styles.flix2FilterChipText, flix2FilterActive && { color: "#fff" }]}>
-                  Flix 2.0
-                </Text>
-              </Pressable>
-            )}
+            {/* counts pills */}
+            <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
+              {r2SearchResults.length > 0 && (
+                <View style={{ flexDirection:"row", alignItems:"center", gap:3, paddingHorizontal:7, paddingVertical:3, borderRadius:10, backgroundColor:"rgba(34,197,94,0.14)", borderWidth:1, borderColor:"rgba(34,197,94,0.3)" }}>
+                  <Feather name="hard-drive" size={9} color="#22c55e" />
+                  <Text style={{ color:"#22c55e", fontSize:10, fontWeight:"800" }}>{r2SearchResults.length}</Text>
+                </View>
+              )}
+              {flix2Titles.size > 0 && (
+                <View style={{ flexDirection:"row", alignItems:"center", gap:3, paddingHorizontal:7, paddingVertical:3, borderRadius:10, backgroundColor:"rgba(168,85,247,0.14)", borderWidth:1, borderColor:"rgba(168,85,247,0.3)" }}>
+                  <Feather name="zap" size={9} color="#a855f7" />
+                  <Text style={{ color:"#a855f7", fontSize:10, fontWeight:"800" }}>{flix2Titles.size}</Text>
+                </View>
+              )}
+            </View>
           </View>
 
           {(() => {
-            const tmdbFiltered = flix2FilterActive
-              ? results.filter(r => flix2Titles.has(r.title.toLowerCase().trim()))
-              : results;
-            const flix2OnlyItems = flix2FilterActive
-              ? flix2RawResults.filter(r => !results.some(tmdb => tmdb.title.toLowerCase().trim() === r.title.toLowerCase().trim()))
-              : [];
+            // ── compute what to show based on sourceFilter ──────────────────
+            const flix2OnlyRaw = flix2RawResults.filter(
+              r => !results.some(t => t.title.toLowerCase().trim() === r.title.toLowerCase().trim())
+            );
 
-            if (loading) {
+            let tmdbItems: ContentItem[] = [];
+            let showFlix2Only = false;
+            let driveItems: ContentItem[] = [];
+
+            if (sourceFilter === "global") {
+              tmdbItems = results;
+              showFlix2Only = flix2OnlyRaw.length > 0;
+              driveItems = r2SearchResults.filter(
+                r => !results.some(t => t.title.toLowerCase().trim() === r.title.toLowerCase().trim())
+              );
+            } else if (sourceFilter === "tmdb") {
+              tmdbItems = results;
+            } else if (sourceFilter === "flix2") {
+              tmdbItems = results.filter(r => flix2Titles.has(r.title.toLowerCase().trim()));
+              showFlix2Only = flix2OnlyRaw.length > 0;
+            } else if (sourceFilter === "drive") {
+              driveItems = r2SearchResults;
+            }
+
+            const isEmpty = tmdbItems.length === 0 && !showFlix2Only && driveItems.length === 0;
+
+            if (loading && sourceFilter !== "drive") {
               return (
                 <View style={styles.centered}>
                   <ActivityIndicator color={RED} size="large" />
@@ -608,44 +696,52 @@ export default function BuscarScreen() {
                 </View>
               );
             }
-            if (!flix2FilterActive && results.length === 0) {
+            if (isEmpty) {
+              const sf = SOURCE_FILTERS.find(s => s.id === sourceFilter)!;
               return (
                 <View style={styles.centered}>
-                  <Feather name="search" size={56} color="rgba(255,255,255,0.06)" />
-                  <Text style={styles.emptyTitle}>Nenhum resultado</Text>
-                  <Text style={styles.emptySubtitle}>Tente outro termo de busca</Text>
-                  <Text style={styles.emptyHint}>Sugestões: {HOT_TAGS.slice(0,4).join(", ")}</Text>
-                </View>
-              );
-            }
-            if (flix2FilterActive && tmdbFiltered.length === 0 && flix2OnlyItems.length === 0) {
-              return (
-                <View style={styles.centered}>
-                  <Feather name="zap" size={42} color="rgba(168,85,247,0.2)" />
-                  <Text style={styles.emptyTitle}>Nada encontrado no Flix 2.0</Text>
-                  <Text style={styles.emptySubtitle}>A busca não retornou resultados no catálogo Flix 2.0</Text>
+                  <Feather name={sf.icon} size={48} color={`${sf.color}22`} />
+                  <Text style={styles.emptyTitle}>Nenhum resultado em {sf.label}</Text>
+                  <Text style={styles.emptySubtitle}>
+                    {sourceFilter === "drive"
+                      ? "Nenhum conteúdo do Drive corresponde à busca"
+                      : sourceFilter === "flix2"
+                        ? "A busca não retornou resultados no catálogo Flix 2.0"
+                        : "Tente outro termo de busca"}
+                  </Text>
                 </View>
               );
             }
             return (
               <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 20 }}>
-                {/* ── TMDB results (optionally filtered) ──────────────────── */}
-                {tmdbFiltered.length > 0 && (
-                  <View style={styles.grid}>
-                    {tmdbFiltered.map((item, i) => (
-                      <PosterCard
-                        key={item.id}
-                        item={item}
-                        onPress={() => goTo(item)}
-                        inFlix2={flix2Titles.has(item.title.toLowerCase().trim())}
-                      />
-                    ))}
-                  </View>
+
+                {/* ── TMDB results ─────────────────────────────────────────── */}
+                {tmdbItems.length > 0 && (
+                  <>
+                    {(showFlix2Only || driveItems.length > 0) && (
+                      <View style={[styles.flix2OnlyHeader, { marginBottom: 8 }]}>
+                        <View style={[styles.flix2OnlyAccent, { backgroundColor: "#01b4e4" }]} />
+                        <Feather name="database" size={13} color="#01b4e4" />
+                        <Text style={[styles.flix2OnlyTitle, { color: "#01b4e4" }]}>TMDB</Text>
+                        <Text style={styles.flix2OnlySubtitle}>{tmdbItems.length} resultado{tmdbItems.length !== 1 ? "s" : ""}</Text>
+                      </View>
+                    )}
+                    <View style={styles.grid}>
+                      {tmdbItems.map((item) => (
+                        <PosterCard
+                          key={item.id}
+                          item={item}
+                          onPress={() => goTo(item)}
+                          inFlix2={flix2Titles.has(item.title.toLowerCase().trim())}
+                        />
+                      ))}
+                    </View>
+                  </>
                 )}
 
-                {/* ── Flix 2.0-only items (not in TMDB) ───────────────────── */}
-                {flix2FilterActive && flix2OnlyItems.length > 0 && (
-                  <View style={{ marginTop: tmdbFiltered.length > 0 ? 24 : 0 }}>
+                {/* ── Flix 2.0-only items ──────────────────────────────────── */}
+                {showFlix2Only && (
+                  <View style={{ marginTop: tmdbItems.length > 0 ? 24 : 0 }}>
                     <View style={styles.flix2OnlyHeader}>
                       <View style={styles.flix2OnlyAccent} />
                       <Feather name="zap" size={14} color="#a855f7" />
@@ -653,12 +749,32 @@ export default function BuscarScreen() {
                       <Text style={styles.flix2OnlySubtitle}>não encontrados no TMDB</Text>
                     </View>
                     <View style={styles.grid}>
-                      {flix2OnlyItems.map((item, i) => (
+                      {flix2OnlyRaw.map((item, i) => (
                         <Flix2OnlyCard key={`flix2only-${i}`} item={item} />
                       ))}
                     </View>
                   </View>
                 )}
+
+                {/* ── Drive/R2 items ───────────────────────────────────────── */}
+                {driveItems.length > 0 && (
+                  <View style={{ marginTop: (tmdbItems.length > 0 || showFlix2Only) ? 24 : 0 }}>
+                    {(tmdbItems.length > 0 || showFlix2Only) && (
+                      <View style={styles.flix2OnlyHeader}>
+                        <View style={[styles.flix2OnlyAccent, { backgroundColor: "#22c55e" }]} />
+                        <Feather name="hard-drive" size={13} color="#22c55e" />
+                        <Text style={[styles.flix2OnlyTitle, { color: "#22c55e" }]}>Drive</Text>
+                        <Text style={styles.flix2OnlySubtitle}>{driveItems.length} item{driveItems.length !== 1 ? "ns" : ""} no armazenamento</Text>
+                      </View>
+                    )}
+                    <View style={styles.grid}>
+                      {driveItems.map((item) => (
+                        <PosterCard key={item.id} item={item} onPress={() => goTo(item)} />
+                      ))}
+                    </View>
+                  </View>
+                )}
+
               </ScrollView>
             );
           })()}
@@ -724,6 +840,47 @@ export default function BuscarScreen() {
               maxToRenderPerBatch={12}
               windowSize={7}
               removeClippedSubviews={true}
+              updateCellsBatchingPeriod={50}
+            />
+          )}
+        </View>
+
+      ) : sourceFilter === "drive" && !isSearching ? (
+        /* ─────────────────── DRIVE / R2 LIBRARY BROWSE ────────────────────── */
+        <View style={{ flex: 1 }}>
+          <View style={[styles.catHeader, { paddingVertical: 8 }]}>
+            <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <View style={{ width: 3, height: 20, borderRadius: 2, backgroundColor: GREEN }} />
+              <Feather name="hard-drive" size={16} color={GREEN} />
+              <Text style={[styles.catHeaderTitle, { color: GREEN }]}>Minha</Text>
+              <Text style={styles.catHeaderTitle}> Biblioteca</Text>
+              {r2All.length > 0 && (
+                <View style={{ backgroundColor: "rgba(34,197,94,0.2)", borderColor: "rgba(34,197,94,0.4)", borderWidth: 1, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 }}>
+                  <Text style={{ color: GREEN, fontSize: 10, fontWeight: "800" }}>{r2All.length} títulos</Text>
+                </View>
+              )}
+            </View>
+          </View>
+          {r2All.length === 0 ? (
+            <View style={styles.centered}>
+              <Feather name="hard-drive" size={52} color="rgba(34,197,94,0.1)" />
+              <Text style={styles.emptyTitle}>Drive vazio</Text>
+              <Text style={styles.emptySubtitle}>Adicione conteúdo via painel Admin → R2</Text>
+            </View>
+          ) : (
+            <FlatList
+              data={r2All}
+              keyExtractor={(item) => item.id}
+              numColumns={3}
+              contentContainerStyle={styles.grid}
+              showsVerticalScrollIndicator={false}
+              renderItem={({ item }) => (
+                <PosterCard item={item} onPress={() => goTo(item)} />
+              )}
+              initialNumToRender={12}
+              maxToRenderPerBatch={12}
+              windowSize={7}
+              removeClippedSubviews
               updateCellsBatchingPeriod={50}
             />
           )}
@@ -1092,6 +1249,25 @@ const styles = StyleSheet.create({
   },
   flix2ShortcutTitle: { color: "#fff", fontSize: 16, fontWeight: "900" },
   flix2ShortcutSub:   { color: "rgba(255,255,255,0.4)", fontSize: 12, fontWeight: "500" },
+
+  /* source filter pills */
+  sourcePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 22,
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.12)",
+    backgroundColor: "rgba(255,255,255,0.06)",
+  },
+  sourcePillText: {
+    color: "rgba(255,255,255,0.55)",
+    fontSize: 13,
+    fontWeight: "700",
+    letterSpacing: 0.2,
+  },
 
   /* flix2 exclusive section header */
   flix2OnlyHeader: {
