@@ -301,7 +301,7 @@ export default function DetailScreen() {
         let registryItems = allItems.filter(
           (i: RegistryItem) => i.tmdbId === tmdbId && i.tmdbType === type
         );
-        // Fallback: se não encontrou com type exato, tenta só pelo tmdbId
+        // Fallback 1: se não encontrou com type exato, tenta só pelo tmdbId
         // (acontece quando o conteúdo foi registrado com tipo movie/tv trocado)
         if (registryItems.length === 0) {
           registryItems = allItems.filter(
@@ -309,8 +309,44 @@ export default function DetailScreen() {
           );
         }
 
-        // ── Diagnóstico para admin: detecta itens com título parecido mas tmdbId diferente ──
-        if (registryItems.length === 0) {
+        // Fallback 2: busca por título quando o tmdbId buscado é diferente do registrado
+        // (acontece quando a home retorna tmdbId X mas o admin registrou com tmdbId Y)
+        // Ex.: home usa ID 31499 mas admin registrou "A Lenda de Tarzan" como ID 2395.
+        let titleFallbackIds: number[] = [];
+        let titleFallbackTitles: string[] = [];
+        if (registryItems.length === 0 && (params.title ?? "").length >= 3) {
+          const titleRaw = String(params.title ?? "").toLowerCase();
+          const titleNorm = titleRaw.replace(/[^a-z0-9]/g, "");
+          // Palavras com 5+ chars para match semântico entre idiomas (ex: "tarzan" bate em PT e EN)
+          const titleWords = titleNorm.match(/[a-z0-9]{5,}/g) ?? [];
+
+          const byTitle = allItems.filter((i: RegistryItem) => {
+            if (i.tmdbId === tmdbId) return false;
+            const iNorm = (i.title ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+            if (iNorm.length < 3) return false;
+            // Critério 1: normalized igual (mesmo título, mesmo idioma)
+            if (iNorm === titleNorm) return true;
+            // Critério 2: primeiros 8 chars iguais (prefixo parecido)
+            const minLen = Math.min(iNorm.length, titleNorm.length, 8);
+            if (minLen >= 6 && iNorm.slice(0, minLen) === titleNorm.slice(0, minLen)) return true;
+            // Critério 3: palavra significativa em comum (5+ chars) — funciona entre idiomas
+            // "The Legend of Tarzan" ↔ "A Lenda de Tarzan" → ambos têm "tarzan"
+            const iWords = iNorm.match(/[a-z0-9]{5,}/g) ?? [];
+            return titleWords.some((w) => iWords.includes(w));
+          });
+          if (byTitle.length > 0) {
+            registryItems = byTitle;
+            titleFallbackIds = [...new Set(byTitle.map((i: RegistryItem) => i.tmdbId))];
+            titleFallbackTitles = [...new Set(byTitle.map((i: RegistryItem) => i.title))].slice(0, 3);
+          }
+        }
+
+        // ── Diagnóstico para admin ──────────────────────────────────────────────
+        if (titleFallbackIds.length > 0) {
+          // Conteúdo encontrado via fallback de título — mismatch de ID detectado
+          setAdminDiagnostic({ count: registryItems.length, ids: titleFallbackIds, titles: titleFallbackTitles });
+        } else if (registryItems.length === 0) {
+          // Nada encontrado de nenhuma forma — verifica mismatch parcial para diagnóstico
           const titleNorm = (params.title ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
           const mismatched = allItems.filter((i: RegistryItem) => {
             if (i.tmdbId === tmdbId) return false;
