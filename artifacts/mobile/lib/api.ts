@@ -291,9 +291,8 @@ export const api = {
     },
 
     movie: async (id: number): Promise<TmdbItem> => {
-      return apiFetchOrDirect(`/tmdb/movie/${id}`, () =>
-        tmdbFetch<TmdbItem>(`/movie/${id}`, { append_to_response: "credits,similar,videos" })
-      );
+      // Always call TMDB directly with language=pt-BR — API proxy may omit the language param
+      return tmdbFetch<TmdbItem>(`/movie/${id}`, { append_to_response: "credits,similar,videos" });
     },
 
     movieSimilar: async (id: number): Promise<TmdbItem[]> => {
@@ -303,9 +302,8 @@ export const api = {
     },
 
     tv: async (id: number): Promise<TmdbItem> => {
-      return apiFetchOrDirect(`/tmdb/tv/${id}`, () =>
-        tmdbFetch<TmdbItem>(`/tv/${id}`, { append_to_response: "credits,similar,videos" })
-      );
+      // Always call TMDB directly with language=pt-BR — API proxy may omit the language param
+      return tmdbFetch<TmdbItem>(`/tv/${id}`, { append_to_response: "credits,similar,videos" });
     },
 
     tvSimilar: async (id: number): Promise<TmdbItem[]> => {

@@ -10,6 +10,7 @@ import {
   Animated,
   Dimensions,
   FlatList,
+  InteractionManager,
   Modal,
   Platform,
   Pressable,
@@ -595,6 +596,8 @@ function SectionDivider({ label, accentColor = RED }: { label: string; accentCol
 
 // ─── AnimatedSection ─────────────────────────────────────────────────────────
 function AnimatedSection({ anim, children }: { anim: Animated.Value; children: React.ReactNode }) {
+  // Skip Animated.View on native — avoids dozens of animated wrappers causing jank
+  if (Platform.OS !== "web") return <>{children}</>;
   const ty = anim.interpolate({ inputRange:[0,1], outputRange:[30,0] });
   return (
     <Animated.View style={{ opacity: anim, transform: [{ translateY: ty }] }}>
@@ -943,6 +946,7 @@ export default function NovidadesScreen() {
   const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showFab,    setShowFab]    = useState(false);
+  const [belowFoldReady, setBelowFoldReady] = useState(Platform.OS === "web");
 
   // data pools — all from Flix 2.0 only
   const [heroItems,   setHeroItems]   = useState<ContentItem[]>([]);
@@ -1029,6 +1033,7 @@ export default function NovidadesScreen() {
       setLoading(false);
       setRefreshing(false);
       stagger(s, 55).start();
+      InteractionManager.runAfterInteractions(() => setBelowFoldReady(true));
     });
   }, [loadAll]);
 
@@ -1241,6 +1246,10 @@ export default function NovidadesScreen() {
                     onPress={() => goTo(countdownItem)} />
                 </AnimatedSection>
               )}
+
+              {/* Below-fold: deferred until after first render interactions complete */}
+              {belowFoldReady && (
+              <>
 
               {/* ── 11. POPULARES FILMES ────────────────────────────────── */}
               {popularMovies.length > 0 && (
@@ -1588,6 +1597,9 @@ export default function NovidadesScreen() {
                   onPress={() => router.push("/(tabs)/downloads")}
                   gradient={["#134e4a","#0f766e"]} />
               </AnimatedSection>
+
+              </>
+              )}
             </>
           )}
         </View>
