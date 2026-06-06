@@ -2177,8 +2177,7 @@ export default function HomeScreen() {
                   <SectionHeader title="Tags em Alta" icon="hash"
                     accentColor={RED} badge="TRENDING" />
                   <HotTagsComp tags={HOT_TAGS}
-                    onPress={(tag) => router.push({ pathname: "/(tabs)/channels",
-                      params: { q: tag.replace("#","") } })} />
+                    onPress={(tag) => { setSearchQuery(tag.replace("#","")); scrollRef.current?.scrollTo({ y: 0, animated: true }); }} />
                 </View>
               </AnimatedSection>
 
@@ -2223,8 +2222,7 @@ export default function HomeScreen() {
                   <SectionHeader title="Por Estúdio" icon="briefcase"
                     accentColor={AMBER} subtitle="Marvel, DC, Pixar e mais" />
                   <StudioRowComp studios={STUDIOS}
-                    onPress={(s) => router.push({ pathname: "/(tabs)/channels",
-                      params: { q: s.label } })} />
+                    onPress={(s) => { setSearchQuery(s.label); scrollRef.current?.scrollTo({ y: 0, animated: true }); }} />
                 </View>
               </AnimatedSection>
 
@@ -2292,8 +2290,7 @@ export default function HomeScreen() {
                   <SectionHeader title="Cinema do Mundo" icon="globe"
                     accentColor={TEAL} subtitle="Explore por país" />
                   <FilmNationRow countries={COUNTRIES}
-                    onPress={(c) => router.push({ pathname: "/(tabs)/channels",
-                      params: { q: c.label } })} />
+                    onPress={(c) => { setSearchQuery(c.label); scrollRef.current?.scrollTo({ y: 0, animated: true }); }} />
                 </View>
               </AnimatedSection>
 
@@ -2303,8 +2300,7 @@ export default function HomeScreen() {
                   <SectionHeader title="Atores em Destaque" icon="users"
                     accentColor={PINK} />
                   <ActorCirclesRow actors={ACTORS}
-                    onPress={(a) => router.push({ pathname: "/(tabs)/channels",
-                      params: { q: a.name } })} />
+                    onPress={(a) => { setSearchQuery(a.name); scrollRef.current?.scrollTo({ y: 0, animated: true }); }} />
                 </View>
               </AnimatedSection>
 

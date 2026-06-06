@@ -20,7 +20,7 @@ export function GlobalSearchBar({ placeholder = "Buscar filmes, séries, atores.
 
   return (
     <Pressable
-      onPress={() => router.push("/(tabs)/channels")}
+      onPress={() => router.push("/(tabs)/" as any)}
       onPressIn={pi}
       onPressOut={po}
       style={[styles.wrap, style]}

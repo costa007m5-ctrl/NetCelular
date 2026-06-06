@@ -1267,14 +1267,6 @@ export default function FranquiasScreen() {
                 </AnimatedSection>
               )}
 
-              {/* ── 23. PROMO — BUSCA ────────────────────────────────────── */}
-              <AnimatedSection anim={s_anims[21]}>
-                <PromoBanner icon="search"
-                  title="Encontre qualquer franquia" subtitle="Busque títulos, atores e universos"
-                  action="Buscar" onPress={() => router.push("/(tabs)/channels")}
-                  gradient={[INDIGO, "#312e81"]} />
-              </AnimatedSection>
-
               {/* ── 24. COMÉDIA ──────────────────────────────────────────── */}
               {comedyItems.length > 0 && (
                 <AnimatedSection anim={s_anims[22]}>

@@ -1028,10 +1028,6 @@ export default function NovidadesScreen() {
           </View>
           <View style={sty.headerActions}>
             <TouchableOpacity style={sty.iconBtn}
-              onPress={() => router.push("/(tabs)/channels")} activeOpacity={0.75}>
-              <Feather name="search" size={20} color="rgba(255,255,255,0.82)" />
-            </TouchableOpacity>
-            <TouchableOpacity style={sty.iconBtn}
               onPress={() => router.push("/(tabs)/list")} activeOpacity={0.75}>
               <Feather name="bookmark" size={20} color="rgba(255,255,255,0.82)" />
             </TouchableOpacity>
@@ -1192,16 +1188,6 @@ export default function NovidadesScreen() {
                   </View>
                 </AnimatedSection>
               )}
-
-              {/* ── 8. PROMO — BUSCA ────────────────────────────────────── */}
-              <AnimatedSection anim={s[6]}>
-                <PromoBanner icon="search"
-                  title="Encontre qualquer título"
-                  subtitle="Busque filmes, séries, atores e muito mais"
-                  actionLabel="Buscar"
-                  onPress={() => router.push("/(tabs)/channels")}
-                  gradient={[INDIGO,"#312e81"]} />
-              </AnimatedSection>
 
               {/* ── 9. TOP 10 SÉRIES ────────────────────────────────────── */}
               {top10Series.length > 0 && (
