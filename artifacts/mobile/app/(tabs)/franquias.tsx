@@ -853,7 +853,13 @@ export default function FranquiasScreen() {
       return r.status === "fulfilled" ? (r.value?.results ?? []) : [];
     };
 
-    setHeroItems(get(0).slice(0, 8).map((x) => toItem(x)));
+    const franchiseHero = [
+      ...get(9).slice(0, 2),   // Marvel
+      ...get(10).slice(0, 2),  // DC
+      ...get(11).slice(0, 2),  // Disney
+      ...get(12).slice(0, 2),  // Pixar
+    ].slice(0, 8).map((x) => toItem(x, "movie"));
+    setHeroItems(franchiseHero);
     setTrendMovies(get(1).map((x) => toItem(x, "movie")));
     setTrendSeries(get(2).map((x) => toItem(x, "tv")));
     setTop10Movies(get(3).map((x) => toItem(x, "movie")));

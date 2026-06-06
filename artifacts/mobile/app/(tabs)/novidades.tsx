@@ -897,8 +897,10 @@ export default function NovidadesScreen() {
       return r.status === "fulfilled" ? (r.value?.results ?? []) : [];
     };
 
-    const heroRaw = get(0).slice(0, 8);
-    setHeroItems(heroRaw.map((x) => toItem(x)));
+    const nowPlayingHero = get(5).slice(0, 4).map((x: any) => toItem(x, "movie"));
+    const onAirHero      = get(6).slice(0, 4).map((x: any) => toItem(x, "tv"));
+    const heroRaw = [...nowPlayingHero, ...onAirHero].slice(0, 8);
+    setHeroItems(heroRaw);
     setTrendMovies(get(1).map((x) => toItem(x, "movie")));
     setTrendSeries(get(2).map((x) => toItem(x, "tv")));
     setTop10Movies(get(3).map((x) => toItem(x, "movie")));
