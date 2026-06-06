@@ -25,6 +25,26 @@ import { useRouter, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import type { ContentItem } from "@/constants/content";
+import { r2Base } from "@/lib/r2-direct";
+
+async function flix2Search(q: string): Promise<Set<string>> {
+  try {
+    const base = r2Base();
+    const url = base
+      ? `${base}/flix2/search?q=${encodeURIComponent(q)}&type=all&limit=40&maxPages=60`
+      : `/api/r2/flix2/search?q=${encodeURIComponent(q)}&type=all&limit=40&maxPages=60`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(30000) });
+    if (!res.ok) return new Set();
+    const data = await res.json();
+    const titles = new Set<string>();
+    for (const item of (data.results ?? [])) {
+      if (item.title) titles.add(item.title.toLowerCase().trim());
+    }
+    return titles;
+  } catch {
+    return new Set();
+  }
+}
 
 const { width: W } = Dimensions.get("window");
 const RED    = "#e50914";
@@ -109,11 +129,12 @@ const MOODS = [
 
 const HOT_TAGS = ["#Marvel", "#Netflix", "#Anime", "#KDrama", "#Oscar", "#Pixar", "#DC", "#Disney"];
 
-function PosterCard({ item, onPress, showRating = true, width = CARD_W_3 }: {
+function PosterCard({ item, onPress, showRating = true, width = CARD_W_3, inFlix2 = false }: {
   item: ContentItem;
   onPress: () => void;
   showRating?: boolean;
   width?: number;
+  inFlix2?: boolean;
 }) {
   const h = width * 1.5;
   return (
@@ -143,6 +164,12 @@ function PosterCard({ item, onPress, showRating = true, width = CARD_W_3 }: {
             </View>
           )}
         </View>
+        {inFlix2 && (
+          <View style={styles.flix2Badge}>
+            <Feather name="zap" size={8} color="#fff" />
+            <Text style={styles.flix2BadgeText}>FLIX 2.0</Text>
+          </View>
+        )}
       </View>
       <Text style={styles.cardTitle} numberOfLines={2}>{item.title}</Text>
       <Text style={styles.cardYear}>{item.year} · {item.mediaType === "tv" ? "Série" : "Filme"}</Text>
@@ -246,6 +273,8 @@ export default function BuscarScreen() {
   const [query,         setQuery]         = useState(params.q ?? "");
   const [results,       setResults]       = useState<ContentItem[]>([]);
   const [loading,       setLoading]       = useState(false);
+  const [flix2Titles,   setFlix2Titles]   = useState<Set<string>>(new Set());
+  const [flix2Loading,  setFlix2Loading]  = useState(false);
   const [activeCategory,setActiveCategory]= useState<string>("trending");
   const [activeGenre,   setActiveGenre]   = useState<string | null>(null);
 
@@ -334,17 +363,26 @@ export default function BuscarScreen() {
 
   useEffect(() => {
     const q = query.trim();
-    if (q.length < 2) { setResults([]); return; }
+    if (q.length < 2) { setResults([]); setFlix2Titles(new Set()); return; }
     setLoading(true);
+    setFlix2Loading(true);
     const timer = setTimeout(async () => {
-      try {
-        const data = await tfetch("/search/multi", { query: q, include_adult: "false", page: "1" });
-        const items: ContentItem[] = (data.results ?? [])
+      // Run TMDB search and Flix 2.0 search in parallel
+      const [tmdbResult, flix2Result] = await Promise.allSettled([
+        tfetch("/search/multi", { query: q, include_adult: "false", page: "1" }),
+        flix2Search(q),
+      ]);
+      if (tmdbResult.status === "fulfilled") {
+        const items: ContentItem[] = (tmdbResult.value.results ?? [])
           .filter((x: any) => x.media_type === "movie" || x.media_type === "tv")
           .map((x: any) => toItem(x));
         setResults(items);
-      } catch {}
+      }
       setLoading(false);
+      if (flix2Result.status === "fulfilled") {
+        setFlix2Titles(flix2Result.value);
+      }
+      setFlix2Loading(false);
     }, 380);
     return () => clearTimeout(timer);
   }, [query]);
@@ -437,21 +475,27 @@ export default function BuscarScreen() {
         /* ─────────────────── SEARCH RESULTS ───────────────────────────────── */
         <View style={{ flex: 1 }}>
           <View style={styles.resultsBar}>
-            {loading ? (
-              <ActivityIndicator color={RED} size="small" />
-            ) : (
-              <Text style={styles.resultsLabel}>
-                {results.length > 0
-                  ? `${results.length} resultado${results.length !== 1 ? "s" : ""} · "${query.trim()}"`
-                  : `Nenhum resultado para "${query.trim()}"`}
-              </Text>
-            )}
-            <View style={{ flexDirection:"row", gap:8 }}>
-              {["Todos","Filmes","Séries"].map((f) => (
-                <View key={f} style={styles.filterChip}>
-                  <Text style={styles.filterChipText}>{f}</Text>
+            <View style={{ gap: 4 }}>
+              {loading ? (
+                <ActivityIndicator color={RED} size="small" />
+              ) : (
+                <Text style={styles.resultsLabel}>
+                  {results.length > 0
+                    ? `${results.length} resultado${results.length !== 1 ? "s" : ""} · "${query.trim()}"`
+                    : `Nenhum resultado para "${query.trim()}"`}
+                </Text>
+              )}
+              {flix2Loading ? (
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                  <ActivityIndicator color="#a855f7" size="small" />
+                  <Text style={[styles.resultsLabel, { fontSize: 11, color: "#a855f7" }]}>Buscando Flix 2.0…</Text>
                 </View>
-              ))}
+              ) : flix2Titles.size > 0 ? (
+                <View style={styles.flix2CountRow}>
+                  <Feather name="zap" size={10} color="#a855f7" />
+                  <Text style={styles.flix2CountText}>{flix2Titles.size} no catálogo Flix 2.0</Text>
+                </View>
+              ) : null}
             </View>
           </View>
           {loading ? (
@@ -474,7 +518,11 @@ export default function BuscarScreen() {
               contentContainerStyle={styles.grid}
               showsVerticalScrollIndicator={false}
               renderItem={({ item }) => (
-                <PosterCard item={item} onPress={() => goTo(item)} />
+                <PosterCard
+                  item={item}
+                  onPress={() => goTo(item)}
+                  inFlix2={flix2Titles.has(item.title.toLowerCase().trim())}
+                />
               )}
               initialNumToRender={12}
               maxToRenderPerBatch={9}
@@ -750,4 +798,23 @@ const styles = StyleSheet.create({
 
   /* grid */
   grid: { paddingHorizontal: 16, gap: 8 },
+
+  /* flix2 badge (bottom-left corner of poster) */
+  flix2Badge: {
+    position: "absolute",
+    bottom: 5,
+    left: 5,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 4,
+    backgroundColor: "rgba(168,85,247,0.85)",
+  },
+  flix2BadgeText: { color: "#fff", fontSize: 8, fontWeight: "900", letterSpacing: 0.3 },
+
+  /* flix2 count row in results bar */
+  flix2CountRow: { flexDirection: "row", alignItems: "center", gap: 4 },
+  flix2CountText: { color: "#a855f7", fontSize: 11, fontWeight: "700" },
 });

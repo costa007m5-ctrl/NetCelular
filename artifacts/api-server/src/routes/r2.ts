@@ -1964,6 +1964,38 @@ router.get("/flix2/catalog-full", async (req, res) => {
 // ── GET /flix2/search — parallel page scan with title filter ──────────────────
 // nixplay.lat has no server-side search; this endpoint fetches pages in parallel
 // batches, filters by title match, and returns up to `limit` results.
+// Supports type=all to search movies, series and animes simultaneously.
+async function searchFlix2ByTitle(type: string, query: string, limit: number, maxPages: number): Promise<any[]> {
+  const first = await flix2FetchPage(type, 1);
+  if (!first.success) return [];
+
+  const totalPages = Math.min(first.pagination?.total_pages ?? 1, maxPages);
+  const results: any[] = first.data.filter((i: any) =>
+    i.title?.toLowerCase().includes(query)
+  );
+
+  if (results.length >= limit || totalPages <= 1) return results.slice(0, limit);
+
+  const BATCH = 10;
+  for (let startPage = 2; startPage <= totalPages && results.length < limit; startPage += BATCH) {
+    const batch = Array.from(
+      { length: Math.min(BATCH, totalPages - startPage + 1) },
+      (_, i) => flix2FetchPage(type, startPage + i)
+    );
+    const pages = await Promise.allSettled(batch);
+    for (const p of pages) {
+      if (p.status === "fulfilled" && p.value.success) {
+        const matches = p.value.data.filter((i: any) =>
+          i.title?.toLowerCase().includes(query)
+        );
+        results.push(...matches);
+        if (results.length >= limit) break;
+      }
+    }
+  }
+  return results.slice(0, limit);
+}
+
 router.get("/flix2/search", async (req, res) => {
   try {
     const {
@@ -1979,43 +2011,25 @@ router.get("/flix2/search", async (req, res) => {
     const limit = Math.min(Number(limitStr) || 60, 200);
     const maxPages = Math.min(Number(maxPagesStr) || 120, 821);
 
-    // Step 1: fetch page 1 to get total pages
-    const first = await flix2FetchPage(type, 1);
-    if (!first.success) { res.status(502).json({ error: "catalog unavailable" }); return; }
-
-    const totalPages = Math.min(first.pagination?.total_pages ?? 1, maxPages);
-    const results: any[] = first.data.filter((i: any) =>
-      i.title?.toLowerCase().includes(query)
-    );
-
-    if (results.length >= limit || totalPages <= 1) {
-      res.json({ results: results.slice(0, limit), total: results.length, pagesScanned: 1, totalPages });
+    if (type === "all") {
+      // Search all catalog types in parallel, capped at smaller page limits per type
+      const perTypeLimit = Math.ceil(limit / 3);
+      const perTypePages = Math.min(maxPages, 60);
+      const [moviesRes, seriesRes, animesRes] = await Promise.allSettled([
+        searchFlix2ByTitle("movies", query, perTypeLimit, perTypePages),
+        searchFlix2ByTitle("series", query, perTypeLimit, perTypePages),
+        searchFlix2ByTitle("animes", query, perTypeLimit, perTypePages),
+      ]);
+      const combined: any[] = [];
+      if (moviesRes.status === "fulfilled") combined.push(...moviesRes.value.map((i: any) => ({ ...i, _type: "movie" })));
+      if (seriesRes.status === "fulfilled") combined.push(...seriesRes.value.map((i: any) => ({ ...i, _type: "series" })));
+      if (animesRes.status === "fulfilled") combined.push(...animesRes.value.map((i: any) => ({ ...i, _type: "anime" })));
+      res.json({ results: combined.slice(0, limit), total: combined.length });
       return;
     }
 
-    // Step 2: fetch remaining pages in batches of 10 in parallel
-    const BATCH = 10;
-    let scanned = 1;
-
-    for (let startPage = 2; startPage <= totalPages && results.length < limit; startPage += BATCH) {
-      const batch = Array.from(
-        { length: Math.min(BATCH, totalPages - startPage + 1) },
-        (_, i) => flix2FetchPage(type, startPage + i)
-      );
-      const pages = await Promise.allSettled(batch);
-      for (const p of pages) {
-        scanned++;
-        if (p.status === "fulfilled" && p.value.success) {
-          const matches = p.value.data.filter((i: any) =>
-            i.title?.toLowerCase().includes(query)
-          );
-          results.push(...matches);
-          if (results.length >= limit) break;
-        }
-      }
-    }
-
-    res.json({ results: results.slice(0, limit), total: results.length, pagesScanned: scanned, totalPages });
+    const results = await searchFlix2ByTitle(type, query, limit, maxPages);
+    res.json({ results: results.slice(0, limit), total: results.length });
   } catch (err: any) {
     res.status(502).json({ error: err?.message ?? "proxy error" });
   }
