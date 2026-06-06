@@ -4530,7 +4530,7 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
   const [srcSaved, setSrcSaved] = useState(false);
 
   useEffect(() => {
-    apiFetch<SourceSettings>("/r2/source-settings").then((data) => {
+    apiFetch<SourceSettings>("/source-settings").then((data) => {
       setSrcSettings({ ...DEFAULT_SRC_SETTINGS, ...data });
     }).catch(() => {});
   }, []);
@@ -4539,7 +4539,7 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
     setSrcSaving(true);
     setSrcSaved(false);
     try {
-      await apiPost("/r2/source-settings", next);
+      await apiPost("/source-settings", next);
       setSrcSaved(true);
       setTimeout(() => setSrcSaved(false), 2500);
     } catch {}
@@ -5460,7 +5460,7 @@ function Flix2Panel() {
     setError(null);
     try {
       const data = await apiFetch<{ success: boolean; pagination: any; data: Flix2Item[] }>(
-        `/r2/flix2/catalog?type=${type}&page=${pg}`
+        `/flix2/catalog?type=${type}&page=${pg}`
       );
       if (!data.success) { setError("Erro ao carregar conteúdo"); return; }
       setTotalPages(data.pagination?.total_pages ?? 1);
@@ -5672,7 +5672,7 @@ function Flix2RegisterModal({ item, onClose, onDone }: { item: Flix2Item; onClos
     setProgress(0);
     try {
       if (isMovie) {
-        await apiPost("/r2/flix2/register", {
+        await apiPost("/flix2/register", {
           flix2Url: item.stream_url,
           tmdbId: item.tmdb_id,
           tmdbType,
@@ -5686,7 +5686,7 @@ function Flix2RegisterModal({ item, onClose, onDone }: { item: Flix2Item; onClos
         const toReg = episodes.filter((_, i) => selectedEps.has(i));
         for (let i = 0; i < toReg.length; i++) {
           const ep = toReg[i];
-          await apiPost("/r2/flix2/register", {
+          await apiPost("/flix2/register", {
             flix2Url: ep.stream_url,
             tmdbId: item.tmdb_id,
             tmdbType,

@@ -774,6 +774,9 @@ const SERVER_ONLY_ROUTES = new Set([
   "/drive/play",
   "/drive/extract-all",
   "/drive/scan-folder",
+  "/flix2/catalog",
+  "/flix2/register",
+  "/source-settings",
 ]);
 
 async function forwardToServer<T>(path: string, options?: RequestInit): Promise<T> {

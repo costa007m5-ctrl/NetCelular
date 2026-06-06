@@ -274,10 +274,10 @@ export default function DetailScreen() {
     if (!tmdbId) return;
     const loadR2 = async () => {
       try {
-        const { apiGetRegistry, apiFetch } = await import("@/lib/r2-direct");
+        const { apiGetRegistry, r2Route } = await import("@/lib/r2-direct");
         const [data, settingsRaw] = await Promise.allSettled([
           apiGetRegistry(),
-          apiFetch<SourceSettings>("/r2/source-settings"),
+          r2Route<SourceSettings>("/source-settings"),
         ]);
         if (data.status === "fulfilled") {
           const items: RegistryItem[] = (data.value.items ?? []).filter(
