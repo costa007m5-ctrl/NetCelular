@@ -617,19 +617,6 @@ export default function BuscarScreen() {
                 <HRow items={acclaimed} accentColor={AMBER} />
               </SectionRow>
 
-              {/* ── MINI GRID: TODOS TRENDING ─────────────────────────────── */}
-              <SectionRow title="Explore — Todos os Trending" badge="GRADE" accentColor={RED}>
-                <FlatList
-                  data={trending}
-                  keyExtractor={(item) => item.id}
-                  numColumns={3}
-                  scrollEnabled={false}
-                  contentContainerStyle={styles.grid}
-                  renderItem={({ item }) => (
-                    <PosterCard item={item} onPress={() => goTo(item)} />
-                  )}
-                />
-              </SectionRow>
             </>
           )}
         </ScrollView>
