@@ -278,7 +278,7 @@ export default function DetailScreen() {
         const [data, settingsRaw, flix2Raw] = await Promise.allSettled([
           apiGetRegistry(),
           r2Route<SourceSettings>("/source-settings"),
-          r2Route<{ found: boolean; item: any }>(`/flix2/lookup?tmdbId=${tmdbId}&type=${flix2Type}`),
+          r2Route<{ found: boolean; item: any }>(`/flix2/lookup?tmdbId=${tmdbId}&type=${flix2Type}&title=${encodeURIComponent(params.title ?? "")}`),
         ]);
         const registryItems: RegistryItem[] = data.status === "fulfilled"
           ? (data.value.items ?? []).filter(
@@ -1252,76 +1252,24 @@ export default function DetailScreen() {
 
                 const pressRegular = () => goToPlayer(resumeS, resumeE);
 
+                // Flix 2.0 is primary — sources ordered: flix2, r2, drive
                 const sources = [
-                  hasR2   && { id: "r2",     press: pressR2 },
-                  hasFlix && { id: "flix2",   press: pressFlix },
-                  hasDrive && { id: "drive",  press: pressDrive },
+                  hasFlix  && { id: "flix2",  press: pressFlix },
+                  hasR2    && { id: "r2",      press: pressR2 },
+                  hasDrive && { id: "drive",   press: pressDrive },
                 ].filter(Boolean) as { id: string; press: () => void }[];
 
-                if (sources.length === 0) {
-                  if (r2Loading) {
-                    return (
-                      <Pressable
-                        style={[styles.watchBtn, { backgroundColor: colors.primary }, { opacity: 0.85 }]}
-                        onPress={pressRegular}
-                      >
-                        <Feather name="play" size={18} color="#fff" />
-                        <Text style={styles.watchBtnText}>ASSISTIR AGORA</Text>
-                      </Pressable>
-                    );
-                  }
-                  return (
-                    <>
-                      <View style={[styles.watchBtn, { backgroundColor: "rgba(255,255,255,0.07)", borderWidth: 1, borderColor: "rgba(255,255,255,0.12)" }]}>
-                        <Feather name="lock" size={16} color="rgba(255,255,255,0.35)" />
-                        <Text style={[styles.watchBtnText, { color: "rgba(255,255,255,0.35)" }]}>INDISPONÍVEL NO CATÁLOGO</Text>
-                      </View>
-                      <Pressable
-                        style={({ pressed }) => [
-                          styles.watchBtn,
-                          {
-                            backgroundColor: watchingCatalog ? "rgba(229,9,20,0.12)" : "rgba(255,255,255,0.05)",
-                            borderWidth: 1,
-                            borderColor: watchingCatalog ? "rgba(229,9,20,0.4)" : "rgba(255,255,255,0.10)",
-                            marginTop: 10,
-                          },
-                          pressed && { opacity: 0.75 },
-                        ]}
-                        onPress={async () => {
-                          if (!tmdbId) return;
-                          if (watchingCatalog) {
-                            await removeCatalogWatch(tmdbId, type);
-                            setWatchingCatalog(false);
-                          } else {
-                            await addCatalogWatch({
-                              tmdbId,
-                              type,
-                              title: details?.title ?? details?.name ?? "",
-                              posterPath: details?.poster_path ?? undefined,
-                            });
-                            setWatchingCatalog(true);
-                          }
-                        }}
-                      >
-                        <Feather
-                          name={watchingCatalog ? "bell" : "bell"}
-                          size={16}
-                          color={watchingCatalog ? "#e50914" : "rgba(255,255,255,0.5)"}
-                        />
-                        <Text style={[styles.watchBtnText, { color: watchingCatalog ? "#e50914" : "rgba(255,255,255,0.5)" }]}>
-                          {watchingCatalog ? "NOTIFICAÇÃO ATIVADA" : "AVISAR QUANDO DISPONÍVEL"}
-                        </Text>
-                      </Pressable>
-                    </>
-                  );
-                }
+                // Primary press: flix2 if available, else regular embed player
+                const primaryPress = hasFlix ? pressFlix : pressRegular;
 
-                if (sources.length === 1) {
-                  // Single special source — show as "ASSISTIR AGORA"
+                if (sources.length === 0) {
+                  // Always show ASSISTIR AGORA immediately — no INDISPONÍVEL state.
+                  // During lookup (r2Loading) and after (no flix2 found) both fall back
+                  // to the regular embed player so the user can always watch.
                   return (
                     <Pressable
                       style={({ pressed }) => [styles.watchBtn, { backgroundColor: colors.primary }, pressed && { opacity: 0.85 }]}
-                      onPress={sources[0].press}
+                      onPress={pressRegular}
                     >
                       <Feather name="play" size={18} color="#fff" />
                       <Text style={styles.watchBtnText}>ASSISTIR AGORA</Text>
@@ -1329,33 +1277,45 @@ export default function DetailScreen() {
                   );
                 }
 
-                // Multiple sources — show individual buttons
+                if (sources.length === 1) {
+                  // Single source (most likely flix2) — show as "ASSISTIR AGORA"
+                  return (
+                    <Pressable
+                      style={({ pressed }) => [styles.watchBtn, { backgroundColor: colors.primary }, pressed && { opacity: 0.85 }]}
+                      onPress={primaryPress}
+                    >
+                      <Feather name="play" size={18} color="#fff" />
+                      <Text style={styles.watchBtnText}>ASSISTIR AGORA</Text>
+                    </Pressable>
+                  );
+                }
+
+                // Multiple sources — flix2 is primary "ASSISTIR AGORA", others are secondary
                 return (
                   <>
+                    {/* Primary: Flix 2.0 or first available source */}
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.watchBtn,
+                        { backgroundColor: colors.primary },
+                        pressed && { opacity: 0.85 },
+                      ]}
+                      onPress={primaryPress}
+                    >
+                      <Feather name="play" size={18} color="#fff" />
+                      <Text style={styles.watchBtnText}>ASSISTIR AGORA</Text>
+                    </Pressable>
                     {hasR2 && (
                       <Pressable
                         style={({ pressed }) => [
                           styles.watchBtn,
-                          { backgroundColor: colors.primary },
+                          { backgroundColor: "rgba(255,255,255,0.10)", marginTop: 8, borderWidth: 1, borderColor: "rgba(255,255,255,0.15)" },
                           pressed && { opacity: 0.85 },
                         ]}
                         onPress={pressR2}
                       >
                         <Feather name={type === "tv" ? "tv" : "film"} size={18} color="#fff" />
-                        <Text style={styles.watchBtnText}>ASSISTIR AGORA</Text>
-                      </Pressable>
-                    )}
-                    {hasFlix && (
-                      <Pressable
-                        style={({ pressed }) => [
-                          styles.watchBtn,
-                          { backgroundColor: "#8b5cf6", marginTop: 8 },
-                          pressed && { opacity: 0.85 },
-                        ]}
-                        onPress={pressFlix}
-                      >
-                        <Feather name="zap" size={18} color="#fff" />
-                        <Text style={styles.watchBtnText}>ASSISTIR (FLIX 2.0)</Text>
+                        <Text style={styles.watchBtnText}>ASSISTIR (R2)</Text>
                       </Pressable>
                     )}
                     {hasDrive && (

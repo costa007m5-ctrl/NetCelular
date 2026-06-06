@@ -1863,6 +1863,16 @@ router.post("/source-settings", async (req, res) => {
 
 // ── Flix2 helpers ──────────────────────────────────────────────────────────────
 
+function normalizeTitleForSearch(t: string): string {
+  return t
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 const FLIX2_USER = "Reis007-vods";
 const FLIX2_PASS = encodeURIComponent("Reis12@@");
 
@@ -2011,13 +2021,24 @@ router.get("/flix2/search", async (req, res) => {
   }
 });
 
-// ── GET /flix2/lookup?tmdbId=X&type=movies|series|animes|all ──────────────────
-// Find a Flix 2.0 catalog item by TMDB ID.
+// ── GET /flix2/lookup?tmdbId=X&type=movies|series|animes|all&title=Y ──────────
+// Find a Flix 2.0 catalog item by TMDB ID, falling back to title match.
 // Checks a pre-built R2 index file first (fast), falls back to live page scan.
 router.get("/flix2/lookup", async (req, res) => {
-  const { tmdbId, type = "all" } = req.query as Record<string, string>;
+  const { tmdbId, type = "all", title = "" } = req.query as Record<string, string>;
   const id = Number(tmdbId);
   if (!id) { res.json({ found: false, item: null }); return; }
+
+  const normTitle = title ? normalizeTitleForSearch(title) : "";
+
+  function matchItem(i: any): boolean {
+    if (Number(i.tmdb_id) === id) return true;
+    if (normTitle) {
+      const iNorm = normalizeTitleForSearch(i.title ?? i.name ?? "");
+      if (iNorm && iNorm === normTitle) return true;
+    }
+    return false;
+  }
 
   const typesToCheck = type === "all" ? ["movies", "series", "animes"] : [type];
   const client = getClient();
@@ -2041,15 +2062,16 @@ router.get("/flix2/lookup", async (req, res) => {
     } catch {}
 
     // Slow path: live page scan (up to 200 pages for series/animes, 50 for movies)
+    // Matches by TMDB ID or by normalized title as fallback.
     try {
       const first = await flix2FetchPage(t, 1);
       if (!first.success) continue;
-      const found = first.data.find((i: any) => Number(i.tmdb_id) === id);
+      const found = first.data.find((i: any) => matchItem(i));
       if (found) { res.json({ found: true, item: found }); return; }
 
       const totalPages = Math.min(first.pagination?.total_pages ?? 1, t === "movies" ? 50 : 200);
       const BATCH = 10;
-      outer: for (let start = 2; start <= totalPages; start += BATCH) {
+      for (let start = 2; start <= totalPages; start += BATCH) {
         const batch = Array.from(
           { length: Math.min(BATCH, totalPages - start + 1) },
           (_, i) => flix2FetchPage(t, start + i)
@@ -2057,7 +2079,7 @@ router.get("/flix2/lookup", async (req, res) => {
         const pages = await Promise.allSettled(batch);
         for (const p of pages) {
           if (p.status === "fulfilled" && p.value.success) {
-            const item = p.value.data.find((i: any) => Number(i.tmdb_id) === id);
+            const item = p.value.data.find((i: any) => matchItem(i));
             if (item) { res.json({ found: true, item }); return; }
           }
         }
