@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -61,6 +61,7 @@ interface RegistryItem {
   driveUrl?: string; driveDirectUrl?: string;
   tmdbId: number; tmdbType: "movie" | "tv";
   title: string; label: string; season: number | null; episode: number | null;
+  quality?: string;
 }
 
 interface TmdbEpisode {
@@ -229,6 +230,8 @@ export default function R2PlayerScreen() {
   const [isSpeedBoost, setIsSpeedBoost] = useState(false);
   const [fromCache, setFromCache] = useState(false);
   const [videoResolution, setVideoResolution] = useState<string | null>(null);
+  const [showQualityPanel, setShowQualityPanel] = useState(false);
+  const activeKeyRef = useRef<string>(params.key ?? "");
   const lockAnim = useRef(new Animated.Value(0)).current;
 
   // ── Episodes panel ──────────────────────────────────────────────────────────
@@ -276,6 +279,26 @@ export default function R2PlayerScreen() {
   const preloadedNextUrlRef = useRef<string | null>(null);
   const preloadingRef = useRef(false);
   const sleepCheckRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // ── Quality variants (same content, different r2Key = different quality) ────
+  const qualityVariants = useMemo<RegistryItem[]>(() => {
+    if (!r2Items.length || isDrive || isFlix2) return [];
+    if (!isTV) {
+      // Filme: todas as entradas r2 sem season/episode
+      const movies = r2Items.filter((i) => i.r2Key && !i.teraboxUrl && i.season == null && i.episode == null);
+      return movies.length > 1 ? movies : [];
+    }
+    if (episode != null) {
+      // Episódio: entradas com mesmo season+episode
+      const variants = r2Items.filter((i) => i.season === season && i.episode === episode && i.r2Key);
+      return variants.length > 1 ? variants : [];
+    }
+    // Pasta de temporada: todas as pastas com mesmo season
+    const folderVariants = r2Items.filter((i) => i.season === season && i.episode == null && i.r2Key);
+    return folderVariants.length > 1 ? folderVariants : [];
+  }, [r2Items, isDrive, isFlix2, isTV, season, episode]);
+
+  const activeVariant = qualityVariants.find((i) => i.r2Key === activeKeyRef.current) ?? qualityVariants[0] ?? null;
 
   // ── Computed seasons ────────────────────────────────────────────────────────
   const displaySeasons: number[] = (() => {
@@ -396,7 +419,7 @@ export default function R2PlayerScreen() {
 
   // ── Fetch video URL (with cache) ────────────────────────────────────────────
   const loadVideoUrl = useCallback(async () => {
-    if (!isDrive && !isFlix2 && !params.key) { setPhase("error"); setErrorMsg("Arquivo não especificado"); return; }
+    if (!isDrive && !isFlix2 && !activeKeyRef.current) { setPhase("error"); setErrorMsg("Arquivo não especificado"); return; }
     phaseRef.current = "loading";
     setPhase("loading");
     setVideoUrl(null);
@@ -431,18 +454,18 @@ export default function R2PlayerScreen() {
         if (Platform.OS === "web") {
           // No web: proxy via API server — evita CORS do R2 direto.
           // O endpoint /api/r2/stream aceita pastas e resolve episódio no servidor.
-          let streamUrl = `/api/r2/stream?key=${encodeURIComponent(params.key)}`;
+          let streamUrl = `/api/r2/stream?key=${encodeURIComponent(activeKeyRef.current)}`;
           if (episode != null) streamUrl += `&episode=${episode}`;
           url = streamUrl;
         } else {
-          const cacheKey = `${params.key}__ep${episode ?? ""}`;
+          const cacheKey = `${activeKeyRef.current}__ep${episode ?? ""}`;
           const cached = await getCachedSignedUrl(cacheKey);
           if (cached) {
             setFromCache(true);
             url = cached;
           } else {
             setFromCache(false);
-            url = await fetchSignedUrlCached(params.key, episode);
+            url = await fetchSignedUrlCached(activeKeyRef.current, episode);
           }
         }
       }
@@ -466,9 +489,18 @@ export default function R2PlayerScreen() {
       setErrorMsg(e.message ?? "Erro ao carregar vídeo");
       fakeAnim.current?.stop();
     }
-  }, [params.key, params.flix2ItemUrl, isFlix2, episode, r2Items]);
+  }, [params.flix2ItemUrl, isFlix2, episode, r2Items]);
+
+  const switchQuality = useCallback((item: RegistryItem) => {
+    activeKeyRef.current = item.r2Key;
+    setShowQualityPanel(false);
+    setVideoResolution(null);
+    loadVideoUrl();
+  }, [loadVideoUrl]);
 
   useEffect(() => {
+    // Sync activeKeyRef when params change (new item navigated to)
+    activeKeyRef.current = params.key ?? "";
     setRetryCount(0);
     setAutoRetryCountdown(null);
     if (autoRetryTimerRef.current) { clearInterval(autoRetryTimerRef.current); autoRetryTimerRef.current = null; }
@@ -1055,6 +1087,31 @@ export default function R2PlayerScreen() {
         </Pressable>
       </Modal>
 
+      {/* ── Quality panel ───────────────────────────────────────────────────── */}
+      <Modal visible={showQualityPanel} animationType="fade" transparent onRequestClose={() => setShowQualityPanel(false)}>
+        <Pressable style={styles.panelModalBg} onPress={() => setShowQualityPanel(false)}>
+          <View style={styles.floatingPanel}>
+            <Text style={styles.floatingPanelTitle}>Selecionar qualidade</Text>
+            {qualityVariants.map((item) => {
+              const isActive = item.r2Key === activeKeyRef.current;
+              const qLabel = item.quality ?? item.label ?? item.r2Key.split("/").filter(Boolean).pop() ?? "Padrão";
+              return (
+                <Pressable key={item.id} style={[styles.floatingPanelRow, isActive && styles.floatingPanelRowActive]} onPress={() => switchQuality(item)}>
+                  <Feather name="layers" size={14} color={isActive ? RED : "#888"} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.floatingPanelRowText, isActive && { color: RED }]}>{qLabel}</Text>
+                    {item.label && item.label !== qLabel && (
+                      <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 10 }}>{item.label}</Text>
+                    )}
+                  </View>
+                  {isActive && <Feather name="check" size={14} color={RED} />}
+                </Pressable>
+              );
+            })}
+          </View>
+        </Pressable>
+      </Modal>
+
       {/* ── Video container ──────────────────────────────────────────────────── */}
       <Animated.View style={{ width: videoWidthAnim, height: "100%", overflow: "hidden" }}>
         {videoUrl && Video && (
@@ -1289,12 +1346,22 @@ export default function R2PlayerScreen() {
                       <Text style={styles.ctrlEp}>T{season} · Ep {episode}{episodeName ? ` — ${episodeName}` : ""}</Text>
                     )}
                   </View>
-                  {/* Quality badge */}
-                  {videoResolution && (
+                  {/* Quality selector / badge */}
+                  {qualityVariants.length > 1 ? (
+                    <Pressable
+                      style={[styles.qualityBadge, { borderColor: "rgba(229,9,20,0.5)" }]}
+                      onPress={() => { setShowQualityPanel(true); showControls(); }}
+                    >
+                      <Feather name="layers" size={9} color={RED} />
+                      <Text style={[styles.qualityBadgeText, { color: RED }]}>
+                        {activeVariant?.quality ?? (videoResolution ?? "Qualidade")}
+                      </Text>
+                    </Pressable>
+                  ) : videoResolution ? (
                     <View style={styles.qualityBadge}>
                       <Text style={styles.qualityBadgeText}>{videoResolution}</Text>
                     </View>
-                  )}
+                  ) : null}
                   {/* Source badge */}
                   <View style={styles.ctrlSourceBadge}>
                     <Feather name="server" size={10} color="#888" />

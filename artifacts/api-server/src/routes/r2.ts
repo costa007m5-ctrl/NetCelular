@@ -186,6 +186,7 @@ export interface RegistryItem {
   season: number | null;
   episode: number | null;
   r2Folder?: string;
+  quality?: string;
   addedAt: string;
 }
 

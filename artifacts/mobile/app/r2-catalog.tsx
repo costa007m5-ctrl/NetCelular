@@ -85,7 +85,7 @@ interface RegistryItem {
   id: string; r2Key: string; teraboxUrl?: string; fileIndex?: number;
   tmdbId: number; tmdbType: "movie" | "tv";
   title: string; label: string; season: number | null; episode: number | null;
-  r2Folder?: string;
+  r2Folder?: string; quality?: string;
 }
 interface TmdbSearchResult {
   id: number; title: string; poster_path: string | null; media_type: "movie" | "tv";
@@ -216,6 +216,7 @@ function SeasonList({ entry, onBack, onSelectSeason, onEdit }: {
   const insets = useSafeAreaInsets();
   const [registering, setRegistering] = useState<string | null>(null);
   const [registered, setRegisteredSeasons] = useState<Set<string>>(new Set());
+  const [registerQuality, setRegisterQuality] = useState("1080p");
 
   // Carrega quais temporadas já estão registradas no R2
   useEffect(() => {
@@ -252,6 +253,7 @@ function SeasonList({ entry, onBack, onSelectSeason, onEdit }: {
           label: s.label,
           season: s.number,
           episode: null,
+          quality: registerQuality,
         },
       });
       setRegisteredSeasons((prev) => new Set([...prev, s.prefix]));
@@ -288,6 +290,25 @@ function SeasonList({ entry, onBack, onSelectSeason, onEdit }: {
             {entry.tmdb?.vote_average ? <Text style={styles.detailRating}>⭐ {entry.tmdb.vote_average.toFixed(1)}</Text> : null}
             {entry.tmdb?.overview ? <Text style={styles.detailOverview} numberOfLines={4}>{entry.tmdb.overview}</Text> : null}
           </View>
+        </View>
+        {/* Quality selector for quick-register */}
+        <Text style={[styles.seasonHeader, { marginBottom: 4 }]}>Qualidade (para registrar)</Text>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, paddingHorizontal: 16, marginBottom: 12 }}>
+          {["4K", "1080p", "720p", "480p", "360p"].map((q) => {
+            const qColors: Record<string, string> = { "4K": "#a78bfa", "1080p": "#60a5fa", "720p": "#34d399", "480p": "#f59e0b", "360p": "#fb923c" };
+            const isActive = registerQuality === q;
+            return (
+              <Pressable
+                key={q}
+                onPress={() => setRegisterQuality(q)}
+                style={{ paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20, borderWidth: 1.5,
+                  borderColor: isActive ? (qColors[q] ?? RED) : "rgba(255,255,255,0.15)",
+                  backgroundColor: isActive ? `${qColors[q] ?? RED}22` : "transparent" }}
+              >
+                <Text style={{ color: isActive ? (qColors[q] ?? RED) : "rgba(255,255,255,0.5)", fontSize: 12, fontWeight: "600" }}>{q}</Text>
+              </Pressable>
+            );
+          })}
         </View>
         <Text style={styles.seasonHeader}>Temporadas</Text>
         {entry.seasons.length === 0 ? (
@@ -5241,7 +5262,8 @@ function RegisterModal({ r2Key, episode, onClose, onDone }: {
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState<TmdbSearchResult[]>([]);
   const [selected, setSelected] = useState<TmdbSearchResult | null>(null);
-  const [label, setLabel] = useState("Dublado 1080p");
+  const [label, setLabel] = useState("Dublado");
+  const [quality, setQuality] = useState("1080p");
   const [season, setSeason] = useState("");
   const [ep, setEp] = useState(episode != null ? String(episode) : "");
   const [saving, setSaving] = useState(false);
@@ -5270,6 +5292,7 @@ function RegisterModal({ r2Key, episode, onClose, onDone }: {
           label: label.trim() || "Padrão",
           season: season ? Number(season) : null,
           episode: ep ? Number(ep) : null,
+          quality: quality,
         },
       });
       onDone();
@@ -5358,11 +5381,31 @@ function RegisterModal({ r2Key, episode, onClose, onDone }: {
             </View>
           )}
 
+          {/* Quality */}
+          <Text style={[styles.fieldLabel, { marginTop: 16 }]}>Qualidade</Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 4 }}>
+            {["4K", "1080p", "720p", "480p", "360p"].map((q) => {
+              const qColors: Record<string, string> = { "4K": "#a78bfa", "1080p": "#60a5fa", "720p": "#34d399", "480p": "#f59e0b", "360p": "#fb923c" };
+              const isActive = quality === q;
+              return (
+                <Pressable
+                  key={q}
+                  onPress={() => setQuality(q)}
+                  style={{ paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, borderWidth: 1.5,
+                    borderColor: isActive ? (qColors[q] ?? RED) : "rgba(255,255,255,0.15)",
+                    backgroundColor: isActive ? `${qColors[q] ?? RED}22` : "transparent" }}
+                >
+                  <Text style={{ color: isActive ? (qColors[q] ?? RED) : "rgba(255,255,255,0.5)", fontSize: 13, fontWeight: "700" }}>{q}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
           {/* Label */}
           <Text style={[styles.fieldLabel, { marginTop: 12 }]}>Rótulo</Text>
           <TextInput
             style={styles.input}
-            placeholder="Dublado 1080p"
+            placeholder="Dublado"
             placeholderTextColor="rgba(255,255,255,0.25)"
             value={label}
             onChangeText={setLabel}

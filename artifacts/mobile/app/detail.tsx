@@ -42,6 +42,7 @@ interface RegistryItem {
   driveFilePath?: string; driveNum?: number;
   tmdbId: number; tmdbType: "movie" | "tv";
   title: string; label: string; season: number | null; episode: number | null;
+  quality?: string;
 }
 
 interface SourceSettings {
