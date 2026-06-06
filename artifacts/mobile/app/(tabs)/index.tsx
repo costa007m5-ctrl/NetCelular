@@ -755,14 +755,14 @@ const ACTOR_CATEGORIES = [
 const ACTORS = ACTOR_CATEGORIES[0].actors;
 
 const COUNTRIES = [
-  { id: "BR", label: "Brasil",      flagCode: "br", color: "#22c55e" },
-  { id: "US", label: "EUA",         flagCode: "us", color: "#3b82f6" },
-  { id: "KR", label: "Coreia",      flagCode: "kr", color: "#ec4899" },
-  { id: "JP", label: "Japão",       flagCode: "jp", color: "#e50914" },
-  { id: "GB", label: "Reino Unido", flagCode: "gb", color: "#8b5cf6" },
-  { id: "FR", label: "França",      flagCode: "fr", color: "#f59e0b" },
-  { id: "IT", label: "Itália",      flagCode: "it", color: "#f97316" },
-  { id: "ES", label: "Espanha",     flagCode: "es", color: "#dc2626" },
+  { id: "BR", label: "Brasil",      flagCode: "br", flag: "🇧🇷", color: "#22c55e" },
+  { id: "US", label: "EUA",         flagCode: "us", flag: "🇺🇸", color: "#3b82f6" },
+  { id: "KR", label: "Coreia",      flagCode: "kr", flag: "🇰🇷", color: "#ec4899" },
+  { id: "JP", label: "Japão",       flagCode: "jp", flag: "🇯🇵", color: "#e50914" },
+  { id: "GB", label: "Reino Unido", flagCode: "gb", flag: "🇬🇧", color: "#8b5cf6" },
+  { id: "FR", label: "França",      flagCode: "fr", flag: "🇫🇷", color: "#f59e0b" },
+  { id: "IT", label: "Itália",      flagCode: "it", flag: "🇮🇹", color: "#f97316" },
+  { id: "ES", label: "Espanha",     flagCode: "es", flag: "🇪🇸", color: "#dc2626" },
 ];
 
 const UPCOMING_MOVIES = [
@@ -2519,8 +2519,8 @@ export default function HomeScreen() {
                     accentColor={TEAL} subtitle="Explore por país" />
                   <FilmNationRow countries={COUNTRIES}
                     onPress={(c) => router.push({
-                      pathname: "/genre-browse",
-                      params: { title: c.label, source: "flix2", flix2_type: "movies" },
+                      pathname: "/country-browse",
+                      params: { id: c.id, label: c.label, flag: c.flag, color: c.color },
                     })} />
                 </View>
               </AnimatedSection>
