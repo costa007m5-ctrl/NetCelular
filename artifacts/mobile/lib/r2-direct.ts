@@ -907,14 +907,16 @@ export async function r2Route<T>(path: string, options?: RequestInit): Promise<T
   const q = (k: string) => u.searchParams.get(k) ?? "";
   const body = options?.body ? JSON.parse(options.body as string) : null;
 
-  // No web (Chrome/browser): sempre usa o API server — S3 direto falha por CORS
-  if (Platform.OS === "web") {
-    return forwardToServer<T>(path, options);
-  }
-
-  // Drive play: resolver diretamente do dispositivo — o Worker bloqueia IPs de servidores
+  // Drive play: sempre resolve diretamente do dispositivo/browser.
+  // O Worker Animezey bloqueia IPs de servidores (erro 1102) mas NÃO bloqueia
+  // dispositivos móveis nem browsers. Deve vir ANTES do check de web platform.
   if (route === "/drive/play") {
     return drivePlayDirect(q("id")) as Promise<T>;
+  }
+
+  // No web (Chrome/browser): usa o API server para rotas S3 — direto falha por CORS
+  if (Platform.OS === "web") {
+    return forwardToServer<T>(path, options);
   }
 
   // Server-only routes: forward to API server

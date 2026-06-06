@@ -580,6 +580,72 @@ router.get("/signed-url", async (req, res) => {
   }
 });
 
+// OPTIONS /stream — CORS preflight
+router.options("/stream", (_req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Range, Content-Type");
+  res.sendStatus(204);
+});
+
+// GET /stream?key=<r2-key>
+// Proxy de vídeo do R2 com suporte a Range requests (busca em vídeo no browser).
+// Adiciona cabeçalhos CORS para que <video> no browser consiga carregar sem erro.
+router.get("/stream", async (req, res) => {
+  try {
+    let key = req.query["key"] as string;
+    if (!key) { res.status(400).json({ error: "key required" }); return; }
+    const client = getClient();
+    const bucket = getBucket(req.query);
+
+    // Se a chave for uma pasta, resolve o primeiro vídeo
+    if (key.endsWith("/")) {
+      const listCmd = new ListObjectsV2Command({ Bucket: bucket, Prefix: key, MaxKeys: 1000 });
+      const listData = await client.send(listCmd);
+      const video = (listData.Contents ?? []).find((o) => o.Key && isLikelyVideo(o.Key, o.Size ?? 0));
+      if (!video?.Key) { res.status(404).json({ error: "Nenhum vídeo encontrado na pasta" }); return; }
+      key = video.Key;
+    }
+
+    // HEAD para obter tamanho e content-type
+    const headCmd = new HeadObjectCommand({ Bucket: bucket, Key: key });
+    const headData = await client.send(headCmd);
+    const totalSize = headData.ContentLength ?? 0;
+    const contentType = headData.ContentType ?? "video/mp4";
+
+    res.setHeader("Accept-Ranges", "bytes");
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Range, Content-Type");
+
+    const rangeHeader = req.headers["range"];
+    if (rangeHeader) {
+      const match = rangeHeader.match(/bytes=(\d+)-(\d*)/);
+      if (!match) { res.status(416).end(); return; }
+      const start = parseInt(match[1], 10);
+      const end = match[2] ? parseInt(match[2], 10) : Math.max(0, totalSize - 1);
+      const chunkSize = end - start + 1;
+      const getCmd = new GetObjectCommand({ Bucket: bucket, Key: key, Range: `bytes=${start}-${end}` });
+      const data = await client.send(getCmd);
+      res.status(206);
+      res.setHeader("Content-Range", `bytes ${start}-${end}/${totalSize}`);
+      res.setHeader("Content-Length", chunkSize);
+      (data.Body as Readable).pipe(res);
+    } else {
+      const getCmd = new GetObjectCommand({ Bucket: bucket, Key: key });
+      const data = await client.send(getCmd);
+      res.status(200);
+      if (totalSize > 0) res.setHeader("Content-Length", totalSize);
+      (data.Body as Readable).pipe(res);
+    }
+  } catch (err: any) {
+    if (!res.headersSent) {
+      res.status(500).json({ error: err?.message ?? "error" });
+    }
+  }
+});
+
 // GET /stats
 router.get("/stats", async (req, res) => {
   try {
