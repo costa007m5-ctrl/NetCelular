@@ -250,6 +250,40 @@ async function writeRegistry(client: S3Client, bucket: string, registry: Registr
   }));
 }
 
+// ── Remap History (stored in R2 as __remap-history.json) ─────────────────────
+
+interface RemapEntry {
+  id: string;
+  doneAt: string;
+  fromIds: number[];
+  toId: number;
+  toType: "movie" | "tv";
+  titles: string[];
+  updated: number;
+}
+interface RemapHistory { version: number; entries: RemapEntry[] }
+
+async function readRemapHistory(client: S3Client, bucket: string): Promise<RemapHistory> {
+  try {
+    const cmd = new GetObjectCommand({ Bucket: bucket, Key: "__remap-history.json" });
+    const data = await client.send(cmd);
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of data.Body as any) chunks.push(chunk);
+    return JSON.parse(Buffer.concat(chunks).toString("utf-8")) as RemapHistory;
+  } catch {
+    return { version: 1, entries: [] };
+  }
+}
+
+async function writeRemapHistory(client: S3Client, bucket: string, history: RemapHistory): Promise<void> {
+  await client.send(new PutObjectCommand({
+    Bucket: bucket,
+    Key: "__remap-history.json",
+    Body: JSON.stringify(history, null, 2),
+    ContentType: "application/json",
+  }));
+}
+
 // ── TMDB search ───────────────────────────────────────────────────────────────
 
 async function searchTmdb(name: string, hint?: "movie" | "tv"): Promise<TmdbMatch | null> {
@@ -1077,15 +1111,46 @@ router.post("/registry/remap-tmdb", async (req, res) => {
     const bucket = getBucket();
     const registry = await readRegistry(client, bucket);
     let updated = 0;
+    const affectedTitles = new Set<string>();
     registry.items = registry.items.map((item) => {
       if (fromSet.has(Number(item.tmdbId))) {
         updated++;
+        if (item.title) affectedTitles.add(item.title);
         return { ...item, tmdbId: Number(toId), tmdbType: toType };
       }
       return item;
     });
     await writeRegistry(client, bucket, registry);
+
+    // Save to remap history (non-blocking on failure)
+    try {
+      const history = await readRemapHistory(client, bucket);
+      history.entries.unshift({
+        id: crypto.randomUUID(),
+        doneAt: new Date().toISOString(),
+        fromIds: fromIds.map(Number),
+        toId: Number(toId),
+        toType,
+        titles: [...affectedTitles].slice(0, 5),
+        updated,
+      });
+      if (history.entries.length > 100) history.entries = history.entries.slice(0, 100);
+      await writeRemapHistory(client, bucket, history);
+    } catch {}
+
     res.json({ ok: true, updated });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "error" });
+  }
+});
+
+// GET /registry/remap-history
+router.get("/registry/remap-history", async (_req, res) => {
+  try {
+    const client = getClient();
+    const bucket = getBucket();
+    const history = await readRemapHistory(client, bucket);
+    res.json(history);
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? "error" });
   }

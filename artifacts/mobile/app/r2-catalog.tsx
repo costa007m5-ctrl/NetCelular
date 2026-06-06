@@ -4571,6 +4571,23 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
   const [mgDriveRegisterCtx, setMgDriveRegisterCtx] = useState<{ driveNum: number; filePath: string } | null>(null);
   const [folderBulkTarget, setFolderBulkTarget] = useState<FolderBulkTarget | null>(null);
 
+  // ── Remap history ────────────────────────────────────────────────────────────
+  interface RemapEntry { id: string; doneAt: string; fromIds: number[]; toId: number; toType: string; titles: string[]; updated: number }
+  const [remapHistory, setRemapHistory] = useState<RemapEntry[]>([]);
+  const [remapLoading, setRemapLoading] = useState(false);
+  const [remapOpen, setRemapOpen] = useState(false);
+
+  const loadRemapHistory = async () => {
+    setRemapLoading(true);
+    try {
+      const data = await apiFetch<{ entries: RemapEntry[] }>("/registry/remap-history");
+      setRemapHistory(data.entries ?? []);
+    } catch {}
+    finally { setRemapLoading(false); }
+  };
+
+  useEffect(() => { loadRemapHistory(); }, []);
+
   useEffect(() => {
     if (!driveJobId || driveJobStatus !== "running") return;
     const interval = setInterval(async () => {
@@ -4981,6 +4998,83 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
               )}
             </View>
           )}
+
+          {/* ── Histórico de Remapeamentos ── */}
+          <View style={{ marginHorizontal: 12, marginTop: 10, marginBottom: 2, borderRadius: 12, borderWidth: 1,
+            borderColor: "rgba(234,179,8,0.25)", backgroundColor: "#0c0b00", overflow: "hidden" }}>
+            <Pressable
+              onPress={() => { setRemapOpen((v) => !v); if (!remapOpen && remapHistory.length === 0) loadRemapHistory(); }}
+              style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 14, paddingVertical: 12 }}>
+              <Feather name="clock" size={15} color="#eab308" />
+              <Text style={{ color: "#eab308", fontWeight: "700", fontSize: 14, flex: 1 }}>
+                Histórico de Correções de ID
+              </Text>
+              {remapLoading && <ActivityIndicator size="small" color="#eab308" />}
+              {!remapLoading && (
+                <View style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, backgroundColor: "rgba(234,179,8,0.15)" }}>
+                  <Text style={{ color: "#eab308", fontSize: 11, fontWeight: "700" }}>{remapHistory.length}</Text>
+                </View>
+              )}
+              <Feather name={remapOpen ? "chevron-up" : "chevron-down"} size={14} color="rgba(234,179,8,0.5)" />
+            </Pressable>
+            {remapOpen && (
+              <View style={{ borderTopWidth: 1, borderTopColor: "rgba(234,179,8,0.12)" }}>
+                {remapHistory.length === 0 ? (
+                  <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 12, textAlign: "center", padding: 16 }}>
+                    Nenhuma correção de ID registrada ainda.
+                  </Text>
+                ) : (
+                  remapHistory.map((entry, idx) => {
+                    const date = new Date(entry.doneAt);
+                    const dateStr = `${date.toLocaleDateString("pt-BR")} ${date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
+                    return (
+                      <View key={entry.id} style={{ paddingHorizontal: 14, paddingVertical: 10,
+                        borderTopWidth: idx > 0 ? 1 : 0, borderTopColor: "rgba(255,255,255,0.05)" }}>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                          <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6,
+                            backgroundColor: entry.toType === "tv" ? "rgba(59,130,246,0.2)" : "rgba(168,85,247,0.2)" }}>
+                            <Text style={{ color: entry.toType === "tv" ? "#60a5fa" : "#c084fc", fontSize: 10, fontWeight: "700" }}>
+                              {entry.toType === "tv" ? "SÉRIE" : "FILME"}
+                            </Text>
+                          </View>
+                          <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, backgroundColor: "rgba(34,197,94,0.15)" }}>
+                            <Text style={{ color: "#4ade80", fontSize: 10, fontWeight: "700" }}>
+                              {entry.updated} item{entry.updated !== 1 ? "s" : ""} corrigido{entry.updated !== 1 ? "s" : ""}
+                            </Text>
+                          </View>
+                          <Text style={{ color: "rgba(255,255,255,0.25)", fontSize: 10, marginLeft: "auto" }}>{dateStr}</Text>
+                        </View>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                            {entry.fromIds.map((id) => (
+                              <View key={id} style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5, backgroundColor: "rgba(239,68,68,0.15)", borderWidth: 1, borderColor: "rgba(239,68,68,0.3)" }}>
+                                <Text style={{ color: "#f87171", fontSize: 10, fontWeight: "700" }}>{id}</Text>
+                              </View>
+                            ))}
+                          </View>
+                          <Feather name="arrow-right" size={11} color="rgba(255,255,255,0.3)" />
+                          <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5, backgroundColor: "rgba(34,197,94,0.15)", borderWidth: 1, borderColor: "rgba(34,197,94,0.3)" }}>
+                            <Text style={{ color: "#4ade80", fontSize: 10, fontWeight: "700" }}>{entry.toId}</Text>
+                          </View>
+                        </View>
+                        {entry.titles.length > 0 && (
+                          <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 10, marginTop: 3 }} numberOfLines={1}>
+                            {entry.titles.join(" · ")}
+                          </Text>
+                        )}
+                      </View>
+                    );
+                  })
+                )}
+                <Pressable onPress={loadRemapHistory}
+                  style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5,
+                    margin: 10, padding: 8, borderRadius: 8, borderWidth: 1, borderColor: "rgba(234,179,8,0.2)" }}>
+                  <Feather name="refresh-cw" size={12} color="rgba(234,179,8,0.6)" />
+                  <Text style={{ color: "rgba(234,179,8,0.6)", fontSize: 12 }}>Atualizar histórico</Text>
+                </Pressable>
+              </View>
+            )}
+          </View>
 
         </ScrollView>
       )}
