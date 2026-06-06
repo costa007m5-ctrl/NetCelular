@@ -338,6 +338,8 @@ export default function BuscarScreen() {
   // ── Helper: horizontal scroll of poster cards ─────────────────────────────
   const HRow = ({ items, accentColor = RED }: { items: ContentItem[]; accentColor?: string }) => (
     <ScrollView horizontal showsHorizontalScrollIndicator={false}
+      nestedScrollEnabled
+      directionalLockEnabled
       contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}>
       {items.map((item) => (
         <PosterCard key={item.id} item={item} onPress={() => goTo(item)} width={100} />
@@ -348,6 +350,8 @@ export default function BuscarScreen() {
   // ── Helper: backdrop cards row ─────────────────────────────────────────────
   const BRow = ({ items, ranked }: { items: ContentItem[]; ranked?: boolean }) => (
     <ScrollView horizontal showsHorizontalScrollIndicator={false}
+      nestedScrollEnabled
+      directionalLockEnabled
       contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}>
       {items.slice(0, 10).map((item, i) => (
         <BackdropCard key={item.id} item={item} onPress={() => goTo(item)} rank={ranked ? i : undefined} />
@@ -451,10 +455,12 @@ export default function BuscarScreen() {
       ) : (
         /* ─────────────────── DISCOVERY STATE ──────────────────────────────── */
         <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 120 }}>
+          keyboardShouldPersistTaps="handled" nestedScrollEnabled
+          contentContainerStyle={{ paddingBottom: 120 }}>
 
           {/* ── CATEGORY PILLS (compact) ───────────────────────────────────── */}
           <ScrollView horizontal showsHorizontalScrollIndicator={false}
+            nestedScrollEnabled directionalLockEnabled
             contentContainerStyle={styles.pillRow}>
             {CATEGORIES.map((cat) => (
               <Pressable key={cat.id}
@@ -468,6 +474,7 @@ export default function BuscarScreen() {
 
           {/* ── GENRE FILTER ROW ───────────────────────────────────────────── */}
           <ScrollView horizontal showsHorizontalScrollIndicator={false}
+            nestedScrollEnabled directionalLockEnabled
             contentContainerStyle={styles.genreRow}>
             {GENRES.map((g) => (
               <Pressable key={g.id}
@@ -500,6 +507,7 @@ export default function BuscarScreen() {
           <View style={styles.moodSection}>
             <Text style={styles.moodTitle}>⚡ O que quer assistir hoje?</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}
+              nestedScrollEnabled directionalLockEnabled
               contentContainerStyle={{ gap: 8 }}>
               {MOODS.map((m) => (
                 <Pressable key={m.id} style={styles.moodChip}
@@ -571,6 +579,7 @@ export default function BuscarScreen() {
               <SectionRow title="Filmes Populares" accentColor={AMBER}
                 onSeeAll={() => setQuery("filmes populares")}>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false}
+                  nestedScrollEnabled directionalLockEnabled
                   contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}>
                   {popular.slice(0,10).map((item) => (
                     <BackdropCard key={item.id} item={item} onPress={() => goTo(item)} />
