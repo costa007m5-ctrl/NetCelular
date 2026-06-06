@@ -43,3 +43,14 @@ export async function clearCatalogCache(): Promise<void> {
 export function isFresh(type: string): Promise<boolean> {
   return getCached(type).then((v) => v !== null);
 }
+
+export async function getCacheTimestamp(type = "movies"): Promise<number | null> {
+  try {
+    const val = await AsyncStorage.getItem(key(type));
+    if (!val) return null;
+    const entry: CacheEntry = JSON.parse(val);
+    return entry.ts ?? null;
+  } catch {
+    return null;
+  }
+}

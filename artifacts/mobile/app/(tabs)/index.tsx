@@ -32,7 +32,7 @@ import { TopTenCard } from "@/components/TopTenCard";
 import { NotificationBell } from "@/components/NotificationBell";
 import { SearchTriggerBar } from "@/components/SearchTriggerBar";
 import { r2Route } from "@/lib/r2-direct";
-import { getCached, setCached } from "@/lib/catalog-cache";
+import { getCached, setCached, getCacheTimestamp } from "@/lib/catalog-cache";
 import { checkCatalogWatchAndNotify } from "@/lib/catalog-watch";
 import { useAuth } from "@/lib/auth-context";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
@@ -1544,6 +1544,8 @@ export default function HomeScreen() {
   const [totals, setTotals]               = useState({ movies: 0, series: 0, animes: 0 });
   const [continueItems, setContinueItems] = useState<ContinueItem[]>([]);
   const [activeProfile, setActiveProfile] = useState<any>(null);
+  const [cacheTs, setCacheTs]             = useState<number | null>(null);
+  const [timeAgoStr, setTimeAgoStr]       = useState<string | null>(null);
 
   // ── section entrance animations ────────────────────────────────────────────
   const SECTION_COUNT = 49;
@@ -1567,6 +1569,23 @@ export default function HomeScreen() {
   const heroParallax = scrollY.interpolate({
     inputRange: [-300, 0, 300], outputRange: [150, 0, -80], extrapolate: "clamp",
   });
+
+  // ── cache timestamp helper ────────────────────────────────────────────────
+  const buildTimeAgo = useCallback((ts: number): string => {
+    const diff = Math.floor((Date.now() - ts) / 1000);
+    if (diff < 60)   return "Atualizado agora";
+    if (diff < 3600) return `Atualizado há ${Math.floor(diff / 60)} min`;
+    if (diff < 86400) return `Atualizado há ${Math.floor(diff / 3600)} h`;
+    return `Atualizado há ${Math.floor(diff / 86400)} d`;
+  }, []);
+
+  // refresh display string every 60s
+  useEffect(() => {
+    if (!cacheTs) return;
+    setTimeAgoStr(buildTimeAgo(cacheTs));
+    const id = setInterval(() => setTimeAgoStr(buildTimeAgo(cacheTs)), 60_000);
+    return () => clearInterval(id);
+  }, [cacheTs, buildTimeAgo]);
 
   // ── pulse animation (web only — loop animations cause Hermes jank) ──────────
   useEffect(() => {
@@ -1695,6 +1714,8 @@ export default function HomeScreen() {
     }
 
     if (availableIds.size > 0) checkCatalogWatchAndNotify(availableIds).catch(() => {});
+
+    getCacheTimestamp("movies").then((ts) => { if (ts) setCacheTs(ts); }).catch(() => {});
   }, []);
 
   // ── fetch fresh from API and store in cache ────────────────────────────────
@@ -2615,8 +2636,15 @@ export default function HomeScreen() {
         }]} />
         <View style={styles.headerContent}>
           <View style={styles.headerLeft}>
-            <Text style={[styles.logo, { color: RED }]}>NET</Text>
-            <Text style={[styles.logoWhite]}>PLAY</Text>
+            <View>
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <Text style={[styles.logo, { color: RED }]}>NET</Text>
+                <Text style={[styles.logoWhite]}>PLAY</Text>
+              </View>
+              {!!timeAgoStr && (
+                <Text style={styles.cacheLabel}>{timeAgoStr}</Text>
+              )}
+            </View>
           </View>
           <View style={styles.headerActions}>
             <NotificationBell onPress={() => router.push("/(tabs)/profile")} />
@@ -2663,7 +2691,8 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 20, paddingVertical: 8,
   },
-  headerLeft:    { flexDirection: "row", alignItems: "center" },
+  headerLeft:    { flexDirection: "row", alignItems: "flex-start" },
+  cacheLabel:    { fontSize: 9, color: "rgba(255,255,255,0.35)", letterSpacing: 0.3, marginTop: 1 },
   logo:          { fontSize: 23, fontWeight: "900", letterSpacing: 1.5 },
   logoWhite:     { fontSize: 23, fontWeight: "900", letterSpacing: 1.5, color: "#fff" },
   headerActions: { flexDirection: "row", gap: 4, alignItems: "center" },
