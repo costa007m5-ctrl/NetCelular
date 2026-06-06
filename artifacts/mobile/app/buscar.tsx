@@ -170,17 +170,22 @@ const SOURCE_FILTERS: {
   { id: "drive",  label: "Drive",     icon: "hard-drive",  color: "#22c55e",  bg: "rgba(34,197,94,0.14)" },
 ];
 
-function PosterCard({ item, onPress, showRating = true, width = CARD_W_3, inFlix2 = false }: {
+function PosterCard({ item, onPress, showRating = true, width, inFlix2 = false }: {
   item: ContentItem;
   onPress: () => void;
   showRating?: boolean;
   width?: number;
   inFlix2?: boolean;
 }) {
-  const h = width * 1.5;
+  const fixedW = width ?? 0;
+  const fixedH = fixedW * 1.5;
+  const outer = fixedW > 0 ? { width: fixedW, marginBottom: 4 } : { width: "32%" as const, marginBottom: 4 };
+  const imgBox = fixedW > 0
+    ? { width: fixedW, height: fixedH, borderRadius: 10, overflow: "hidden" as const, backgroundColor: "#1a0a14", marginBottom: 5 }
+    : { width: "100%" as const, aspectRatio: 2 / 3, borderRadius: 10, overflow: "hidden" as const, backgroundColor: "#1a0a14", marginBottom: 5 };
   return (
-    <Pressable style={{ width, marginBottom: 4 }} onPress={onPress}>
-      <View style={{ width, height: h, borderRadius: 10, overflow: "hidden", backgroundColor: "#1a0a14", marginBottom: 5 }}>
+    <Pressable style={outer} onPress={onPress}>
+      <View style={imgBox}>
         {item.posterPath ? (
           <Image source={{ uri: item.posterPath }} style={StyleSheet.absoluteFill} contentFit="cover" />
         ) : (
@@ -188,7 +193,7 @@ function PosterCard({ item, onPress, showRating = true, width = CARD_W_3, inFlix
             <Feather name="film" size={24} color="rgba(255,255,255,0.1)" />
           </LinearGradient>
         )}
-        <LinearGradient colors={["transparent", "rgba(0,0,0,0.8)"]} style={{ position:"absolute", bottom:0, left:0, right:0, height: h * 0.4 }} />
+        <LinearGradient colors={["transparent", "rgba(0,0,0,0.8)"]} style={StyleSheet.absoluteFill} locations={[0.6, 1]} />
         <View style={{ position:"absolute", top:5, left:5, right:5, flexDirection:"row", justifyContent:"space-between", alignItems:"flex-start" }}>
           {item.mediaType === "tv" ? (
             <View style={styles.typeBadge}>
@@ -218,15 +223,14 @@ function PosterCard({ item, onPress, showRating = true, width = CARD_W_3, inFlix
   );
 }
 
-function Flix2OnlyCard({ item, width = CARD_W_3 }: { item: Flix2RawItem; width?: number }) {
-  const h = width * 1.5;
+function Flix2OnlyCard({ item }: { item: Flix2RawItem }) {
   const typeLabel = item._type === "series" ? "SÉRIE" : item._type === "anime" ? "ANIME" : "FILME";
   const typeBg =
     item._type === "series" ? "rgba(8,145,178,0.85)" :
     item._type === "anime"  ? "rgba(234,88,12,0.85)" : "rgba(229,9,20,0.85)";
   return (
-    <View style={{ width, marginBottom: 4, opacity: 0.9 }}>
-      <View style={{ width, height: h, borderRadius: 10, overflow: "hidden", backgroundColor: "#1a0a14", marginBottom: 5 }}>
+    <View style={{ width: "32%", marginBottom: 4, opacity: 0.9 }}>
+      <View style={{ width: "100%", aspectRatio: 2/3, borderRadius: 10, overflow: "hidden", backgroundColor: "#1a0a14", marginBottom: 5 }}>
         {item.thumbnail ? (
           <Image source={{ uri: item.thumbnail }} style={StyleSheet.absoluteFill} contentFit="cover" />
         ) : (
@@ -234,7 +238,7 @@ function Flix2OnlyCard({ item, width = CARD_W_3 }: { item: Flix2RawItem; width?:
             <Feather name="film" size={24} color="rgba(255,255,255,0.1)" />
           </LinearGradient>
         )}
-        <LinearGradient colors={["transparent","rgba(0,0,0,0.8)"]} style={{ position:"absolute", bottom:0, left:0, right:0, height: h * 0.4 }} />
+        <LinearGradient colors={["transparent","rgba(0,0,0,0.8)"]} style={StyleSheet.absoluteFill} locations={[0.55, 1]} />
         <View style={{ position:"absolute", top:5, left:5 }}>
           <View style={[styles.typeBadge, { backgroundColor: typeBg }]}>
             <Text style={styles.typeBadgeText}>{typeLabel}</Text>
@@ -582,8 +586,9 @@ export default function BuscarScreen() {
 
       {/* ── SOURCE FILTER PILLS (always visible) ────────────────────────────── */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false}
+        style={{ flexGrow: 0, flexShrink: 0 }}
         nestedScrollEnabled keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ paddingHorizontal: 16, gap: 8, paddingBottom: 10 }}>
+        contentContainerStyle={{ paddingHorizontal: 16, gap: 8, paddingVertical: 10, alignItems: "center" }}>
         {SOURCE_FILTERS.map((sf) => {
           const active = sourceFilter === sf.id;
           return (
@@ -833,7 +838,8 @@ export default function BuscarScreen() {
               data={flix2CatItems}
               keyExtractor={(item, i) => `cat-${i}-${item.title}`}
               numColumns={3}
-              contentContainerStyle={styles.grid}
+              contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 100, rowGap: 12 }}
+              columnWrapperStyle={{ justifyContent: "space-between" }}
               showsVerticalScrollIndicator={false}
               renderItem={({ item }) => <Flix2OnlyCard item={item} />}
               initialNumToRender={12}
@@ -872,7 +878,8 @@ export default function BuscarScreen() {
               data={r2All}
               keyExtractor={(item) => item.id}
               numColumns={3}
-              contentContainerStyle={styles.grid}
+              contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 100, rowGap: 12 }}
+              columnWrapperStyle={{ justifyContent: "space-between" }}
               showsVerticalScrollIndicator={false}
               renderItem={({ item }) => (
                 <PosterCard item={item} onPress={() => goTo(item)} />
@@ -929,7 +936,8 @@ export default function BuscarScreen() {
                 keyExtractor={(item) => item.id}
                 numColumns={3}
                 scrollEnabled={false}
-                contentContainerStyle={styles.grid}
+                contentContainerStyle={{ paddingHorizontal: 16, rowGap: 12, paddingBottom: 8 }}
+                columnWrapperStyle={{ justifyContent: "space-between" }}
                 renderItem={({ item }) => (
                   <PosterCard item={item} onPress={() => goTo(item)} />
                 )}
@@ -1178,7 +1186,7 @@ const styles = StyleSheet.create({
   emptyHint:     { color:"rgba(255,255,255,0.2)", fontSize:12, textAlign:"center" },
 
   /* grid */
-  grid: { paddingHorizontal: 16, gap: 8 },
+  grid: { paddingHorizontal: 16, flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", paddingBottom: 8, rowGap: 12 },
 
   /* flix2 badge (bottom-left corner of poster) */
   flix2Badge: {
