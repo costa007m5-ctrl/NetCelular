@@ -668,16 +668,85 @@ const HOT_TAGS = [
   "#Ghibli","#Clássico","#Blockbuster","#Netflix","#Shounen","#Brasil",
 ];
 
-const ACTORS = [
-  { name: "Tom Cruise",    initial: "TC", color: "#e50914" },
-  { name: "L. DiCaprio",   initial: "LD", color: "#3b82f6" },
-  { name: "Margot Robbie", initial: "MR", color: "#ec4899" },
-  { name: "T. Chalamet",   initial: "TC", color: "#8b5cf6" },
-  { name: "Zendaya",       initial: "ZE", color: "#f59e0b" },
-  { name: "Pedro Pascal",  initial: "PP", color: "#22c55e" },
-  { name: "Florence Pugh", initial: "FP", color: "#f97316" },
-  { name: "C. Blanchett",  initial: "CB", color: "#0891b2" },
+const ACTOR_CATEGORIES = [
+  {
+    id: "hollywood",
+    label: "🎬 Hollywood",
+    color: "#e50914",
+    actors: [
+      { name: "Tom Cruise",         initial: "TC", color: "#e50914" },
+      { name: "L. DiCaprio",        initial: "LD", color: "#3b82f6" },
+      { name: "Margot Robbie",      initial: "MR", color: "#ec4899" },
+      { name: "T. Chalamet",        initial: "TC", color: "#8b5cf6" },
+      { name: "Zendaya",            initial: "ZE", color: "#f59e0b" },
+      { name: "Ryan Gosling",       initial: "RG", color: "#f97316" },
+      { name: "Ana de Armas",       initial: "AA", color: "#22c55e" },
+      { name: "Florence Pugh",      initial: "FP", color: "#fb923c" },
+      { name: "C. Blanchett",       initial: "CB", color: "#0891b2" },
+      { name: "R. Downey Jr.",      initial: "RD", color: "#e50914" },
+      { name: "Scarlett Johansson", initial: "SJ", color: "#a855f7" },
+      { name: "Chris Evans",        initial: "CE", color: "#3b82f6" },
+    ],
+  },
+  {
+    id: "kdrama",
+    label: "🇰🇷 K-Drama",
+    color: "#ec4899",
+    actors: [
+      { name: "Song Joong-ki",   initial: "SJ", color: "#ec4899" },
+      { name: "Park Seo-jun",    initial: "PS", color: "#8b5cf6" },
+      { name: "Hyun Bin",        initial: "HB", color: "#3b82f6" },
+      { name: "Lee Jong-suk",    initial: "LJ", color: "#22c55e" },
+      { name: "IU",              initial: "IU", color: "#f59e0b" },
+      { name: "Park Min-young",  initial: "PM", color: "#f97316" },
+      { name: "Son Ye-jin",      initial: "SY", color: "#ec4899" },
+      { name: "Lee Min-ho",      initial: "LM", color: "#0891b2" },
+    ],
+  },
+  {
+    id: "brasileiros",
+    label: "🇧🇷 Brasileiros",
+    color: "#22c55e",
+    actors: [
+      { name: "Wagner Moura",       initial: "WM", color: "#22c55e" },
+      { name: "Alice Braga",        initial: "AB", color: "#f59e0b" },
+      { name: "Rodrigo Santoro",    initial: "RS", color: "#3b82f6" },
+      { name: "F. Montenegro",      initial: "FM", color: "#ec4899" },
+      { name: "Lázaro Ramos",       initial: "LR", color: "#f97316" },
+      { name: "Taís Araújo",        initial: "TA", color: "#8b5cf6" },
+      { name: "Pedro Pascal",       initial: "PP", color: "#0891b2" },
+      { name: "Seu Jorge",          initial: "SJ", color: "#22c55e" },
+    ],
+  },
+  {
+    id: "japoneses",
+    label: "🇯🇵 Japoneses",
+    color: "#e50914",
+    actors: [
+      { name: "Ken Watanabe",    initial: "KW", color: "#e50914" },
+      { name: "Hiroyuki Sanada", initial: "HS", color: "#f59e0b" },
+      { name: "Rinko Kikuchi",   initial: "RK", color: "#ec4899" },
+      { name: "Masaki Suda",     initial: "MS", color: "#8b5cf6" },
+      { name: "Takuya Kimura",   initial: "TK", color: "#3b82f6" },
+      { name: "Yū Aoi",          initial: "YA", color: "#22c55e" },
+    ],
+  },
+  {
+    id: "europeus",
+    label: "🌍 Europeus",
+    color: "#8b5cf6",
+    actors: [
+      { name: "Timothée Chalamet", initial: "TC", color: "#8b5cf6" },
+      { name: "Marion Cotillard",  initial: "MC", color: "#ec4899" },
+      { name: "Javier Bardem",     initial: "JB", color: "#f97316" },
+      { name: "Penélope Cruz",     initial: "PC", color: "#e50914" },
+      { name: "Idris Elba",        initial: "IE", color: "#3b82f6" },
+      { name: "Sophie Turner",     initial: "ST", color: "#f59e0b" },
+    ],
+  },
 ];
+// Flat list kept for backward compat with any remaining references
+const ACTORS = ACTOR_CATEGORIES[0].actors;
 
 const COUNTRIES = [
   { id: "BR", label: "Brasil",      flag: "🇧🇷", color: "#22c55e" },
@@ -1188,6 +1257,33 @@ function ActorCirclesRow({ actors, onPress }: { actors: typeof ACTORS; onPress: 
       contentContainerStyle={{ paddingHorizontal:16, gap:12 }} decelerationRate="fast">
       {actors.map((a) => <ActorCircleItem key={a.name} actor={a} onPress={() => onPress(a)} />)}
     </ScrollView>
+  );
+}
+
+// ── Actor category section (label + row) ──────────────────────────────────
+function ActorCategorySection({
+  category,
+  onActorPress,
+}: {
+  category: typeof ACTOR_CATEGORIES[0];
+  onActorPress: (a: typeof ACTOR_CATEGORIES[0]["actors"][0]) => void;
+}) {
+  return (
+    <View style={{ marginBottom: 20 }}>
+      {/* Category label pill */}
+      <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, marginBottom: 10, gap: 8 }}>
+        <View style={{ width: 3, height: 15, borderRadius: 2, backgroundColor: category.color }} />
+        <Text style={{ color: category.color, fontSize: 13, fontWeight: "700", letterSpacing: 0.2 }}>
+          {category.label}
+        </Text>
+      </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }} decelerationRate="fast">
+        {category.actors.map((a) => (
+          <ActorCircleItem key={`${category.id}-${a.name}`} actor={a} onPress={() => onActorPress(a)} />
+        ))}
+      </ScrollView>
+    </View>
   );
 }
 
@@ -2290,11 +2386,16 @@ export default function HomeScreen() {
                 <View style={styles.section}>
                   <SectionHeader title="Atores em Destaque" icon="users"
                     accentColor={PINK} />
-                  <ActorCirclesRow actors={ACTORS}
-                    onPress={(a) => router.push({
-                      pathname: "/actor-browse",
-                      params: { name: a.name, color: a.color },
-                    })} />
+                  {ACTOR_CATEGORIES.map((cat) => (
+                    <ActorCategorySection
+                      key={cat.id}
+                      category={cat}
+                      onActorPress={(a) => router.push({
+                        pathname: "/actor-browse",
+                        params: { name: a.name, color: a.color },
+                      })}
+                    />
+                  ))}
                 </View>
               </AnimatedSection>
 
