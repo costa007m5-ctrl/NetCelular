@@ -2291,7 +2291,10 @@ export default function HomeScreen() {
                   <SectionHeader title="Atores em Destaque" icon="users"
                     accentColor={PINK} />
                   <ActorCirclesRow actors={ACTORS}
-                    onPress={(a) => router.push({ pathname: "/buscar", params: { q: a.name } })} />
+                    onPress={(a) => router.push({
+                      pathname: "/actor-browse",
+                      params: { name: a.name, color: a.color },
+                    })} />
                 </View>
               </AnimatedSection>
 

@@ -191,6 +191,7 @@ export interface TmdbItem {
   media_type?: string;
   original_language?: string;
   vote_count?: number;
+  popularity?: number;
 }
 
 export interface TmdbSearchResult {
@@ -221,6 +222,28 @@ export interface TmdbSeason {
   poster_path: string | null;
   air_date: string;
   episodes?: TmdbEpisode[];
+}
+
+export interface TmdbPersonResult {
+  id: number;
+  name: string;
+  profile_path: string | null;
+  known_for_department: string;
+  popularity: number;
+  known_for: TmdbItem[];
+}
+
+export interface TmdbPerson {
+  id: number;
+  name: string;
+  biography: string;
+  birthday: string | null;
+  deathday: string | null;
+  place_of_birth: string | null;
+  profile_path: string | null;
+  known_for_department: string;
+  popularity: number;
+  also_known_as: string[];
 }
 
 export const api = {
@@ -319,6 +342,28 @@ export const api = {
       return apiFetchOrDirect(`/tmdb/discover?type=${type}&genre_id=${genreId}&page=${page}`, () =>
         tmdbFetch<TmdbSearchResult>(path, directParams)
       );
+    },
+
+    person: async (id: number): Promise<TmdbPerson> => {
+      return tmdbFetch<TmdbPerson>(`/person/${id}`, { append_to_response: "movie_credits,tv_credits,images" });
+    },
+
+    searchPerson: async (name: string): Promise<TmdbPersonResult[]> => {
+      const data = await tmdbFetch<{ results: TmdbPersonResult[] }>("/search/person", {
+        query: name,
+        include_adult: "false",
+      });
+      return data.results ?? [];
+    },
+
+    personMovies: async (id: number): Promise<TmdbItem[]> => {
+      const data = await tmdbFetch<{ cast: TmdbItem[] }>(`/person/${id}/movie_credits`);
+      return (data.cast ?? []).sort((a, b) => (b.popularity ?? 0) - (a.popularity ?? 0));
+    },
+
+    personTv: async (id: number): Promise<TmdbItem[]> => {
+      const data = await tmdbFetch<{ cast: TmdbItem[] }>(`/person/${id}/tv_credits`);
+      return (data.cast ?? []).sort((a, b) => (b.popularity ?? 0) - (a.popularity ?? 0));
     },
 
     discoverByCountry: async (type: "movie" | "tv", countryCode: string, page = 1): Promise<TmdbSearchResult> => {
