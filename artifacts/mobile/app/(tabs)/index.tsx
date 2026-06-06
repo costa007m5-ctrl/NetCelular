@@ -1579,6 +1579,15 @@ export default function HomeScreen() {
   // ── R2 / Drive catalog ────────────────────────────────────────────────────
   const { r2All } = useR2Catalog();
 
+  // Mix R2 items into hero banner (max 2 slots at front)
+  const mergedHeroItems = useMemo(() => {
+    if (!r2All.length) return heroItems;
+    const r2WithMedia = r2All.filter((i) => i.backdropPath || i.posterPath).slice(0, 2);
+    const combined = [...r2WithMedia, ...heroItems];
+    const seen = new Set<string>();
+    return combined.filter((i) => { if (seen.has(i.id)) return false; seen.add(i.id); return true; }).slice(0, 8);
+  }, [heroItems, r2All]);
+
   // ── section entrance animations ────────────────────────────────────────────
   const SECTION_COUNT = 49;
   // On native, skip entrance animations entirely — set all to 1 immediately.
@@ -1962,7 +1971,7 @@ export default function HomeScreen() {
         {/* ── 1. HERO BANNER ─────────────────────────────────────────────── */}
         <Animated.View style={{ transform: [{ translateY: heroParallax }] }}>
           <HeroBanner
-            items={heroItems}
+            items={mergedHeroItems}
             onItemPress={goTo}
           />
         </Animated.View>
@@ -2051,27 +2060,6 @@ export default function HomeScreen() {
                       />
                     ))}
                   </ScrollView>
-                </AnimatedSection>
-              )}
-
-              {/* ── MINHA BIBLIOTECA (R2/Drive) ──────────────────────────────── */}
-              {r2All.length > 0 && (
-                <AnimatedSection anim={s[5]}>
-                  <View style={styles.section}>
-                    <SectionHeader
-                      title="Minha Biblioteca"
-                      icon="hard-drive"
-                      badge="DRIVE"
-                      accentColor={GREEN}
-                      subtitle="Conteúdo do seu armazenamento"
-                    />
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false}
-                      contentContainerStyle={{ paddingHorizontal: 16 }} decelerationRate="fast">
-                      {r2All.slice(0, 12).map((item) => (
-                        <PosterCard key={item.id} item={item} onPress={() => goTo(item)} />
-                      ))}
-                    </ScrollView>
-                  </View>
                 </AnimatedSection>
               )}
 

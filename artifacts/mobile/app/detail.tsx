@@ -287,7 +287,11 @@ export default function DetailScreen() {
           : [];
         // Inject virtual Flix 2.0 registry items if found in catalog and not already registered
         const alreadyHasFlix = registryItems.some(isFlixItem);
-        if (!alreadyHasFlix && flix2Raw.status === "fulfilled" && flix2Raw.value.found) {
+        // Skip flix2 injection if item is already in the R2/Drive registry — avoid external 404s
+        const alreadyHasR2orDrive = registryItems.some(
+          (i: any) => i.r2Key || i.driveFilePath || i.driveUrl
+        );
+        if (!alreadyHasFlix && !alreadyHasR2orDrive && flix2Raw.status === "fulfilled" && flix2Raw.value.found) {
           const fi = flix2Raw.value.item;
           if (fi?.stream_url) {
             // Movie (or series with a single item-level stream_url): single virtual item

@@ -985,6 +985,15 @@ export default function NovidadesScreen() {
   // ── R2 / Drive catalog ────────────────────────────────────────────────────
   const { r2All } = useR2Catalog();
 
+  // Mix R2 items into the hero banner (max 2 r2 slots at front)
+  const mergedHeroItems = useMemo(() => {
+    if (!r2All.length) return heroItems;
+    const r2WithMedia = r2All.filter((i) => i.backdropPath || i.posterPath).slice(0, 2);
+    const combined = [...r2WithMedia, ...heroItems];
+    const seen = new Set<string>();
+    return combined.filter((i) => { if (seen.has(i.id)) return false; seen.add(i.id); return true; }).slice(0, 8);
+  }, [heroItems, r2All]);
+
   // modal state
   const [modal, setModal] = useState<{
     visible: boolean; title: string; items: ContentItem[]; accent: string;
@@ -1135,7 +1144,7 @@ export default function NovidadesScreen() {
 
           {/* ── 1. HERO BANNER ────────────────────────────────────────────── */}
           <HeroBanner
-            items={heroItems}
+            items={mergedHeroItems}
             onItemPress={goTo}
             onDetailsPress={goTo}
             onAddToList={goTo}
@@ -1164,18 +1173,6 @@ export default function NovidadesScreen() {
                   })} />
                 </View>
               </AnimatedSection>
-
-              {/* ── MINHA BIBLIOTECA (R2/Drive) ─────────────────────────── */}
-              {r2All.length > 0 && (
-                <AnimatedSection anim={s[1]}>
-                  <View style={sty.sec}>
-                    <SectionHeader title="Minha Biblioteca" icon="hard-drive"
-                      badge="DRIVE" accentColor={GREEN}
-                      subtitle="Conteúdo do seu armazenamento" />
-                    <PosterRow items={r2All.slice(0, 12)} onPress={goTo} showTitle />
-                  </View>
-                </AnimatedSection>
-              )}
 
               {/* ── 3. TRENDING HOJE ────────────────────────────────────── */}
               {trendMovies.length > 0 && (
