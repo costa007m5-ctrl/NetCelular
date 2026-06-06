@@ -992,12 +992,7 @@ export default function FranquiasScreen() {
         <View style={{ paddingBottom: 140 }}>
 
           {/* ── 1. HERO ──────────────────────────────────────────────────── */}
-          {heroItems.length > 0
-            ? <HeroBanner items={heroItems} onItemPress={goTo} onDetailsPress={goTo} onAddToList={goTo} />
-            : <View style={{ height: 520, backgroundColor: "#0a0810", alignItems: "center", justifyContent: "center" }}>
-                <ActivityIndicator color={AMBER} size="large" />
-              </View>
-          }
+          <HeroBanner items={heroItems} onItemPress={goTo} onDetailsPress={goTo} onAddToList={goTo} />
 
           {/* ── SEARCH BAR ───────────────────────────────────────────────── */}
           <SearchTriggerBar placeholder="Buscar franquias, universos, filmes..." />

@@ -1048,19 +1048,12 @@ export default function NovidadesScreen() {
         <View style={{ paddingBottom: 140 }}>
 
           {/* ── 1. HERO BANNER ────────────────────────────────────────────── */}
-          {heroItems.length > 0 ? (
-            <HeroBanner
-              items={heroItems}
-              onItemPress={goTo}
-              onDetailsPress={goTo}
-              onAddToList={goTo}
-            />
-          ) : (
-            <View style={{ height: 520, backgroundColor: "#0a0810" }}>
-              <ActivityIndicator color={RED} size="large"
-                style={{ position:"absolute", top:"50%", left:"50%", marginLeft:-20, marginTop:-20 }} />
-            </View>
-          )}
+          <HeroBanner
+            items={heroItems}
+            onItemPress={goTo}
+            onDetailsPress={goTo}
+            onAddToList={goTo}
+          />
 
           {/* ── SEARCH BAR ───────────────────────────────────────────────── */}
           <SearchTriggerBar placeholder="Buscar novidades, lançamentos..." />

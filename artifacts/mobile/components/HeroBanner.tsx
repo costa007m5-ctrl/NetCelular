@@ -344,6 +344,68 @@ function TimerDot({ active, duration }: { active: boolean; duration: number }) {
   );
 }
 
+function HeroBannerSkeleton({ width: w }: { width: number }) {
+  const pulse = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 850, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0, duration: 850, useNativeDriver: true }),
+      ])
+    );
+    anim.start();
+    return () => anim.stop();
+  }, []);
+
+  const opacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.65] });
+
+  const Bone = ({ style }: { style: any }) => (
+    <Animated.View style={[{ backgroundColor: "#2a2040", borderRadius: 6 }, style, { opacity }]} />
+  );
+
+  return (
+    <View style={{ height: HERO_HEIGHT, width: w, backgroundColor: "#070510", overflow: "hidden" }}>
+      {/* Image placeholder */}
+      <Animated.View
+        style={{
+          position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: "#130e22", opacity,
+        }}
+      />
+      {/* Bottom gradient overlay skeleton */}
+      <LinearGradient
+        colors={["transparent", "rgba(7,5,16,0.85)", "#070510"]}
+        locations={[0.35, 0.72, 1]}
+        style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: HERO_HEIGHT * 0.65 }}
+      />
+      {/* Content skeletons */}
+      <View style={{ position: "absolute", bottom: 88, left: 20, right: 20, gap: 10 }}>
+        {/* Badge */}
+        <Bone style={{ width: 64, height: 18, borderRadius: 4 }} />
+        {/* Title */}
+        <Bone style={{ width: w * 0.72, height: 38, borderRadius: 8 }} />
+        <Bone style={{ width: w * 0.5, height: 34, borderRadius: 8, marginTop: -4 }} />
+        {/* Description */}
+        <Bone style={{ width: w * 0.9, height: 12, borderRadius: 4, marginTop: 4 }} />
+        <Bone style={{ width: w * 0.75, height: 12, borderRadius: 4 }} />
+        {/* Buttons */}
+        <View style={{ flexDirection: "row", gap: 10, marginTop: 6 }}>
+          <Bone style={{ width: 130, height: 44, borderRadius: 10 }} />
+          <Bone style={{ width: 110, height: 44, borderRadius: 10 }} />
+          <Bone style={{ width: 44, height: 44, borderRadius: 10 }} />
+        </View>
+      </View>
+      {/* Dots skeleton */}
+      <View style={{ position: "absolute", bottom: 60, left: 0, right: 0, flexDirection: "row", justifyContent: "center", gap: 5 }}>
+        {[28, 6, 6, 6, 6].map((boneW, i) => (
+          <Bone key={i} style={{ width: boneW, height: 5, borderRadius: 3 }} />
+        ))}
+      </View>
+    </View>
+  );
+}
+
 export function HeroBanner({ items, onItemPress, onDetailsPress, onAddToList }: HeroBannerProps) {
   const colors = useColors();
   const { width: w } = useWindowDimensions();
@@ -383,7 +445,8 @@ export function HeroBanner({ items, onItemPress, onDetailsPress, onAddToList }: 
     [resetTimer, w]
   );
 
-  if (!items.length) return <View style={{ height: HERO_HEIGHT, backgroundColor: "#050508" }} />;
+  if (!items.length) return <HeroBannerSkeleton width={w} />;
+
 
   return (
     <View style={{ height: HERO_HEIGHT, width: w, overflow: "hidden" }}>
