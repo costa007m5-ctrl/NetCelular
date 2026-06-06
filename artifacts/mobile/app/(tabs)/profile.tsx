@@ -23,6 +23,7 @@ import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { GlobalSearchBar } from "@/components/GlobalSearchBar";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/lib/auth-context";
 import { supabase, db, isSupabaseConfigured, type DbUserSettings } from "@/lib/supabase";
@@ -733,6 +734,9 @@ export default function ProfileScreen() {
             </View>
           </View>
         )}
+
+        {/* ── SEARCH BAR ──────────────────────────────────── */}
+        <GlobalSearchBar placeholder="Buscar filmes, séries, canais..." />
 
         {/* ── APARÊNCIA ───────────────────────────────────── */}
         <Section title="APARÊNCIA">

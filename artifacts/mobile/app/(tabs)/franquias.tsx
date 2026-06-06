@@ -29,6 +29,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { HeroBanner } from "@/components/HeroBanner";
 import { TopTenCard } from "@/components/TopTenCard";
+import { GlobalSearchBar } from "@/components/GlobalSearchBar";
 import type { ContentItem } from "@/constants/content";
 
 // ─── Dimensions ────────────────────────────────────────────────────────────────
@@ -984,6 +985,9 @@ export default function FranquiasScreen() {
                 <ActivityIndicator color={AMBER} size="large" />
               </View>
           }
+
+          {/* ── SEARCH BAR ───────────────────────────────────────────────── */}
+          <GlobalSearchBar placeholder="Buscar franquias, universos, filmes..." />
 
           {loading ? (
             <View style={{ marginTop: 24 }}>

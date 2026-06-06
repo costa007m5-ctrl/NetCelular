@@ -30,6 +30,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { HeroBanner } from "@/components/HeroBanner";
 import { TopTenCard } from "@/components/TopTenCard";
+import { GlobalSearchBar } from "@/components/GlobalSearchBar";
 import type { ContentItem } from "@/constants/content";
 
 const { width: W, height: H } = Dimensions.get("window");
@@ -1052,6 +1053,9 @@ export default function NovidadesScreen() {
                 style={{ position:"absolute", top:"50%", left:"50%", marginLeft:-20, marginTop:-20 }} />
             </View>
           )}
+
+          {/* ── SEARCH BAR ───────────────────────────────────────────────── */}
+          <GlobalSearchBar placeholder="Buscar novidades, lançamentos..." />
 
           {/* ── BODY ─────────────────────────────────────────────────────── */}
           {loading ? (

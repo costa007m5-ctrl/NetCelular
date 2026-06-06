@@ -20,6 +20,7 @@ import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
+import { GlobalSearchBar } from "@/components/GlobalSearchBar";
 import {
   liveTvApi,
   calcProgress,
@@ -428,6 +429,9 @@ export default function LiveTvScreen() {
           }
           ListHeaderComponent={
             <>
+              {/* Search bar */}
+              <GlobalSearchBar placeholder="Buscar canais ao vivo..." style={{ marginTop: 8, marginBottom: 0 }} />
+
               {/* Featured banner */}
               {featured && (
                 <Animated.View style={{ opacity: featFade }}>
