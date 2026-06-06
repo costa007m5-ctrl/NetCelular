@@ -23,13 +23,13 @@ function NativeTabLayout({ isAdmin }: { isAdmin: boolean }) {
         <Icon sf={{ default: "sparkles", selected: "sparkles" }} />
         <Label>Novidades</Label>
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="franquias">
+        <Icon sf={{ default: "star", selected: "star.fill" }} />
+        <Label>Franquias</Label>
+      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="descobrir">
         <Icon sf={{ default: "tv", selected: "tv.fill" }} />
         <Label>Séries</Label>
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="franquias">
-        <Icon sf={{ default: "externaldrive", selected: "externaldrive.fill" }} />
-        <Label>Acervo</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="channels">
         <Icon sf={{ default: "magnifyingglass", selected: "magnifyingglass" }} />
@@ -126,19 +126,19 @@ function ClassicTabLayout({ isAdmin }: { isAdmin: boolean }) {
         }}
       />
       <Tabs.Screen
+        name="franquias"
+        options={{
+          title: "Franquias",
+          tabBarIcon: ({ color }) =>
+            isIOS ? <SymbolView name="star" tintColor={color} size={22} /> : <Feather name="star" size={22} color={color} />,
+        }}
+      />
+      <Tabs.Screen
         name="descobrir"
         options={{
           title: "Séries",
           tabBarIcon: ({ color }) =>
             isIOS ? <SymbolView name="tv" tintColor={color} size={22} /> : <Feather name="tv" size={22} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="franquias"
-        options={{
-          title: "Acervo",
-          tabBarIcon: ({ color }) =>
-            isIOS ? <SymbolView name="externaldrive" tintColor={color} size={22} /> : <Feather name="database" size={22} color={color} />,
         }}
       />
       <Tabs.Screen
