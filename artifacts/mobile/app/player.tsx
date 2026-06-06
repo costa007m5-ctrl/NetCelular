@@ -375,6 +375,21 @@ function NativeVideoPlayer({
   const isSeeking = useRef(false);
   const [seekPreview, setSeekPreview] = useState<number | null>(null);
 
+  // ── Smart Autoplay (TV only) ───────────────────────────────────────────────
+  const [autoplayVisible, setAutoplayVisible] = useState(false);
+  const [autoplayCountdown, setAutoplayCountdown] = useState(10);
+  const autoplayTriggeredRef = useRef(false);
+  const autoplayIntervalRef  = useRef<any>(null);
+
+  const dismissAutoplay = useCallback(() => {
+    setAutoplayVisible(false);
+    setAutoplayCountdown(10);
+    if (autoplayIntervalRef.current) {
+      clearInterval(autoplayIntervalRef.current);
+      autoplayIntervalRef.current = null;
+    }
+  }, []);
+
   const showControls = useCallback(() => {
     if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     setControlsVisible(true);
@@ -390,6 +405,27 @@ function NativeVideoPlayer({
     showControls();
     return () => { if (hideTimerRef.current) clearTimeout(hideTimerRef.current); };
   }, []);
+
+  // Autoplay countdown tick
+  useEffect(() => {
+    if (!autoplayVisible) return;
+    autoplayIntervalRef.current = setInterval(() => {
+      setAutoplayCountdown((prev) => {
+        if (prev <= 1) {
+          // Fire next episode on next render cycle
+          setTimeout(() => { dismissAutoplay(); onNextEp(); }, 0);
+          return 10;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => {
+      if (autoplayIntervalRef.current) {
+        clearInterval(autoplayIntervalRef.current);
+        autoplayIntervalRef.current = null;
+      }
+    };
+  }, [autoplayVisible]);
 
   const togglePlay = useCallback(() => {
     if (!videoRef.current) return;
@@ -470,6 +506,17 @@ function NativeVideoPlayer({
             if (status.durationMillis && status.durationMillis > 0) {
               positionRatioRef.current = (status.positionMillis ?? 0) / status.durationMillis;
               onProgressUpdate?.(status.positionMillis ?? 0, status.durationMillis ?? 0);
+              // Smart Autoplay: trigger at 93% for TV episodes
+              if (type === "tv" && !autoplayTriggeredRef.current &&
+                  positionRatioRef.current >= 0.93) {
+                autoplayTriggeredRef.current = true;
+                setAutoplayVisible(true);
+              }
+            }
+            // Also trigger if video just ended
+            if (status.didJustFinish && type === "tv" && !autoplayTriggeredRef.current) {
+              autoplayTriggeredRef.current = true;
+              setAutoplayVisible(true);
             }
           }}
           onError={() => setLoadError(true)}
@@ -590,6 +637,43 @@ function NativeVideoPlayer({
         </View>
 
       </Animated.View>
+
+      {/* ── SMART AUTOPLAY OVERLAY (TV only) ─────────────────────────────── */}
+      {type === "tv" && autoplayVisible && (
+        <View style={nat.autoplayOverlay}>
+          <View style={nat.autoplayCard}>
+            <Text style={nat.autoplayLabel}>PRÓXIMO EPISÓDIO</Text>
+            <Text style={nat.autoplayEpInfo}>T{season} · Episódio {episode + 1}</Text>
+
+            {/* Countdown ring */}
+            <View style={nat.autoplayCountdownWrap}>
+              <Text style={nat.autoplayCountdownNum}>{autoplayCountdown}</Text>
+              <Text style={nat.autoplayCountdownSub}>segundos</Text>
+            </View>
+
+            {/* Progress bar */}
+            <View style={nat.autoplayBarTrack}>
+              <View style={[nat.autoplayBarFill, {
+                width: `${((10 - autoplayCountdown) / 10) * 100}%` as any,
+              }]} />
+            </View>
+
+            {/* Buttons */}
+            <View style={nat.autoplayBtns}>
+              <Pressable style={nat.autoCancelBtn} onPress={dismissAutoplay}>
+                <Text style={nat.autoCancelTxt}>Cancelar</Text>
+              </Pressable>
+              <Pressable
+                style={nat.autoNextBtn}
+                onPress={() => { dismissAutoplay(); onNextEp(); }}
+              >
+                <Feather name="play" size={15} color="#fff" />
+                <Text style={nat.autoNextTxt}>Próximo</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -626,6 +710,105 @@ const nat = StyleSheet.create({
   seekBarTrack: { height: 28, justifyContent: "center", marginBottom: 4, position: "relative" },
   seekBarFill: { height: 4, borderRadius: 2, position: "absolute", top: 12, left: 0 },
   seekThumb: { position: "absolute", top: 8, width: 14, height: 14, borderRadius: 7, backgroundColor: "#e50914", marginLeft: -7, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.6, shadowRadius: 4, elevation: 4 },
+
+  // ── Smart Autoplay ────────────────────────────────────────────────────────
+  autoplayOverlay: {
+    ...StyleSheet.absoluteFillObject as any,
+    alignItems: "flex-end",
+    justifyContent: "flex-end",
+    padding: 20,
+    zIndex: 30,
+    backgroundColor: "rgba(0,0,0,0.45)",
+  },
+  autoplayCard: {
+    width: 270,
+    backgroundColor: "rgba(12,6,10,0.97)",
+    borderRadius: 20,
+    padding: 20,
+    gap: 10,
+    borderWidth: 1,
+    borderColor: "rgba(229,9,20,0.4)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.7,
+    shadowRadius: 28,
+    elevation: 24,
+  },
+  autoplayLabel: {
+    color: "#e50914",
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 2.5,
+  },
+  autoplayEpInfo: {
+    color: "#fff",
+    fontSize: 17,
+    fontWeight: "800",
+    lineHeight: 22,
+  },
+  autoplayCountdownWrap: {
+    alignSelf: "center",
+    alignItems: "center",
+    paddingVertical: 4,
+  },
+  autoplayCountdownNum: {
+    color: "#fff",
+    fontSize: 56,
+    fontWeight: "900",
+    lineHeight: 62,
+    fontVariant: ["tabular-nums"] as any,
+  },
+  autoplayCountdownSub: {
+    color: "rgba(255,255,255,0.38)",
+    fontSize: 11,
+    fontWeight: "600",
+    letterSpacing: 0.5,
+  },
+  autoplayBarTrack: {
+    height: 3,
+    backgroundColor: "rgba(255,255,255,0.12)",
+    borderRadius: 2,
+    overflow: "hidden",
+  },
+  autoplayBarFill: {
+    height: 3,
+    backgroundColor: "#e50914",
+    borderRadius: 2,
+  },
+  autoplayBtns: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 4,
+  },
+  autoCancelBtn: {
+    flex: 1,
+    paddingVertical: 11,
+    borderRadius: 10,
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.18)",
+  },
+  autoCancelTxt: {
+    color: "rgba(255,255,255,0.65)",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  autoNextBtn: {
+    flex: 1.5,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    paddingVertical: 11,
+    borderRadius: 10,
+    backgroundColor: "#e50914",
+  },
+  autoNextTxt: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "800",
+  },
 });
 
 // ─── MAIN PLAYER SCREEN ───────────────────────────────────────────────────────
