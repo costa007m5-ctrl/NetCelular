@@ -18,6 +18,7 @@ import {
   StatusBar as RNStatusBar,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -613,10 +614,16 @@ function VerMaisModal({
   const [tmdbPage,    setTmdbPage]    = useState(1);
   const [loadingMore, setLoadingMore] = useState(false);
   const [noMoreTmdb,  setNoMoreTmdb]  = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const PAGE = 20;
 
-  const allItems = useMemo(() => [...items, ...extraItems], [items, extraItems]);
-  const shown    = useMemo(() => allItems.slice(0, page * PAGE), [allItems, page]);
+  const allItems     = useMemo(() => [...items, ...extraItems], [items, extraItems]);
+  const shown        = useMemo(() => allItems.slice(0, page * PAGE), [allItems, page]);
+  const q            = searchQuery.trim().toLowerCase();
+  const filteredItems = useMemo(
+    () => q ? allItems.filter((i) => i.title.toLowerCase().includes(q)) : shown,
+    [q, allItems, shown]
+  );
 
   useEffect(() => {
     if (visible) {
@@ -624,6 +631,7 @@ function VerMaisModal({
       setExtraItems([]);
       setTmdbPage(1);
       setNoMoreTmdb(false);
+      setSearchQuery("");
       Animated.parallel([
         Animated.timing(slideY,   { toValue: 0, duration: 340, useNativeDriver: true }),
         Animated.timing(backdrop, { toValue: 1, duration: 280, useNativeDriver: true }),
@@ -657,12 +665,13 @@ function VerMaisModal({
   }, [fetchMoreFn, loadingMore, noMoreTmdb, tmdbPage]);
 
   const handleEndReached = useCallback(() => {
+    if (q) return; // don't paginate while filtering
     if (shown.length < allItems.length) {
       setPage((p) => p + 1);
     } else if (fetchMoreFn && !noMoreTmdb && !loadingMore) {
       loadMoreTmdb();
     }
-  }, [shown.length, allItems.length, fetchMoreFn, noMoreTmdb, loadingMore, loadMoreTmdb]);
+  }, [q, shown.length, allItems.length, fetchMoreFn, noMoreTmdb, loadingMore, loadMoreTmdb]);
 
   const CARD_W = (W - 48) / 3;
   const CARD_H = CARD_W * 1.5;
@@ -706,15 +715,46 @@ function VerMaisModal({
             <View style={[sty.modalAccent, { backgroundColor: accentColor }]} />
             <Text style={sty.modalTitle}>{title}</Text>
             <View style={[sty.badge, { backgroundColor:`${accentColor}20`, borderColor:`${accentColor}40` }]}>
-              <Text style={[sty.badgeText, { color: accentColor }]}>{allItems.length}</Text>
+              <Text style={[sty.badgeText, { color: accentColor }]}>
+                {q ? `${filteredItems.length} de ${allItems.length}` : allItems.length}
+              </Text>
             </View>
           </View>
           <TouchableOpacity onPress={onClose} activeOpacity={0.7} style={sty.modalClose}>
             <Feather name="x" size={18} color="rgba(255,255,255,0.7)" />
           </TouchableOpacity>
         </View>
+        {/* ── Search bar ─────────────────────────────────────────────── */}
+        <View style={sty.searchWrap}>
+          <Feather name="search" size={14} color={q ? accentColor : "rgba(255,255,255,0.35)"} style={{ marginRight: 8 }} />
+          <TextInput
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder="Buscar nesta lista..."
+            placeholderTextColor="rgba(255,255,255,0.28)"
+            style={[sty.searchInput, q ? { color: "#fff" } : {}]}
+            returnKeyType="search"
+            clearButtonMode="while-editing"
+            autoCorrect={false}
+          />
+          {q ? (
+            <TouchableOpacity onPress={() => setSearchQuery("")} hitSlop={{ top:8, bottom:8, left:8, right:8 }}>
+              <Feather name="x-circle" size={14} color={accentColor} />
+            </TouchableOpacity>
+          ) : null}
+        </View>
+
+        {/* Empty state when search returns nothing */}
+        {q && filteredItems.length === 0 ? (
+          <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 10, paddingBottom: 80 }}>
+            <Feather name="search" size={32} color="rgba(255,255,255,0.12)" />
+            <Text style={{ color: "rgba(255,255,255,0.28)", fontSize: 14 }}>
+              Nenhum resultado para "{searchQuery}"
+            </Text>
+          </View>
+        ) : (
         <FlatList
-          data={shown}
+          data={filteredItems}
           keyExtractor={(i) => i.id}
           numColumns={3}
           columnWrapperStyle={{ gap: 8, paddingHorizontal: 16 }}
@@ -728,7 +768,7 @@ function VerMaisModal({
               <View style={{ paddingVertical: 20, alignItems: "center" }}>
                 <ActivityIndicator size="small" color={accentColor} />
               </View>
-            ) : shown.length < allItems.length ? (
+            ) : !q && shown.length < allItems.length ? (
               <TouchableOpacity onPress={() => setPage((p) => p + 1)} style={sty.loadMoreBtn} activeOpacity={0.8}>
                 <LinearGradient colors={[`${accentColor}22`, `${accentColor}10`]} style={StyleSheet.absoluteFill} />
                 <Feather name="chevrons-down" size={14} color={accentColor} />
@@ -739,6 +779,7 @@ function VerMaisModal({
             ) : null
           }
         />
+        )}
       </Animated.View>
     </Modal>
   );
@@ -1814,6 +1855,10 @@ const sty = StyleSheet.create({
     flexDirection:"row", alignItems:"center", justifyContent:"center", gap:8,
     paddingVertical:14, borderWidth:1, borderColor:"rgba(255,255,255,0.1)" },
   loadMoreText: { fontSize:13, fontWeight:"700" },
+  searchWrap: { flexDirection:"row", alignItems:"center", marginHorizontal:16, marginBottom:12,
+    backgroundColor:"rgba(255,255,255,0.07)", borderRadius:12, borderWidth:1,
+    borderColor:"rgba(255,255,255,0.1)", paddingHorizontal:12, height:40 },
+  searchInput: { flex:1, color:"rgba(255,255,255,0.55)", fontSize:13, paddingVertical:0 },
 
   // FAB
   fab:     { position:"absolute", right:20, bottom:110, zIndex:50 },
