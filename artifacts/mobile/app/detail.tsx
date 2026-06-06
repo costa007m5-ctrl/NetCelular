@@ -274,6 +274,8 @@ export default function DetailScreen() {
   const [r2Loading, setR2Loading] = useState(true);
   // Admin-only: mismatched registry items (content exists but with a different tmdbId)
   const [adminDiagnostic, setAdminDiagnostic] = useState<{ count: number; ids: number[]; titles: string[] } | null>(null);
+  const [fixingIds, setFixingIds] = useState(false);
+  const [fixDone, setFixDone] = useState<number | null>(null);
 
   // Load R2 registry items + source settings + Flix 2.0 live lookup
   // ─── Fase 1 (rápida): registry + settings → mostra botões imediatamente
@@ -804,6 +806,34 @@ export default function DetailScreen() {
         backdropPath: details?.backdrop_path ?? "",
       },
     });
+  };
+
+  const fixMismatchedIds = async () => {
+    if (!adminDiagnostic || adminDiagnostic.ids.length === 0) return;
+    setFixingIds(true);
+    setFixDone(null);
+    try {
+      const { r2Route } = await import("@/lib/r2-direct");
+      const res = await r2Route<{ ok: boolean; updated: number }>("/registry/remap-tmdb", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fromIds: adminDiagnostic.ids, toId: tmdbId, toType: type }),
+      });
+      setFixDone(res.updated);
+      setAdminDiagnostic(null);
+      // Recarrega os itens do registro para refletir a correção
+      const { apiGetRegistry } = await import("@/lib/r2-direct");
+      const data = await apiGetRegistry();
+      const allItems: RegistryItem[] = data.items ?? [];
+      const updated = allItems.filter(
+        (i: RegistryItem) => i.tmdbId === tmdbId && i.tmdbType === type
+      );
+      setR2Items(updated);
+    } catch (e: any) {
+      Alert.alert("Erro", e.message ?? "Falha ao corrigir IDs");
+    } finally {
+      setFixingIds(false);
+    }
   };
 
   const submitAddSource = async () => {
@@ -1438,6 +1468,11 @@ export default function DetailScreen() {
                             <Text style={{ color: "rgba(234,179,8,0.8)", fontSize: 11 }}>
                               {"TMDB ID desta tela: "}<Text style={{ fontWeight: "700" }}>{tmdbId}</Text>
                             </Text>
+                            {fixDone != null && (
+                              <Text style={{ color: "#4ade80", fontSize: 11, fontWeight: "700", marginTop: 2 }}>
+                                ✓ {fixDone} item(s) corrigido(s) com sucesso!
+                              </Text>
+                            )}
                             {adminDiagnostic ? (
                               <>
                                 <Text style={{ color: "#f87171", fontSize: 11, fontWeight: "600", marginTop: 2 }}>
@@ -1450,14 +1485,14 @@ export default function DetailScreen() {
                                   Título(s): {adminDiagnostic.titles.join(" / ")}
                                 </Text>
                                 <Text style={{ color: "rgba(234,179,8,0.7)", fontSize: 10, marginTop: 2 }}>
-                                  Solução: no Admin Catalog, re-registre o conteúdo buscando o título correto no TMDB. O ID {tmdbId} deve ser usado.
+                                  Use "Corrigir ID" para remapear todos para o ID {tmdbId} automaticamente.
                                 </Text>
                               </>
-                            ) : (
+                            ) : fixDone == null ? (
                               <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11, marginTop: 2 }}>
                                 Nenhum item no registro — use "Adicionar fonte" para vincular Drive/R2.
                               </Text>
-                            )}
+                            ) : null}
                           </View>
                           <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
                             <Pressable
@@ -1467,12 +1502,27 @@ export default function DetailScreen() {
                               <Feather name="plus-circle" size={14} color={colors.primary} />
                               <Text style={{ color: colors.primary, fontSize: 13, fontWeight: "600" }}>Adicionar fonte</Text>
                             </Pressable>
+                            {adminDiagnostic && adminDiagnostic.ids.length > 0 && (
+                              <Pressable
+                                onPress={fixMismatchedIds}
+                                disabled={fixingIds}
+                                style={({ pressed }) => [{ flexDirection: "row", alignItems: "center", gap: 7, paddingVertical: 7, paddingHorizontal: 12, borderRadius: 8, backgroundColor: fixingIds ? "rgba(34,197,94,0.05)" : "rgba(34,197,94,0.12)", borderWidth: 1, borderColor: "rgba(34,197,94,0.4)" }, (pressed || fixingIds) && { opacity: 0.6 }]}
+                              >
+                                {fixingIds
+                                  ? <ActivityIndicator size={13} color="#4ade80" />
+                                  : <Feather name="tool" size={14} color="#4ade80" />
+                                }
+                                <Text style={{ color: "#4ade80", fontSize: 13, fontWeight: "600" }}>
+                                  {fixingIds ? "Corrigindo…" : `Corrigir ID (${adminDiagnostic.count})`}
+                                </Text>
+                              </Pressable>
+                            )}
                             <Pressable
                               onPress={() => router.push({ pathname: "/r2-catalog", params: { initialSearch: params.title ?? "" } } as any)}
                               style={({ pressed }) => [{ flexDirection: "row", alignItems: "center", gap: 7, paddingVertical: 7, paddingHorizontal: 12, borderRadius: 8, backgroundColor: "rgba(139,92,246,0.12)", borderWidth: 1, borderColor: "rgba(139,92,246,0.35)" }, pressed && { opacity: 0.7 }]}
                             >
                               <Feather name="archive" size={14} color="#a78bfa" />
-                              <Text style={{ color: "#a78bfa", fontSize: 13, fontWeight: "600" }}>Ir para Admin Catalog</Text>
+                              <Text style={{ color: "#a78bfa", fontSize: 13, fontWeight: "600" }}>Admin Catalog</Text>
                             </Pressable>
                           </View>
                         </>

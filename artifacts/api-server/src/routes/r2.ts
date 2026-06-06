@@ -1064,6 +1064,33 @@ router.put("/registry/:id", async (req, res) => {
   }
 });
 
+// POST /registry/remap-tmdb  { fromIds: number[], toId: number, toType: "movie"|"tv" }
+// Batch-updates all registry items whose tmdbId is in fromIds → toId + toType
+router.post("/registry/remap-tmdb", async (req, res) => {
+  try {
+    const { fromIds, toId, toType } = req.body as { fromIds: number[]; toId: number; toType: "movie" | "tv" };
+    if (!Array.isArray(fromIds) || fromIds.length === 0 || !toId || !toType) {
+      res.status(400).json({ error: "fromIds (array), toId, toType required" }); return;
+    }
+    const fromSet = new Set(fromIds.map(Number));
+    const client = getClient();
+    const bucket = getBucket();
+    const registry = await readRegistry(client, bucket);
+    let updated = 0;
+    registry.items = registry.items.map((item) => {
+      if (fromSet.has(Number(item.tmdbId))) {
+        updated++;
+        return { ...item, tmdbId: Number(toId), tmdbType: toType };
+      }
+      return item;
+    });
+    await writeRegistry(client, bucket, registry);
+    res.json({ ok: true, updated });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "error" });
+  }
+});
+
 // DELETE /registry/:id
 router.delete("/registry/:id", async (req, res) => {
   try {
