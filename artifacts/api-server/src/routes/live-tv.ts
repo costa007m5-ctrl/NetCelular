@@ -4,7 +4,8 @@ const router = Router();
 const EMBEDTV_BASE = "https://embedtv.lat/api";
 
 let channelsCache: { data: any; ts: number } | null = null;
-let epgsCache: { data: any; ts: number } | null = null;
+let epgsCache:    { data: any; ts: number } | null = null;
+let jogosCache:   { data: any; ts: number } | null = null;
 const CACHE_TTL = 3 * 60 * 1000; // 3 minutes
 
 router.get("/channels", async (req, res) => {
@@ -40,6 +41,24 @@ router.get("/epgs", async (req, res) => {
   } catch (err: any) {
     (req as any).log?.error({ err }, "live-tv epgs error");
     res.status(502).json({ error: err?.message ?? "Failed to fetch EPGs" });
+  }
+});
+
+router.get("/jogos", async (req, res) => {
+  try {
+    const now = Date.now();
+    if (jogosCache && now - jogosCache.ts < CACHE_TTL) {
+      res.json(jogosCache.data);
+      return;
+    }
+    const resp = await fetch(`${EMBEDTV_BASE}/jogos`);
+    if (!resp.ok) throw new Error(`Upstream error ${resp.status}`);
+    const data = await resp.json();
+    jogosCache = { data, ts: now };
+    res.json(data);
+  } catch (err: any) {
+    (req as any).log?.error({ err }, "live-tv jogos error");
+    res.status(502).json({ error: err?.message ?? "Failed to fetch jogos" });
   }
 });
 

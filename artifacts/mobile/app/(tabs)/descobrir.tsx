@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   Animated,
@@ -20,38 +26,146 @@ import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
-import { GlobalSearchBar } from "@/components/GlobalSearchBar";
+import { InlineSearchBar } from "@/components/InlineSearchBar";
 import {
   liveTvApi,
   calcProgress,
   calcRemaining,
   fakeViewers,
   getAccent,
+  jogoStatus,
+  formatJogoTime,
+  jogoElapsedMin,
   CATEGORY_LABELS,
   MAIN_CATEGORIES,
   type LiveChannel,
   type LiveCategory,
   type EpgEntry,
+  type JogoEntry,
 } from "@/lib/live-tv-api";
 
-// ─── Dimensions ────────────────────────────────────────────────────────────────
 const { width: W } = Dimensions.get("window");
 
-// ─── Palette ───────────────────────────────────────────────────────────────────
 const RED    = "#e50914";
 const GREEN  = "#22c55e";
 const AMBER  = "#f59e0b";
 const BLUE   = "#3b82f6";
 const PURPLE = "#8b5cf6";
 
-const CARD_W = (W - 16 * 2 - 10 * 2) / 3;  // 3-col grid with gaps
+const CARD_W  = (W - 16 * 2 - 10 * 2) / 3;
+const JOGO_W  = 200;
 
-// ─── EPG lookup helper ─────────────────────────────────────────────────────────
+// ─── Category accent colors ────────────────────────────────────────────────────
+const CAT_COLORS: Record<number, string> = {
+  0: RED, 1: GREEN, 2: PURPLE, 3: BLUE,
+  4: "#f97316", 5: AMBER, 6: RED, 7: PURPLE, 9: "#10b981",
+};
+
+// ─── EPG lookup ───────────────────────────────────────────────────────────────
 function getEpg(epgs: EpgEntry[], channelId: string) {
   return epgs.find((e) => e.id === channelId);
 }
 
-// ─── ChannelCard ───────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+// JogoCard — horizontal sports match card
+// ═══════════════════════════════════════════════════════════════════════════════
+function JogoCard({ jogo, onPress }: { jogo: JogoEntry; onPress: () => void }) {
+  const sc    = useRef(new Animated.Value(1)).current;
+  const pulse = useRef(new Animated.Value(1)).current;
+
+  const status  = jogoStatus(jogo.data.timer);
+  const elapsed = jogoElapsedMin(jogo.data.timer);
+  const kickoff = formatJogoTime(jogo.data.timer);
+
+  const pi = () => Animated.spring(sc, { toValue: 0.93, useNativeDriver: true, speed: 32 }).start();
+  const po = () => Animated.spring(sc, { toValue: 1, useNativeDriver: true, speed: 26 }).start();
+
+  useEffect(() => {
+    if (status !== "live") return;
+    const loop = Animated.loop(Animated.sequence([
+      Animated.timing(pulse, { toValue: 0.2, duration: 600, useNativeDriver: true }),
+      Animated.timing(pulse, { toValue: 1,   duration: 600, useNativeDriver: true }),
+    ]));
+    loop.start();
+    return () => loop.stop();
+  }, [status]);
+
+  const statusColor = status === "live" ? GREEN : status === "upcoming" ? AMBER : "rgba(255,255,255,0.25)";
+  const statusLabel =
+    status === "live"     ? `${elapsed}'` :
+    status === "upcoming" ? kickoff :
+    "Encerrado";
+
+  return (
+    <Pressable onPress={status !== "ended" ? onPress : undefined} onPressIn={pi} onPressOut={po}>
+      <Animated.View style={[jst.card, status === "ended" && jst.cardEnded, { transform: [{ scale: sc }] }]}>
+
+        {/* League + status badge */}
+        <View style={jst.top}>
+          <Text style={jst.league} numberOfLines={1}>{jogo.data.league}</Text>
+          <View style={[jst.statusBadge, { borderColor: `${statusColor}50`, backgroundColor: `${statusColor}15` }]}>
+            {status === "live" && (
+              <Animated.View style={[jst.liveDot, { backgroundColor: GREEN, opacity: pulse }]} />
+            )}
+            <Text style={[jst.statusT, { color: statusColor }]}>{statusLabel}</Text>
+          </View>
+        </View>
+
+        {/* Teams */}
+        <View style={jst.teamsRow}>
+          {/* Home */}
+          <View style={jst.teamCol}>
+            <View style={jst.teamImgWrap}>
+              <Image
+                source={{ uri: jogo.data.teams.home.image }}
+                style={jst.teamImg}
+                contentFit="contain"
+                cachePolicy="memory-disk"
+              />
+            </View>
+            <Text style={jst.teamName} numberOfLines={2}>{jogo.data.teams.home.name}</Text>
+          </View>
+
+          {/* VS */}
+          <View style={jst.vs}>
+            <Text style={jst.vsT}>VS</Text>
+          </View>
+
+          {/* Away */}
+          <View style={jst.teamCol}>
+            <View style={jst.teamImgWrap}>
+              <Image
+                source={{ uri: jogo.data.teams.away.image }}
+                style={jst.teamImg}
+                contentFit="contain"
+                cachePolicy="memory-disk"
+              />
+            </View>
+            <Text style={jst.teamName} numberOfLines={2}>{jogo.data.teams.away.name}</Text>
+          </View>
+        </View>
+
+        {/* Channels strip */}
+        {status !== "ended" && jogo.players.length > 0 && (
+          <View style={jst.playersRow}>
+            <Feather name="tv" size={10} color="rgba(255,255,255,0.35)" />
+            <Text style={jst.playersT} numberOfLines={1}>
+              {jogo.players.length} canal{jogo.players.length > 1 ? "is" : ""}
+            </Text>
+            <View style={jst.playBtn}>
+              <Feather name="play" size={8} color="#fff" />
+              <Text style={jst.playT}>Assistir</Text>
+            </View>
+          </View>
+        )}
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// ChannelCard — 3-column grid card
+// ═══════════════════════════════════════════════════════════════════════════════
 function ChannelCard({
   channel, epg, onPress,
 }: {
@@ -69,10 +183,7 @@ function ChannelCard({
   return (
     <Pressable onPress={onPress} onPressIn={pi} onPressOut={po}>
       <Animated.View style={[st.card, { transform: [{ scale: sc }] }]}>
-        {/* Accent bar top */}
         <View style={[st.cardAccentBar, { backgroundColor: accent }]} />
-
-        {/* Logo */}
         <View style={st.cardLogoWrap}>
           {!imgErr && channel.image
             ? <Image source={{ uri: channel.image }} style={st.cardLogo} contentFit="contain"
@@ -82,27 +193,17 @@ function ChannelCard({
               </LinearGradient>
           }
         </View>
-
-        {/* Live badge */}
         <View style={st.liveBadge}>
           <View style={st.liveDot} />
           <Text style={st.liveBadgeT}>AO VIVO</Text>
         </View>
-
-        {/* Channel name */}
         <Text style={st.cardName} numberOfLines={1}>{channel.name}</Text>
-
-        {/* EPG / program name */}
         {epg && (
           <Text style={st.cardEpg} numberOfLines={1}>{epg.epg.title}</Text>
         )}
-
-        {/* Progress bar */}
         <View style={st.cardProgWrap}>
           <View style={[st.cardProgFill, { width: `${prog}%` as any, backgroundColor: accent }]} />
         </View>
-
-        {/* Viewers */}
         <View style={st.cardViewers}>
           <Feather name="eye" size={8} color="rgba(255,255,255,0.35)" />
           <Text style={st.cardViewersT}>{viewers}</Text>
@@ -112,7 +213,9 @@ function ChannelCard({
   );
 }
 
-// ─── FeaturedBanner ────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+// FeaturedBanner — full-width live channel hero
+// ═══════════════════════════════════════════════════════════════════════════════
 function FeaturedBanner({
   channel, epg, onPress,
 }: {
@@ -121,9 +224,9 @@ function FeaturedBanner({
   const sc    = useRef(new Animated.Value(1)).current;
   const pulse = useRef(new Animated.Value(1)).current;
   const [imgErr, setImgErr] = useState(false);
-  const accent = getAccent(channel.id);
-  const prog   = epg ? calcProgress(epg.epg.start_date) : 35;
-  const remain = epg ? calcRemaining(epg.epg.start_date) : "AO VIVO";
+  const accent  = getAccent(channel.id);
+  const prog    = epg ? calcProgress(epg.epg.start_date) : 35;
+  const remain  = epg ? calcRemaining(epg.epg.start_date) : "AO VIVO";
   const viewers = fakeViewers(channel.id);
 
   const pi = () => Animated.spring(sc, { toValue: 0.97, useNativeDriver: true, speed: 28 }).start();
@@ -141,18 +244,14 @@ function FeaturedBanner({
   return (
     <Pressable onPress={onPress} onPressIn={pi} onPressOut={po} style={st.featPad}>
       <Animated.View style={[st.featCard, { transform: [{ scale: sc }] }]}>
-        {/* Backdrop preview */}
         {!imgErr && channel.preview
           ? <Image source={{ uri: channel.preview }} style={StyleSheet.absoluteFill}
               contentFit="cover" cachePolicy="memory-disk" onError={() => setImgErr(true)} />
           : <LinearGradient colors={[`${accent}30`, "#080608"]} style={StyleSheet.absoluteFill} />
         }
         <LinearGradient colors={["transparent", "rgba(0,0,0,0.98)"]} locations={[0.2, 1]} style={StyleSheet.absoluteFill} />
-
-        {/* Top accent line */}
         <View style={[st.featAccentLine, { backgroundColor: accent }]} />
 
-        {/* Logo + live badge */}
         <View style={st.featTop}>
           <View style={[st.featLogoWrap, { borderColor: `${accent}50` }]}>
             {!imgErr && channel.image
@@ -172,7 +271,6 @@ function FeaturedBanner({
           </View>
         </View>
 
-        {/* EPG info */}
         {epg && (
           <View style={st.featEpgRow}>
             <View style={[st.featEpgDot, { backgroundColor: accent }]} />
@@ -185,7 +283,6 @@ function FeaturedBanner({
           </View>
         )}
 
-        {/* Progress + meta */}
         <View style={st.featMeta}>
           <View style={st.featProgWrap}>
             <View style={[st.featProgFill, { width: `${prog}%` as any, backgroundColor: accent }]} />
@@ -206,7 +303,9 @@ function FeaturedBanner({
   );
 }
 
-// ─── CategoryTab ───────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+// CategoryTab
+// ═══════════════════════════════════════════════════════════════════════════════
 function CategoryTab({ label, active, color, onPress }: {
   label: string; active: boolean; color: string; onPress: () => void;
 }) {
@@ -223,7 +322,9 @@ function CategoryTab({ label, active, color, onPress }: {
   );
 }
 
-// ─── SectionHeader ─────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+// SectionHeader
+// ═══════════════════════════════════════════════════════════════════════════════
 function SectionHeader({ title, count, accentColor = RED }: {
   title: string; count?: number; accentColor?: string;
 }) {
@@ -250,21 +351,20 @@ export default function LiveTvScreen() {
   const isWeb   = Platform.OS === "web";
   const topPad  = isWeb ? 0 : insets.top;
 
-  // ── Animations ──────────────────────────────────────────────────────────────
-  const headerFade  = useRef(new Animated.Value(0)).current;
-  const gridFade    = useRef(new Animated.Value(0)).current;
-  const featFade    = useRef(new Animated.Value(0)).current;
-  const blink       = useRef(new Animated.Value(1)).current;
+  const headerFade = useRef(new Animated.Value(0)).current;
+  const gridFade   = useRef(new Animated.Value(0)).current;
+  const featFade   = useRef(new Animated.Value(0)).current;
+  const blink      = useRef(new Animated.Value(1)).current;
 
-  // ── State ───────────────────────────────────────────────────────────────────
   const [channels,   setChannels]   = useState<LiveChannel[]>([]);
   const [categories, setCategories] = useState<LiveCategory[]>([]);
   const [epgs,       setEpgs]       = useState<EpgEntry[]>([]);
+  const [jogos,      setJogos]      = useState<JogoEntry[]>([]);
   const [activeCat,  setActiveCat]  = useState<number>(0);
+  const [searchQ,    setSearchQ]    = useState("");
   const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  // ── Live dot blink loop ─────────────────────────────────────────────────────
   useEffect(() => {
     const loop = Animated.loop(Animated.sequence([
       Animated.timing(blink, { toValue: 0.2, duration: 600, useNativeDriver: true }),
@@ -274,27 +374,25 @@ export default function LiveTvScreen() {
     return () => loop.stop();
   }, []);
 
-  // ── Load data ───────────────────────────────────────────────────────────────
   const loadAll = useCallback(async () => {
     try {
-      const [channelsRes, epgsRes] = await Promise.allSettled([
+      const [channelsRes, epgsRes, jogosRes] = await Promise.allSettled([
         liveTvApi.getChannels(),
         liveTvApi.getEpgs(),
+        liveTvApi.getJogos(),
       ]);
 
       if (channelsRes.status === "fulfilled") {
         setChannels(channelsRes.value.channels ?? []);
         setCategories(channelsRes.value.categories ?? []);
       }
-      if (epgsRes.status === "fulfilled") {
-        setEpgs(epgsRes.value ?? []);
-      }
+      if (epgsRes.status === "fulfilled") setEpgs(epgsRes.value ?? []);
+      if (jogosRes.status === "fulfilled") setJogos(jogosRes.value ?? []);
     } catch {}
 
     setLoading(false);
     setRefreshing(false);
 
-    // Stagger entrance animations
     Animated.stagger(80, [
       Animated.timing(headerFade, { toValue: 1, duration: 400, useNativeDriver: true }),
       Animated.timing(featFade,   { toValue: 1, duration: 400, useNativeDriver: true }),
@@ -306,13 +404,10 @@ export default function LiveTvScreen() {
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    headerFade.setValue(0);
-    featFade.setValue(0);
-    gridFade.setValue(0);
+    headerFade.setValue(0); featFade.setValue(0); gridFade.setValue(0);
     loadAll();
   }, [loadAll]);
 
-  // ── Navigation ──────────────────────────────────────────────────────────────
   const goToChannel = useCallback((ch: LiveChannel) => {
     router.push({
       pathname: "/channel-detail",
@@ -327,16 +422,45 @@ export default function LiveTvScreen() {
     });
   }, [router]);
 
-  // ── Filtered channels ───────────────────────────────────────────────────────
-  const filtered = activeCat === 0
-    ? channels
-    : channels.filter((ch) => ch.categories?.includes(activeCat));
+  const goToJogo = useCallback((j: JogoEntry) => {
+    if (!j.players.length) return;
+    const url = j.players[0];
+    const channelId = url.split("/").pop() ?? "live";
+    const ch = channels.find((c) => c.url === url) ?? {
+      id: channelId, name: j.title,
+      image: j.data.teams.home.image, preview: j.image,
+      url, categories: [1],
+    };
+    router.push({
+      pathname: "/channel-detail",
+      params: {
+        channelId: ch.id,
+        channelName: j.title,
+        channelImage: ch.image,
+        channelPreview: j.image,
+        channelUrl: url,
+        channelCategories: JSON.stringify([1]),
+      },
+    });
+  }, [router, channels]);
 
-  // Featured = first channel in filtered list
-  const featured = filtered[0];
-  const rest     = filtered.slice(1);
+  // ── Filtered channels ──────────────────────────────────────────────────────
+  const filtered = useMemo(() => {
+    let list = activeCat === 0
+      ? channels
+      : channels.filter((ch) => ch.categories?.includes(activeCat));
+    if (searchQ.trim().length >= 2) {
+      const q = searchQ.toLowerCase();
+      list = list.filter((ch) => ch.name.toLowerCase().includes(q));
+    }
+    return list;
+  }, [channels, activeCat, searchQ]);
 
-  // Category tabs — only show categories that have channels
+  const featured = searchQ.length < 2 ? filtered[0] : undefined;
+  const rest     = searchQ.length < 2 ? filtered.slice(1) : filtered;
+
+  const isSearching = searchQ.length >= 2;
+
   const activeCategoryIds = new Set(channels.flatMap((ch) => ch.categories ?? []));
   const catTabs = [
     { id: 0, name: CATEGORY_LABELS[0] ?? "Todos" },
@@ -344,21 +468,26 @@ export default function LiveTvScreen() {
       .map((id) => ({ id, name: CATEGORY_LABELS[id] ?? `Cat ${id}` })),
   ];
 
-  // Accent color for active category
-  const catColors: Record<number, string> = {
-    0: RED, 1: GREEN, 2: PURPLE, 3: BLUE, 4: "#f97316", 5: AMBER, 6: RED, 7: PURPLE,
-  };
-  const activeColor = catColors[activeCat] ?? RED;
+  const activeColor = CAT_COLORS[activeCat] ?? RED;
 
-  // ── Render ──────────────────────────────────────────────────────────────────
+  // Jogos: live first, then upcoming, skip ended (unless all ended)
+  const sortedJogos = useMemo(() => {
+    const live     = jogos.filter((j) => jogoStatus(j.data.timer) === "live");
+    const upcoming = jogos.filter((j) => jogoStatus(j.data.timer) === "upcoming");
+    const ended    = jogos.filter((j) => jogoStatus(j.data.timer) === "ended");
+    return [...live, ...upcoming, ...ended];
+  }, [jogos]);
+
+  const headerHeight = 160;
+
   return (
     <View style={[st.root, { backgroundColor: colors.background }]}>
       <StatusBar style="light" />
 
-      {/* ── HEADER ─────────────────────────────────────────────────────────── */}
+      {/* ── FLOATING HEADER ──────────────────────────────────────────────── */}
       <Animated.View style={[st.header, { paddingTop: topPad + 10, opacity: headerFade }]}>
         <LinearGradient
-          colors={["rgba(0,0,0,0.95)", "rgba(0,0,0,0.7)", "transparent"]}
+          colors={["rgba(0,0,0,0.97)", "rgba(0,0,0,0.7)", "transparent"]}
           style={StyleSheet.absoluteFill}
         />
         <View style={st.headerInner}>
@@ -381,24 +510,23 @@ export default function LiveTvScreen() {
 
         {/* Category tabs */}
         <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
+          horizontal showsHorizontalScrollIndicator={false}
           contentContainerStyle={st.catScroll}
-          style={{ marginTop: 10 }}
+          style={{ marginTop: 8 }}
         >
           {catTabs.map((cat) => (
             <CategoryTab
               key={cat.id}
               label={cat.name}
               active={activeCat === cat.id}
-              color={catColors[cat.id] ?? RED}
+              color={CAT_COLORS[cat.id] ?? RED}
               onPress={() => setActiveCat(cat.id)}
             />
           ))}
         </ScrollView>
       </Animated.View>
 
-      {/* ── CONTENT ────────────────────────────────────────────────────────── */}
+      {/* ── CONTENT ──────────────────────────────────────────────────────── */}
       {loading ? (
         <View style={st.loadingWrap}>
           <ActivityIndicator color={RED} size="large" />
@@ -420,20 +548,48 @@ export default function LiveTvScreen() {
           data={rest}
           keyExtractor={(ch) => ch.id}
           numColumns={3}
-          contentContainerStyle={[st.grid, { paddingTop: topPad + 170 }]}
+          contentContainerStyle={[st.grid, { paddingTop: topPad + headerHeight }]}
           columnWrapperStyle={st.gridRow}
           showsVerticalScrollIndicator={false}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh}
-              tintColor={RED} colors={[RED]} progressViewOffset={topPad + 60} />
+            <RefreshControl
+              refreshing={refreshing} onRefresh={onRefresh}
+              tintColor={RED} colors={[RED]} progressViewOffset={topPad + 60}
+            />
           }
           ListHeaderComponent={
             <>
               {/* Search bar */}
-              <GlobalSearchBar placeholder="Buscar canais ao vivo..." style={{ marginTop: 8, marginBottom: 0 }} />
+              <InlineSearchBar
+                value={searchQ}
+                onChangeText={setSearchQ}
+                placeholder="Buscar canal ao vivo..."
+                style={{ marginTop: 0, marginBottom: 12 }}
+              />
 
-              {/* Featured banner */}
-              {featured && (
+              {/* Jogos section — hidden while searching */}
+              {!isSearching && sortedJogos.length > 0 && (
+                <Animated.View style={{ opacity: featFade }}>
+                  <SectionHeader
+                    title="Partidas de Hoje"
+                    count={sortedJogos.length}
+                    accentColor={GREEN}
+                  />
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={st.jogosScroll}
+                    style={{ marginBottom: 20 }}
+                  >
+                    {sortedJogos.map((j, i) => (
+                      <JogoCard key={`${j.title}-${i}`} jogo={j} onPress={() => goToJogo(j)} />
+                    ))}
+                  </ScrollView>
+                </Animated.View>
+              )}
+
+              {/* Featured banner — hidden while searching */}
+              {!isSearching && featured && (
                 <Animated.View style={{ opacity: featFade }}>
                   <FeaturedBanner
                     channel={featured}
@@ -446,7 +602,7 @@ export default function LiveTvScreen() {
               {/* Section header */}
               <Animated.View style={{ opacity: gridFade }}>
                 <SectionHeader
-                  title="Todos os Canais"
+                  title={isSearching ? `Resultados para "${searchQ}"` : "Todos os Canais"}
                   count={rest.length}
                   accentColor={activeColor}
                 />
@@ -455,8 +611,10 @@ export default function LiveTvScreen() {
           }
           ListEmptyComponent={
             <View style={st.noChannels}>
-              <Feather name="tv" size={40} color="rgba(255,255,255,0.07)" />
-              <Text style={st.noChannelsT}>Nenhum canal nesta categoria</Text>
+              <Feather name={isSearching ? "search" : "tv"} size={40} color="rgba(255,255,255,0.07)" />
+              <Text style={st.noChannelsT}>
+                {isSearching ? "Nenhum canal encontrado" : "Nenhum canal nesta categoria"}
+              </Text>
             </View>
           }
           renderItem={({ item: ch }) => (
@@ -474,12 +632,11 @@ export default function LiveTvScreen() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// STYLES
+// STYLES — Channel cards
 // ═══════════════════════════════════════════════════════════════════════════════
 const st = StyleSheet.create({
   root: { flex: 1 },
 
-  // Header
   header:       { position: "absolute", top: 0, left: 0, right: 0, zIndex: 20, paddingBottom: 8 },
   headerInner:  { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 18 },
   headerLeft:   { flexDirection: "row", alignItems: "center", gap: 10 },
@@ -488,14 +645,12 @@ const st = StyleSheet.create({
   refreshBtn:   { width: 38, height: 38, alignItems: "center", justifyContent: "center",
     borderRadius: 19, backgroundColor: "rgba(255,255,255,0.08)" },
 
-  // Live pill
   livePill:    { flexDirection: "row", alignItems: "center", gap: 5,
     backgroundColor: "rgba(229,9,20,0.2)", borderWidth: 1, borderColor: "rgba(229,9,20,0.5)",
     borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 },
   livePillDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: RED },
   livePillT:   { color: RED, fontSize: 9, fontWeight: "900", letterSpacing: 1.5 },
 
-  // Category tabs
   catScroll: { paddingHorizontal: 16, gap: 6 },
   catTab:    { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 12, paddingVertical: 7,
     borderRadius: 20, borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
@@ -503,76 +658,125 @@ const st = StyleSheet.create({
   catTabDot: { width: 5, height: 5, borderRadius: 2.5 },
   catTabT:   { fontSize: 12, fontWeight: "700" },
 
-  // Featured banner
-  featPad:        { paddingHorizontal: 16, marginBottom: 20 },
-  featCard:       { height: 200, borderRadius: 20, overflow: "hidden", backgroundColor: "#0d0a1a",
+  // Featured
+  featPad:         { paddingHorizontal: 16, marginBottom: 20 },
+  featCard:        { height: 200, borderRadius: 20, overflow: "hidden", backgroundColor: "#0d0a1a",
     ...Platform.select({ ios: { shadowColor: "#000", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.6, shadowRadius: 18 }, android: { elevation: 14 } }) },
-  featAccentLine: { position: "absolute", top: 0, left: 0, right: 0, height: 3 },
-  featTop:        { flexDirection: "row", alignItems: "center", gap: 12, padding: 16 },
-  featLogoWrap:   { width: 56, height: 56, borderRadius: 14, borderWidth: 1, overflow: "hidden",
+  featAccentLine:  { position: "absolute", top: 0, left: 0, right: 0, height: 3 },
+  featTop:         { flexDirection: "row", alignItems: "center", gap: 12, padding: 16 },
+  featLogoWrap:    { width: 56, height: 56, borderRadius: 14, borderWidth: 1, overflow: "hidden",
     backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center" },
-  featLogo:       { width: "100%", height: "100%" },
-  featTopInfo:    { flex: 1, gap: 3 },
-  featLiveBadge:  { flexDirection: "row", alignItems: "center", gap: 5, alignSelf: "flex-start",
+  featLogo:        { width: "100%", height: "100%" },
+  featTopInfo:     { flex: 1, gap: 3 },
+  featLiveBadge:   { flexDirection: "row", alignItems: "center", gap: 5, alignSelf: "flex-start",
     backgroundColor: "rgba(34,197,94,0.15)", borderWidth: 1, borderColor: "rgba(34,197,94,0.4)",
     borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3 },
-  featLiveDot:    { width: 6, height: 6, borderRadius: 3 },
-  featLiveBadgeT: { fontSize: 9, fontWeight: "900", letterSpacing: 1.5 },
-  featChannelName:{ color: "#fff", fontSize: 17, fontWeight: "800", letterSpacing: -0.3 },
-  featPlayBtn:    { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center",
+  featLiveDot:     { width: 6, height: 6, borderRadius: 3 },
+  featLiveBadgeT:  { fontSize: 9, fontWeight: "900", letterSpacing: 1.5 },
+  featChannelName: { color: "#fff", fontSize: 17, fontWeight: "800", letterSpacing: -0.3 },
+  featPlayBtn:     { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center",
     ...Platform.select({ ios: { shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.5, shadowRadius: 8 }, android: { elevation: 6 } }) },
-  featEpgRow:     { flexDirection: "row", alignItems: "flex-start", gap: 10, paddingHorizontal: 16, paddingBottom: 10 },
-  featEpgDot:     { width: 3, height: "100%" as any, borderRadius: 2, marginTop: 3 },
-  featEpgTitle:   { color: "#fff", fontSize: 13, fontWeight: "700" },
-  featEpgDesc:    { color: "rgba(255,255,255,0.45)", fontSize: 11, fontWeight: "400", marginTop: 2, lineHeight: 15 },
-  featMeta:       { position: "absolute", bottom: 0, left: 0, right: 0, paddingHorizontal: 16, paddingBottom: 14, gap: 6 },
-  featProgWrap:   { height: 3, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.12)", overflow: "hidden" },
-  featProgFill:   { height: "100%", borderRadius: 2 },
-  featMetaRow:    { flexDirection: "row", justifyContent: "space-between" },
-  featMetaLeft:   { flexDirection: "row", alignItems: "center", gap: 4 },
-  featMetaRight:  { flexDirection: "row", alignItems: "center", gap: 4 },
-  featMetaT:      { color: "rgba(255,255,255,0.35)", fontSize: 10, fontWeight: "500" },
+  featEpgRow:      { flexDirection: "row", alignItems: "flex-start", gap: 10, paddingHorizontal: 16, paddingBottom: 10 },
+  featEpgDot:      { width: 3, height: "100%" as any, borderRadius: 2, marginTop: 3 },
+  featEpgTitle:    { color: "#fff", fontSize: 13, fontWeight: "700" },
+  featEpgDesc:     { color: "rgba(255,255,255,0.45)", fontSize: 11, fontWeight: "400", marginTop: 2, lineHeight: 15 },
+  featMeta:        { position: "absolute", bottom: 0, left: 0, right: 0, paddingHorizontal: 16, paddingBottom: 14, gap: 6 },
+  featProgWrap:    { height: 3, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.12)", overflow: "hidden" },
+  featProgFill:    { height: "100%", borderRadius: 2 },
+  featMetaRow:     { flexDirection: "row", justifyContent: "space-between" },
+  featMetaLeft:    { flexDirection: "row", alignItems: "center", gap: 4 },
+  featMetaRight:   { flexDirection: "row", alignItems: "center", gap: 4 },
+  featMetaT:       { color: "rgba(255,255,255,0.35)", fontSize: 10, fontWeight: "500" },
+
+  // Jogos scroll
+  jogosScroll: { paddingHorizontal: 16, gap: 12 },
 
   // Grid
   grid:    { paddingHorizontal: 16 },
   gridRow: { gap: 10, marginBottom: 10 },
 
+  // Section header
+  secHead:   { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12, marginTop: 4 },
+  secBar:    { width: 3, height: 18, borderRadius: 2 },
+  secTitle:  { color: "#fff", fontSize: 16, fontWeight: "800", letterSpacing: -0.3, flex: 1 },
+  secBadge:  { borderRadius: 8, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 2 },
+  secBadgeT: { fontSize: 11, fontWeight: "700" },
+
   // Channel card
   card:          { width: CARD_W, borderRadius: 14, overflow: "hidden", backgroundColor: "#0f0c14",
     borderWidth: 1, borderColor: "rgba(255,255,255,0.07)",
     ...Platform.select({ ios: { shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 8 }, android: { elevation: 5 } }) },
-  cardAccentBar: { height: 2.5, width: "100%" },
-  cardLogoWrap:  { height: CARD_W * 0.62, alignItems: "center", justifyContent: "center",
-    backgroundColor: "rgba(0,0,0,0.3)", overflow: "hidden" },
-  cardLogo:      { width: CARD_W * 0.7, height: CARD_W * 0.55, alignItems: "center", justifyContent: "center" },
+  cardAccentBar: { height: 3 },
+  cardLogoWrap:  { width: "100%", height: CARD_W * 0.6, alignItems: "center", justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.03)", padding: 12 },
+  cardLogo:      { width: "100%", height: "100%", borderRadius: 8 },
   liveBadge:     { flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-start",
-    marginHorizontal: 8, marginTop: 6, backgroundColor: "rgba(229,9,20,0.15)",
-    borderWidth: 1, borderColor: "rgba(229,9,20,0.4)", borderRadius: 5, paddingHorizontal: 5, paddingVertical: 2 },
-  liveDot:       { width: 4, height: 4, borderRadius: 2, backgroundColor: RED },
+    marginHorizontal: 8, marginTop: 6, backgroundColor: "rgba(229,9,20,0.18)", borderRadius: 4,
+    paddingHorizontal: 5, paddingVertical: 2, borderWidth: 1, borderColor: "rgba(229,9,20,0.4)" },
+  liveDot:       { width: 5, height: 5, borderRadius: 2.5, backgroundColor: RED },
   liveBadgeT:    { color: RED, fontSize: 7, fontWeight: "900", letterSpacing: 1.2 },
-  cardName:      { color: "#fff", fontSize: 11, fontWeight: "700", marginHorizontal: 8, marginTop: 4, letterSpacing: -0.1 },
-  cardEpg:       { color: "rgba(255,255,255,0.35)", fontSize: 9, fontWeight: "500", marginHorizontal: 8, marginTop: 2 },
-  cardProgWrap:  { height: 2, marginHorizontal: 8, marginTop: 6, borderRadius: 1, backgroundColor: "rgba(255,255,255,0.1)", overflow: "hidden" },
+  cardName:      { color: "#fff", fontSize: 11, fontWeight: "700", marginHorizontal: 8, marginTop: 5, letterSpacing: -0.2 },
+  cardEpg:       { color: "rgba(255,255,255,0.4)", fontSize: 9, fontWeight: "500", marginHorizontal: 8, marginTop: 2 },
+  cardProgWrap:  { height: 2, marginHorizontal: 8, marginTop: 6, borderRadius: 1,
+    backgroundColor: "rgba(255,255,255,0.1)", overflow: "hidden" },
   cardProgFill:  { height: "100%", borderRadius: 1 },
-  cardViewers:   { flexDirection: "row", alignItems: "center", gap: 3, marginHorizontal: 8, marginTop: 5, marginBottom: 9 },
-  cardViewersT:  { color: "rgba(255,255,255,0.25)", fontSize: 8, fontWeight: "500" },
+  cardViewers:   { flexDirection: "row", alignItems: "center", gap: 3, marginHorizontal: 8, marginTop: 5, marginBottom: 8 },
+  cardViewersT:  { color: "rgba(255,255,255,0.3)", fontSize: 8, fontWeight: "500" },
 
-  // Section header
-  secHead:  { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 2, marginBottom: 12 },
-  secBar:   { width: 3, height: 16, borderRadius: 2 },
-  secTitle: { fontSize: 16, fontWeight: "800", color: "#fff", letterSpacing: -0.3 },
-  secBadge: { borderWidth: 1, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3 },
-  secBadgeT:{ fontSize: 10, fontWeight: "800" },
-
-  // States
-  loadingWrap: { flex: 1, alignItems: "center", justifyContent: "center", gap: 14 },
-  loadingT:    { color: "#fff", fontSize: 15, fontWeight: "700" },
-  loadingHint: { color: "rgba(255,255,255,0.35)", fontSize: 12, fontWeight: "500" },
-  emptyWrap:   { flex: 1, alignItems: "center", justifyContent: "center", gap: 14, paddingTop: 80 },
-  emptyTitle:  { color: "#fff", fontSize: 18, fontWeight: "800" },
-  emptyHint:   { color: "rgba(255,255,255,0.35)", fontSize: 13, fontWeight: "500", textAlign: "center", paddingHorizontal: 40 },
-  retryBtn:    { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 12, marginTop: 8 },
+  // Loading / empty
+  loadingWrap: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12 },
+  loadingT:    { color: "#fff", fontSize: 16, fontWeight: "700" },
+  loadingHint: { color: "rgba(255,255,255,0.35)", fontSize: 12 },
+  emptyWrap:   { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, paddingHorizontal: 40 },
+  emptyTitle:  { color: "#fff", fontSize: 20, fontWeight: "800" },
+  emptyHint:   { color: "rgba(255,255,255,0.35)", fontSize: 13, textAlign: "center" },
+  retryBtn:    { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 20, paddingVertical: 12,
+    borderRadius: 12, marginTop: 8 },
   retryT:      { color: "#fff", fontSize: 14, fontWeight: "700" },
-  noChannels:  { paddingTop: 40, alignItems: "center", gap: 12 },
-  noChannelsT: { color: "rgba(255,255,255,0.3)", fontSize: 13, fontWeight: "600" },
+  noChannels:  { alignItems: "center", paddingTop: 40, gap: 12 },
+  noChannelsT: { color: "rgba(255,255,255,0.25)", fontSize: 14, fontWeight: "600" },
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// STYLES — Jogo cards
+// ═══════════════════════════════════════════════════════════════════════════════
+const jst = StyleSheet.create({
+  card: {
+    width: JOGO_W,
+    borderRadius: 18,
+    backgroundColor: "#0e0a18",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.09)",
+    padding: 14,
+    gap: 10,
+    ...Platform.select({
+      ios: { shadowColor: "#000", shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.5, shadowRadius: 12 },
+      android: { elevation: 8 },
+    }),
+  },
+  cardEnded: { opacity: 0.45 },
+
+  top: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  league: { color: "rgba(255,255,255,0.45)", fontSize: 10, fontWeight: "700", flex: 1, letterSpacing: 0.5 },
+  statusBadge: { flexDirection: "row", alignItems: "center", gap: 4,
+    borderRadius: 6, borderWidth: 1, paddingHorizontal: 7, paddingVertical: 3 },
+  liveDot: { width: 5, height: 5, borderRadius: 2.5 },
+  statusT: { fontSize: 10, fontWeight: "900", letterSpacing: 0.5 },
+
+  teamsRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 4 },
+  teamCol: { flex: 1, alignItems: "center", gap: 6 },
+  teamImgWrap: { width: 50, height: 50, borderRadius: 25, overflow: "hidden",
+    backgroundColor: "rgba(255,255,255,0.04)", alignItems: "center", justifyContent: "center" },
+  teamImg: { width: 44, height: 44 },
+  teamName: { color: "#fff", fontSize: 10, fontWeight: "700", textAlign: "center", lineHeight: 13 },
+
+  vs: { alignItems: "center", justifyContent: "center", width: 28 },
+  vsT: { color: "rgba(255,255,255,0.2)", fontSize: 11, fontWeight: "900" },
+
+  playersRow: { flexDirection: "row", alignItems: "center", gap: 6,
+    borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.06)", paddingTop: 8, marginTop: 2 },
+  playersT: { flex: 1, color: "rgba(255,255,255,0.35)", fontSize: 10, fontWeight: "500" },
+  playBtn: { flexDirection: "row", alignItems: "center", gap: 4,
+    backgroundColor: RED, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 5 },
+  playT: { color: "#fff", fontSize: 9, fontWeight: "800" },
 });

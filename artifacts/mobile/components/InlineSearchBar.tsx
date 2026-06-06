@@ -1,6 +1,8 @@
-import React, { useRef } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import {
+  Alert,
   Animated,
+  Platform,
   Pressable,
   StyleSheet,
   TextInput,
@@ -26,15 +28,87 @@ export function InlineSearchBar({
   style,
   autoFocus = false,
 }: Props) {
-  const scale = useRef(new Animated.Value(1)).current;
-  const inputRef = useRef<TextInput>(null);
+  const scale     = useRef(new Animated.Value(1)).current;
+  const micPulse  = useRef(new Animated.Value(1)).current;
+  const inputRef  = useRef<TextInput>(null);
+  const [listening, setListening] = useState(false);
+  const recogRef  = useRef<any>(null);
 
-  const pi = () =>
-    Animated.spring(scale, { toValue: 0.98, useNativeDriver: true, speed: 32 }).start();
-  const po = () =>
-    Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 28 }).start();
+  const pi = () => Animated.spring(scale, { toValue: 0.98, useNativeDriver: true, speed: 32 }).start();
+  const po = () => Animated.spring(scale, { toValue: 1,    useNativeDriver: true, speed: 28 }).start();
 
   const hasText = value.length > 0;
+
+  const stopListening = useCallback(() => {
+    try { recogRef.current?.stop(); } catch {}
+    recogRef.current = null;
+    setListening(false);
+    micPulse.stopAnimation();
+    micPulse.setValue(1);
+  }, [micPulse]);
+
+  const startVoiceSearch = useCallback(() => {
+    if (listening) { stopListening(); return; }
+
+    if (Platform.OS !== "web") {
+      Alert.alert(
+        "Busca por voz",
+        "A busca por voz está disponível apenas na versão web. No app, digite normalmente.",
+        [{ text: "OK" }]
+      );
+      return;
+    }
+
+    const SR: any =
+      (window as any).SpeechRecognition ||
+      (window as any).webkitSpeechRecognition;
+
+    if (!SR) {
+      Alert.alert(
+        "Não suportado",
+        "Seu navegador não suporta reconhecimento de voz. Tente Chrome ou Edge.",
+        [{ text: "OK" }]
+      );
+      return;
+    }
+
+    const recognition = new SR();
+    recognition.lang            = "pt-BR";
+    recognition.continuous      = false;
+    recognition.interimResults  = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => {
+      setListening(true);
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(micPulse, { toValue: 0.4, duration: 500, useNativeDriver: true }),
+          Animated.timing(micPulse, { toValue: 1,   duration: 500, useNativeDriver: true }),
+        ])
+      ).start();
+    };
+
+    recognition.onresult = (e: any) => {
+      const transcript = e.results[0][0].transcript;
+      onChangeText(transcript);
+      inputRef.current?.focus();
+    };
+
+    recognition.onerror = () => stopListening();
+    recognition.onend   = () => stopListening();
+
+    recogRef.current = recognition;
+    recognition.start();
+  }, [listening, micPulse, onChangeText, stopListening]);
+
+  const handleRightBtn = useCallback(() => {
+    if (hasText) {
+      onChangeText("");
+      inputRef.current?.focus();
+    } else {
+      startVoiceSearch();
+    }
+  }, [hasText, onChangeText, startVoiceSearch]);
 
   return (
     <Pressable
@@ -48,12 +122,10 @@ export function InlineSearchBar({
           colors={["rgba(255,255,255,0.08)", "rgba(255,255,255,0.03)"]}
           style={styles.bar}
         >
-          {/* Left icon */}
           <View style={styles.iconWrap}>
             <Feather name="search" size={15} color={RED} />
           </View>
 
-          {/* Real TextInput */}
           <TextInput
             ref={inputRef}
             style={styles.input}
@@ -68,22 +140,22 @@ export function InlineSearchBar({
             selectionColor={RED}
           />
 
-          {/* Right button: clear (X) if has text, mic if empty */}
           <Pressable
-            style={[styles.rightBtn, hasText && styles.rightBtnActive]}
+            style={[
+              styles.rightBtn,
+              hasText && styles.rightBtnClear,
+              listening && styles.rightBtnListening,
+            ]}
             hitSlop={8}
-            onPress={() => {
-              if (hasText) {
-                onChangeText("");
-                inputRef.current?.focus();
-              }
-            }}
+            onPress={handleRightBtn}
           >
-            <Feather
-              name={hasText ? "x" : "mic"}
-              size={14}
-              color={hasText ? "#fff" : "rgba(255,255,255,0.35)"}
-            />
+            <Animated.View style={listening ? { opacity: micPulse } : undefined}>
+              <Feather
+                name={hasText ? "x" : "mic"}
+                size={14}
+                color={hasText ? "#fff" : listening ? RED : "rgba(255,255,255,0.35)"}
+              />
+            </Animated.View>
           </Pressable>
         </LinearGradient>
       </Animated.View>
@@ -133,8 +205,12 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.1)",
     backgroundColor: "rgba(255,255,255,0.06)",
   },
-  rightBtnActive: {
+  rightBtnClear: {
     backgroundColor: RED,
     borderColor: RED,
+  },
+  rightBtnListening: {
+    borderColor: RED,
+    backgroundColor: "rgba(229,9,20,0.15)",
   },
 });

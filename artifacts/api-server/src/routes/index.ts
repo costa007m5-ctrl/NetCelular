@@ -4,6 +4,7 @@ import driveRouter from "./drive";
 import r2Router from "./r2";
 import pushRouter from "./push";
 import streamRouter from "./stream";
+import liveTvRouter from "./live-tv";
 
 const router: IRouter = Router();
 
@@ -12,5 +13,6 @@ router.use("/drive", driveRouter);
 router.use("/r2", r2Router);
 router.use("/push", pushRouter);
 router.use("/stream", streamRouter);
+router.use("/live", liveTvRouter);
 
 export default router;
