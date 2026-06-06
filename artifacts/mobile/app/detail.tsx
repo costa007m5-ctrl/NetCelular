@@ -1264,8 +1264,14 @@ export default function DetailScreen() {
                 const primaryPress = sources[0]?.press;
 
                 if (sources.length === 0) {
-                  // Nenhuma fonte disponível — não mostrar botão de play
-                  return null;
+                  return (
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 10, paddingHorizontal: 14, backgroundColor: "rgba(255,255,255,0.06)", borderRadius: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.10)" }}>
+                      <Feather name="slash" size={15} color={colors.mutedForeground} />
+                      <Text style={{ color: colors.mutedForeground, fontSize: 13, fontWeight: "500" }}>
+                        Conteúdo indisponível no momento
+                      </Text>
+                    </View>
+                  );
                 }
 
                 if (sources.length === 1) {
