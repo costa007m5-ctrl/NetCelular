@@ -41,6 +41,7 @@ import {
   setNotificationsEnabled,
 } from "@/lib/notifications";
 import type { WatchlistItem } from "@/lib/supabase";
+import { clearCatalogCache } from "@/lib/catalog-cache";
 import {
   analyzeWatchHistory,
   clearLearnedPreferences,
@@ -520,15 +521,22 @@ export default function ProfileScreen() {
   };
 
   const handleClearCache = () => {
-    Alert.alert("Limpar Cache", "Isso vai limpar dados em cache do app. Continuar?", [
-      { text: "Cancelar", style: "cancel" },
-      {
-        text: "Limpar", style: "destructive", onPress: async () => {
-          await AsyncStorage.multiRemove(["netplay_genre_cache", "netplay_tmdb_cache", "netplay_sync"]);
-          Alert.alert("Concluído", "Cache limpo com sucesso!");
+    Alert.alert(
+      "Limpar Cache",
+      "Isso vai apagar o cache local do catálogo e outros dados temporários. Na próxima abertura o app buscará tudo novamente da API.",
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Limpar", style: "destructive", onPress: async () => {
+            await Promise.all([
+              clearCatalogCache(),
+              AsyncStorage.multiRemove(["netplay_genre_cache", "netplay_tmdb_cache", "netplay_sync"]),
+            ]);
+            Alert.alert("Concluído", "Cache do catálogo limpo! Feche e reabra o app para carregar conteúdo atualizado.");
+          },
         },
-      },
-    ]);
+      ]
+    );
   };
 
   const handleLogout = () => {
