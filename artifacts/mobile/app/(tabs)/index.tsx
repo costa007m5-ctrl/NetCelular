@@ -32,6 +32,7 @@ import { TopTenCard } from "@/components/TopTenCard";
 import { NotificationBell } from "@/components/NotificationBell";
 import { InlineSearchBar } from "@/components/InlineSearchBar";
 import { r2Route } from "@/lib/r2-direct";
+import { checkCatalogWatchAndNotify } from "@/lib/catalog-watch";
 import { useAuth } from "@/lib/auth-context";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
 import type { ContentItem } from "@/constants/content";
@@ -1504,8 +1505,11 @@ export default function HomeScreen() {
         fetchSample("animes"),
       ]);
 
+      const availableIds = new Set<number>();
+
       if (movRes.status === "fulfilled") {
         const m = movRes.value.items.filter((i: any) => i.tmdb_id > 0 && i.poster).map(flix2ToContent);
+        m.forEach((i) => { if (i.tmdbId) availableIds.add(i.tmdbId); });
         setMovies(m);
         const heroPool = m.filter((x) => x.posterPath);
         if (heroPool.length >= 2) setHeroItems(heroPool.slice(0, 6));
@@ -1514,15 +1518,19 @@ export default function HomeScreen() {
       }
       if (serRes.status === "fulfilled") {
         const s = serRes.value.items.filter((i: any) => i.tmdb_id > 0).map(flix2ToContent);
+        s.forEach((i) => { if (i.tmdbId) availableIds.add(i.tmdbId); });
         setSeries(s);
         setTop10Series(s.slice(0, 10));
         setTotals((t) => ({ ...t, series: serRes.value.total }));
       }
       if (aniRes.status === "fulfilled") {
         const a = aniRes.value.items.filter((i: any) => i.tmdb_id > 0).map(flix2ToContent);
+        a.forEach((i) => { if (i.tmdbId) availableIds.add(i.tmdbId); });
         setAnimes(a);
         setTotals((t) => ({ ...t, animes: aniRes.value.total }));
       }
+
+      if (availableIds.size > 0) checkCatalogWatchAndNotify(availableIds).catch(() => {});
     } catch {}
     finally {
       setLoading(false);

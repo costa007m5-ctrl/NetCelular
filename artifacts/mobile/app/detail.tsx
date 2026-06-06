@@ -28,6 +28,7 @@ import { api as tmdbApi, TMDB_IMG, tmdbItemToContent } from "@/lib/api";
 import type { TmdbItem, TmdbEpisode, TmdbSeason } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
+import { addCatalogWatch, removeCatalogWatch, isWatchingCatalog } from "@/lib/catalog-watch";
 import type { WatchProgress } from "@/lib/supabase";
 import type { ContentItem } from "@/constants/content";
 import { searchDriveByTitle, getDriveSeasonEpisodes, DriveMatch } from "@/lib/gdrive-search";
@@ -252,6 +253,7 @@ export default function DetailScreen() {
   const userId = user?.id ?? "";
   const [inList, setInList] = useState(false);
   const [liked, setLiked] = useState<boolean | undefined>(undefined);
+  const [watchingCatalog, setWatchingCatalog] = useState(false);
   const [isDownloaded, setIsDownloaded] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [driveMatches, setDriveMatches] = useState<DriveMatch[]>([]);
@@ -429,6 +431,7 @@ export default function DetailScreen() {
   useEffect(() => {
     if (!tmdbId) return;
     downloadsManager.isDownloaded(type, tmdbId).then(setIsDownloaded);
+    isWatchingCatalog(tmdbId, type).then(setWatchingCatalog);
   }, [tmdbId, type]);
 
   // Load details
@@ -1268,10 +1271,48 @@ export default function DetailScreen() {
                     );
                   }
                   return (
-                    <View style={[styles.watchBtn, { backgroundColor: "rgba(255,255,255,0.07)", borderWidth: 1, borderColor: "rgba(255,255,255,0.12)" }]}>
-                      <Feather name="lock" size={16} color="rgba(255,255,255,0.35)" />
-                      <Text style={[styles.watchBtnText, { color: "rgba(255,255,255,0.35)" }]}>INDISPONÍVEL NO CATÁLOGO</Text>
-                    </View>
+                    <>
+                      <View style={[styles.watchBtn, { backgroundColor: "rgba(255,255,255,0.07)", borderWidth: 1, borderColor: "rgba(255,255,255,0.12)" }]}>
+                        <Feather name="lock" size={16} color="rgba(255,255,255,0.35)" />
+                        <Text style={[styles.watchBtnText, { color: "rgba(255,255,255,0.35)" }]}>INDISPONÍVEL NO CATÁLOGO</Text>
+                      </View>
+                      <Pressable
+                        style={({ pressed }) => [
+                          styles.watchBtn,
+                          {
+                            backgroundColor: watchingCatalog ? "rgba(229,9,20,0.12)" : "rgba(255,255,255,0.05)",
+                            borderWidth: 1,
+                            borderColor: watchingCatalog ? "rgba(229,9,20,0.4)" : "rgba(255,255,255,0.10)",
+                            marginTop: 10,
+                          },
+                          pressed && { opacity: 0.75 },
+                        ]}
+                        onPress={async () => {
+                          if (!tmdbId) return;
+                          if (watchingCatalog) {
+                            await removeCatalogWatch(tmdbId, type);
+                            setWatchingCatalog(false);
+                          } else {
+                            await addCatalogWatch({
+                              tmdbId,
+                              type,
+                              title: details?.title ?? details?.name ?? "",
+                              posterPath: details?.poster_path ?? undefined,
+                            });
+                            setWatchingCatalog(true);
+                          }
+                        }}
+                      >
+                        <Feather
+                          name={watchingCatalog ? "bell" : "bell"}
+                          size={16}
+                          color={watchingCatalog ? "#e50914" : "rgba(255,255,255,0.5)"}
+                        />
+                        <Text style={[styles.watchBtnText, { color: watchingCatalog ? "#e50914" : "rgba(255,255,255,0.5)" }]}>
+                          {watchingCatalog ? "NOTIFICAÇÃO ATIVADA" : "AVISAR QUANDO DISPONÍVEL"}
+                        </Text>
+                      </Pressable>
+                    </>
                   );
                 }
 
