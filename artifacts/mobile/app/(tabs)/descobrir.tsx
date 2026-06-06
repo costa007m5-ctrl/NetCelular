@@ -558,7 +558,11 @@ export default function LiveTvScreen() {
               <Text style={st.livePillT}>AO VIVO</Text>
             </View>
             <View>
-              <Text style={st.headerTitle}>TV ao Vivo</Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
+                <View style={st.logoAccent} />
+                <Text style={st.headerTitleRed}>CANAIS</Text>
+                <Text style={st.headerTitleWhite}> DE TV</Text>
+              </View>
               {!loading && (
                 <Text style={st.headerSub}>{filtered.length} canais disponíveis</Text>
               )}
@@ -620,17 +624,12 @@ export default function LiveTvScreen() {
           }
           ListHeaderComponent={
             <>
-              {/* Hero Banner — séries populares de TV */}
-              {!isSearching && (
-                <HeroBanner items={heroItems} />
-              )}
-
               {/* Search bar */}
               <InlineSearchBar
                 value={searchQ}
                 onChangeText={setSearchQ}
                 placeholder="Buscar canal ao vivo..."
-                style={{ marginTop: 12, marginBottom: 12 }}
+                style={{ marginTop: 0, marginBottom: 12 }}
               />
 
               {/* Jogos section — hidden while searching */}
@@ -706,7 +705,10 @@ const st = StyleSheet.create({
   header:       { position: "absolute", top: 0, left: 0, right: 0, zIndex: 20, paddingBottom: 8 },
   headerInner:  { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 18 },
   headerLeft:   { flexDirection: "row", alignItems: "center", gap: 10 },
-  headerTitle:  { fontSize: 24, fontWeight: "900", color: "#fff", letterSpacing: -0.5 },
+  headerTitle:      { fontSize: 24, fontWeight: "900", color: "#fff", letterSpacing: -0.5 },
+  headerTitleRed:   { fontSize: 22, fontWeight: "900", color: RED,   letterSpacing: 1.2 },
+  headerTitleWhite: { fontSize: 22, fontWeight: "900", color: "#fff", letterSpacing: 1.2 },
+  logoAccent:       { width: 4, height: 20, borderRadius: 2, backgroundColor: RED, marginRight: 2 },
   headerSub:    { fontSize: 11, color: "rgba(255,255,255,0.4)", fontWeight: "500", marginTop: 1 },
   refreshBtn:   { width: 38, height: 38, alignItems: "center", justifyContent: "center",
     borderRadius: 19, backgroundColor: "rgba(255,255,255,0.08)" },

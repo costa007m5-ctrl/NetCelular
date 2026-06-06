@@ -368,7 +368,11 @@ export default function BuscarScreen() {
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} hitSlop={12}>
           <Feather name="arrow-left" size={20} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Buscar conteúdo</Text>
+        <View style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 0 }}>
+          <View style={styles.logoAccent} />
+          <Text style={[styles.headerTitle, { color: RED }]}>BUS</Text>
+          <Text style={styles.headerTitle}>CAR</Text>
+        </View>
         <View style={{ width: 36 }} />
       </View>
 
@@ -632,7 +636,8 @@ const styles = StyleSheet.create({
   /* header */
   header:       { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 10, gap: 10 },
   backBtn:      { width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.08)", alignItems:"center", justifyContent:"center" },
-  headerTitle:  { flex: 1, color: "#fff", fontSize: 17, fontWeight: "700", textAlign: "center" },
+  headerTitle:  { color: "#fff", fontSize: 19, fontWeight: "900", letterSpacing: 1.5 },
+  logoAccent:   { width: 4, height: 20, borderRadius: 2, backgroundColor: RED, marginRight: 6 },
 
   /* search bar */
   searchWrap:   { paddingHorizontal: 16, marginBottom: 12 },
