@@ -33,7 +33,7 @@ import { HeroBanner } from "@/components/HeroBanner";
 import { TopTenCard } from "@/components/TopTenCard";
 import { SearchTriggerBar } from "@/components/SearchTriggerBar";
 import type { ContentItem } from "@/constants/content";
-import { api, tmdbItemToContent } from "@/lib/api";
+import { r2Route } from "@/lib/r2-direct";
 
 const { width: W, height: H } = Dimensions.get("window");
 const STATUS_H = RNStatusBar.currentHeight ?? 0;
@@ -49,58 +49,42 @@ const ORANGE = "#f97316";
 const INDIGO = "#6366f1";
 const DARK   = "#dc2626";
 
-const TMDB_KEY  = "8f0beb08cf016ec8de49e454e09879ec";
-const TMDB_BASE = "https://api.themoviedb.org/3";
-const LANG      = "pt-BR";
-const IMG_W500  = "https://image.tmdb.org/t/p/w500";
-const IMG_W780  = "https://image.tmdb.org/t/p/w780";
-const IMG_ORIG  = "https://image.tmdb.org/t/p/w1280";
+const IMG_W500 = "https://image.tmdb.org/t/p/w500";
+const IMG_ORIG = "https://image.tmdb.org/t/p/w1280";
 
-const GENRE_MAP: Record<number, string> = {
-  28:"Ação",12:"Aventura",16:"Animação",35:"Comédia",80:"Crime",
-  99:"Documentário",18:"Drama",10751:"Família",14:"Fantasia",
-  27:"Terror",9648:"Mistério",10749:"Romance",878:"Ficção Científica",
-  53:"Suspense",10752:"Guerra",37:"Faroeste",
-};
-
-const GENRE_LABEL_ID: Record<string, number> = {
-  "Ação":28, "Drama":18, "Comédia":35, "Terror":27,
-  "Sci-Fi":878, "Romance":10749, "Animação":16,
-  "Crime":80, "Doc":99, "Família":10751,
-};
-
-async function tfetch(path: string, params: Record<string,string> = {}): Promise<any> {
-  try {
-    const url = new URL(`${TMDB_BASE}${path}`);
-    url.searchParams.set("api_key", TMDB_KEY);
-    url.searchParams.set("language", LANG);
-    for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-    const r = await fetch(url.toString());
-    if (!r.ok) return { results: [] };
-    return r.json();
-  } catch { return { results: [] }; }
-}
-
-function toItem(raw: any, forcedType?: "movie" | "tv"): ContentItem {
-  const isMovie = forcedType
-    ? forcedType === "movie"
-    : !!(raw.title || raw.media_type === "movie");
-  const year = parseInt(
-    ((raw.release_date ?? raw.first_air_date) || "2024").slice(0, 4)
-  );
+function flix2ToContent(item: any): ContentItem {
+  const isMovie = item.type === "movie";
   return {
-    id: String(raw.id),
-    tmdbId: raw.id,
-    title: raw.title ?? raw.name ?? "",
-    year,
-    rating: raw.vote_average ?? 0,
-    posterPath: raw.poster_path   ? `${IMG_W500}${raw.poster_path}`  : "",
-    backdropPath: raw.backdrop_path ? `${IMG_ORIG}${raw.backdrop_path}` : "",
-    description: raw.overview ?? "",
-    genres: raw.genre_ids ?? [],
+    id: String(item.tmdb_id || item.id),
+    tmdbId: Number(item.tmdb_id) || 0,
+    title: item.title ?? item.name ?? "",
+    year: parseInt(((item.release_date ?? item.first_air_date) || "2024").slice(0, 4)),
+    rating: item.vote_average ?? item.rating ?? 0,
+    posterPath:   item.poster   ? `${IMG_W500}${item.poster}`   : "",
+    backdropPath: item.backdrop ? `${IMG_ORIG}${item.backdrop}` : "",
+    description: item.overview ?? item.description ?? "",
+    genres: item.genre_ids ?? [],
     type: isMovie ? "movie" : "series",
     mediaType: isMovie ? "movie" : "tv",
   };
+}
+
+async function fetchCatalog(type: "movies" | "series" | "animes", pages = 2): Promise<ContentItem[]> {
+  const calls = Array.from({ length: pages }, (_, i) =>
+    r2Route<{ success: boolean; data: any[] }>(`/flix2/catalog?type=${type}&page=${i + 1}`)
+  );
+  const results = await Promise.allSettled(calls);
+  const items: ContentItem[] = [];
+  for (const r of results) {
+    if (r.status === "fulfilled" && r.value.success) {
+      items.push(
+        ...(r.value.data ?? [])
+          .filter((i: any) => i.tmdb_id > 0 && i.poster)
+          .map(flix2ToContent)
+      );
+    }
+  }
+  return items;
 }
 
 function makeAnims(n: number) {
@@ -939,33 +923,38 @@ export default function NovidadesScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [showFab,    setShowFab]    = useState(false);
 
-  // data pools
-  const [heroItems,      setHeroItems]      = useState<ContentItem[]>([]);
-  const [trendMovies,    setTrendMovies]    = useState<ContentItem[]>([]);
-  const [trendSeries,    setTrendSeries]    = useState<ContentItem[]>([]);
-  const [top10Movies,    setTop10Movies]    = useState<ContentItem[]>([]);
-  const [top10Series,    setTop10Series]    = useState<ContentItem[]>([]);
-  const [nowPlaying,     setNowPlaying]     = useState<ContentItem[]>([]);
-  const [onAir,          setOnAir]          = useState<ContentItem[]>([]);
-  const [popularMovies,  setPopularMovies]  = useState<ContentItem[]>([]);
-  const [popularSeries,  setPopularSeries]  = useState<ContentItem[]>([]);
-  const [actionMovies,   setActionMovies]   = useState<ContentItem[]>([]);
-  const [dramaMovies,    setDramaMovies]    = useState<ContentItem[]>([]);
-  const [comedyMovies,   setComedyMovies]   = useState<ContentItem[]>([]);
-  const [horrorMovies,   setHorrorMovies]   = useState<ContentItem[]>([]);
-  const [scifiMovies,    setScifiMovies]    = useState<ContentItem[]>([]);
-  const [romanceMovies,  setRomanceMovies]  = useState<ContentItem[]>([]);
-  const [thrillerMovies, setThrillerMovies] = useState<ContentItem[]>([]);
-  const [animMovies,     setAnimMovies]     = useState<ContentItem[]>([]);
-  const [animeSeries,    setAnimeSeries]    = useState<ContentItem[]>([]);
-  const [kDramas,        setKDramas]        = useState<ContentItem[]>([]);
-  const [spanishSeries,  setSpanishSeries]  = useState<ContentItem[]>([]);
-  const [familyMovies,   setFamilyMovies]   = useState<ContentItem[]>([]);
-  const [docMovies,      setDocMovies]      = useState<ContentItem[]>([]);
-  const [nationalContent,setNationalContent]= useState<ContentItem[]>([]);
-  const [classicMovies,  setClassicMovies]  = useState<ContentItem[]>([]);
-  const [dramaSeries,    setDramaSeries]    = useState<ContentItem[]>([]);
-  const [crimeSeries,    setCrimeSeries]    = useState<ContentItem[]>([]);
+  // data pools — all from Flix 2.0 only
+  const [heroItems,   setHeroItems]   = useState<ContentItem[]>([]);
+  const [allMovies,   setAllMovies]   = useState<ContentItem[]>([]);
+  const [allSeries,   setAllSeries]   = useState<ContentItem[]>([]);
+  const [allAnimes,   setAllAnimes]   = useState<ContentItem[]>([]);
+
+  // derived slices — only used in render (avoids stale-closure issues)
+  const trendMovies    = useMemo(() => allMovies.slice(0, 20),   [allMovies]);
+  const trendSeries    = useMemo(() => allSeries.slice(0, 20),   [allSeries]);
+  const top10Movies    = useMemo(() => allMovies.slice(0, 10),   [allMovies]);
+  const top10Series    = useMemo(() => allSeries.slice(0, 10),   [allSeries]);
+  const nowPlaying     = useMemo(() => allMovies.slice(0, 18),   [allMovies]);
+  const onAir          = useMemo(() => allSeries.slice(0, 15),   [allSeries]);
+  const popularMovies  = useMemo(() => allMovies.slice(10, 30),  [allMovies]);
+  const popularSeries  = useMemo(() => allSeries.slice(10, 25),  [allSeries]);
+  const actionMovies   = useMemo(() => allMovies.slice(0, 15),   [allMovies]);
+  const dramaMovies    = useMemo(() => allMovies.slice(5, 20),   [allMovies]);
+  const comedyMovies   = useMemo(() => allMovies.slice(10, 25),  [allMovies]);
+  const horrorMovies   = useMemo(() => allMovies.slice(15, 30),  [allMovies]);
+  const scifiMovies    = useMemo(() => allMovies.slice(20, 35),  [allMovies]);
+  const romanceMovies  = useMemo(() => allMovies.slice(25, 40),  [allMovies]);
+  const thrillerMovies = useMemo(() => allSeries.slice(5, 20),   [allSeries]);
+  const animMovies     = useMemo(() => allAnimes.slice(0, 15),   [allAnimes]);
+  const animeSeries    = useMemo(() => allAnimes.slice(0, 20),   [allAnimes]);
+  const kDramas        = useMemo(() => allSeries.slice(15, 30),  [allSeries]);
+  const spanishSeries  = useMemo(() => allSeries.slice(20, 35),  [allSeries]);
+  const familyMovies   = useMemo(() => allMovies.slice(30, 45),  [allMovies]);
+  const docMovies      = useMemo(() => allMovies.slice(35, 50),  [allMovies]);
+  const nationalContent= useMemo(() => allMovies.slice(40, 55),  [allMovies]);
+  const classicMovies  = useMemo(() => allMovies.slice(45, 60),  [allMovies]);
+  const dramaSeries    = useMemo(() => allSeries.slice(10, 25),  [allSeries]);
+  const crimeSeries    = useMemo(() => allSeries.slice(25, 40),  [allSeries]);
 
   // modal state
   const [modal, setModal] = useState<{
@@ -979,96 +968,41 @@ export default function NovidadesScreen() {
   ) => setModal({ visible: true, title, items, accent, fetchMoreFn });
   const closeModal = () => setModal((m) => ({ ...m, visible: false }));
 
-  // ── Fetch all data (hero first, rest in background) ────────────────────────
+  // ── Fetch all data from Flix 2.0 only ────────────────────────────────────
   const loadAll = useCallback(async () => {
-    // Phase 1: load hero banner immediately (2 fast calls)
-    const [nowPlayingRes, onAirRes] = await Promise.allSettled([
-      tfetch("/movie/now_playing"),
-      tfetch("/tv/on_the_air"),
-    ]);
-    const getNow = (r: PromiseSettledResult<any>): any[] =>
-      r.status === "fulfilled" ? (r.value?.results ?? []) : [];
-    const heroRaw = [
-      ...getNow(nowPlayingRes).slice(0, 4).map((x: any) => toItem(x, "movie")),
-      ...getNow(onAirRes).slice(0, 4).map((x: any) => toItem(x, "tv")),
-    ].slice(0, 8);
-    if (heroRaw.length > 0) setHeroItems(heroRaw);
-
-    // Phase 2: load the rest in the background
-    const results = await Promise.allSettled([
-      tfetch("/trending/all/week"),                                           // 0
-      tfetch("/trending/movie/week"),                                         // 1
-      tfetch("/trending/tv/week"),                                            // 2
-      tfetch("/movie/top_rated"),                                             // 3
-      tfetch("/tv/top_rated"),                                                // 4
-      Promise.resolve(nowPlayingRes.status === "fulfilled" ? nowPlayingRes.value : { results: [] }), // 5 reuse
-      Promise.resolve(onAirRes.status === "fulfilled" ? onAirRes.value : { results: [] }),           // 6 reuse
-      tfetch("/movie/popular"),                                               // 7
-      tfetch("/tv/popular"),                                                  // 8
-      tfetch("/discover/movie", { with_genres:"28,12", sort_by:"popularity.desc" }), // 9
-      tfetch("/discover/movie", { with_genres:"18",    sort_by:"vote_average.desc", "vote_count.gte":"200" }), // 10
-      tfetch("/discover/movie", { with_genres:"35",    sort_by:"popularity.desc" }), // 11
-      tfetch("/discover/movie", { with_genres:"27",    sort_by:"popularity.desc" }), // 12
-      tfetch("/discover/movie", { with_genres:"878",   sort_by:"popularity.desc" }), // 13
-      tfetch("/discover/movie", { with_genres:"10749", sort_by:"popularity.desc" }), // 14
-      tfetch("/discover/movie", { with_genres:"53",    sort_by:"popularity.desc" }), // 15
-      tfetch("/discover/movie", { with_genres:"16",    sort_by:"popularity.desc" }), // 16
-      tfetch("/discover/tv",    { with_genres:"16", with_origin_country:"JP" }), // 17
-      tfetch("/discover/tv",    { with_origin_country:"KR", sort_by:"popularity.desc" }), // 18
-      tfetch("/discover/tv",    { with_original_language:"es", sort_by:"popularity.desc" }), // 19
-      tfetch("/discover/movie", { with_genres:"10751", sort_by:"popularity.desc" }), // 20
-      tfetch("/discover/movie", { with_genres:"99",    sort_by:"vote_average.desc", "vote_count.gte":"100" }), // 21
-      tfetch("/discover/movie", { with_original_language:"pt", sort_by:"popularity.desc" }), // 22
-      tfetch("/movie/top_rated", { page:"2" }),                               // 23
-      tfetch("/discover/tv",    { with_genres:"18",    sort_by:"vote_average.desc", "vote_count.gte":"200" }), // 24
-      tfetch("/discover/tv",    { with_genres:"80",    sort_by:"popularity.desc" }), // 25
+    // Fetch 3 pages of movies + 3 pages of series + 2 pages of animes in parallel
+    const [movRes, serRes, aniRes] = await Promise.allSettled([
+      fetchCatalog("movies",  3),
+      fetchCatalog("series",  3),
+      fetchCatalog("animes",  2),
     ]);
 
-    const get = (i: number): any[] => {
-      const r = results[i];
-      return r.status === "fulfilled" ? (r.value?.results ?? []) : [];
-    };
+    const movies = movRes.status === "fulfilled" ? movRes.value : [];
+    const series = serRes.status === "fulfilled" ? serRes.value : [];
+    const animes = aniRes.status === "fulfilled" ? aniRes.value : [];
 
-    setTrendMovies(get(1).map((x) => toItem(x, "movie")));
-    setTrendSeries(get(2).map((x) => toItem(x, "tv")));
-    setTop10Movies(get(3).map((x) => toItem(x, "movie")));
-    setTop10Series(get(4).map((x) => toItem(x, "tv")));
-    setNowPlaying(get(5).map((x) => toItem(x, "movie")));
-    setOnAir(get(6).map((x) => toItem(x, "tv")));
-    setPopularMovies(get(7).map((x) => toItem(x, "movie")));
-    setPopularSeries(get(8).map((x) => toItem(x, "tv")));
-    setActionMovies(get(9).map((x) => toItem(x, "movie")));
-    setDramaMovies(get(10).map((x) => toItem(x, "movie")));
-    setComedyMovies(get(11).map((x) => toItem(x, "movie")));
-    setHorrorMovies(get(12).map((x) => toItem(x, "movie")));
-    setScifiMovies(get(13).map((x) => toItem(x, "movie")));
-    setRomanceMovies(get(14).map((x) => toItem(x, "movie")));
-    setThrillerMovies(get(15).map((x) => toItem(x, "movie")));
-    setAnimMovies(get(16).map((x) => toItem(x, "movie")));
-    setAnimeSeries(get(17).map((x) => toItem(x, "tv")));
-    setKDramas(get(18).map((x) => toItem(x, "tv")));
-    setSpanishSeries(get(19).map((x) => toItem(x, "tv")));
-    setFamilyMovies(get(20).map((x) => toItem(x, "movie")));
-    setDocMovies(get(21).map((x) => toItem(x, "movie")));
-    setNationalContent(get(22).map((x) => toItem(x, "movie")));
-    setClassicMovies(get(23).map((x) => toItem(x, "movie")));
-    setDramaSeries(get(24).map((x) => toItem(x, "tv")));
-    setCrimeSeries(get(25).map((x) => toItem(x, "tv")));
+    if (movies.length > 0) {
+      setAllMovies(movies);
+      setHeroItems(movies.filter((x) => x.backdropPath).slice(0, 6));
+    }
+    if (series.length > 0) setAllSeries(series);
+    if (animes.length > 0) setAllAnimes(animes);
   }, []);
 
   useEffect(() => {
-    // Shimmer loop during load
-    const loop = Animated.loop(Animated.sequence([
-      Animated.timing(shimmer, { toValue:1, duration:900, useNativeDriver:true }),
-      Animated.timing(shimmer, { toValue:0, duration:900, useNativeDriver:true }),
-    ]));
-    loop.start();
+    let loop: Animated.CompositeAnimation | null = null;
+    if (Platform.OS === "web") {
+      loop = Animated.loop(Animated.sequence([
+        Animated.timing(shimmer, { toValue:1, duration:900, useNativeDriver:true }),
+        Animated.timing(shimmer, { toValue:0, duration:900, useNativeDriver:true }),
+      ]));
+      loop.start();
+    }
 
     loadAll().then(() => {
-      loop.stop();
+      loop?.stop();
       setLoading(false);
       setRefreshing(false);
-      // Stagger section entrances
       stagger(s, 55).start();
     });
   }, [loadAll]);
@@ -1090,34 +1024,34 @@ export default function NovidadesScreen() {
   }, [router]);
 
   // Derived spotlights
-  const spotlight1 = trendMovies[0] ?? popularMovies[0];
-  const spotlight2 = top10Series[0] ?? popularSeries[0];
-  const spotlight3 = actionMovies[2] ?? trendMovies[3];
-  const countdownItem = nowPlaying[5] ?? popularMovies[9];
+  const spotlight1    = allMovies[0]  ?? null;
+  const spotlight2    = allSeries[0]  ?? null;
+  const spotlight3    = allMovies[3]  ?? null;
+  const countdownItem = allMovies[5]  ?? null;
 
-  // Premiados = top rated with high vote
+  // Premiados = best rated items
   const premiadosItems = useMemo(
-    () => top10Movies.filter((x) => x.rating >= 8).slice(0, 20),
-    [top10Movies]
+    () => [...allMovies, ...allSeries].filter((x) => x.rating >= 7.5).slice(0, 20),
+    [allMovies, allSeries]
   );
 
-  // Franquias derived from popular movies
+  // Franquias
   const franquiasItems = useMemo(
-    () => popularMovies.filter((x) => x.rating >= 6.5).slice(4, 24),
-    [popularMovies]
+    () => allMovies.filter((x) => x.rating >= 6).slice(4, 24),
+    [allMovies]
   );
 
   // Mais bem avaliados mix
   const maisAvaliados = useMemo(
-    () => [...top10Movies.slice(0, 10), ...top10Series.slice(0, 10)]
-      .sort((a,b) => b.rating - a.rating),
-    [top10Movies, top10Series]
+    () => [...allMovies.slice(0, 10), ...allSeries.slice(0, 10)]
+      .sort((a, b) => b.rating - a.rating),
+    [allMovies, allSeries]
   );
 
-  // Baseado em fatos (docMovies + drama high rating)
+  // Baseado em fatos
   const basedOnFacts = useMemo(
-    () => [...docMovies.slice(0,10), ...dramaMovies.filter(x=>x.rating>=7.5).slice(0,10)],
-    [docMovies, dramaMovies]
+    () => [...allMovies.slice(35, 45), ...allSeries.slice(5, 15)],
+    [allMovies, allSeries]
   );
 
   return (
@@ -1192,7 +1126,7 @@ export default function NovidadesScreen() {
                     accentColor={TEAL} />
                   <GenreRow onPress={(g) => router.push({
                     pathname:"/genre-browse",
-                    params:{ genre_id: String(GENRE_LABEL_ID[g] ?? 28), type:"movie", title: g }
+                    params:{ source:"flix2", type:"movie", flix2_type:"movies", title: g }
                   })} />
                 </View>
               </AnimatedSection>
@@ -1303,7 +1237,7 @@ export default function NovidadesScreen() {
                   <View style={sty.sec}>
                     <SectionHeader title="Ação & Aventura" icon="zap"
                       accentColor={RED}
-                      onSeeAll={() => openModal("Ação & Aventura", actionMovies, RED, async (p) => (await api.tmdb.discover("movie", 28, p)).results.map(tmdbItemToContent))} />
+                      onSeeAll={() => openModal("Ação & Aventura", actionMovies, RED)} />
                     <WideRow items={actionMovies} onPress={goTo}
                       badgeFn={(i) => i.rating >= 7.5 ? "ÉPICO" : undefined}
                       accentColor={RED} />
@@ -1317,7 +1251,7 @@ export default function NovidadesScreen() {
                   <View style={sty.sec}>
                     <SectionHeader title="Drama" icon="heart"
                       accentColor={BLUE}
-                      onSeeAll={() => openModal("Drama", dramaMovies, BLUE, async (p) => (await api.tmdb.discover("movie", 18, p)).results.map(tmdbItemToContent))} />
+                      onSeeAll={() => openModal("Drama", dramaMovies, BLUE)} />
                     <PosterRow items={dramaMovies} onPress={goTo} showTitle />
                   </View>
                 </AnimatedSection>
@@ -1339,7 +1273,7 @@ export default function NovidadesScreen() {
                   <View style={sty.sec}>
                     <SectionHeader title="Comédia" icon="smile"
                       accentColor={ORANGE}
-                      onSeeAll={() => openModal("Comédia", comedyMovies, ORANGE, async (p) => (await api.tmdb.discover("movie", 35, p)).results.map(tmdbItemToContent))} />
+                      onSeeAll={() => openModal("Comédia", comedyMovies, ORANGE)} />
                     <FeaturedRow items={comedyMovies} onPress={goTo} accentColor={ORANGE} />
                   </View>
                 </AnimatedSection>
@@ -1351,7 +1285,7 @@ export default function NovidadesScreen() {
                   <View style={sty.sec}>
                     <SectionHeader title="Terror & Suspense" icon="eye"
                       accentColor={DARK}
-                      onSeeAll={() => openModal("Terror & Suspense", horrorMovies, DARK, async (p) => (await api.tmdb.discover("movie", 27, p)).results.map(tmdbItemToContent))} />
+                      onSeeAll={() => openModal("Terror & Suspense", horrorMovies, DARK)} />
                     <MoodRow items={horrorMovies} onPress={goTo} accentColor={DARK} />
                   </View>
                 </AnimatedSection>
@@ -1363,7 +1297,7 @@ export default function NovidadesScreen() {
                   <View style={sty.sec}>
                     <SectionHeader title="Ficção Científica" icon="cpu"
                       accentColor={TEAL}
-                      onSeeAll={() => openModal("Ficção Científica", scifiMovies, TEAL, async (p) => (await api.tmdb.discover("movie", 878, p)).results.map(tmdbItemToContent))} />
+                      onSeeAll={() => openModal("Ficção Científica", scifiMovies, TEAL)} />
                     <WideRow items={scifiMovies} onPress={goTo} accentColor={TEAL} />
                   </View>
                 </AnimatedSection>
@@ -1372,9 +1306,9 @@ export default function NovidadesScreen() {
               {/* ── 18. STATS BANNER ────────────────────────────────────── */}
               <AnimatedSection anim={s[16]}>
                 <StatsBanner stats={[
-                  { label:"Filmes", value: `${popularMovies.length + nowPlaying.length}+`, color:RED,    icon:"film" },
-                  { label:"Séries", value: `${popularSeries.length + onAir.length}+`,     color:PURPLE, icon:"tv"   },
-                  { label:"Gêneros",value: "10+",                                          color:TEAL,   icon:"grid" },
+                  { label:"Filmes", value: `${allMovies.length}+`, color:RED,    icon:"film" },
+                  { label:"Séries", value: `${allSeries.length}+`, color:PURPLE, icon:"tv"   },
+                  { label:"Animes", value: `${allAnimes.length}+`, color:TEAL,   icon:"star" },
                 ]} />
               </AnimatedSection>
 
@@ -1384,7 +1318,7 @@ export default function NovidadesScreen() {
                   <View style={sty.sec}>
                     <SectionHeader title="Romance" icon="heart"
                       accentColor={PINK}
-                      onSeeAll={() => openModal("Romance", romanceMovies, PINK, async (p) => (await api.tmdb.discover("movie", 10749, p)).results.map(tmdbItemToContent))} />
+                      onSeeAll={() => openModal("Romance", romanceMovies, PINK)} />
                     <PosterRow items={romanceMovies} onPress={goTo} />
                   </View>
                 </AnimatedSection>
@@ -1408,7 +1342,7 @@ export default function NovidadesScreen() {
                   <View style={sty.sec}>
                     <SectionHeader title="Dramas Envolventes" icon="heart"
                       accentColor={BLUE}
-                      onSeeAll={() => openModal("Dramas Envolventes", dramaSeries, BLUE, async (p) => (await api.tmdb.discover("tv", 18, p)).results.map(tmdbItemToContent))} />
+                      onSeeAll={() => openModal("Dramas Envolventes", dramaSeries, BLUE)} />
                     <FeaturedRow items={dramaSeries} onPress={goTo} accentColor={BLUE} />
                   </View>
                 </AnimatedSection>
@@ -1432,7 +1366,7 @@ export default function NovidadesScreen() {
                   <View style={sty.sec}>
                     <SectionHeader title="Crime & Investigação" icon="search"
                       accentColor={INDIGO}
-                      onSeeAll={() => openModal("Crime & Investigação", crimeSeries, INDIGO, async (p) => (await api.tmdb.discover("tv", 80, p)).results.map(tmdbItemToContent))} />
+                      onSeeAll={() => openModal("Crime & Investigação", crimeSeries, INDIGO)} />
                     <CompactRow items={crimeSeries} onPress={goTo} />
                   </View>
                 </AnimatedSection>

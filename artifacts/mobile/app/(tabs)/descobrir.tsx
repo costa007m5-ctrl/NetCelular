@@ -29,6 +29,7 @@ import { useColors } from "@/hooks/useColors";
 import { InlineSearchBar } from "@/components/InlineSearchBar";
 import { HeroBanner } from "@/components/HeroBanner";
 import type { ContentItem } from "@/constants/content";
+import { r2Route } from "@/lib/r2-direct";
 import {
   liveTvApi,
   calcProgress,
@@ -48,39 +49,6 @@ import {
 
 const { width: W } = Dimensions.get("window");
 
-const TMDB_BASE = "https://api.themoviedb.org/3";
-const TMDB_KEY  = "8f0beb08cf016ec8de49e454e09879ec";
-const LANG      = "pt-BR";
-const IMG_ORIG  = "https://image.tmdb.org/t/p/w1280";
-const IMG_W500  = "https://image.tmdb.org/t/p/w500";
-
-async function tfetch(path: string, params: Record<string, string> = {}): Promise<any> {
-  try {
-    const url = new URL(`${TMDB_BASE}${path}`);
-    url.searchParams.set("api_key", TMDB_KEY);
-    url.searchParams.set("language", LANG);
-    for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-    const r = await fetch(url.toString());
-    if (!r.ok) return { results: [] };
-    return r.json();
-  } catch { return { results: [] }; }
-}
-
-function toItem(raw: any): ContentItem {
-  return {
-    id: String(raw.id),
-    tmdbId: raw.id,
-    title: raw.name ?? raw.title ?? "",
-    year: parseInt(((raw.first_air_date ?? raw.release_date) || "2024").slice(0, 4)),
-    rating: raw.vote_average ?? 0,
-    posterPath: raw.poster_path ? `${IMG_W500}${raw.poster_path}` : "",
-    backdropPath: raw.backdrop_path ? `${IMG_ORIG}${raw.backdrop_path}` : "",
-    description: raw.overview ?? "",
-    genres: raw.genre_ids ?? [],
-    type: "series",
-    mediaType: "tv",
-  };
-}
 
 const RED    = "#e50914";
 const GREEN  = "#22c55e";
@@ -422,18 +390,30 @@ export default function LiveTvScreen() {
   }, []);
 
   const loadAll = useCallback(async () => {
-    // Phase 1: hero banner first (2 fast TMDB calls)
-    const [trendTvRes, popTvRes] = await Promise.allSettled([
-      tfetch("/trending/tv/week"),
-      tfetch("/tv/on_the_air"),
-    ]);
-    const getR = (r: PromiseSettledResult<any>): any[] =>
-      r.status === "fulfilled" ? (r.value?.results ?? []) : [];
-    const heroRaw = [
-      ...getR(trendTvRes).slice(0, 4),
-      ...getR(popTvRes).slice(0, 4),
-    ].slice(0, 8).map(toItem);
-    if (heroRaw.length > 0) setHeroItems(heroRaw);
+    // Phase 1: hero banner from Flix 2.0 series catalog
+    try {
+      const serRes = await r2Route<{ success: boolean; data: any[] }>("/flix2/catalog?type=series&page=1");
+      if (serRes.success && serRes.data?.length) {
+        const IMG = "https://image.tmdb.org/t/p";
+        const heroRaw = serRes.data
+          .filter((i: any) => i.tmdb_id > 0 && (i.backdrop || i.poster))
+          .slice(0, 8)
+          .map((i: any): ContentItem => ({
+            id: String(i.tmdb_id),
+            tmdbId: Number(i.tmdb_id),
+            title: i.title ?? i.name ?? "",
+            year: parseInt(((i.release_date ?? i.first_air_date) || "2024").slice(0, 4)),
+            rating: i.vote_average ?? i.rating ?? 0,
+            posterPath:   i.poster   ? `${IMG}/w500${i.poster}`   : "",
+            backdropPath: i.backdrop ? `${IMG}/w1280${i.backdrop}` : "",
+            description: i.overview ?? "",
+            genres: i.genre_ids ?? [],
+            type: "series",
+            mediaType: "tv",
+          }));
+        if (heroRaw.length > 0) setHeroItems(heroRaw);
+      }
+    } catch {}
 
     // Phase 2: channels + rest
     try {

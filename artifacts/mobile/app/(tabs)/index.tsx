@@ -36,7 +36,6 @@ import { checkCatalogWatchAndNotify } from "@/lib/catalog-watch";
 import { useAuth } from "@/lib/auth-context";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
 import type { ContentItem } from "@/constants/content";
-import { HERO_ITEMS } from "@/constants/content";
 import { MAIN_PLATFORMS } from "@/constants/streamings";
 import type { StreamingPlatform } from "@/constants/streamings";
 import { preloadImages, clearPreloadQueue } from "@/lib/image-preloader";
@@ -1535,7 +1534,7 @@ export default function HomeScreen() {
   const [activeCategory, setActiveCategory] = useState("all");
   const [showScrollTop, setShowScrollTop] = useState(false);
 
-  const [heroItems, setHeroItems]         = useState<ContentItem[]>(HERO_ITEMS);
+  const [heroItems, setHeroItems]         = useState<ContentItem[]>([]);
   const [movies, setMovies]               = useState<ContentItem[]>([]);
   const [series, setSeries]               = useState<ContentItem[]>([]);
   const [animes, setAnimes]               = useState<ContentItem[]>([]);
@@ -1879,7 +1878,7 @@ export default function HomeScreen() {
         {/* ── 1. HERO BANNER ─────────────────────────────────────────────── */}
         <Animated.View style={{ transform: [{ translateY: heroParallax }] }}>
           <HeroBanner
-            items={heroItems.length > 0 ? heroItems : HERO_ITEMS}
+            items={heroItems}
             onItemPress={goTo}
           />
         </Animated.View>
