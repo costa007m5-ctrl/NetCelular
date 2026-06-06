@@ -262,7 +262,8 @@ export default function DetailScreen() {
     const loadR2 = async () => {
       try {
         const { apiGetRegistry, r2Route } = await import("@/lib/r2-direct");
-        const flix2Type = type === "movie" ? "movies" : "series";
+        // Look in "all" so animes are found too (not just "series")
+        const flix2Type = type === "movie" ? "movies" : "all";
         const [data, settingsRaw, flix2Raw] = await Promise.allSettled([
           apiGetRegistry(),
           r2Route<SourceSettings>("/source-settings"),
@@ -273,22 +274,40 @@ export default function DetailScreen() {
               (i: RegistryItem) => i.tmdbId === tmdbId && i.tmdbType === type
             )
           : [];
-        // Inject a virtual Flix 2.0 registry item if found in catalog and not already registered
+        // Inject virtual Flix 2.0 registry items if found in catalog and not already registered
         const alreadyHasFlix = registryItems.some(isFlixItem);
-        if (!alreadyHasFlix && flix2Raw.status === "fulfilled" && flix2Raw.value.found && flix2Raw.value.item?.stream_url) {
+        if (!alreadyHasFlix && flix2Raw.status === "fulfilled" && flix2Raw.value.found) {
           const fi = flix2Raw.value.item;
-          const virtualItem: RegistryItem = {
-            id: `flix2-auto-${tmdbId}`,
-            r2Key: "",
-            flix2Url: fi.stream_url,
-            tmdbId,
-            tmdbType: type,
-            title: fi.title ?? "",
-            label: fi.title ?? "",
-            season: null,
-            episode: null,
-          };
-          registryItems.push(virtualItem);
+          if (fi?.stream_url) {
+            // Movie: single virtual item
+            registryItems.push({
+              id: `flix2-auto-${tmdbId}`,
+              r2Key: "",
+              flix2Url: fi.stream_url,
+              tmdbId,
+              tmdbType: type,
+              title: fi.title ?? "",
+              label: fi.title ?? "",
+              season: null,
+              episode: null,
+            });
+          } else if (Array.isArray(fi?.episodes) && fi.episodes.length > 0) {
+            // Series / anime: one virtual item per episode
+            for (const ep of fi.episodes as Array<{ season: number; episode: number; stream_url?: string }>) {
+              if (!ep?.stream_url) continue;
+              registryItems.push({
+                id: `flix2-auto-${tmdbId}-s${ep.season}e${ep.episode}`,
+                r2Key: "",
+                flix2Url: ep.stream_url,
+                tmdbId,
+                tmdbType: type,
+                title: fi.title ?? "",
+                label: `T${String(ep.season).padStart(2, "0")} E${String(ep.episode).padStart(2, "0")} · Flix 2.0`,
+                season: ep.season,
+                episode: ep.episode,
+              });
+            }
+          }
         }
         setR2Items(registryItems);
         if (settingsRaw.status === "fulfilled") {

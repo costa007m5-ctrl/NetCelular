@@ -1964,27 +1964,30 @@ router.get("/flix2/lookup", async (req, res) => {
   const bucket = getBucket();
 
   for (const t of typesToCheck) {
-    // Fast path: check pre-built index
+    // Fast path: check pre-built index (movies only — series/animes need slow path for episodes)
     try {
       const resp = await client.send(new GetObjectCommand({ Bucket: bucket, Key: `__flix2-index-${t}.json` }));
       const raw = await resp.Body?.transformToString();
       if (raw) {
         const index: Record<string, string> = JSON.parse(raw);
-        if (index[id]) {
-          res.json({ found: true, item: { tmdb_id: id, stream_url: index[id], type: t } });
+        const entry = index[id];
+        // Only shortcut for movies (real stream URLs). "flix2id:X" entries are series/animes —
+        // fall through to slow path so the full item (with episodes[]) is returned.
+        if (entry && !entry.startsWith("flix2id:")) {
+          res.json({ found: true, item: { tmdb_id: id, stream_url: entry, type: t } });
           return;
         }
       }
     } catch {}
 
-    // Slow path: live page scan (up to 50 pages)
+    // Slow path: live page scan (up to 200 pages for series/animes, 50 for movies)
     try {
       const first = await flix2FetchPage(t, 1);
       if (!first.success) continue;
       const found = first.data.find((i: any) => Number(i.tmdb_id) === id);
       if (found) { res.json({ found: true, item: found }); return; }
 
-      const totalPages = Math.min(first.pagination?.total_pages ?? 1, 50);
+      const totalPages = Math.min(first.pagination?.total_pages ?? 1, t === "movies" ? 50 : 200);
       const BATCH = 10;
       outer: for (let start = 2; start <= totalPages; start += BATCH) {
         const batch = Array.from(
@@ -2129,9 +2132,18 @@ router.post("/flix2/build-index", async (req, res) => {
         const first = await flix2FetchPage(t, 1);
         if (!first.success) { job.summary[t] = -1; job.typesDone.push(t); continue; }
 
-        for (const item of first.data) {
-          if (item.tmdb_id && item.stream_url) index[Number(item.tmdb_id)] = item.stream_url;
-        }
+        const indexItem = (item: any) => {
+          if (!item?.tmdb_id) return;
+          // Movies: store tmdb_id → stream_url for direct playback
+          // Series/animes: store tmdb_id → "flix2id:<item.id>" so index count is accurate
+          if (item.stream_url) {
+            index[Number(item.tmdb_id)] = item.stream_url;
+          } else if (item.id) {
+            index[Number(item.tmdb_id)] = `flix2id:${item.id}`;
+          }
+        };
+
+        for (const item of first.data) { indexItem(item); }
         const totalPages = first.pagination?.total_pages ?? 1;
         job.totalPages = totalPages;
         job.pagesScanned = 1;
@@ -2144,9 +2156,7 @@ router.post("/flix2/build-index", async (req, res) => {
           const pages = await Promise.allSettled(batch);
           for (const p of pages) {
             if (p.status === "fulfilled" && p.value.success) {
-              for (const item of p.value.data) {
-                if (item.tmdb_id && item.stream_url) index[Number(item.tmdb_id)] = item.stream_url;
-              }
+              for (const item of p.value.data) { indexItem(item); }
             }
           }
           job.pagesScanned = Math.min(start + BATCH - 1, totalPages);
