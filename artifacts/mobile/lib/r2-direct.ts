@@ -762,6 +762,99 @@ export function r2Base(): string | null {
   return `${base}/r2`;
 }
 
+// ─── Drive: resolver URL diretamente do dispositivo ───────────────────────────
+// O Worker da Animezey bloqueia IPs de servidores (Replit, VPS, etc.) com erro
+// 1102. Dispositivos móveis não são bloqueados, por isso resolvemos o link
+// diretamente do telefone/tablet, sem passar pelo API server.
+
+const _DRIVE_WORKER_BASE = "https://1.animezey23112022.workers.dev";
+const _DRIVE_DOWNLOAD_BASE = "https://animezey16082023.animezey16082023.workers.dev";
+
+function _extractDriveFileId(url: string): string | null {
+  const m = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) ?? url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  return m ? m[1] : null;
+}
+
+async function _resolveSignedDriveLinkDirect(
+  driveNum: number,
+  driveFilePath: string,
+): Promise<string | null> {
+  const parts = driveFilePath.split("/");
+  const fileName = parts[parts.length - 1];
+  const folderParts = parts.slice(0, -1);
+  const encodedFolder = folderParts.map((s) => encodeURIComponent(s)).join("/");
+  const listUrl = `${_DRIVE_WORKER_BASE}/${driveNum}:/${encodedFolder ? encodedFolder + "/" : ""}`;
+
+  let pageToken = "";
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 15000);
+    let listData: any;
+    try {
+      const listResp = await fetch(listUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pageToken }),
+        signal: ctrl.signal,
+      });
+      clearTimeout(tid);
+      if (!listResp.ok) break;
+      listData = await listResp.json();
+    } catch {
+      clearTimeout(tid);
+      break;
+    }
+    const files: any[] = listData?.data?.files ?? [];
+    const found = files.find((f: any) => f.name === fileName && f.link);
+    if (found) return found.link as string;
+    pageToken = listData?.nextPageToken ?? "";
+    if (!pageToken) break;
+  }
+  return null;
+}
+
+export async function drivePlayDirect(
+  id: string,
+): Promise<{ url: string; cached: boolean; via: string }> {
+  const registry = await apiGetRegistry();
+  const item = (registry.items ?? []).find((i: any) => i.id === id);
+  if (!item) throw new Error("Item não encontrado no registry");
+
+  // Prioridade 1: itens novos com driveNum + driveFilePath (registrados via navegador de pastas)
+  if (item.driveNum != null && item.driveFilePath) {
+    try {
+      const signedLink = await _resolveSignedDriveLinkDirect(
+        item.driveNum as number,
+        item.driveFilePath as string,
+      );
+      if (signedLink) {
+        const rel = signedLink.startsWith("/") ? signedLink : `/${signedLink}`;
+        return { url: `${_DRIVE_DOWNLOAD_BASE}${rel}`, cached: false, via: "signed-direct" };
+      }
+    } catch {}
+    // Fallback: URL por caminho direto
+    const encoded = (item.driveFilePath as string)
+      .split("/")
+      .map((s: string) => encodeURIComponent(s))
+      .join("/");
+    return {
+      url: `${_DRIVE_DOWNLOAD_BASE}/${item.driveNum}:/${encoded}`,
+      cached: false,
+      via: "path-fallback",
+    };
+  }
+
+  // Prioridade 2: itens legados com apenas driveUrl (link de compartilhamento do Google Drive)
+  if (!item.driveUrl) throw new Error("Item sem link do Drive");
+  const fileId = _extractDriveFileId(item.driveUrl as string);
+  if (!fileId) throw new Error("URL do Drive inválida");
+  return {
+    url: `https://drive.usercontent.google.com/download?id=${fileId}&export=download&confirm=t`,
+    cached: false,
+    via: "gdrive-legacy",
+  };
+}
+
 // Routes that must be forwarded to the API server (can't run client-side)
 const SERVER_ONLY_ROUTES = new Set([
   "/download-url",
@@ -817,6 +910,11 @@ export async function r2Route<T>(path: string, options?: RequestInit): Promise<T
   // No web (Chrome/browser): sempre usa o API server — S3 direto falha por CORS
   if (Platform.OS === "web") {
     return forwardToServer<T>(path, options);
+  }
+
+  // Drive play: resolver diretamente do dispositivo — o Worker bloqueia IPs de servidores
+  if (route === "/drive/play") {
+    return drivePlayDirect(q("id")) as Promise<T>;
   }
 
   // Server-only routes: forward to API server

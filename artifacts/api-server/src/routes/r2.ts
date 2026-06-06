@@ -1455,7 +1455,8 @@ router.get("/drive/play", async (req, res) => {
     // que quando combinado com o DOWNLOAD_DOMAIN serve o vídeo com HTTP 206.
     if (item.driveNum != null && item.driveFilePath) {
       const ctrl = new AbortController();
-      const tid = setTimeout(() => ctrl.abort(), 25000);
+      // Worker bloqueia IPs de servidor (erro 1102) — timeout curto para falhar rápido
+      const tid = setTimeout(() => ctrl.abort(), 6000);
       try {
         const signedLink = await resolveSignedDriveLink(item.driveNum, item.driveFilePath, ctrl.signal);
         clearTimeout(tid);
