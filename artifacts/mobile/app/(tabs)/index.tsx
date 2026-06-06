@@ -370,7 +370,19 @@ function SectionHeader({ title, icon, onSeeAll, badge, accentColor = RED, subtit
           </View>
         )}
         <View>
-          <Text style={styles.sectionTitle}>{title}</Text>
+          <View style={{ flexDirection: "row", alignItems: "baseline" }}>
+            {(() => {
+              const words = title.split(" ");
+              const first = words[0];
+              const rest  = words.slice(1).join(" ");
+              return (
+                <>
+                  <Text style={[styles.sectionTitle, { color: accentColor }]}>{first}</Text>
+                  {rest.length > 0 && <Text style={styles.sectionTitle}> {rest}</Text>}
+                </>
+              );
+            })()}
+          </View>
           {subtitle && <Text style={styles.sectionSubtitle}>{subtitle}</Text>}
         </View>
         {badge && (
