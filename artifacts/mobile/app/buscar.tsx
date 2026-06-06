@@ -195,7 +195,12 @@ function SectionRow({ title, badge, accentColor = RED, onSeeAll, children }: {
   const rest  = words.slice(1).join(" ");
   return (
     <View style={styles.sectionWrap}>
-      <View style={styles.sectionHeader}>
+      <View style={[styles.sectionHeader, { overflow: "hidden" }]}>
+        <LinearGradient
+          colors={[`${accentColor}28`, "transparent"]}
+          start={{ x: 0, y: 0 }} end={{ x: 0.7, y: 0 }}
+          style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
+        />
         <View style={{ flexDirection:"row", alignItems:"center", gap:8 }}>
           <View style={{ width:3, height:18, borderRadius:2, backgroundColor: accentColor }} />
           <View style={{ flexDirection:"row", alignItems:"baseline" }}>

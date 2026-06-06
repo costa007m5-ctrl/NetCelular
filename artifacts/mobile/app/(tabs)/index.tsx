@@ -361,7 +361,12 @@ function SectionHeader({ title, icon, onSeeAll, badge, accentColor = RED, subtit
   badge?: string; accentColor?: string; subtitle?: string;
 }) {
   return (
-    <View style={styles.sectionHeader}>
+    <View style={[styles.sectionHeader, { overflow: "hidden" }]}>
+      <LinearGradient
+        colors={[`${accentColor}28`, "transparent"]}
+        start={{ x: 0, y: 0 }} end={{ x: 0.7, y: 0 }}
+        style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
+      />
       <View style={styles.sectionLeft}>
         <View style={[styles.accentBar, { backgroundColor: accentColor }]} />
         {icon && (

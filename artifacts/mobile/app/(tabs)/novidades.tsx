@@ -520,7 +520,12 @@ function SectionHeader({
   badge?: string; accentColor?: string; subtitle?: string;
 }) {
   return (
-    <View style={sty.secHead}>
+    <View style={[sty.secHead, { overflow: "hidden" }]}>
+      <LinearGradient
+        colors={[`${accentColor}28`, "transparent"]}
+        start={{ x: 0, y: 0 }} end={{ x: 0.7, y: 0 }}
+        style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
+      />
       <View style={sty.secLeft}>
         <View style={[sty.accentBar, { backgroundColor: accentColor }]} />
         {icon && (

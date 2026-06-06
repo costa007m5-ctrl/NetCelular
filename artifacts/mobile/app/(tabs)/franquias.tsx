@@ -518,7 +518,12 @@ function SectionHeader({ title, icon, onSeeAll, badge, accentColor = AMBER, subt
   badge?: string; accentColor?: string; subtitle?: string;
 }) {
   return (
-    <View style={s.secHead}>
+    <View style={[s.secHead, { overflow: "hidden" }]}>
+      <LinearGradient
+        colors={[`${accentColor}28`, "transparent"]}
+        start={{ x: 0, y: 0 }} end={{ x: 0.7, y: 0 }}
+        style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
+      />
       <View style={s.secLeft}>
         <View style={[s.acBar, { backgroundColor: accentColor }]} />
         {icon && <View style={[s.iconWrap, { backgroundColor: `${accentColor}18` }]}><Feather name={icon} size={13} color={accentColor} /></View>}
