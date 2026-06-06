@@ -30,6 +30,7 @@ import { db, isSupabaseConfigured } from "@/lib/supabase";
 import { checkAndStartSession, heartbeatSession, endSession, getWhatsAppLink } from "@/lib/session-manager";
 import { getSettings } from "@/lib/user-settings";
 import { scheduleContinueWatchingReminder, cancelContinueWatchingReminder } from "@/lib/notifications";
+import { saveLocalProgress } from "@/hooks/useWatchProgress";
 import type { TmdbEpisode, TmdbSeason } from "@/lib/api";
 
 let Video: any = null;
@@ -353,11 +354,12 @@ interface NativePlayerProps {
   onNextEp: () => void;
   onOpenPicker: () => void;
   onFallbackToWebView: () => void;
+  onProgressUpdate?: (positionMs: number, durationMs: number) => void;
 }
 
 function NativeVideoPlayer({
   m3u8Url, referer, title, type, season, episode,
-  onBack, onPrevEp, onNextEp, onOpenPicker, onFallbackToWebView,
+  onBack, onPrevEp, onNextEp, onOpenPicker, onFallbackToWebView, onProgressUpdate,
 }: NativePlayerProps) {
   const insets = useSafeAreaInsets();
   const videoRef = useRef<any>(null);
@@ -467,6 +469,7 @@ function NativeVideoPlayer({
             setBuffering(status.isBuffering ?? false);
             if (status.durationMillis && status.durationMillis > 0) {
               positionRatioRef.current = (status.positionMillis ?? 0) / status.durationMillis;
+              onProgressUpdate?.(status.positionMillis ?? 0, status.durationMillis ?? 0);
             }
           }}
           onError={() => setLoadError(true)}
@@ -778,6 +781,38 @@ export default function PlayerScreen() {
   }, [season, fetchEpisodes, fetchTotalSeasons, showControls]);
 
   const positionRatioRef = useRef(0.05);
+  const positionMsRef   = useRef(0);
+  const durationMsRef   = useRef(0);
+
+  // ── Local progress save (AsyncStorage — no auth needed) ───────────────────
+  const saveLocalProgressData = useCallback(async () => {
+    if (!id || isLive) return;
+    const ratio = positionRatioRef.current;
+    if (ratio < 0.02 || ratio > 0.97) return; // skip near start/end
+    await saveLocalProgress({
+      contentId: `${type === "live" ? "movie" : type}_${id}`,
+      tmdbId: String(id),
+      type: type === "tv" ? "tv" : "movie",
+      title: title || "Sem título",
+      posterPath,
+      backdropPath,
+      progress: ratio,
+      positionMs: positionMsRef.current,
+      durationMs: durationMsRef.current,
+      season: type === "tv" ? season : undefined,
+      episode: type === "tv" ? episode : undefined,
+    });
+  }, [id, type, title, posterPath, backdropPath, season, episode, isLive]);
+
+  // Save every 15 s; also save when player unmounts
+  useEffect(() => {
+    if (!id || isLive) return;
+    const interval = setInterval(saveLocalProgressData, 15000);
+    return () => {
+      clearInterval(interval);
+      saveLocalProgressData();
+    };
+  }, [saveLocalProgressData]);
 
   const saveProgress = async () => {
     if (!user?.id || !id || !isSupabaseConfigured || progressSaved) return;
@@ -967,6 +1002,10 @@ export default function PlayerScreen() {
           onFallbackToWebView={() => {
             setUseWebViewFallback(true);
             setM3u8Url(null);
+          }}
+          onProgressUpdate={(pos, dur) => {
+            positionMsRef.current = pos;
+            durationMsRef.current = dur;
           }}
         />
         <EpisodePicker

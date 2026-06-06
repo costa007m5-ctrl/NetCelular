@@ -20,10 +20,12 @@ import { Image } from "expo-image";
 import { StatusBar } from "expo-status-bar";
 import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useColors } from "@/hooks/useColors";
+import { getAllLocalProgress, clearLocalProgress } from "@/hooks/useWatchProgress";
+import type { WatchEntry } from "@/hooks/useWatchProgress";
 import { HeroBanner } from "@/components/HeroBanner";
 import { TopTenCard } from "@/components/TopTenCard";
 import { SyncBar } from "@/components/SyncBar";
@@ -217,10 +219,37 @@ function CompactItem({ item, rank, onPress }: {
 }
 
 // Progress/continue watching card
-function ContinueCard({ item, onPress }: { item: ContentItem; onPress: () => void }) {
+type ContinueItem = ContentItem & {
+  contentId?: string;
+  positionMs?: number;
+  durationMs?: number;
+  episodeSeason?: number;
+  episodeNum?: number;
+};
+
+function fmtRemaining(positionMs: number, durationMs: number): string {
+  if (!durationMs || durationMs < 1000) return "";
+  const remSec = Math.max(0, (durationMs - positionMs) / 1000);
+  const remMin = Math.round(remSec / 60);
+  if (remMin < 1) return "< 1 min restante";
+  return `${remMin} min restante${remMin !== 1 ? "s" : ""}`;
+}
+
+function ContinueCard({
+  item, onPress, onRemove,
+}: {
+  item: ContinueItem;
+  onPress: () => void;
+  onRemove?: () => void;
+}) {
   const scale = useRef(new Animated.Value(1)).current;
   const [err, setErr] = useState(false);
-  const progress = item.progress ?? 0;
+  const progress   = item.progress ?? 0;
+  const remaining  = fmtRemaining(item.positionMs ?? 0, item.durationMs ?? 0);
+  const isSeries   = item.type === "series" || item.mediaType === "tv";
+  const epLabel    = isSeries && item.episodeSeason
+    ? `T${item.episodeSeason} · E${item.episodeNum ?? 1}`
+    : null;
   const pressIn  = () => Animated.spring(scale, { toValue: 0.94, useNativeDriver: true, speed: 28 }).start();
   const pressOut = () => Animated.spring(scale, { toValue: 1,    useNativeDriver: true, speed: 24 }).start();
 
@@ -235,6 +264,22 @@ function ContinueCard({ item, onPress }: { item: ContentItem; onPress: () => voi
         )}
         <LinearGradient colors={["transparent","rgba(0,0,0,0.85)"]} locations={[0.4,1]}
           style={StyleSheet.absoluteFill} />
+
+        {/* remove button */}
+        {onRemove && (
+          <Pressable onPress={(e) => { e.stopPropagation(); onRemove(); }}
+            style={styles.continueRemoveBtn} hitSlop={8}>
+            <Feather name="x" size={11} color="#fff" />
+          </Pressable>
+        )}
+
+        {/* episode badge */}
+        {epLabel && (
+          <View style={styles.continueEpBadge}>
+            <Text style={styles.continueEpText}>{epLabel}</Text>
+          </View>
+        )}
+
         <View style={styles.continuePlayOverlay}>
           <View style={styles.continuePlayBtn}>
             <Feather name="play" size={18} color="#fff" />
@@ -245,6 +290,11 @@ function ContinueCard({ item, onPress }: { item: ContentItem; onPress: () => voi
           <View style={styles.progressBar}>
             <View style={[styles.progressFill, { width: `${Math.min(progress * 100, 100)}%` as any, backgroundColor: RED }]} />
           </View>
+          {remaining ? (
+            <Text style={styles.continueRemaining}>{remaining}</Text>
+          ) : (
+            <Text style={styles.continueRemaining}>{Math.round(progress * 100)}% assistido</Text>
+          )}
         </View>
       </Animated.View>
     </Pressable>
@@ -1288,7 +1338,7 @@ export default function HomeScreen() {
   const [top10Movies, setTop10Movies]     = useState<ContentItem[]>([]);
   const [top10Series, setTop10Series]     = useState<ContentItem[]>([]);
   const [totals, setTotals]               = useState({ movies: 0, series: 0, animes: 0 });
-  const [continueItems, setContinueItems] = useState<ContentItem[]>([]);
+  const [continueItems, setContinueItems] = useState<ContinueItem[]>([]);
   const [activeProfile, setActiveProfile] = useState<any>(null);
 
   // ── section entrance animations (28 sections) ────────────────────────────
@@ -1355,26 +1405,58 @@ export default function HomeScreen() {
       .catch(() => {});
   }, [user?.id]);
 
-  // ── continue watching ─────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!user?.id || !isSupabaseConfigured) return;
-    db.progress.getAll(user.id).then((items) =>
-      setContinueItems(items.map((p: any) => ({
-        id: String(p.tmdb_id),
-        tmdbId: p.tmdb_id,
-        title: p.title ?? "Sem título",
-        year: 2024,
-        rating: 0,
-        posterPath: p.poster_path ?? "",
-        backdropPath: p.backdrop_path ?? "",
-        description: "",
-        genres: [],
-        type: p.type === "movie" ? ("movie" as const) : ("series" as const),
-        mediaType: p.type,
-        progress: p.progress ?? 0,
-      })))
-    ).catch(() => {});
+  // ── continue watching — load from local AsyncStorage (always works) ────────
+  const loadContinueItems = useCallback(async () => {
+    const entries = await getAllLocalProgress();
+    if (!entries.length) {
+      // fallback: try Supabase if logged in
+      if (user?.id && isSupabaseConfigured) {
+        db.progress.getAll(user.id).then((items: any[]) =>
+          setContinueItems(items.map((p) => ({
+            id: String(p.tmdb_id),
+            contentId: `${p.type}_${p.tmdb_id}`,
+            tmdbId: p.tmdb_id,
+            title: p.title ?? "Sem título",
+            year: 2024, rating: 0,
+            posterPath: p.poster_path ?? "",
+            backdropPath: p.backdrop_path ?? "",
+            description: "", genres: [],
+            type: p.type === "movie" ? ("movie" as const) : ("series" as const),
+            mediaType: p.type,
+            progress: p.progress ?? 0,
+            positionMs: 0, durationMs: 0,
+          })))
+        ).catch(() => {});
+      }
+      return;
+    }
+    setContinueItems(entries.map((e) => ({
+      id: e.contentId,
+      contentId: e.contentId,
+      tmdbId: Number(e.tmdbId),
+      title: e.title,
+      year: 2024, rating: 0,
+      posterPath: e.posterPath,
+      backdropPath: e.backdropPath,
+      description: "", genres: [],
+      type: e.type === "tv" ? ("series" as const) : ("movie" as const),
+      mediaType: e.type,
+      progress: e.progress,
+      positionMs: e.positionMs,
+      durationMs: e.durationMs,
+      episodeSeason: e.season,
+      episodeNum: e.episode,
+    })));
   }, [user?.id]);
+
+  useEffect(() => { loadContinueItems(); }, [loadContinueItems]);
+
+  // Refresh "Continue Assistindo" every time the tab gains focus (e.g. returning from player)
+  useFocusEffect(
+    useCallback(() => {
+      loadContinueItems();
+    }, [loadContinueItems])
+  );
 
   // ── load data ─────────────────────────────────────────────────────────────
   const loadData = useCallback(async () => {
@@ -1612,7 +1694,19 @@ export default function HomeScreen() {
                   <ScrollView horizontal showsHorizontalScrollIndicator={false}
                     contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }} decelerationRate="fast">
                     {continueItems.slice(0, 6).map((item) => (
-                      <ContinueCard key={item.id} item={item} onPress={() => goTo(item)} />
+                      <ContinueCard
+                        key={item.id}
+                        item={item}
+                        onPress={() => goTo(item)}
+                        onRemove={() => {
+                          if (item.contentId) {
+                            clearLocalProgress(item.contentId);
+                          }
+                          setContinueItems((prev) =>
+                            prev.filter((i) => i.id !== item.id)
+                          );
+                        }}
+                      />
                     ))}
                   </ScrollView>
                 </AnimatedSection>
@@ -2520,6 +2614,24 @@ const styles = StyleSheet.create({
       ios: { shadowColor: RED, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.6, shadowRadius: 12 },
       android: { elevation: 10 },
     }),
+  },
+
+  // ── Continue Assistindo extras ────────────────────────────────────────────
+  continueRemoveBtn: {
+    position: "absolute", top: 6, right: 6, zIndex: 10,
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: "rgba(0,0,0,0.65)",
+    alignItems: "center", justifyContent: "center",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.2)",
+  },
+  continueEpBadge: {
+    position: "absolute", top: 6, left: 8,
+    backgroundColor: "rgba(229,9,20,0.88)", borderRadius: 6,
+    paddingHorizontal: 7, paddingVertical: 3,
+  },
+  continueEpText: { color: "#fff", fontSize: 9, fontWeight: "900", letterSpacing: 0.5 },
+  continueRemaining: {
+    color: "rgba(255,255,255,0.45)", fontSize: 10, fontWeight: "500", marginTop: 3,
   },
 
   // ── Mood card ─────────────────────────────────────────────────────────────
