@@ -49,19 +49,23 @@ function getTimeGreeting(): { greeting: string; icon: keyof typeof Feather.glyph
   return { greeting: "Boa noite", icon: "moon" };
 }
 
-const flix2ToContent = (item: any): ContentItem => ({
-  id: String(item.tmdb_id || item.id),
-  tmdbId: Number(item.tmdb_id) || 0,
-  title: item.title ?? "",
-  year: Number(item.year) || 2024,
-  rating: 0,
-  posterPath: item.poster ?? "",
-  backdropPath: item.poster ?? "",
-  description: item.synopsis ?? "",
-  genres: [],
-  type: item.type === "movie" ? "movie" : "series",
-  mediaType: item.type === "movie" ? "movie" : "tv",
-});
+const flix2ToContent = (item: any): ContentItem => {
+  // nixplay.lat catalog uses "filme" for movies and "serie" for series/animes
+  const isMovie = item.type === "filme" || item.type === "movie";
+  return {
+    id: String(item.tmdb_id || item.id),
+    tmdbId: Number(item.tmdb_id) || 0,
+    title: item.title ?? "",
+    year: Number(item.year) || 2024,
+    rating: 0,
+    posterPath: item.poster ?? "",
+    backdropPath: item.backdrop ?? item.poster ?? "",
+    description: item.synopsis ?? "",
+    genres: [],
+    type: isMovie ? "movie" : "series",
+    mediaType: isMovie ? "movie" : "tv",
+  };
+};
 
 const HOME_STREAMING = MAIN_PLATFORMS.slice(0, 7);
 
