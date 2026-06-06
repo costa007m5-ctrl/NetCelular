@@ -203,6 +203,9 @@ export default function R2PlayerScreen() {
   // ── Core state ─────────────────────────────────────────────────────────────
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
   const [errorMsg, setErrorMsg] = useState("");
+  const [retryCount, setRetryCount] = useState(0);
+  const [autoRetryCountdown, setAutoRetryCountdown] = useState<number | null>(null);
+  const autoRetryTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [positionMs, setPositionMs] = useState(0);
@@ -462,7 +465,37 @@ export default function R2PlayerScreen() {
     }
   }, [params.key, params.flix2ItemUrl, isFlix2, episode, r2Items]);
 
-  useEffect(() => { loadVideoUrl(); }, [params.key, params.registryItemId, params.flix2ItemUrl]);
+  useEffect(() => {
+    setRetryCount(0);
+    setAutoRetryCountdown(null);
+    if (autoRetryTimerRef.current) { clearInterval(autoRetryTimerRef.current); autoRetryTimerRef.current = null; }
+    loadVideoUrl();
+  }, [params.key, params.registryItemId, params.flix2ItemUrl]);
+
+  // ── Auto-retry on first error: countdown 5s then retry automatically ────────
+  useEffect(() => {
+    if (phase === "error" && retryCount === 0) {
+      setAutoRetryCountdown(5);
+      autoRetryTimerRef.current = setInterval(() => {
+        setAutoRetryCountdown((prev) => {
+          if (prev === null || prev <= 1) {
+            clearInterval(autoRetryTimerRef.current!);
+            autoRetryTimerRef.current = null;
+            setRetryCount(1);
+            loadVideoUrl();
+            return null;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } else if (phase !== "error") {
+      if (autoRetryTimerRef.current) { clearInterval(autoRetryTimerRef.current); autoRetryTimerRef.current = null; }
+      setAutoRetryCountdown(null);
+    }
+    return () => {
+      if (autoRetryTimerRef.current) { clearInterval(autoRetryTimerRef.current); autoRetryTimerRef.current = null; }
+    };
+  }, [phase]);
 
   // ── transitionToReady ───────────────────────────────────────────────────────
   const transitionToReady = useCallback((durationMillis = 0) => {
@@ -908,7 +941,19 @@ export default function R2PlayerScreen() {
           <View style={[StyleSheet.absoluteFill, styles.loadOverlay, styles.loadCenter]}>
             <Feather name="alert-circle" size={48} color={RED} />
             <Text style={styles.loadTitle}>{errorMsg}</Text>
-            <Pressable style={styles.retryBtn} onPress={loadVideoUrl}><Text style={styles.retryText}>Tentar Novamente</Text></Pressable>
+            {autoRetryCountdown !== null ? (
+              <View style={{ alignItems: "center", gap: 6, marginTop: 12 }}>
+                <View style={{ width: 44, height: 44, borderRadius: 22, borderWidth: 2, borderColor: "rgba(255,255,255,0.25)", justifyContent: "center", alignItems: "center" }}>
+                  <Text style={{ color: "#fff", fontSize: 18, fontWeight: "700" }}>{autoRetryCountdown}</Text>
+                </View>
+                <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 12 }}>Tentando novamente…</Text>
+              </View>
+            ) : (
+              <Pressable style={styles.retryBtn} onPress={() => { setRetryCount((c) => c + 1); loadVideoUrl(); }}>
+                <Feather name="refresh-cw" size={14} color="#fff" />
+                <Text style={styles.retryText}>Tentar Novamente</Text>
+              </Pressable>
+            )}
           </View>
         )}
         {videoUrl ? (
@@ -1031,15 +1076,31 @@ export default function R2PlayerScreen() {
                 <Feather name="alert-circle" size={44} color={RED} />
                 <Text style={styles.loadTitle}>{errorMsg}</Text>
                 <Text style={styles.loadEp}>Verifique sua conexão e tente novamente</Text>
-                <View style={{ flexDirection: "row", gap: 12, marginTop: 20 }}>
-                  <Pressable style={styles.retryBtn} onPress={loadVideoUrl}>
-                    <Feather name="refresh-cw" size={14} color="#fff" />
-                    <Text style={styles.retryText}>Tentar Novamente</Text>
-                  </Pressable>
-                  <Pressable style={styles.retryBtnSecondary} onPress={() => router.back()}>
-                    <Text style={styles.retryText}>Voltar</Text>
-                  </Pressable>
-                </View>
+                {autoRetryCountdown !== null ? (
+                  <View style={{ alignItems: "center", gap: 6, marginTop: 20 }}>
+                    <View style={{ width: 52, height: 52, borderRadius: 26, borderWidth: 2, borderColor: "rgba(255,255,255,0.20)", justifyContent: "center", alignItems: "center" }}>
+                      <Text style={{ color: "#fff", fontSize: 22, fontWeight: "700" }}>{autoRetryCountdown}</Text>
+                    </View>
+                    <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 12 }}>Tentando novamente…</Text>
+                    <Pressable onPress={() => {
+                      if (autoRetryTimerRef.current) { clearInterval(autoRetryTimerRef.current); autoRetryTimerRef.current = null; }
+                      setAutoRetryCountdown(null);
+                      setRetryCount(1);
+                    }}>
+                      <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 12, textDecorationLine: "underline" }}>Cancelar</Text>
+                    </Pressable>
+                  </View>
+                ) : (
+                  <View style={{ flexDirection: "row", gap: 12, marginTop: 20 }}>
+                    <Pressable style={styles.retryBtn} onPress={() => { setRetryCount((c) => c + 1); loadVideoUrl(); }}>
+                      <Feather name="refresh-cw" size={14} color="#fff" />
+                      <Text style={styles.retryText}>Tentar Novamente</Text>
+                    </Pressable>
+                    <Pressable style={styles.retryBtnSecondary} onPress={() => router.back()}>
+                      <Text style={styles.retryText}>Voltar</Text>
+                    </Pressable>
+                  </View>
+                )}
               </View>
             ) : (
               <View style={styles.loadCenter}>
