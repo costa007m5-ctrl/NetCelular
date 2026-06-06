@@ -989,26 +989,30 @@ export default function NovidadesScreen() {
   ) => setModal({ visible: true, title, items, accent, fetchMoreFn });
   const closeModal = () => setModal((m) => ({ ...m, visible: false }));
 
-  // ── Fetch all data from Flix 2.0 only ────────────────────────────────────
+  // ── apply fetched items to state ─────────────────────────────────────────
+  const applyData = useCallback((movies: ContentItem[], series: ContentItem[], animes: ContentItem[]) => {
+    if (movies.length > 0) {
+      setAllMovies(movies);
+      setHeroItems(movies.filter((x) => x.backdropPath || x.posterPath).slice(0, 6));
+    }
+    if (series.length > 0) setAllSeries(series);
+    if (animes.length > 0) setAllAnimes(animes);
+  }, []);
+
+  // ── Fetch all data — cache-first + background revalidation ────────────────
   const loadAll = useCallback(async () => {
-    // Fetch 3 pages of movies + 3 pages of series + 2 pages of animes in parallel
     const [movRes, serRes, aniRes] = await Promise.allSettled([
-      fetchCatalog("movies",  3),
-      fetchCatalog("series",  3),
-      fetchCatalog("animes",  2),
+      fetchCatalog("movies", 3, (fresh) => setAllMovies(fresh)),
+      fetchCatalog("series", 3, (fresh) => setAllSeries(fresh)),
+      fetchCatalog("animes", 2, (fresh) => setAllAnimes(fresh)),
     ]);
 
     const movies = movRes.status === "fulfilled" ? movRes.value : [];
     const series = serRes.status === "fulfilled" ? serRes.value : [];
     const animes = aniRes.status === "fulfilled" ? aniRes.value : [];
 
-    if (movies.length > 0) {
-      setAllMovies(movies);
-      setHeroItems(movies.filter((x) => x.backdropPath).slice(0, 6));
-    }
-    if (series.length > 0) setAllSeries(series);
-    if (animes.length > 0) setAllAnimes(animes);
-  }, []);
+    applyData(movies, series, animes);
+  }, [applyData]);
 
   useEffect(() => {
     let loop: Animated.CompositeAnimation | null = null;
