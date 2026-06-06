@@ -307,6 +307,38 @@ const EMBED_AUTOPLAY_JS = `
 })(); true;
 `;
 
+// Detects 404/error pages rendered inside the WebView and signals back to RN
+const ERROR_PAGE_DETECTOR_JS = `
+(function() {
+  try {
+    var title = (document.title || '').toLowerCase();
+    var body  = (document.body ? document.body.innerText : '').toLowerCase();
+    var patterns = [
+      'page you visited does not exist',
+      'file does not exist',
+      'page not found',
+      '404 not found',
+      'sorry, the page',
+      'access link is wrong',
+      'não existe',
+      'página não encontrada',
+      'this page could not be found',
+      'oops! that page',
+      'error 404',
+    ];
+    var is404 = (
+      title === '404' ||
+      title.includes('not found') ||
+      title.includes('não encontrada') ||
+      patterns.some(function(p) { return body.includes(p); })
+    );
+    if (is404) {
+      try { window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({type:'page_error_detected',code:404})); } catch(x) {}
+    }
+  } catch(e) {}
+})(); true;
+`;
+
 const FULLSCREEN_JS = `
 (function() {
   function tryFs(el) {
@@ -1050,6 +1082,9 @@ export default function PlayerScreen() {
         if (Platform.OS === "android") {
           try { ToastAndroid.show("▶ Player nativo ativado", ToastAndroid.SHORT); } catch {}
         }
+      } else if (msg.type === "page_error_detected") {
+        setError(true);
+        setLoading(false);
       }
     } catch {}
   }, [useWebViewFallback]);
@@ -1273,7 +1308,8 @@ export default function PlayerScreen() {
         style={styles.webview}
         onLoadStart={() => { if (!initialLoadDone) { setLoading(true); setError(false); } }}
         onLoadEnd={() => { setLoading(false); setInitialLoadDone(true); saveProgress(); showControls(); }}
-        onError={() => { if (!initialLoadDone) { setError(true); setLoading(false); } }}
+        onError={() => { setError(true); setLoading(false); }}
+        onHttpError={(ev: any) => { if (ev.nativeEvent.statusCode >= 400) { setError(true); setLoading(false); } }}
         onMessage={handleWebViewMessage}
         allowsFullscreenVideo
         allowsInlineMediaPlayback
@@ -1286,7 +1322,7 @@ export default function PlayerScreen() {
         scalesPageToFit={false}
         injectedJavaScriptBeforeContentLoaded={M3U8_INTERCEPTOR_JS}
         injectedJavaScriptBeforeContentLoadedForMainFrameOnly={false}
-        injectedJavaScript={directEmbed ? `${AD_BLOCKER_JS}\n${EMBED_AUTOPLAY_JS}` : AD_BLOCKER_JS}
+        injectedJavaScript={directEmbed ? `${AD_BLOCKER_JS}\n${EMBED_AUTOPLAY_JS}\n${ERROR_PAGE_DETECTOR_JS}` : `${AD_BLOCKER_JS}\n${ERROR_PAGE_DETECTOR_JS}`}
         injectedJavaScriptForMainFrameOnly={false}
         injectedJavaScriptBeforeContentLoadedIntoEachFrame={M3U8_INTERCEPTOR_JS}
         injectedJavaScriptBeforeContentLoadedIntoEachFrameForMainFrameOnly={false}
