@@ -4,6 +4,7 @@ import {
   Alert,
   Dimensions,
   Image,
+  KeyboardAvoidingView,
   Linking,
   Modal,
   Platform,
@@ -12,6 +13,7 @@ import {
   Share,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -245,6 +247,10 @@ export default function DetailScreen() {
   const [trailerKey, setTrailerKey] = useState<string | null>(null);
   const [showTrailerModal, setShowTrailerModal] = useState(false);
   const [trailerPlaying, setTrailerPlaying] = useState(true);
+  const [showAddSrcModal, setShowAddSrcModal] = useState(false);
+  const [addSrcUrl, setAddSrcUrl] = useState("");
+  const [addSrcBusy, setAddSrcBusy] = useState(false);
+  const [addSrcErr, setAddSrcErr] = useState<string | null>(null);
   const [trailerControlsVisible, setTrailerControlsVisible] = useState(true);
   const trailerWebViewRef = useRef<any>(null);
   const trailerHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -766,6 +772,48 @@ export default function DetailScreen() {
     });
   };
 
+  const submitAddSource = async () => {
+    const url = addSrcUrl.trim();
+    if (!url) { setAddSrcErr("Cole uma URL válida"); return; }
+    const isDrive = url.includes("drive.google.com") || url.includes("drive.usercontent.google.com");
+    const isFlix2 = url.includes("nixplay.lat") || url.includes("cineveo.lat");
+    if (!isDrive && !isFlix2) {
+      setAddSrcErr("URL inválida — cole um link do Google Drive ou Flix2 (nixplay.lat)");
+      return;
+    }
+    setAddSrcBusy(true);
+    setAddSrcErr(null);
+    try {
+      const { r2Route, apiGetRegistry } = await import("@/lib/r2-direct");
+      const title = details?.title ?? details?.name ?? "";
+      if (isDrive) {
+        await r2Route("/drive/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ driveUrl: url, tmdbId, tmdbType: type, title, label: title }),
+        });
+      } else {
+        await r2Route("/flix2/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ flix2Url: url, tmdbId, tmdbType: type, title, label: title }),
+        });
+      }
+      setShowAddSrcModal(false);
+      setAddSrcUrl("");
+      // Atualiza registry na tela sem precisar recarregar
+      const reg = await apiGetRegistry();
+      const fresh = (reg.items ?? []).filter(
+        (i: RegistryItem) => i.tmdbId === tmdbId && i.tmdbType === type
+      );
+      setR2Items(fresh);
+    } catch (e: any) {
+      setAddSrcErr(e.message ?? "Erro ao salvar");
+    } finally {
+      setAddSrcBusy(false);
+    }
+  };
+
   const goToR2Player = (item: RegistryItem, overrideSeason?: number, overrideEpisode?: number) => {
     const seasonVal = overrideSeason != null ? overrideSeason : item.season;
     const episodeVal = overrideEpisode != null ? overrideEpisode : item.episode;
@@ -1107,6 +1155,70 @@ export default function DetailScreen() {
         </View>
       </Modal>
 
+      {/* ── Admin: adicionar fonte ─────────────────────────────────────── */}
+      <Modal
+        visible={showAddSrcModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => { setShowAddSrcModal(false); setAddSrcUrl(""); setAddSrcErr(null); }}
+      >
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+          <Pressable
+            style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.75)", justifyContent: "center", padding: 24 }}
+            onPress={() => { setShowAddSrcModal(false); setAddSrcUrl(""); setAddSrcErr(null); }}
+          >
+            <Pressable
+              onPress={(e) => e.stopPropagation()}
+              style={{ backgroundColor: "#111", borderRadius: 16, padding: 20, gap: 14, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)" }}
+            >
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                <Feather name="plus-circle" size={18} color={colors.primary} />
+                <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>Adicionar fonte</Text>
+              </View>
+              <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 12 }} numberOfLines={1}>
+                {details?.title ?? details?.name}
+              </Text>
+              <TextInput
+                style={{ backgroundColor: "rgba(255,255,255,0.07)", borderRadius: 10, padding: 12, color: "#fff", fontSize: 14, borderWidth: 1, borderColor: addSrcErr ? "#ef4444" : "rgba(255,255,255,0.12)" }}
+                placeholder="URL do Google Drive ou Flix2 (nixplay.lat)"
+                placeholderTextColor="rgba(255,255,255,0.3)"
+                value={addSrcUrl}
+                onChangeText={(t) => { setAddSrcUrl(t); setAddSrcErr(null); }}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              {addSrcErr ? (
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <Feather name="alert-circle" size={13} color="#ef4444" />
+                  <Text style={{ color: "#ef4444", fontSize: 12, flex: 1 }}>{addSrcErr}</Text>
+                </View>
+              ) : (
+                <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 11 }}>
+                  Drive: drive.google.com/… • Flix2: nixplay.lat/…
+                </Text>
+              )}
+              <View style={{ flexDirection: "row", gap: 10, marginTop: 2 }}>
+                <Pressable
+                  onPress={() => { setShowAddSrcModal(false); setAddSrcUrl(""); setAddSrcErr(null); }}
+                  style={({ pressed }) => [{ flex: 1, padding: 13, borderRadius: 10, alignItems: "center", backgroundColor: "rgba(255,255,255,0.08)" }, pressed && { opacity: 0.7 }]}
+                >
+                  <Text style={{ color: "rgba(255,255,255,0.6)", fontWeight: "600" }}>Cancelar</Text>
+                </Pressable>
+                <Pressable
+                  onPress={submitAddSource}
+                  disabled={addSrcBusy}
+                  style={({ pressed }) => [{ flex: 1, padding: 13, borderRadius: 10, alignItems: "center", backgroundColor: colors.primary }, pressed && { opacity: 0.8 }, addSrcBusy && { opacity: 0.6 }]}
+                >
+                  {addSrcBusy
+                    ? <ActivityIndicator size="small" color="#fff" />
+                    : <Text style={{ color: "#fff", fontWeight: "700" }}>Salvar</Text>}
+                </Pressable>
+              </View>
+            </Pressable>
+          </Pressable>
+        </KeyboardAvoidingView>
+      </Modal>
+
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
         {/* Backdrop */}
         <View style={{ height: BACKDROP_H + topPad }}>
@@ -1265,11 +1377,22 @@ export default function DetailScreen() {
 
                 if (sources.length === 0) {
                   return (
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 10, paddingHorizontal: 14, backgroundColor: "rgba(255,255,255,0.06)", borderRadius: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.10)" }}>
-                      <Feather name="slash" size={15} color={colors.mutedForeground} />
-                      <Text style={{ color: colors.mutedForeground, fontSize: 13, fontWeight: "500" }}>
-                        Conteúdo indisponível no momento
-                      </Text>
+                    <View style={{ gap: 8 }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 10, paddingHorizontal: 14, backgroundColor: "rgba(255,255,255,0.06)", borderRadius: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.10)" }}>
+                        <Feather name="slash" size={15} color={colors.mutedForeground} />
+                        <Text style={{ color: colors.mutedForeground, fontSize: 13, fontWeight: "500" }}>
+                          Conteúdo indisponível no momento
+                        </Text>
+                      </View>
+                      {user?.role === "admin" && (
+                        <Pressable
+                          onPress={() => { setAddSrcUrl(""); setAddSrcErr(null); setShowAddSrcModal(true); }}
+                          style={({ pressed }) => [{ flexDirection: "row", alignItems: "center", gap: 7, alignSelf: "flex-start", paddingVertical: 7, paddingHorizontal: 12, borderRadius: 8, backgroundColor: "rgba(255,255,255,0.07)", borderWidth: 1, borderColor: "rgba(255,255,255,0.12)" }, pressed && { opacity: 0.7 }]}
+                        >
+                          <Feather name="plus-circle" size={14} color={colors.primary} />
+                          <Text style={{ color: colors.primary, fontSize: 13, fontWeight: "600" }}>Adicionar fonte</Text>
+                        </Pressable>
+                      )}
                     </View>
                   );
                 }
