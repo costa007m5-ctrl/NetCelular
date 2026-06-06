@@ -523,7 +523,19 @@ function SectionHeader({ title, icon, onSeeAll, badge, accentColor = AMBER, subt
         <View style={[s.acBar, { backgroundColor: accentColor }]} />
         {icon && <View style={[s.iconWrap, { backgroundColor: `${accentColor}18` }]}><Feather name={icon} size={13} color={accentColor} /></View>}
         <View style={{ flex: 1 }}>
-          <Text style={s.secTitle}>{title}</Text>
+          <View style={{ flexDirection: "row", alignItems: "baseline" }}>
+            {(() => {
+              const words = title.split(" ");
+              const first = words[0];
+              const rest  = words.slice(1).join(" ");
+              return (
+                <>
+                  <Text style={[s.secTitle, { color: accentColor }]}>{first}</Text>
+                  {rest.length > 0 && <Text style={s.secTitle}> {rest}</Text>}
+                </>
+              );
+            })()}
+          </View>
           {subtitle && <Text style={s.secSub}>{subtitle}</Text>}
         </View>
         {badge && <View style={[s.badge, { backgroundColor: `${accentColor}20`, borderColor: `${accentColor}40` }]}><Text style={[s.badgeT, { color: accentColor }]}>{badge}</Text></View>}
