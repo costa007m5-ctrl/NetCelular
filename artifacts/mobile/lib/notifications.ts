@@ -483,6 +483,118 @@ export async function sendPushViaServer(
   }
 }
 
+/* ── Watchlist: detect new registry items and notify the user ── */
+
+const REGISTRY_SNAPSHOT_KEY = "netplay_registry_snapshot_v2";
+const WL_NOTIF_COOLDOWN_PREFIX = "netplay_wl_notif_";
+const WL_NOTIF_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24 h
+
+/**
+ * Compares the current R2 registry against a locally cached snapshot.
+ * For any new item whose tmdbId is in the user's watchlist, fires a local
+ * notification (with deep-link to the detail/episodes screen).
+ * Groups multiple new episodes of the same series into a single notification.
+ * Runs silently — all errors are swallowed.
+ */
+export async function checkWatchlistNotifications(userId: string): Promise<void> {
+  if (Platform.OS === "web") return;
+  try {
+    const enabled = await getNotificationsEnabled();
+    if (!enabled) return;
+
+    const { apiGetRegistry } = await import("@/lib/r2-direct");
+    const [registry, watchlist] = await Promise.all([
+      apiGetRegistry(),
+      db.watchlist.getAll(userId),
+    ]);
+
+    const items: Array<{
+      id: string; tmdbId: number; tmdbType: string;
+      title?: string; season?: number | null; episode?: number | null;
+    }> = registry?.items ?? [];
+
+    if (items.length === 0 || watchlist.length === 0) {
+      // Still save snapshot so future runs have a baseline
+      if (items.length > 0) {
+        const ids = items.map((i) => i.id).filter(Boolean);
+        await AsyncStorage.setItem(REGISTRY_SNAPSHOT_KEY, JSON.stringify(ids));
+      }
+      return;
+    }
+
+    // IDs we've already processed
+    const snapshotRaw = await AsyncStorage.getItem(REGISTRY_SNAPSHOT_KEY);
+    const seenIds = new Set<string>(snapshotRaw ? JSON.parse(snapshotRaw) : []);
+
+    // Fast lookup: watchlisted tmdbIds
+    const watchlistSet = new Set<number>((watchlist as any[]).map((w) => Number(w.tmdb_id)));
+
+    // Detect new items that match the watchlist
+    const newByTmdb = new Map<number, typeof items>();
+    for (const item of items) {
+      if (!item.id || seenIds.has(item.id)) continue;
+      if (watchlistSet.has(Number(item.tmdbId))) {
+        const arr = newByTmdb.get(Number(item.tmdbId)) ?? [];
+        arr.push(item);
+        newByTmdb.set(Number(item.tmdbId), arr);
+      }
+    }
+
+    // Update snapshot to all current IDs (whether or not there were new ones)
+    const allCurrentIds = items.map((i) => i.id).filter(Boolean);
+    await AsyncStorage.setItem(REGISTRY_SNAPSHOT_KEY, JSON.stringify(allCurrentIds));
+
+    if (newByTmdb.size === 0) return;
+
+    const Notifications = require("expo-notifications");
+    const now = Date.now();
+
+    for (const [tmdbId, newItems] of newByTmdb) {
+      // 24 h cooldown per series to avoid notification spam
+      const cooldownKey = `${WL_NOTIF_COOLDOWN_PREFIX}${tmdbId}`;
+      const lastRaw = await AsyncStorage.getItem(cooldownKey);
+      if (lastRaw && now - parseInt(lastRaw, 10) < WL_NOTIF_COOLDOWN_MS) continue;
+
+      const seriesTitle = newItems[0]?.title || `Série ${tmdbId}`;
+      const tmdbType = (newItems[0]?.tmdbType ?? "tv") as "movie" | "tv";
+
+      let body: string;
+      if (tmdbType === "movie") {
+        body = `"${seriesTitle}" chegou ao NETPLAY. Assista agora!`;
+      } else if (newItems.length === 1 && newItems[0].season != null && newItems[0].episode != null) {
+        const ep = newItems[0];
+        const s = String(ep.season).padStart(2, "0");
+        const e = String(ep.episode).padStart(2, "0");
+        body = `Novo episódio de "${seriesTitle}" — T${s}E${e} disponível!`;
+      } else {
+        body = `${newItems.length} novos episódio${newItems.length > 1 ? "s" : ""} de "${seriesTitle}" disponíve${newItems.length > 1 ? "is" : "l"}!`;
+      }
+
+      const notifContent: any = {
+        title: "🔔 Série na sua lista atualizada",
+        body,
+        sound: true,
+        data: {
+          type: "new_episode",
+          contentType: tmdbType,
+          tmdbId,
+          title: seriesTitle,
+          deepLinkTo: "episodes",
+        },
+      };
+
+      await Notifications.scheduleNotificationAsync({ content: notifContent, trigger: null });
+      await saveNotificationToHistory({
+        title: notifContent.title,
+        body: notifContent.body,
+        receivedAt: new Date().toISOString(),
+        data: notifContent.data,
+      });
+      await AsyncStorage.setItem(cooldownKey, String(now));
+    }
+  } catch {}
+}
+
 export async function sendPushNotificationsToTokens(
   tokens: string[],
   title: string,

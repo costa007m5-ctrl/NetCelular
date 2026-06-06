@@ -21,7 +21,7 @@ import NetplaySplash from "@/components/NetplaySplash";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { ThemeProvider } from "@/lib/theme-context";
 import { CatalogProvider } from "@/lib/catalog-context";
-import { requestPermissionsAndSetup, scheduleNewContentNotification, saveNotificationToHistory } from "@/lib/notifications";
+import { requestPermissionsAndSetup, scheduleNewContentNotification, saveNotificationToHistory, checkWatchlistNotifications } from "@/lib/notifications";
 import { checkAndPromptUpdate } from "@/lib/app-updater";
 import { supabase } from "@/lib/supabase";
 import { initApiDomain } from "@/lib/api";
@@ -136,6 +136,18 @@ function NotificationHandler() {
   return null;
 }
 
+function WatchlistNotificationChecker() {
+  const { user } = useAuth();
+  useEffect(() => {
+    if (!user?.id) return;
+    const t = setTimeout(() => {
+      checkWatchlistNotifications(user.id).catch(() => {});
+    }, 6000);
+    return () => clearTimeout(t);
+  }, [user?.id]);
+  return null;
+}
+
 function RootNavigator() {
   const { loading } = useAuth();
 
@@ -144,6 +156,7 @@ function RootNavigator() {
   return (
     <>
       <NotificationHandler />
+      <WatchlistNotificationChecker />
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#000" } }}>
         <Stack.Screen name="welcome" options={{ headerShown: false }} />
         <Stack.Screen name="login" options={{ headerShown: false }} />
