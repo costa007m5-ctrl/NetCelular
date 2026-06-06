@@ -190,7 +190,7 @@ function HeroItem({ item, colors, onWatch, onDetails, onAddToList, isActive, ind
             source={{ uri: item.backdropPath }}
             style={heroStyles.heroImage}
             contentFit="cover"
-            transition={400}
+            transition={Platform.OS === "web" ? 400 : 0}
             cachePolicy="memory-disk"
             onError={() => setImgError(true)}
           />
@@ -355,6 +355,7 @@ function HeroBannerSkeleton({ width: w }: { width: number }) {
   const pulse = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
+    if (Platform.OS !== "web") return; // skip skeleton pulse on native
     const anim = Animated.loop(
       Animated.sequence([
         Animated.timing(pulse, { toValue: 1, duration: 850, useNativeDriver: true }),

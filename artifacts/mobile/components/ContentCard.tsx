@@ -113,7 +113,7 @@ const AnimatedCard = React.memo(function AnimatedCard({
             source={{ uri: item.posterPath }}
             style={[cardStyles.image, { borderRadius: colors.radius }]}
             contentFit="cover"
-            transition={200}
+            transition={Platform.OS === "web" ? 200 : 0}
             onError={handleImgError}
             cachePolicy="memory-disk"
           />

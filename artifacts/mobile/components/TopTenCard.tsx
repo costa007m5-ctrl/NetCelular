@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import {
   Animated,
   Platform,
@@ -44,15 +44,15 @@ function TrendingArrow({ rank }: { rank: number }) {
   );
 }
 
-export function TopTenCard({ item, rank, onPress }: TopTenCardProps) {
+export const TopTenCard = React.memo(function TopTenCard({ item, rank, onPress }: TopTenCardProps) {
   const colors = useColors();
   const scale = useRef(new Animated.Value(1)).current;
   const [imgError, setImgError] = useState(false);
 
-  const onPressIn = () =>
-    Animated.spring(scale, { toValue: 0.92, useNativeDriver: true, speed: 24, bounciness: 4 }).start();
-  const onPressOut = () =>
-    Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 20, bounciness: 5 }).start();
+  const onPressIn = useCallback(() =>
+    Animated.spring(scale, { toValue: 0.92, useNativeDriver: true, speed: 24, bounciness: 4 }).start(), [scale]);
+  const onPressOut = useCallback(() =>
+    Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 20, bounciness: 5 }).start(), [scale]);
 
   const isTop3 = rank <= 3;
   const rankCfg = RANK_CONFIGS[rank];
@@ -76,7 +76,7 @@ export function TopTenCard({ item, rank, onPress }: TopTenCardProps) {
               source={{ uri: item.posterPath }}
               style={[styles.image, { borderRadius: colors.radius + 2 }]}
               contentFit="cover"
-              transition={220}
+              transition={Platform.OS === "web" ? 220 : 0}
               cachePolicy="memory-disk"
               onError={() => setImgError(true)}
             />
@@ -143,7 +143,7 @@ export function TopTenCard({ item, rank, onPress }: TopTenCardProps) {
       </Animated.View>
     </Pressable>
   );
-}
+});
 
 const CARD_W = 118;
 const CARD_H = 168;

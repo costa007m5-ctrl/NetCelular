@@ -81,6 +81,8 @@ export const ContentRow = React.memo(function ContentRow({
   const snapInterval = cardWidth + 10;
 
   useEffect(() => {
+    // Preload only on web — on Android/iOS this competes with UI rendering
+    if (Platform.OS !== "web") return;
     const urls = displayItems
       .slice(0, 8)
       .map((i) => i.posterPath)

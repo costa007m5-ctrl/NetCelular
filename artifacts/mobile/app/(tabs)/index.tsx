@@ -461,6 +461,7 @@ function SpotlightBanner({ item, label, onPress, accentColor = RED }: {
   const pressOut = () => Animated.spring(scale, { toValue: 1,    useNativeDriver: true, speed: 24 }).start();
 
   useEffect(() => {
+    if (Platform.OS !== "web") return; // skip loop on Hermes
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(glow, { toValue: 1, duration: 1800, useNativeDriver: true }),
@@ -1030,6 +1031,7 @@ function OriginalsBannerComp({ onPress }: { onPress: () => void }) {
   const pi = () => Animated.spring(sc, { toValue: 0.97, useNativeDriver: true, speed: 28 }).start();
   const po = () => Animated.spring(sc, { toValue: 1,    useNativeDriver: true, speed: 24 }).start();
   useEffect(() => {
+    if (Platform.OS !== "web") return; // skip loop on Hermes
     const loop = Animated.loop(Animated.sequence([
       Animated.timing(pulse, { toValue: 1, duration: 1600, useNativeDriver: true }),
       Animated.timing(pulse, { toValue: 0, duration: 1600, useNativeDriver: true }),
@@ -1250,8 +1252,18 @@ function HotTagsComp({ tags, onPress }: { tags: string[]; onPress: (tag: string)
 // ── Actor circle (needs own component to avoid hooks in map) ──────────────────
 const _actorPhotoCache: Record<string, string | null> = {};
 const _TMDB_ACTOR_KEY = "8f0beb08cf016ec8de49e454e09879ec";
+// Semaphore: max 3 concurrent actor photo fetches to avoid hammering network on mount
+let _actorFetchActive = 0;
+const _actorFetchQueue: Array<() => void> = [];
+function _drainActorQueue() {
+  while (_actorFetchActive < 3 && _actorFetchQueue.length > 0) {
+    const next = _actorFetchQueue.shift()!;
+    _actorFetchActive++;
+    next();
+  }
+}
 
-function ActorCircleItem({ actor, onPress }: { actor: typeof ACTORS[0]; onPress: () => void }) {
+const ActorCircleItem = React.memo(function ActorCircleItem({ actor, onPress }: { actor: typeof ACTORS[0]; onPress: () => void }) {
   const sc = useRef(new Animated.Value(1)).current;
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [photoErr, setPhotoErr] = useState(false);
@@ -1262,17 +1274,28 @@ function ActorCircleItem({ actor, onPress }: { actor: typeof ACTORS[0]; onPress:
       setPhotoUrl(_actorPhotoCache[name]);
       return;
     }
-    fetch(
-      `https://api.themoviedb.org/3/search/person?api_key=${_TMDB_ACTOR_KEY}&query=${encodeURIComponent(name)}&language=pt-BR`
-    )
-      .then((r) => r.json())
-      .then((data) => {
-        const path: string | null = data.results?.[0]?.profile_path ?? null;
-        const photo = path ? `https://image.tmdb.org/t/p/w185${path}` : null;
-        _actorPhotoCache[name] = photo;
-        setPhotoUrl(photo);
-      })
-      .catch(() => { _actorPhotoCache[name] = null; });
+    let cancelled = false;
+    const doFetch = () => {
+      fetch(
+        `https://api.themoviedb.org/3/search/person?api_key=${_TMDB_ACTOR_KEY}&query=${encodeURIComponent(name)}&language=pt-BR`
+      )
+        .then((r) => r.json())
+        .then((data) => {
+          const path: string | null = data.results?.[0]?.profile_path ?? null;
+          const photo = path ? `https://image.tmdb.org/t/p/w185${path}` : null;
+          _actorPhotoCache[name] = photo;
+          if (!cancelled) setPhotoUrl(photo);
+        })
+        .catch(() => { _actorPhotoCache[name] = null; })
+        .finally(() => { _actorFetchActive = Math.max(0, _actorFetchActive - 1); _drainActorQueue(); });
+    };
+    if (_actorFetchActive < 3) {
+      _actorFetchActive++;
+      doFetch();
+    } else {
+      _actorFetchQueue.push(doFetch);
+    }
+    return () => { cancelled = true; };
   }, [actor.name]);
 
   const pi = () => Animated.spring(sc, { toValue: 0.88, useNativeDriver: true, speed: 30 }).start();
@@ -1299,7 +1322,7 @@ function ActorCircleItem({ actor, onPress }: { actor: typeof ACTORS[0]; onPress:
       </Animated.View>
     </Pressable>
   );
-}
+});
 function ActorCirclesRow({ actors, onPress }: { actors: typeof ACTORS; onPress: (a: typeof ACTORS[0]) => void }) {
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false}
@@ -1545,8 +1568,9 @@ export default function HomeScreen() {
     inputRange: [-300, 0, 300], outputRange: [150, 0, -80], extrapolate: "clamp",
   });
 
-  // ── pulse animation ──────────────────────────────────────────────────────
+  // ── pulse animation (web only — loop animations cause Hermes jank) ──────────
   useEffect(() => {
+    if (Platform.OS !== "web") return;
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(pulseAnim, { toValue: 1.08, duration: 900,  useNativeDriver: true }),
@@ -1836,7 +1860,12 @@ export default function HomeScreen() {
           [{ nativeEvent: { contentOffset: { y: scrollY } } }],
           {
             useNativeDriver: true,
-            listener: (e: any) => setShowScrollTop(e.nativeEvent.contentOffset.y > 700),
+            listener: (e: any) => {
+              const y = e.nativeEvent.contentOffset.y;
+              // Only trigger state update when crossing threshold (avoid 60fps re-renders)
+              const shouldShow = y > 700;
+              setShowScrollTop((prev) => (prev !== shouldShow ? shouldShow : prev));
+            },
           }
         )}
         scrollEventThrottle={16}
