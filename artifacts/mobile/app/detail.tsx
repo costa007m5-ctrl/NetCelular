@@ -800,6 +800,7 @@ export default function DetailScreen() {
       params: {
         key: item.r2Key ?? "",
         registryItemId: item.teraboxUrl ? item.id : "",
+        flix2ItemUrl: item.flix2Url ?? "",
         title: details?.title ?? details?.name ?? item.title,
         label: item.label,
         backdropPath: details?.backdrop_path ?? "",

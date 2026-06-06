@@ -180,7 +180,8 @@ function SeekFlash({ side, anim }: { side: "left" | "right"; anim: Animated.Valu
 export default function R2PlayerScreen() {
   const { width: W } = useWindowDimensions();
   const params = useLocalSearchParams<{
-    key: string; registryItemId?: string; driveItemId?: string; title: string; episodeName?: string;
+    key: string; registryItemId?: string; driveItemId?: string; flix2ItemUrl?: string;
+    title: string; episodeName?: string;
     season?: string; episode?: string; backdropPath?: string; posterPath?: string;
     tmdbId?: string; type?: string; r2ItemsJson?: string;
     watchSeason?: string; watchEpisode?: string; watchProgressRatio?: string;
@@ -203,6 +204,7 @@ export default function R2PlayerScreen() {
   const savedProgressRatio = params.watchProgressRatio ? Number(params.watchProgressRatio) : 0;
   const isTerabox = !!params.registryItemId;
   const isDrive = !!params.driveItemId;
+  const isFlix2 = !!params.flix2ItemUrl;
   const r2Items: RegistryItem[] = (() => {
     try { return params.r2ItemsJson ? JSON.parse(params.r2ItemsJson) : []; } catch { return []; }
   })();
@@ -411,7 +413,7 @@ export default function R2PlayerScreen() {
 
   // ── Fetch video URL (with cache) ────────────────────────────────────────────
   const loadVideoUrl = useCallback(async () => {
-    if (!isDrive && !isTerabox && !params.key) { setPhase("error"); setErrorMsg("Arquivo não especificado"); return; }
+    if (!isDrive && !isTerabox && !isFlix2 && !params.key) { setPhase("error"); setErrorMsg("Arquivo não especificado"); return; }
     phaseRef.current = "loading";
     setPhase("loading");
     setVideoUrl(null);
@@ -424,7 +426,7 @@ export default function R2PlayerScreen() {
     preloadedNextUrlRef.current = null;
     preloadingRef.current = false;
 
-    fakeAnim.current = Animated.timing(loadProgress, { toValue: 80, duration: (isTerabox || isDrive) ? 6000 : 3000, useNativeDriver: false });
+    fakeAnim.current = Animated.timing(loadProgress, { toValue: 80, duration: (isTerabox || isDrive || isFlix2) ? 6000 : 3000, useNativeDriver: false });
     fakeAnim.current.start();
 
     // Get the TeraBox share URL for WebView fallback
@@ -434,7 +436,13 @@ export default function R2PlayerScreen() {
 
     try {
       let url: string;
-      if (isDrive) {
+      if (isFlix2) {
+        // Flix 2.0: nixplay.lat stream_url redirects 302 → signed CDN URL on vod99.cineveo.lat.
+        // We resolve server-side because React Native video players may not follow redirects.
+        const rawUrl = params.flix2ItemUrl!;
+        const data = await r2Route<{ url: string }>(`/flix2/stream-url?streamUrl=${encodeURIComponent(rawUrl)}`);
+        url = data.url;
+      } else if (isDrive) {
         // Drive: resolve via server (/drive/play)
         // O servidor busca o link assinado via API de listagem e retorna a URL de download
         // direta (download.aspx?file=...&expiry=...&mac=...) que suporta Range requests (HTTP 206).
@@ -513,9 +521,9 @@ export default function R2PlayerScreen() {
       setErrorMsg(e.message ?? "Erro ao carregar vídeo");
       fakeAnim.current?.stop();
     }
-  }, [params.key, params.registryItemId, isTerabox, episode, r2Items]);
+  }, [params.key, params.registryItemId, params.flix2ItemUrl, isTerabox, isFlix2, episode, r2Items]);
 
-  useEffect(() => { loadVideoUrl(); }, [params.key, params.registryItemId]);
+  useEffect(() => { loadVideoUrl(); }, [params.key, params.registryItemId, params.flix2ItemUrl]);
 
   // ── transitionToReady ───────────────────────────────────────────────────────
   const transitionToReady = useCallback((durationMillis = 0) => {

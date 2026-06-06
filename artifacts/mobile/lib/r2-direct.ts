@@ -779,6 +779,7 @@ const SERVER_ONLY_ROUTES = new Set([
   "/flix2/search",
   "/flix2/lookup",
   "/flix2/build-index",
+  "/flix2/stream-url",
   "/source-settings",
 ]);
 

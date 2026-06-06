@@ -2004,6 +2004,34 @@ router.get("/flix2/lookup", async (req, res) => {
   res.json({ found: false, item: null });
 });
 
+// ── GET /flix2/stream-url?streamUrl=<encoded> ─────────────────────────────────
+// Follows the 302 redirect from nixplay.lat and returns the final signed CDN URL.
+// The nixplay stream_url redirects to vod99.cineveo.lat with a time-limited signed URL.
+// React Native video players may not follow redirects, so we resolve server-side.
+router.get("/flix2/stream-url", async (req, res) => {
+  const streamUrl = String(req.query.streamUrl ?? "");
+  if (!streamUrl) { res.status(400).json({ error: "streamUrl é obrigatório" }); return; }
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    const response = await fetch(streamUrl, {
+      method: "HEAD",
+      redirect: "follow",
+      signal: controller.signal,
+      headers: { "User-Agent": "Mozilla/5.0" },
+    });
+    clearTimeout(timer);
+    const finalUrl = response.url;
+    if (!finalUrl || finalUrl === streamUrl) {
+      res.json({ url: streamUrl });
+    } else {
+      res.json({ url: finalUrl });
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── POST /flix2/build-index?type=movies|series|animes|all ─────────────────────
 // Fetches ALL catalog pages for one or all types and writes
 // __flix2-index-{type}.json = { [tmdb_id]: stream_url } into R2.
