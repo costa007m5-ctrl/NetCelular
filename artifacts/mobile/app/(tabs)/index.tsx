@@ -1754,9 +1754,11 @@ export default function HomeScreen() {
     "Internacional": 18, "Premiados": 18,
     "Anos 80": 0, "Explorar": 0,
   };
-  const browseTo = useCallback((type: string, title: string) => {
-    const genre_id = String(BROWSE_GENRE[title] ?? 0);
-    router.push({ pathname: "/genre-browse", params: { genre_id, type, title } });
+  const browseTo = useCallback((flix2Type: "movies" | "series" | "animes", title: string) => {
+    router.push({
+      pathname: "/genre-browse",
+      params: { title, source: "flix2", flix2_type: flix2Type },
+    });
   }, [router]);
 
   // ── derived slices (sections use different offsets for variety) ───────────
@@ -1945,7 +1947,7 @@ export default function HomeScreen() {
                   <View style={styles.section}>
                     <SectionHeader title="Em Alta Agora" icon="trending-up"
                       badge="AO VIVO" accentColor={RED}
-                      onSeeAll={() => browseTo("movie", "Em Alta")} />
+                      onSeeAll={() => browseTo("movies", "Em Alta")} />
                     <PosterRow items={emAltaMovies} onPress={goTo} />
                   </View>
                 </AnimatedSection>
@@ -1965,7 +1967,7 @@ export default function HomeScreen() {
                   <View style={styles.section}>
                     <SectionHeader title="Top 10 Filmes" icon="award"
                       badge="SEMANAL" accentColor={AMBER}
-                      onSeeAll={() => browseTo("movie", "Top 10 Filmes")} />
+                      onSeeAll={() => browseTo("movies", "Top 10 Filmes")} />
                     <ScrollView horizontal showsHorizontalScrollIndicator={false}
                       contentContainerStyle={{ paddingHorizontal: 16, gap: 4 }} decelerationRate="fast">
                       {top10Movies.map((item, i) => (
@@ -2008,7 +2010,7 @@ export default function HomeScreen() {
                   <View style={styles.section}>
                     <SectionHeader title="Séries em Alta" icon="trending-up"
                       accentColor={PURPLE}
-                      onSeeAll={() => browseTo("tv", "Séries em Alta")} />
+                      onSeeAll={() => browseTo("series", "Séries em Alta")} />
                     <PosterRow items={emAltaSeries} onPress={goTo} />
                   </View>
                 </AnimatedSection>
@@ -2022,7 +2024,7 @@ export default function HomeScreen() {
                   <View style={styles.section}>
                     <SectionHeader title="Top 10 Séries" icon="award"
                       badge="SEMANAL" accentColor={AMBER}
-                      onSeeAll={() => browseTo("tv", "Top 10 Séries")} />
+                      onSeeAll={() => browseTo("series", "Top 10 Séries")} />
                     <ScrollView horizontal showsHorizontalScrollIndicator={false}
                       contentContainerStyle={{ paddingHorizontal: 16, gap: 4 }} decelerationRate="fast">
                       {top10Series.map((item, i) => (
@@ -2048,7 +2050,7 @@ export default function HomeScreen() {
                   <View style={styles.section}>
                     <SectionHeader title="Ação & Aventura" icon="zap"
                       accentColor={ORANGE}
-                      onSeeAll={() => browseTo("movie", "Ação & Aventura")} />
+                      onSeeAll={() => browseTo("movies", "Ação & Aventura")} />
                     <WideRow items={acaoMovies} onPress={goTo} />
                   </View>
                 </AnimatedSection>
@@ -2060,7 +2062,7 @@ export default function HomeScreen() {
                   <View style={styles.section}>
                     <SectionHeader title="Drama" icon="heart"
                       accentColor={PINK}
-                      onSeeAll={() => browseTo("movie", "Drama")} />
+                      onSeeAll={() => browseTo("movies", "Drama")} />
                     <PosterRow items={dramaMovies} onPress={goTo} />
                   </View>
                 </AnimatedSection>
@@ -2084,7 +2086,7 @@ export default function HomeScreen() {
                   <View style={styles.section}>
                     <SectionHeader title="Dramas Envolventes" icon="heart"
                       accentColor={PINK}
-                      onSeeAll={() => browseTo("tv", "Dramas")} />
+                      onSeeAll={() => browseTo("series", "Dramas")} />
                     <FeaturedRow items={dramasSeries} onPress={goTo} accentColor={PINK} />
                   </View>
                 </AnimatedSection>
@@ -2098,7 +2100,7 @@ export default function HomeScreen() {
                     <View style={styles.section}>
                       <SectionHeader title="Animes em Alta" icon="star"
                         accentColor={AMBER}
-                        onSeeAll={() => browseTo("tv", "Animes")} />
+                        onSeeAll={() => browseTo("animes", "Animes em Alta")} />
                       <PosterRow items={emAltaAnimes} onPress={goTo} />
                     </View>
                   </AnimatedSection>
@@ -2119,7 +2121,7 @@ export default function HomeScreen() {
                   <View style={styles.section}>
                     <SectionHeader title="Comédia" icon="smile"
                       accentColor={GREEN}
-                      onSeeAll={() => browseTo("movie", "Comédia")} />
+                      onSeeAll={() => browseTo("movies", "Comédia")} />
                     <PosterRow items={comediaMovies} onPress={goTo} showTitle />
                   </View>
                 </AnimatedSection>
@@ -2131,7 +2133,7 @@ export default function HomeScreen() {
                   <View style={styles.section}>
                     <SectionHeader title="Terror & Suspense" icon="eye"
                       accentColor="#dc2626"
-                      onSeeAll={() => browseTo("movie", "Terror")} />
+                      onSeeAll={() => browseTo("movies", "Terror")} />
                     <FeaturedRow items={terrorMovies} onPress={goTo} accentColor="#dc2626" />
                   </View>
                 </AnimatedSection>
@@ -2143,7 +2145,7 @@ export default function HomeScreen() {
                   <View style={styles.section}>
                     <SectionHeader title="Thriller & Crime" icon="shield"
                       accentColor={INDIGO}
-                      onSeeAll={() => browseTo("tv", "Thriller")} />
+                      onSeeAll={() => browseTo("series", "Thriller")} />
                     <WideRow items={thrillerSeries} onPress={goTo} />
                   </View>
                 </AnimatedSection>
@@ -2167,7 +2169,7 @@ export default function HomeScreen() {
                   <View style={styles.section}>
                     <SectionHeader title="Ficção Científica" icon="cpu"
                       accentColor={BLUE}
-                      onSeeAll={() => browseTo("movie", "Ficção Científica")} />
+                      onSeeAll={() => browseTo("movies", "Ficção Científica")} />
                     <WideRow items={scifiMovies} onPress={goTo} />
                   </View>
                 </AnimatedSection>
@@ -2179,7 +2181,7 @@ export default function HomeScreen() {
                   <View style={styles.section}>
                     <SectionHeader title="Animações" icon="film"
                       accentColor="#f97316"
-                      onSeeAll={() => browseTo("tv", "Animações")} />
+                      onSeeAll={() => browseTo("animes", "Animações")} />
                     <PosterRow items={animacaoRow} onPress={goTo} />
                   </View>
                 </AnimatedSection>
@@ -2203,7 +2205,7 @@ export default function HomeScreen() {
                   <View style={styles.section}>
                     <SectionHeader title="Mais Bem Avaliados" icon="award"
                       badge="PREMIADOS" accentColor={AMBER}
-                      onSeeAll={() => browseTo("movie", "Premiados")} />
+                      onSeeAll={() => browseTo("movies", "Premiados")} />
                     <PosterRow items={premiadosM} onPress={goTo} showTitle />
                   </View>
                 </AnimatedSection>
@@ -2215,7 +2217,7 @@ export default function HomeScreen() {
                   <View style={styles.section}>
                     <SectionHeader title="Selecionado para Você" icon="heart"
                       accentColor={PINK}
-                      onSeeAll={() => browseTo("movie", "Para Você")} />
+                      onSeeAll={() => browseTo("movies", "Para Você")} />
                     <PosterRow items={paraVoce} onPress={goTo} />
                   </View>
                 </AnimatedSection>
@@ -2227,7 +2229,7 @@ export default function HomeScreen() {
                   <View style={styles.section}>
                     <SectionHeader title="Mini-Séries" icon="tv"
                       accentColor={TEAL}
-                      onSeeAll={() => browseTo("tv", "Mini-Séries")} />
+                      onSeeAll={() => browseTo("series", "Mini-Séries")} />
                     <CompactRow items={miniSeries} onPress={goTo} />
                   </View>
                 </AnimatedSection>
@@ -2239,7 +2241,7 @@ export default function HomeScreen() {
                   <View style={styles.section}>
                     <SectionHeader title="Aventura & Fantasia" icon="compass"
                       accentColor="#f97316"
-                      onSeeAll={() => browseTo("tv", "Aventura")} />
+                      onSeeAll={() => browseTo("animes", "Aventura")} />
                     <WideRow items={aventuraAnimes} onPress={goTo} />
                   </View>
                 </AnimatedSection>
@@ -2251,7 +2253,7 @@ export default function HomeScreen() {
                   <View style={styles.section}>
                     <SectionHeader title="Cinema Internacional" icon="globe"
                       accentColor={TEAL}
-                      onSeeAll={() => browseTo("movie", "Internacional")} />
+                      onSeeAll={() => browseTo("movies", "Internacional")} />
                     <FeaturedRow items={internMovies} onPress={goTo} accentColor={TEAL} />
                   </View>
                 </AnimatedSection>
@@ -2263,7 +2265,7 @@ export default function HomeScreen() {
                   <View style={styles.section}>
                     <SectionHeader title="Séries Internacionais" icon="globe"
                       accentColor={BLUE}
-                      onSeeAll={() => browseTo("tv", "Internacional")} />
+                      onSeeAll={() => browseTo("series", "Internacional")} />
                     <PosterRow items={internSeries} onPress={goTo} />
                   </View>
                 </AnimatedSection>
@@ -2292,7 +2294,7 @@ export default function HomeScreen() {
                     accentColor={PINK} subtitle="Escolha pelo clima" />
                   <MoodRowComp moods={MOODS}
                     onPress={(m) => router.push({ pathname: "/genre-browse",
-                      params: { genre_id: String(m.genreId), type: "movie", title: m.label } })} />
+                      params: { title: m.label, source: "flix2", flix2_type: "movies" } })} />
                 </View>
               </AnimatedSection>
 
@@ -2304,7 +2306,7 @@ export default function HomeScreen() {
                     accentColor={BLUE} />
                   <CircleGenreRow genres={GENRE_CIRCLES}
                     onPress={(g) => router.push({ pathname: "/genre-browse",
-                      params: { genre_id: String(g.id), type: "movie", title: g.label } })} />
+                      params: { title: g.label, source: "flix2", flix2_type: "movies" } })} />
                 </View>
               </AnimatedSection>
 
@@ -2315,7 +2317,7 @@ export default function HomeScreen() {
                     accentColor={PURPLE} />
                   <GenreMatrixComp genres={GENRE_CIRCLES}
                     onPress={(g) => router.push({ pathname: "/genre-browse",
-                      params: { genre_id: String(g.id), type: "movie", title: g.label } })} />
+                      params: { title: g.label, source: "flix2", flix2_type: "movies" } })} />
                 </View>
               </AnimatedSection>
 
@@ -2345,7 +2347,7 @@ export default function HomeScreen() {
                   <View style={styles.section}>
                     <SectionHeader title="Séries do Momento" icon="square"
                       accentColor={TEAL}
-                      onSeeAll={() => browseTo("tv", "Séries do Momento")} />
+                      onSeeAll={() => browseTo("series", "Séries do Momento")} />
                     <SquareRow items={squareItems} onPress={goTo} />
                   </View>
                 </AnimatedSection>
@@ -2357,7 +2359,7 @@ export default function HomeScreen() {
                   <View style={styles.section}>
                     <SectionHeader title="Vista Panorâmica" icon="monitor"
                       accentColor={INDIGO}
-                      onSeeAll={() => browseTo("movie", "Panorâmicos")} />
+                      onSeeAll={() => browseTo("movies", "Panorâmicos")} />
                     <PanoramicRow items={panoramicItems} onPress={goTo} />
                   </View>
                 </AnimatedSection>
@@ -2402,7 +2404,7 @@ export default function HomeScreen() {
                   <View style={styles.section}>
                     <SectionHeader title="Próximos Episódios" icon="play-circle"
                       accentColor={GREEN}
-                      onSeeAll={() => browseTo("tv", "Episódios")} />
+                      onSeeAll={() => browseTo("series", "Episódios")} />
                     <EpisodeRow items={episodeItems} onPress={goTo} />
                   </View>
                 </AnimatedSection>
@@ -2416,7 +2418,7 @@ export default function HomeScreen() {
                     accentColor={TEAL} subtitle="Do passado ao presente" />
                   <DecadeRowComp decades={DECADES}
                     onPress={(d) => router.push({ pathname: "/genre-browse",
-                      params: { genre_id: "0", type: "movie", title: `Anos ${d.year.slice(2)}` } })} />
+                      params: { title: `Anos ${d.year.slice(2)}`, source: "flix2", flix2_type: "movies" } })} />
                 </View>
               </AnimatedSection>
 
@@ -2426,7 +2428,7 @@ export default function HomeScreen() {
                   <View style={styles.section}>
                     <SectionHeader title="Clássicos Imortais" icon="star"
                       accentColor={AMBER}
-                      onSeeAll={() => browseTo("movie", "Clássicos")} />
+                      onSeeAll={() => browseTo("movies", "Clássicos")} />
                     <FeaturedRow items={classicsItems} onPress={goTo} accentColor={AMBER} />
                   </View>
                 </AnimatedSection>
@@ -2439,8 +2441,8 @@ export default function HomeScreen() {
                     accentColor={TEAL} subtitle="Explore por país" />
                   <FilmNationRow countries={COUNTRIES}
                     onPress={(c) => router.push({
-                      pathname: "/country-browse",
-                      params: { id: c.id, label: c.label, flag: c.flag, color: c.color },
+                      pathname: "/genre-browse",
+                      params: { title: c.label, source: "flix2", flix2_type: "movies" },
                     })} />
                 </View>
               </AnimatedSection>
@@ -2467,7 +2469,7 @@ export default function HomeScreen() {
               {familyItems.length > 0 && (
                 <AnimatedSection anim={s[42]}>
                   <FamilyBannerComp items={familyItems}
-                    onPress={() => browseTo("tv", "Família")}
+                    onPress={() => browseTo("animes", "Família")}
                     onItem={goTo} />
                 </AnimatedSection>
               )}
@@ -2478,7 +2480,7 @@ export default function HomeScreen() {
                   <View style={styles.section}>
                     <SectionHeader title="Documentários" icon="camera"
                       accentColor={TEAL}
-                      onSeeAll={() => browseTo("movie", "Documentários")} />
+                      onSeeAll={() => browseTo("movies", "Documentários")} />
                     <WideRow items={docsItems} onPress={goTo} />
                   </View>
                 </AnimatedSection>
@@ -2490,7 +2492,7 @@ export default function HomeScreen() {
                   <View style={styles.section}>
                     <SectionHeader title="Novos Episódios" icon="rss"
                       badge="HOJE" accentColor={GREEN}
-                      onSeeAll={() => browseTo("tv", "Novos Episódios")} />
+                      onSeeAll={() => browseTo("series", "Novos Episódios")} />
                     <PosterRow items={newEpItems} onPress={goTo} showTitle />
                   </View>
                 </AnimatedSection>

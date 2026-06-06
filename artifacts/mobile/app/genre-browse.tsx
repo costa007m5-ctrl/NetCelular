@@ -18,6 +18,7 @@ import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useColors } from "@/hooks/useColors";
 import { api, tmdbItemToContent } from "@/lib/api";
+import { r2Route } from "@/lib/r2-direct";
 import type { ContentItem } from "@/constants/content";
 
 const { width: SW } = Dimensions.get("window");
@@ -26,10 +27,8 @@ const H_PAD = 12;
 // ── View mode type ─────────────────────────────────────────────────────────
 type ViewMode = "grid" | "poster" | "list";
 
-// Column counts per mode
 const COLS: Record<ViewMode, number> = { grid: 3, poster: 2, list: 1 };
 
-// Card dimensions per mode
 const CARD_W: Record<ViewMode, number> = {
   grid:   Math.floor((SW - H_PAD * 2) / 3) - 4,
   poster: Math.floor((SW - H_PAD * 2) / 2) - 6,
@@ -41,7 +40,6 @@ const CARD_H: Record<ViewMode, number> = {
   list:   100,
 };
 
-// ── View mode toggle button ─────────────────────────────────────────────────
 const MODE_CYCLE: ViewMode[] = ["grid", "poster", "list"];
 const MODE_ICON: Record<ViewMode, keyof typeof Feather.glyphMap> = {
   grid:   "grid",
@@ -54,6 +52,37 @@ const MODE_LABEL: Record<ViewMode, string> = {
   list:   "Lista",
 };
 
+// ── Source badge ─────────────────────────────────────────────────────────────
+const SOURCE_ICON: Record<string, keyof typeof Feather.glyphMap> = {
+  movies:  "film",
+  series:  "tv",
+  animes:  "star",
+};
+const SOURCE_COLOR: Record<string, string> = {
+  movies:  "#e50914",
+  series:  "#3b82f6",
+  animes:  "#8b5cf6",
+};
+
+// ── Flix2 item → ContentItem ──────────────────────────────────────────────
+const flix2ToContent = (item: any): ContentItem => {
+  const isMovie = item.type === "filme" || item.type === "movie";
+  return {
+    id: String(item.tmdb_id || item.id),
+    tmdbId: Number(item.tmdb_id) || 0,
+    title: item.title ?? "",
+    year: Number(item.year) || 2024,
+    rating: parseFloat(item.rating ?? "0") || 0,
+    posterPath: item.poster ?? "",
+    backdropPath: item.backdrop ?? item.poster ?? "",
+    description: item.synopsis ?? "",
+    genres: [],
+    type: isMovie ? "movie" : "series",
+    mediaType: isMovie ? "movie" : "tv",
+  };
+};
+
+// ── View mode toggle ────────────────────────────────────────────────────────
 function ViewToggle({ mode, onToggle }: { mode: ViewMode; onToggle: () => void }) {
   const scale = useRef(new Animated.Value(1)).current;
   const press = () => {
@@ -72,15 +101,11 @@ function ViewToggle({ mode, onToggle }: { mode: ViewMode; onToggle: () => void }
   );
 }
 
-// ── Grid / Poster card (compact, used in 2–3 column layout) ───────────────
+// ── Grid / Poster card ────────────────────────────────────────────────────
 const CompactCard = React.memo(function CompactCard({
-  item,
-  mode,
-  onPress,
+  item, mode, onPress,
 }: {
-  item: ContentItem;
-  mode: "grid" | "poster";
-  onPress: () => void;
+  item: ContentItem; mode: "grid" | "poster"; onPress: () => void;
 }) {
   const [imgError, setImgError] = useState(false);
   const w = CARD_W[mode];
@@ -99,14 +124,12 @@ const CompactCard = React.memo(function CompactCard({
           </LinearGradient>
         )}
 
-        {/* Series badge */}
         {item.type === "series" && (
           <View style={styles.typeBadge}>
             <Text style={styles.typeBadgeText}>SÉRIE</Text>
           </View>
         )}
 
-        {/* Rating badge (poster mode only) */}
         {mode === "poster" && item.rating > 0 && (
           <View style={styles.ratingBadge}>
             <Feather name="star" size={9} color="#f59e0b" />
@@ -120,7 +143,6 @@ const CompactCard = React.memo(function CompactCard({
           locations={[0.55, 1]}
         />
 
-        {/* Title */}
         <Text
           style={[styles.cardLabel, mode === "poster" && styles.cardLabelPoster]}
           numberOfLines={mode === "poster" ? 2 : 1}
@@ -128,7 +150,6 @@ const CompactCard = React.memo(function CompactCard({
           {item.title}
         </Text>
 
-        {/* Year (poster mode only) */}
         {mode === "poster" && item.year ? (
           <Text style={styles.cardYear}>{item.year}</Text>
         ) : null}
@@ -137,20 +158,17 @@ const CompactCard = React.memo(function CompactCard({
   );
 });
 
-// ── List card (1 column, backdrop + info) ─────────────────────────────────
+// ── List card ────────────────────────────────────────────────────────────
 const ListCard = React.memo(function ListCard({
-  item,
-  onPress,
+  item, onPress,
 }: {
-  item: ContentItem;
-  onPress: () => void;
+  item: ContentItem; onPress: () => void;
 }) {
   const colors = useColors();
   const [imgError, setImgError] = useState(false);
   const thumbUrl = item.backdropPath ?? item.posterPath;
   return (
     <Pressable onPress={onPress} style={[styles.listCard, { backgroundColor: "#111" }]}>
-      {/* Thumbnail */}
       <View style={styles.listThumb}>
         {!imgError && thumbUrl ? (
           <Image source={{ uri: thumbUrl }} style={StyleSheet.absoluteFill}
@@ -162,7 +180,6 @@ const ListCard = React.memo(function ListCard({
             </View>
           </LinearGradient>
         )}
-        {/* Type pill */}
         <View style={[styles.listTypePill, item.type === "series"
           ? { backgroundColor: "#1d4ed8" } : { backgroundColor: "#991b1b" }]}>
           <Text style={styles.listTypeText}>
@@ -171,7 +188,6 @@ const ListCard = React.memo(function ListCard({
         </View>
       </View>
 
-      {/* Info */}
       <View style={styles.listInfo}>
         <Text style={[styles.listTitle, { color: colors.foreground }]} numberOfLines={2}>
           {item.title}
@@ -195,7 +211,6 @@ const ListCard = React.memo(function ListCard({
           </Text>
         ) : null}
 
-        {/* Play hint */}
         <TouchableOpacity style={styles.listPlayRow} onPress={onPress}>
           <View style={styles.listPlayBtn}>
             <Feather name="play" size={9} color="#fff" />
@@ -207,7 +222,7 @@ const ListCard = React.memo(function ListCard({
   );
 });
 
-// ── Mode toggle indicator bar ───────────────────────────────────────────────
+// ── Mode indicator dots ──────────────────────────────────────────────────
 function ModeBar({ mode }: { mode: ViewMode }) {
   return (
     <View style={styles.modeBar}>
@@ -221,19 +236,34 @@ function ModeBar({ mode }: { mode: ViewMode }) {
   );
 }
 
-// ── Main screen ────────────────────────────────────────────────────────────
+// ── Main screen ──────────────────────────────────────────────────────────
 export default function GenreBrowseScreen() {
-  const { genre_id, type, title, lang, sort_by } = useLocalSearchParams<{
+  const {
+    genre_id,
+    type,
+    title,
+    lang,
+    sort_by,
+    source,
+    flix2_type,
+  } = useLocalSearchParams<{
     genre_id: string;
     type: string;
     title: string;
     lang?: string;
     sort_by?: string;
+    source?: string;
+    flix2_type?: string;
   }>();
+
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const isWeb = Platform.OS === "web";
+
+  // Determine if we should fetch from Flix2 or TMDB
+  const isFlx2 = source === "flix2" && !!flix2_type;
+  const flx2Type = flix2_type ?? "movies"; // movies | series | animes
 
   const resolvedGenreId = Number(genre_id) > 0 ? Number(genre_id) : 0;
   const resolvedType: "movie" | "tv" = type === "tv" ? "tv" : "movie";
@@ -243,6 +273,7 @@ export default function GenreBrowseScreen() {
   const [items, setItems] = useState<ContentItem[]>([]);
   const [currentPage, setCurrentPage] = useState(0);
   const [totalPages, setTotalPages] = useState(999);
+  const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -251,13 +282,29 @@ export default function GenreBrowseScreen() {
 
   const loadingRef = useRef(false);
 
-  const fetchData = (page: number) => {
+  // ── Flix2 fetch ──────────────────────────────────────────────────────
+  const fetchFlix2Page = async (page: number): Promise<{ items: ContentItem[]; totalCount: number; totalPages: number }> => {
+    const res = await r2Route<{ success: boolean; pagination: any; data: any[] }>(
+      `/flix2/catalog?type=${flx2Type}&page=${page}`
+    );
+    if (!res.success) throw new Error("Flix2 error");
+    const mapped = (res.data ?? [])
+      .filter((i: any) => i.tmdb_id > 0 && i.poster)
+      .map(flix2ToContent);
+    const total: number = res.pagination?.total_count ?? mapped.length;
+    const pages: number = res.pagination?.total_pages ?? 999;
+    return { items: mapped, totalCount: total, totalPages: pages };
+  };
+
+  // ── TMDB fetch ───────────────────────────────────────────────────────
+  const fetchTmdbPage = (page: number) => {
     if (resolvedLang) {
       return api.tmdb.discoverByLang(resolvedType, resolvedLang, resolvedGenreId, page);
     }
     return api.tmdb.discover(resolvedType, resolvedGenreId, page);
   };
 
+  // ── Initial load ─────────────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
     setError(false);
@@ -268,53 +315,98 @@ export default function GenreBrowseScreen() {
     loadingRef.current = true;
     setLoading(true);
 
-    Promise.all([fetchData(1), fetchData(2)])
-      .then(([d1, d2]) => {
-        if (cancelled) return;
-        const combined = [
-          ...d1.results.map(tmdbItemToContent),
-          ...d2.results.map(tmdbItemToContent),
-        ];
-        setItems(combined);
-        setCurrentPage(2);
-        setTotalPages(d1.total_pages ?? 999);
-        if (combined.length === 0) setError(true);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        console.error("genre-browse init error:", err);
-        setError(true);
-      })
-      .finally(() => {
-        if (!cancelled) {
-          loadingRef.current = false;
-          setLoading(false);
-          setInitialLoading(false);
-        }
-      });
+    if (isFlx2) {
+      // Fetch first 2 pages in parallel for a bigger initial set
+      Promise.all([fetchFlix2Page(1), fetchFlix2Page(2)])
+        .then(([d1, d2]) => {
+          if (cancelled) return;
+          const combined = [...d1.items, ...d2.items];
+          setItems(combined);
+          setCurrentPage(2);
+          setTotalPages(d1.totalPages);
+          setTotalCount(d1.totalCount);
+          if (combined.length === 0) setError(true);
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          console.error("genre-browse flix2 init error:", err);
+          setError(true);
+        })
+        .finally(() => {
+          if (!cancelled) {
+            loadingRef.current = false;
+            setLoading(false);
+            setInitialLoading(false);
+          }
+        });
+    } else {
+      Promise.all([fetchTmdbPage(1), fetchTmdbPage(2)])
+        .then(([d1, d2]) => {
+          if (cancelled) return;
+          const combined = [
+            ...d1.results.map(tmdbItemToContent),
+            ...d2.results.map(tmdbItemToContent),
+          ];
+          setItems(combined);
+          setCurrentPage(2);
+          setTotalPages(d1.total_pages ?? 999);
+          if (combined.length === 0) setError(true);
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          console.error("genre-browse tmdb init error:", err);
+          setError(true);
+        })
+        .finally(() => {
+          if (!cancelled) {
+            loadingRef.current = false;
+            setLoading(false);
+            setInitialLoading(false);
+          }
+        });
+    }
 
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [retryKey]);
+  }, [retryKey, isFlx2, flx2Type]);
 
+  // ── Infinite scroll ──────────────────────────────────────────────────
   const loadMore = () => {
     if (loading || loadingRef.current || currentPage >= totalPages) return;
     loadingRef.current = true;
     setLoading(true);
-    fetchData(currentPage + 1)
-      .then((data) => {
-        const newItems = data.results.map(tmdbItemToContent);
-        if (newItems.length > 0) {
-          setItems((prev) => [...prev, ...newItems]);
-          setCurrentPage((p) => p + 1);
-          setTotalPages(data.total_pages ?? totalPages);
-        }
-      })
-      .catch((err) => console.error("genre-browse page error:", err))
-      .finally(() => {
-        loadingRef.current = false;
-        setLoading(false);
-      });
+    const nextPage = currentPage + 1;
+
+    if (isFlx2) {
+      fetchFlix2Page(nextPage)
+        .then((data) => {
+          if (data.items.length > 0) {
+            setItems((prev) => [...prev, ...data.items]);
+            setCurrentPage(nextPage);
+            setTotalPages(data.totalPages);
+          }
+        })
+        .catch((err) => console.error("genre-browse flix2 page error:", err))
+        .finally(() => {
+          loadingRef.current = false;
+          setLoading(false);
+        });
+    } else {
+      fetchTmdbPage(nextPage)
+        .then((data) => {
+          const newItems = data.results.map(tmdbItemToContent);
+          if (newItems.length > 0) {
+            setItems((prev) => [...prev, ...newItems]);
+            setCurrentPage(nextPage);
+            setTotalPages(data.total_pages ?? totalPages);
+          }
+        })
+        .catch((err) => console.error("genre-browse tmdb page error:", err))
+        .finally(() => {
+          loadingRef.current = false;
+          setLoading(false);
+        });
+    }
   };
 
   const goToDetail = (item: ContentItem) => {
@@ -338,13 +430,14 @@ export default function GenreBrowseScreen() {
   const topPad = isWeb ? 0 : insets.top;
   const numCols = COLS[viewMode];
 
+  const sourceColor = isFlx2 ? (SOURCE_COLOR[flx2Type] ?? "#e50914") : "#e50914";
+  const sourceIcon  = isFlx2 ? (SOURCE_ICON[flx2Type]  ?? "film")    : "film";
+
   const renderItem = ({ item }: { item: ContentItem }) => {
     if (viewMode === "list") {
       return <ListCard item={item} onPress={() => goToDetail(item)} />;
     }
-    return (
-      <CompactCard item={item} mode={viewMode} onPress={() => goToDetail(item)} />
-    );
+    return <CompactCard item={item} mode={viewMode} onPress={() => goToDetail(item)} />;
   };
 
   const keyExtractor = (item: ContentItem, idx: number) => `${item.id}-${idx}`;
@@ -358,32 +451,39 @@ export default function GenreBrowseScreen() {
         </TouchableOpacity>
 
         <View style={styles.headerCenter}>
+          {/* Source pill */}
+          {isFlx2 && (
+            <View style={[styles.sourcePill, { backgroundColor: `${sourceColor}20`, borderColor: `${sourceColor}40` }]}>
+              <Feather name={sourceIcon} size={10} color={sourceColor} />
+              <Text style={[styles.sourcePillText, { color: sourceColor }]}>
+                {flx2Type === "movies" ? "Filmes" : flx2Type === "series" ? "Séries" : "Animes"}
+                {totalCount > 0 ? ` · ${totalCount.toLocaleString("pt-BR")}` : ""}
+              </Text>
+            </View>
+          )}
           <Text style={[styles.headerTitle, { color: colors.foreground }]} numberOfLines={1}>
             {title ?? "Explorar"}
           </Text>
-          {/* Mode label */}
           <Text style={styles.modeLabel}>{MODE_LABEL[viewMode]}</Text>
         </View>
 
-        {/* View toggle button */}
         <ViewToggle mode={viewMode} onToggle={cycleMode} />
       </View>
 
-      {/* Mode indicator dots */}
       <ModeBar mode={viewMode} />
 
       {/* ── States ─────────────────────────────────────────────── */}
       {initialLoading ? (
         <View style={styles.centered}>
-          <ActivityIndicator size="large" color="#e50914" />
+          <ActivityIndicator size="large" color={sourceColor} />
           <Text style={[styles.loadingText, { color: "#888" }]}>
             Carregando conteúdo...
           </Text>
         </View>
       ) : error ? (
         <View style={styles.centered}>
-          <View style={styles.errorIcon}>
-            <Feather name="wifi-off" size={32} color="#e50914" />
+          <View style={[styles.errorIcon, { backgroundColor: `${sourceColor}15` }]}>
+            <Feather name="wifi-off" size={32} color={sourceColor} />
           </View>
           <Text style={[styles.errorTitle, { color: colors.foreground }]}>
             Não foi possível carregar
@@ -392,7 +492,7 @@ export default function GenreBrowseScreen() {
             Verifique sua conexão e tente novamente
           </Text>
           <TouchableOpacity
-            style={styles.retryBtn}
+            style={[styles.retryBtn, { backgroundColor: sourceColor }]}
             onPress={() => setRetryKey((k) => k + 1)}
             activeOpacity={0.8}
           >
@@ -401,7 +501,6 @@ export default function GenreBrowseScreen() {
           </TouchableOpacity>
         </View>
       ) : (
-        /* ── FlatList — key forces re-mount when numColumns changes ── */
         <FlatList
           key={viewMode}
           data={items}
@@ -427,7 +526,7 @@ export default function GenreBrowseScreen() {
                 Nenhum título encontrado
               </Text>
               <TouchableOpacity
-                style={styles.retryBtn}
+                style={[styles.retryBtn, { backgroundColor: sourceColor }]}
                 onPress={() => setRetryKey((k) => k + 1)}
                 activeOpacity={0.8}
               >
@@ -439,7 +538,7 @@ export default function GenreBrowseScreen() {
           ListFooterComponent={
             loading && items.length > 0 ? (
               <View style={styles.footer}>
-                <ActivityIndicator color="#e50914" />
+                <ActivityIndicator color={sourceColor} />
               </View>
             ) : null
           }
@@ -466,6 +565,21 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     gap: 2,
+  },
+  sourcePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginBottom: 2,
+  },
+  sourcePillText: {
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.2,
   },
   headerTitle: {
     fontSize: 17,
@@ -504,7 +618,6 @@ const styles = StyleSheet.create({
   loadingText: { fontSize: 13, fontWeight: "500", marginTop: 4 },
   errorIcon: {
     width: 72, height: 72, borderRadius: 36,
-    backgroundColor: "rgba(229,9,20,0.1)",
     alignItems: "center", justifyContent: "center", marginBottom: 4,
   },
   errorTitle: { fontSize: 17, fontWeight: "700", textAlign: "center" },
@@ -512,15 +625,13 @@ const styles = StyleSheet.create({
   retryBtn: {
     flexDirection: "row", alignItems: "center", gap: 8,
     paddingHorizontal: 20, paddingVertical: 11,
-    borderRadius: 22, marginTop: 8, backgroundColor: "#e50914",
+    borderRadius: 22, marginTop: 8,
   },
   retryText: { color: "#fff", fontSize: 14, fontWeight: "700" },
 
-  // Grid / Poster layout
   gridContainer: { paddingHorizontal: H_PAD, paddingTop: 4 },
   row: { justifyContent: "space-between", marginBottom: 0 },
 
-  // Compact card (grid + poster)
   compactCard: { borderRadius: 10, overflow: "hidden", backgroundColor: "#1a1a1a" },
   cardPlaceholder: { flex: 1, alignItems: "center", justifyContent: "center" },
   typeBadge: {
@@ -549,7 +660,6 @@ const styles = StyleSheet.create({
     color: "#aaa", fontSize: 9,
   },
 
-  // List layout
   listContainer: {
     paddingHorizontal: H_PAD,
     paddingTop: 4,
