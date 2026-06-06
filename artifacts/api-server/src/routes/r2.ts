@@ -175,6 +175,7 @@ export interface RegistryItem {
   driveResolvedAt?: string;
   driveNum?: number; // 0 or 1 — which Drive account
   driveFilePath?: string; // full path inside Drive, e.g. "Séries/Show/ep01.mkv"
+  flix2Url?: string; // direct MP4 URL from Flix 2.0 (nixplay.lat)
   fileIndex?: number;
   fileName?: string;
   tmdbId: number;
@@ -1436,6 +1437,13 @@ router.get("/drive/play", async (req, res) => {
     const registry = await readRegistry(client, bucket);
     const item = registry.items.find((i) => i.id === id);
     if (!item) { res.status(404).json({ error: "Item não encontrado no registry" }); return; }
+
+    // ── Flix 2.0: URL direta (nixplay.lat) — retorna imediatamente ──
+    if (item.flix2Url) {
+      res.json({ url: item.flix2Url, cached: false, via: "flix2" });
+      return;
+    }
+
     if (!item.driveUrl && item.driveNum == null) {
       res.status(400).json({ error: "Item não possui link do Drive" }); return;
     }
@@ -1740,6 +1748,76 @@ router.post("/drive/scan-folder", async (req, res) => {
     clearTimeout(tid);
     if (err?.name === "AbortError") { res.status(504).json({ error: "Timeout ao escanear pasta" }); return; }
     res.status(500).json({ error: err?.message ?? "error" });
+  }
+});
+
+// ── POST /flix2/register — save Flix 2.0 content to registry ─────────────────
+// Body: { flix2Url, tmdbId, tmdbType, title, label, season?, episode? }
+router.post("/flix2/register", async (req, res) => {
+  try {
+    const { flix2Url, tmdbId, tmdbType, title, label, season, episode } = req.body ?? {};
+    if (!flix2Url || !tmdbId || !tmdbType || !title) {
+      res.status(400).json({ error: "flix2Url, tmdbId, tmdbType e title são obrigatórios" }); return;
+    }
+    const client = getClient();
+    const bucket = getBucket();
+    const registry = await readRegistry(client, bucket);
+
+    // Deduplicate: same flix2Url
+    const existingIdx = registry.items.findIndex((i) => i.flix2Url === String(flix2Url));
+    const newItem: RegistryItem = {
+      id: existingIdx >= 0 ? registry.items[existingIdx].id : crypto.randomUUID(),
+      r2Key: "",
+      flix2Url: String(flix2Url),
+      tmdbId: Number(tmdbId),
+      tmdbType: tmdbType as "movie" | "tv",
+      title: String(title),
+      label: String(label ?? "HD"),
+      season: season != null ? Number(season) : null,
+      episode: episode != null ? Number(episode) : null,
+      addedAt: existingIdx >= 0 ? registry.items[existingIdx].addedAt : new Date().toISOString(),
+    };
+
+    if (existingIdx >= 0) {
+      registry.items[existingIdx] = newItem;
+    } else {
+      registry.items.push(newItem);
+    }
+    await writeRegistry(client, bucket, registry);
+
+    // Push notification for new content
+    try {
+      if (existingIdx < 0) {
+        if (tmdbType === "tv" && season != null && episode != null) {
+          await notifyNewEpisode(title, Number(season), Number(episode));
+        } else if (tmdbType === "movie") {
+          await notifyNewContent(title, "movie");
+        }
+      }
+    } catch {}
+
+    res.json({ ok: true, id: newItem.id, item: newItem });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "error" });
+  }
+});
+
+// ── GET /flix2/catalog — proxy to nixplay.lat API (avoids CORS on mobile) ─────
+router.get("/flix2/catalog", async (req, res) => {
+  try {
+    const { type = "movies", page = "1", search = "" } = req.query as Record<string, string>;
+    const user = "Reis007-vods";
+    const pass = encodeURIComponent("Reis12@@");
+    let url = `https://nixplay.lat/api/catalog.php?username=${user}&password=${pass}&type=${type}&page=${page}`;
+    if (search) url += `&search=${encodeURIComponent(search)}`;
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 15000);
+    const upstream = await fetch(url, { signal: ctrl.signal });
+    clearTimeout(tid);
+    const data = await upstream.json();
+    res.json(data);
+  } catch (err: any) {
+    res.status(502).json({ error: err?.message ?? "proxy error" });
   }
 });
 

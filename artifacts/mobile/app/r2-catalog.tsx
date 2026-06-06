@@ -89,7 +89,7 @@ interface TmdbSearchResult {
   id: number; title: string; poster_path: string | null; media_type: "movie" | "tv";
 }
 
-type Tab = "catalog" | "upload" | "manage" | "terabox";
+type Tab = "catalog" | "upload" | "manage" | "terabox" | "flix2";
 type UploadMode = "url" | "gdrive" | "terabox" | "local" | "drive";
 type MediaKind = "tv" | "movie";
 type CatalogView =
@@ -5320,6 +5320,419 @@ function EditEntryModal({ entry, onClose, onDone }: {
   );
 }
 
+// ── Flix 2.0 Panel ─────────────────────────────────────────────────────────────
+
+const FLIX2_COLOR = "#8b5cf6";
+
+interface Flix2Episode {
+  id_link: number;
+  season: number;
+  episode: number;
+  language: string;
+  quality: string;
+  stream_url: string;
+}
+
+interface Flix2Item {
+  id: number;
+  tmdb_id: number;
+  title: string;
+  type: "filme" | "serie" | "anime";
+  poster: string;
+  backdrop: string;
+  year: string;
+  genres: string;
+  synopsis: string;
+  episodes_count: number;
+  stream_url?: string;
+  episodes?: Flix2Episode[];
+}
+
+type Flix2Type = "movies" | "series" | "animes";
+
+function Flix2Panel() {
+  const [subType, setSubType] = useState<Flix2Type>("movies");
+  const [items, setItems] = useState<Flix2Item[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalItems, setTotalItems] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [registerTarget, setRegisterTarget] = useState<Flix2Item | null>(null);
+
+  const fetchItems = async (type: Flix2Type, pg: number, append = false) => {
+    if (!append) setLoading(true);
+    else setLoadingMore(true);
+    setError(null);
+    try {
+      const data = await apiFetch<{ success: boolean; pagination: any; data: Flix2Item[] }>(
+        `/r2/flix2/catalog?type=${type}&page=${pg}`
+      );
+      if (!data.success) { setError("Erro ao carregar conteúdo"); return; }
+      setTotalPages(data.pagination?.total_pages ?? 1);
+      setTotalItems(data.pagination?.total_items ?? 0);
+      setPage(pg);
+      if (append) setItems((prev) => [...prev, ...data.data]);
+      else setItems(data.data);
+    } catch (e: any) { setError(e.message ?? "Erro de rede"); }
+    finally { setLoading(false); setLoadingMore(false); }
+  };
+
+  useEffect(() => {
+    setItems([]);
+    setPage(1);
+    setSearch("");
+    fetchItems(subType, 1, false);
+  }, [subType]);
+
+  const filtered = search.trim()
+    ? items.filter((i) => i.title.toLowerCase().includes(search.toLowerCase()))
+    : items;
+
+  const TABS: { id: Flix2Type; label: string; icon: string }[] = [
+    { id: "movies", label: "Filmes", icon: "film" },
+    { id: "series", label: "Séries", icon: "tv" },
+    { id: "animes", label: "Animes", icon: "star" },
+  ];
+
+  return (
+    <View style={{ flex: 1 }}>
+      {/* Sub-tab bar */}
+      <View style={{ flexDirection: "row", backgroundColor: "#0a0a0a", paddingHorizontal: 12, paddingVertical: 8, gap: 8 }}>
+        {TABS.map((t) => (
+          <Pressable key={t.id} onPress={() => setSubType(t.id)}
+            style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5,
+              paddingVertical: 8, borderRadius: 10,
+              backgroundColor: subType === t.id ? `${FLIX2_COLOR}22` : "rgba(255,255,255,0.05)",
+              borderWidth: 1, borderColor: subType === t.id ? `${FLIX2_COLOR}55` : "rgba(255,255,255,0.08)" }}>
+            <Feather name={t.icon as any} size={13} color={subType === t.id ? FLIX2_COLOR : "rgba(255,255,255,0.4)"} />
+            <Text style={{ color: subType === t.id ? FLIX2_COLOR : "rgba(255,255,255,0.4)", fontSize: 12, fontWeight: subType === t.id ? "700" : "400" }}>
+              {t.label}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+
+      {/* Search bar */}
+      <View style={{ paddingHorizontal: 12, paddingBottom: 8, paddingTop: 4, backgroundColor: "#0a0a0a" }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(255,255,255,0.06)",
+          borderRadius: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", paddingLeft: 12, paddingRight: 6 }}>
+          <Feather name="search" size={14} color="rgba(255,255,255,0.4)" />
+          <TextInput
+            style={{ flex: 1, color: "#fff", fontSize: 13, paddingVertical: 10 }}
+            placeholder="Filtrar por título…"
+            placeholderTextColor="rgba(255,255,255,0.3)"
+            value={search}
+            onChangeText={setSearch}
+          />
+          {search.length > 0 && (
+            <Pressable onPress={() => setSearch("")} style={{ padding: 4 }}>
+              <Feather name="x" size={14} color="rgba(255,255,255,0.4)" />
+            </Pressable>
+          )}
+        </View>
+        {totalItems > 0 && (
+          <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 10, marginTop: 4 }}>
+            {totalItems.toLocaleString()} títulos · {totalPages} página{totalPages !== 1 ? "s" : ""}
+          </Text>
+        )}
+      </View>
+
+      {/* Content */}
+      {loading ? (
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 12 }}>
+          <ActivityIndicator size="large" color={FLIX2_COLOR} />
+          <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 13 }}>Carregando catálogo…</Text>
+        </View>
+      ) : error ? (
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 32, gap: 12 }}>
+          <Feather name="wifi-off" size={40} color="rgba(255,255,255,0.2)" />
+          <Text style={{ color: "#f87171", fontSize: 14, textAlign: "center" }}>{error}</Text>
+          <Pressable onPress={() => fetchItems(subType, 1)} style={{ paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10, backgroundColor: FLIX2_COLOR }}>
+            <Text style={{ color: "#fff", fontWeight: "700" }}>Tentar novamente</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 32 }}
+          showsVerticalScrollIndicator={false}
+        >
+          {filtered.length === 0 ? (
+            <View style={{ alignItems: "center", paddingTop: 64 }}>
+              <Feather name="inbox" size={40} color="rgba(255,255,255,0.15)" />
+              <Text style={{ color: "rgba(255,255,255,0.3)", marginTop: 12 }}>Nenhum resultado</Text>
+            </View>
+          ) : (
+            filtered.map((item) => (
+              <Flix2Card key={item.id} item={item} onRegister={() => setRegisterTarget(item)} />
+            ))
+          )}
+
+          {/* Load more */}
+          {page < totalPages && !search && (
+            <Pressable
+              onPress={() => fetchItems(subType, page + 1, true)}
+              disabled={loadingMore}
+              style={{ marginTop: 12, paddingVertical: 14, borderRadius: 12, alignItems: "center",
+                backgroundColor: "rgba(139,92,246,0.12)", borderWidth: 1, borderColor: `${FLIX2_COLOR}44` }}>
+              {loadingMore
+                ? <ActivityIndicator size="small" color={FLIX2_COLOR} />
+                : <Text style={{ color: FLIX2_COLOR, fontWeight: "700", fontSize: 13 }}>
+                    Carregar mais (pág. {page + 1}/{totalPages})
+                  </Text>}
+            </Pressable>
+          )}
+        </ScrollView>
+      )}
+
+      {registerTarget && (
+        <Flix2RegisterModal item={registerTarget} onClose={() => setRegisterTarget(null)} onDone={() => setRegisterTarget(null)} />
+      )}
+    </View>
+  );
+}
+
+function Flix2Card({ item, onRegister }: { item: Flix2Item; onRegister: () => void }) {
+  const isMovie = item.type === "filme";
+  return (
+    <View style={{ flexDirection: "row", gap: 12, paddingVertical: 12,
+      borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)", alignItems: "flex-start" }}>
+      {/* Poster */}
+      <View style={{ width: 64, height: 96, borderRadius: 8, overflow: "hidden", backgroundColor: "#1a1a1a", flexShrink: 0 }}>
+        {item.poster ? (
+          <Image source={{ uri: item.poster }} style={{ width: 64, height: 96 }} contentFit="cover" />
+        ) : (
+          <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+            <Feather name={isMovie ? "film" : "tv"} size={24} color="rgba(255,255,255,0.2)" />
+          </View>
+        )}
+      </View>
+
+      {/* Info */}
+      <View style={{ flex: 1 }}>
+        <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14, lineHeight: 19 }} numberOfLines={2}>{item.title}</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 3 }}>
+          <Text style={{ color: FLIX2_COLOR, fontSize: 11, fontWeight: "700" }}>{item.year}</Text>
+          <View style={{ width: 3, height: 3, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.2)" }} />
+          <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 11 }}>
+            {isMovie ? "Filme" : item.type === "anime" ? "Anime" : `Série · ${item.episodes_count} ep`}
+          </Text>
+          {item.tmdb_id > 0 && (
+            <>
+              <View style={{ width: 3, height: 3, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.2)" }} />
+              <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 10 }}>TMDB {item.tmdb_id}</Text>
+            </>
+          )}
+        </View>
+        {item.genres ? (
+          <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 11, marginTop: 4 }} numberOfLines={1}>{item.genres}</Text>
+        ) : null}
+        {item.synopsis ? (
+          <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 11, marginTop: 5, lineHeight: 16 }} numberOfLines={2}>{item.synopsis}</Text>
+        ) : null}
+        <Pressable onPress={onRegister}
+          style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8, paddingHorizontal: 12, paddingVertical: 7,
+            borderRadius: 8, backgroundColor: `${FLIX2_COLOR}20`, borderWidth: 1, borderColor: `${FLIX2_COLOR}44`, alignSelf: "flex-start" }}>
+          <Feather name="plus-circle" size={13} color={FLIX2_COLOR} />
+          <Text style={{ color: FLIX2_COLOR, fontSize: 12, fontWeight: "700" }}>
+            {isMovie ? "Registrar" : `Registrar (${item.episodes_count} ep)`}
+          </Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+function Flix2RegisterModal({ item, onClose, onDone }: { item: Flix2Item; onClose: () => void; onDone: () => void }) {
+  const isMovie = item.type === "filme";
+  const episodes = item.episodes ?? [];
+
+  const [label, setLabel] = useState("Dublado HD");
+  const [saving, setSaving] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedEps, setSelectedEps] = useState<Set<number>>(
+    new Set(episodes.map((_, i) => i))
+  );
+
+  const tmdbType = isMovie ? "movie" : "tv";
+
+  const toggleEp = (i: number) => {
+    setSelectedEps((prev) => {
+      const n = new Set(prev);
+      if (n.has(i)) n.delete(i); else n.add(i);
+      return n;
+    });
+  };
+
+  const toggleAll = () => {
+    if (selectedEps.size === episodes.length) setSelectedEps(new Set());
+    else setSelectedEps(new Set(episodes.map((_, i) => i)));
+  };
+
+  const register = async () => {
+    setSaving(true);
+    setError(null);
+    setProgress(0);
+    try {
+      if (isMovie) {
+        await apiPost("/r2/flix2/register", {
+          flix2Url: item.stream_url,
+          tmdbId: item.tmdb_id,
+          tmdbType,
+          title: item.title,
+          label,
+          season: null,
+          episode: null,
+        });
+        setProgress(100);
+      } else {
+        const toReg = episodes.filter((_, i) => selectedEps.has(i));
+        for (let i = 0; i < toReg.length; i++) {
+          const ep = toReg[i];
+          await apiPost("/r2/flix2/register", {
+            flix2Url: ep.stream_url,
+            tmdbId: item.tmdb_id,
+            tmdbType,
+            title: item.title,
+            label: `T${String(ep.season).padStart(2, "0")} E${String(ep.episode).padStart(2, "0")} · ${label}`,
+            season: ep.season,
+            episode: ep.episode,
+          });
+          setProgress(Math.round(((i + 1) / toReg.length) * 100));
+        }
+      }
+      setDone(true);
+    } catch (e: any) { setError(e.message ?? "Erro ao registrar"); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.88)", justifyContent: "flex-end" }}>
+          <View style={{ backgroundColor: "#0f0f0f", borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, maxHeight: "90%" }}>
+            {/* Header */}
+            <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 14, gap: 10 }}>
+              <View style={{ width: 40, height: 60, borderRadius: 6, overflow: "hidden", backgroundColor: "#1a1a1a", flexShrink: 0 }}>
+                {item.poster ? <Image source={{ uri: item.poster }} style={{ width: 40, height: 60 }} contentFit="cover" /> : null}
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15 }} numberOfLines={2}>{item.title}</Text>
+                <Text style={{ color: FLIX2_COLOR, fontSize: 12 }}>{item.year} · {isMovie ? "Filme" : `${episodes.length} episódios`}</Text>
+              </View>
+              <Pressable onPress={onClose}><Feather name="x" size={20} color="rgba(255,255,255,0.5)" /></Pressable>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+              {done ? (
+                <View style={{ alignItems: "center", paddingVertical: 32, gap: 12 }}>
+                  <Feather name="check-circle" size={48} color="#4ade80" />
+                  <Text style={{ color: "#4ade80", fontWeight: "700", fontSize: 18 }}>Registrado!</Text>
+                  <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 13, textAlign: "center" }}>
+                    {isMovie ? "Filme adicionado ao registry" : `${selectedEps.size} episódios registrados`}
+                  </Text>
+                  <Pressable onPress={onDone} style={{ paddingHorizontal: 28, paddingVertical: 12, borderRadius: 12, backgroundColor: "#16a34a" }}>
+                    <Text style={{ color: "#fff", fontWeight: "700" }}>Fechar</Text>
+                  </Pressable>
+                </View>
+              ) : (
+                <>
+                  {/* Label */}
+                  <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 11, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 6 }}>
+                    Qualidade / Label
+                  </Text>
+                  <View style={{ flexDirection: "row", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
+                    {["Dublado HD", "Dublado 4K", "Legendado HD", "Legendado 4K"].map((l) => (
+                      <Pressable key={l} onPress={() => setLabel(l)}
+                        style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8,
+                          backgroundColor: label === l ? `${FLIX2_COLOR}22` : "rgba(255,255,255,0.06)",
+                          borderWidth: 1, borderColor: label === l ? `${FLIX2_COLOR}55` : "rgba(255,255,255,0.1)" }}>
+                        <Text style={{ color: label === l ? FLIX2_COLOR : "rgba(255,255,255,0.55)", fontSize: 12, fontWeight: label === l ? "700" : "400" }}>
+                          {l}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+
+                  {/* Series episode selector */}
+                  {!isMovie && episodes.length > 0 && (
+                    <>
+                      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                        <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 11, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.8 }}>
+                          Episódios ({selectedEps.size}/{episodes.length})
+                        </Text>
+                        <Pressable onPress={toggleAll}
+                          style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6, backgroundColor: "rgba(255,255,255,0.07)" }}>
+                          <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 11 }}>
+                            {selectedEps.size === episodes.length ? "Desmarcar todos" : "Marcar todos"}
+                          </Text>
+                        </Pressable>
+                      </View>
+                      <View style={{ borderRadius: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.08)", overflow: "hidden", marginBottom: 14 }}>
+                        {episodes.map((ep, i) => (
+                          <Pressable key={i} onPress={() => toggleEp(i)}
+                            style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12, paddingVertical: 10,
+                              borderTopWidth: i > 0 ? 1 : 0, borderTopColor: "rgba(255,255,255,0.05)",
+                              backgroundColor: selectedEps.has(i) ? `${FLIX2_COLOR}0a` : "transparent" }}>
+                            <Feather name={selectedEps.has(i) ? "check-square" : "square"} size={14}
+                              color={selectedEps.has(i) ? FLIX2_COLOR : "rgba(255,255,255,0.25)"} />
+                            <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 11, width: 52 }}>
+                              T{String(ep.season).padStart(2, "0")} E{String(ep.episode).padStart(2, "0")}
+                            </Text>
+                            <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 10, flex: 1 }} numberOfLines={1}>
+                              {ep.language} · {ep.quality}
+                            </Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                    </>
+                  )}
+
+                  {/* Save progress */}
+                  {saving && (
+                    <View style={{ marginBottom: 12, gap: 8 }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                        <ActivityIndicator size="small" color={FLIX2_COLOR} />
+                        <Text style={{ color: FLIX2_COLOR, fontSize: 13 }}>Registrando… {progress}%</Text>
+                      </View>
+                      <View style={{ height: 4, backgroundColor: "rgba(255,255,255,0.1)", borderRadius: 2 }}>
+                        <View style={{ height: 4, backgroundColor: FLIX2_COLOR, borderRadius: 2, width: `${progress}%` as any }} />
+                      </View>
+                    </View>
+                  )}
+
+                  {error && (
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 10, borderRadius: 8,
+                      backgroundColor: "rgba(248,113,113,0.1)", marginBottom: 10 }}>
+                      <Feather name="alert-circle" size={14} color="#f87171" />
+                      <Text style={{ color: "#f87171", fontSize: 12, flex: 1 }}>{error}</Text>
+                    </View>
+                  )}
+
+                  <Pressable onPress={register} disabled={saving || (!isMovie && selectedEps.size === 0)}
+                    style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+                      paddingVertical: 14, borderRadius: 12, backgroundColor: FLIX2_COLOR,
+                      opacity: (saving || (!isMovie && selectedEps.size === 0)) ? 0.5 : 1 }}>
+                    {saving ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="download-cloud" size={16} color="#fff" />}
+                    <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15 }}>
+                      {saving ? "Registrando…" : isMovie ? "Registrar Filme" : `Registrar ${selectedEps.size} episódios`}
+                    </Text>
+                  </Pressable>
+                </>
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
 // ── Main Screen ────────────────────────────────────────────────────────────────
 
 export default function R2CatalogScreen() {
@@ -5375,14 +5788,19 @@ export default function R2CatalogScreen() {
             { id: "upload", icon: "upload-cloud", label: "Upload" },
             { id: "manage", icon: "folder", label: "Gerenciar" },
             { id: "terabox", icon: "package", label: "TeraBox" },
+            { id: "flix2", icon: "zap", label: "Flix 2.0" },
           ] as { id: Tab; icon: string; label: string }[]).map((t) => (
             <Pressable key={t.id} style={[styles.tabItem, activeTab === t.id && styles.tabItemActive]} onPress={() => setActiveTab(t.id)}>
               <Feather
                 name={t.icon as any}
                 size={14}
-                color={activeTab === t.id ? (t.id === "terabox" ? "#f59e0b" : RED) : "rgba(255,255,255,0.4)"}
+                color={activeTab === t.id
+                  ? t.id === "terabox" ? "#f59e0b" : t.id === "flix2" ? "#8b5cf6" : RED
+                  : "rgba(255,255,255,0.4)"}
               />
-              <Text style={[styles.tabLabel, activeTab === t.id && { color: t.id === "terabox" ? "#f59e0b" : RED }]} numberOfLines={1}>
+              <Text style={[styles.tabLabel, activeTab === t.id && {
+                color: t.id === "terabox" ? "#f59e0b" : t.id === "flix2" ? "#8b5cf6" : RED,
+              }]} numberOfLines={1}>
                 {t.label}
               </Text>
             </Pressable>
@@ -5421,6 +5839,7 @@ export default function R2CatalogScreen() {
         {activeTab === "upload" && <UploadPanel />}
         {activeTab === "manage" && <ManagePanel onRegister={openRegister} />}
         {activeTab === "terabox" && <TeraBoxPanel />}
+        {activeTab === "flix2" && <Flix2Panel />}
       </View>
 
       {/* Register modal */}
