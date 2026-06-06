@@ -1213,32 +1213,50 @@ export default function DetailScreen() {
                 const resumeS = (type === "tv" && watchProgress?.season) ? watchProgress.season : 1;
                 const resumeE = (type === "tv" && watchProgress?.episode) ? watchProgress.episode : 1;
 
-                const hasR2 = type === "movie"
-                  ? r2Items.some((i) => !isDriveItem(i) && i.season == null && i.episode == null)
-                  : r2Items.some((i) => !isDriveItem(i));
+                // Only items allowed by global source settings
+                const visibleItems = r2Items.filter((i) => {
+                  if (isDriveItem(i)) return srcSettings.drive;
+                  if (isFlixItem(i))  return srcSettings.flix2;
+                  return srcSettings.r2;
+                });
 
-                const hasDrive = type === "movie"
-                  ? r2Items.some((i) => isDriveItem(i) && i.season == null && i.episode == null)
-                  : r2Items.some((i) => isDriveItem(i));
+                const hasR2 = srcSettings.r2 && (type === "movie"
+                  ? visibleItems.some((i) => !isDriveItem(i) && !isFlixItem(i) && i.season == null && i.episode == null)
+                  : visibleItems.some((i) => !isDriveItem(i) && !isFlixItem(i)));
+
+                const hasDrive = srcSettings.drive && (type === "movie"
+                  ? visibleItems.some((i) => isDriveItem(i) && i.season == null && i.episode == null)
+                  : visibleItems.some((i) => isDriveItem(i)));
+
+                const hasFlix = srcSettings.flix2 && (type === "movie"
+                  ? visibleItems.some((i) => isFlixItem(i) && i.season == null && i.episode == null)
+                  : visibleItems.some((i) => isFlixItem(i)));
 
                 const pressR2 = () => {
                   if (type === "movie") {
-                    const item = r2Items.find((i) => !isDriveItem(i) && i.season == null && i.episode == null);
+                    const item = visibleItems.find((i) => !isDriveItem(i) && !isFlixItem(i) && i.season == null && i.episode == null);
                     if (item) goToR2Player(item);
                   } else {
-                    const episodeItems = r2Items.filter((i) => !isDriveItem(i) && i.episode != null);
-                    const lastAdded = episodeItems[episodeItems.length - 1] ?? r2Items.find((i) => !isDriveItem(i));
+                    const episodeItems = visibleItems.filter((i) => !isDriveItem(i) && !isFlixItem(i) && i.episode != null);
+                    const lastAdded = episodeItems[episodeItems.length - 1] ?? visibleItems.find((i) => !isDriveItem(i) && !isFlixItem(i));
                     const resumeItem = (watchProgress?.season && watchProgress?.episode)
-                      ? r2Items.find((i) => !isDriveItem(i) && i.season === watchProgress.season && i.episode === watchProgress.episode) ?? lastAdded
+                      ? visibleItems.find((i) => !isDriveItem(i) && !isFlixItem(i) && i.season === watchProgress.season && i.episode === watchProgress.episode) ?? lastAdded
                       : lastAdded;
                     if (resumeItem) goToR2Player(resumeItem);
                   }
                 };
 
+                const pressFlix = () => {
+                  const item = type === "movie"
+                    ? visibleItems.find((i) => isFlixItem(i) && i.season == null && i.episode == null)
+                    : visibleItems.find((i) => isFlixItem(i));
+                  if (item) goToR2Player(item);
+                };
+
                 const pressDrive = () => {
                   const item = type === "movie"
-                    ? r2Items.find((i) => isDriveItem(i) && i.season == null && i.episode == null)
-                    : r2Items.find((i) => isDriveItem(i));
+                    ? visibleItems.find((i) => isDriveItem(i) && i.season == null && i.episode == null)
+                    : visibleItems.find((i) => isDriveItem(i));
                   if (item) goToDrivePlayer(item);
                 };
 
@@ -1246,9 +1264,10 @@ export default function DetailScreen() {
                 const pressRegular = () => goToPlayer(resumeS, resumeE);
 
                 const sources = [
-                  hasR2 && { id: "r2", press: pressR2 },
-                  hasDrive && { id: "drive", press: pressDrive },
-                  gstreamAvailable && { id: "gstream", press: pressGstream },
+                  hasR2   && { id: "r2",     press: pressR2 },
+                  hasFlix && { id: "flix2",   press: pressFlix },
+                  hasDrive && { id: "drive",  press: pressDrive },
+                  (srcSettings.gstream && gstreamAvailable) && { id: "gstream", press: pressGstream },
                 ].filter(Boolean) as { id: string; press: () => void }[];
 
                 if (sources.length === 0) {
@@ -1299,6 +1318,19 @@ export default function DetailScreen() {
                         <Text style={styles.watchBtnText}>ASSISTIR AGORA</Text>
                       </Pressable>
                     )}
+                    {hasFlix && (
+                      <Pressable
+                        style={({ pressed }) => [
+                          styles.watchBtn,
+                          { backgroundColor: "#8b5cf6", marginTop: 8 },
+                          pressed && { opacity: 0.85 },
+                        ]}
+                        onPress={pressFlix}
+                      >
+                        <Feather name="zap" size={18} color="#fff" />
+                        <Text style={styles.watchBtnText}>ASSISTIR (FLIX 2.0)</Text>
+                      </Pressable>
+                    )}
                     {hasDrive && (
                       <Pressable
                         style={({ pressed }) => [
@@ -1312,7 +1344,7 @@ export default function DetailScreen() {
                         <Text style={styles.watchBtnText}>ASSISTIR (DRIVE)</Text>
                       </Pressable>
                     )}
-                    {gstreamAvailable && (
+                    {srcSettings.gstream && gstreamAvailable && (
                       <Pressable
                         disabled={gstreamResolving}
                         style={({ pressed }) => [
@@ -1546,9 +1578,10 @@ export default function DetailScreen() {
                           colors={colors}
                           fallbackImage={details?.backdrop_path ?? details?.poster_path ?? null}
                           onPress={!r2Ep ? () => goToPlayer(selectedSeason, ep.episode_number) : undefined}
-                          onGstreamPress={gstreamAvailable ? () => goToGstreamPlayer(selectedSeason, ep.episode_number) : undefined}
-                          onR2Press={r2Ep && !isDriveItem(r2Ep) ? () => goToR2Player(r2Ep, selectedSeason, ep.episode_number) : undefined}
+                          onGstreamPress={srcSettings.gstream && gstreamAvailable ? () => goToGstreamPlayer(selectedSeason, ep.episode_number) : undefined}
+                          onR2Press={srcSettings.r2 && r2Ep && !isDriveItem(r2Ep) && !isFlixItem(r2Ep) ? () => goToR2Player(r2Ep, selectedSeason, ep.episode_number) : undefined}
                           onDrivePress={(() => {
+                            if (!srcSettings.drive) return undefined;
                             const driveEp = r2Items.find(
                               (i) => isDriveItem(i) && Number(i.season) === selectedSeason && Number(i.episode) === ep.episode_number
                             );

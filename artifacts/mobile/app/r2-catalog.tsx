@@ -11,6 +11,7 @@ import {
   RefreshControl,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -4508,6 +4509,11 @@ function DriveRegisterModal({ item, driveNum, driveFilePath, onClose, onDone }: 
 
 // ── Manage Panel ───────────────────────────────────────────────────────────────
 
+interface SourceSettings {
+  r2: boolean; drive: boolean; flix2: boolean; gstream: boolean; regular: boolean;
+}
+const DEFAULT_SRC_SETTINGS: SourceSettings = { r2: true, drive: true, flix2: true, gstream: true, regular: true };
+
 function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
   const insets = useSafeAreaInsets();
   const [path, setPath] = useState("");
@@ -4517,6 +4523,34 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
   const [movingKey, setMovingKey] = useState<string | null>(null);
   const [movingName, setMovingName] = useState<string>("");
   const [showMovePicker, setShowMovePicker] = useState(false);
+
+  // ── Global source settings ───────────────────────────────────────────────────
+  const [srcSettings, setSrcSettings] = useState<SourceSettings>(DEFAULT_SRC_SETTINGS);
+  const [srcSaving, setSrcSaving] = useState(false);
+  const [srcSaved, setSrcSaved] = useState(false);
+
+  useEffect(() => {
+    apiFetch<SourceSettings>("/r2/source-settings").then((data) => {
+      setSrcSettings({ ...DEFAULT_SRC_SETTINGS, ...data });
+    }).catch(() => {});
+  }, []);
+
+  const saveSrcSettings = async (next: SourceSettings) => {
+    setSrcSaving(true);
+    setSrcSaved(false);
+    try {
+      await apiPost("/r2/source-settings", next);
+      setSrcSaved(true);
+      setTimeout(() => setSrcSaved(false), 2500);
+    } catch {}
+    finally { setSrcSaving(false); }
+  };
+
+  const toggleSrc = (key: keyof SourceSettings) => {
+    const next = { ...srcSettings, [key]: !srcSettings[key] };
+    setSrcSettings(next);
+    saveSrcSettings(next);
+  };
 
   const [driveJobId, setDriveJobId] = useState<string | null>(null);
   const [driveJobStatus, setDriveJobStatus] = useState<"idle" | "running" | "done" | "error">("idle");
@@ -4658,8 +4692,66 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
 
   const pathParts = path ? path.replace(/\/$/, "").split("/") : [];
 
+  const SRC_ROWS: { key: keyof SourceSettings; label: string; color: string; icon: string; desc: string }[] = [
+    { key: "r2",      label: "R2 Storage",   color: "#f97316", icon: "cloud",       desc: "Vídeos enviados diretamente para o bucket R2" },
+    { key: "drive",   label: "Google Drive",  color: "#1a73e8", icon: "hard-drive",  desc: "Conteúdos via Google Drive" },
+    { key: "flix2",   label: "Flix 2.0",      color: "#8b5cf6", icon: "zap",         desc: "Catálogo nixplay.lat (Flix 2.0)" },
+    { key: "gstream", label: "GStream",       color: "#7c3aed", icon: "radio",       desc: "Stream embed via GStream" },
+    { key: "regular", label: "Player Regular",color: "#e50914", icon: "play-circle", desc: "Player IPTV padrão do app" },
+  ];
+
   return (
     <View style={{ flex: 1 }}>
+      {/* ── Fontes de vídeo (on/off global) ── */}
+      {path === "" && (
+        <View style={{ marginHorizontal: 12, marginTop: 10, marginBottom: 2, borderRadius: 12, borderWidth: 1,
+          borderColor: "rgba(229,9,20,0.25)", backgroundColor: "#0d0007", overflow: "hidden" }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8,
+            paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6 }}>
+            <Feather name="toggle-right" size={15} color="#e50914" />
+            <Text style={{ color: "#e50914", fontWeight: "700", fontSize: 14, flex: 1 }}>
+              Fontes de Vídeo
+            </Text>
+            {srcSaving && <ActivityIndicator size="small" color="#e50914" />}
+            {srcSaved && !srcSaving && (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                <Feather name="check-circle" size={13} color="#4ade80" />
+                <Text style={{ color: "#4ade80", fontSize: 11, fontWeight: "600" }}>Salvo</Text>
+              </View>
+            )}
+          </View>
+          <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 11, paddingHorizontal: 14, paddingBottom: 8 }}>
+            Desativar uma fonte oculta os botões de play para TODOS os usuários imediatamente.
+          </Text>
+          {SRC_ROWS.map(({ key, label, color, icon, desc }) => (
+            <View key={key} style={{ flexDirection: "row", alignItems: "center", gap: 10,
+              paddingHorizontal: 14, paddingVertical: 10,
+              borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.06)" }}>
+              <View style={{ width: 30, height: 30, borderRadius: 8,
+                backgroundColor: srcSettings[key] ? `${color}22` : "rgba(255,255,255,0.04)",
+                alignItems: "center", justifyContent: "center" }}>
+                <Feather name={icon as any} size={14} color={srcSettings[key] ? color : "rgba(255,255,255,0.25)"} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: srcSettings[key] ? "#fff" : "rgba(255,255,255,0.4)",
+                  fontWeight: "600", fontSize: 13 }}>{label}</Text>
+                <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 10, marginTop: 1 }} numberOfLines={1}>
+                  {desc}
+                </Text>
+              </View>
+              <Switch
+                value={srcSettings[key]}
+                onValueChange={() => toggleSrc(key)}
+                trackColor={{ false: "rgba(255,255,255,0.1)", true: `${color}66` }}
+                thumbColor={srcSettings[key] ? color : "rgba(255,255,255,0.4)"}
+                ios_backgroundColor="rgba(255,255,255,0.1)"
+              />
+            </View>
+          ))}
+          <View style={{ height: 8 }} />
+        </View>
+      )}
+
       {/* ── Acervo Drive: extração em background ── */}
       {path === "" && (
         <View style={{ marginHorizontal: 12, marginTop: 10, marginBottom: 2, borderRadius: 12, borderWidth: 1,
