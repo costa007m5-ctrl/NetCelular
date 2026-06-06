@@ -80,6 +80,7 @@ function EpisodeRow({
   onPress,
   onR2Press,
   onDrivePress,
+  onFlixPress,
 }: {
   ep: TmdbEpisode;
   watched: boolean;
@@ -261,10 +262,12 @@ export default function DetailScreen() {
   // Episode numbers (parsed from R2 filenames) for the current season's folder item
   const [r2EpisodeNums, setR2EpisodeNums] = useState<Set<number>>(new Set());
   const [srcSettings, setSrcSettings] = useState<SourceSettings>(DEFAULT_SRC);
+  // Tracks if the R2/Flix2 lookup is still in progress (to avoid race on ASSISTIR AGORA)
+  const [r2Loading, setR2Loading] = useState(true);
 
   // Load R2 registry items + source settings + Flix 2.0 live lookup (non-blocking)
   useEffect(() => {
-    if (!tmdbId) return;
+    if (!tmdbId) { setR2Loading(false); return; }
     const loadR2 = async () => {
       try {
         const { apiGetRegistry, r2Route } = await import("@/lib/r2-direct");
@@ -343,7 +346,9 @@ export default function DetailScreen() {
         if (settingsRaw.status === "fulfilled") {
           setSrcSettings({ ...DEFAULT_SRC, ...settingsRaw.value });
         }
-      } catch {}
+      } catch {} finally {
+        setR2Loading(false);
+      }
     };
     loadR2();
   }, [tmdbId, type]);
@@ -1249,6 +1254,20 @@ export default function DetailScreen() {
                   hasFlix && { id: "flix2",   press: pressFlix },
                   hasDrive && { id: "drive",  press: pressDrive },
                 ].filter(Boolean) as { id: string; press: () => void }[];
+
+                // Show spinner while R2/Flix2 lookup is still running to prevent
+                // the user clicking before hasFlix is determined (race condition)
+                if (r2Loading) {
+                  return (
+                    <Pressable
+                      style={[styles.watchBtn, { backgroundColor: colors.primary, opacity: 0.7 }]}
+                      disabled
+                    >
+                      <ActivityIndicator size="small" color="#fff" />
+                      <Text style={[styles.watchBtnText, { marginLeft: 8 }]}>VERIFICANDO...</Text>
+                    </Pressable>
+                  );
+                }
 
                 if (sources.length === 0) {
                   // Only regular player

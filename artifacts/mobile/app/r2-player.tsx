@@ -440,7 +440,12 @@ export default function R2PlayerScreen() {
         // Flix 2.0: nixplay.lat stream_url redirects 302 → signed CDN URL on vod99.cineveo.lat.
         // We resolve server-side because React Native video players may not follow redirects.
         const rawUrl = params.flix2ItemUrl!;
-        const data = await r2Route<{ url: string }>(`/flix2/stream-url?streamUrl=${encodeURIComponent(rawUrl)}`);
+        const data = await r2Route<{ url: string; error?: string; via?: string }>(`/flix2/stream-url?streamUrl=${encodeURIComponent(rawUrl)}`);
+        if (data.error) throw new Error(data.error);
+        // If resolution fell back to a raw TeraBox URL (xAPIverse failed), warn the user
+        if (data.via === "terabox-fallback") {
+          throw new Error("Link do episódio expirado no TeraBox. Tente outro episódio.");
+        }
         url = data.url;
       } else if (isDrive) {
         // Drive: resolve via server (/drive/play)

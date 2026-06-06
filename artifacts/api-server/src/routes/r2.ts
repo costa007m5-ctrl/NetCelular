@@ -2116,27 +2116,30 @@ router.get("/flix2/stream-url", async (req, res) => {
     if (isTeraboxUrl(streamUrl)) {
       const direct = await resolveTeraboxDirect(streamUrl);
       if (direct) { res.json({ url: direct, via: "terabox" }); return; }
-      // xAPIverse failed — return original so player can still try
-      res.json({ url: streamUrl, via: "terabox-fallback" }); return;
+      // xAPIverse failed — link is dead/expired
+      res.json({ url: streamUrl, via: "terabox-fallback", error: "Link expirado no TeraBox. Tente outro episódio." }); return;
     }
 
     // Step 2: follow the redirect chain from nixplay
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8000);
-    const response = await fetch(streamUrl, {
-      method: "HEAD",
-      redirect: "follow",
-      signal: controller.signal,
-      headers: { "User-Agent": "Mozilla/5.0" },
-    });
-    clearTimeout(timer);
-    const finalUrl = response.url || streamUrl;
+    let response: Response;
+    try {
+      response = await fetch(streamUrl, {
+        method: "HEAD",
+        redirect: "follow",
+        signal: controller.signal,
+        headers: { "User-Agent": "Mozilla/5.0" },
+      });
+    } finally { clearTimeout(timer); }
+    const finalUrl = response!.url || streamUrl;
 
     // Step 3: if the redirect landed on TeraBox, resolve via xAPIverse
     if (isTeraboxUrl(finalUrl)) {
       const direct = await resolveTeraboxDirect(finalUrl);
       if (direct) { res.json({ url: direct, via: "terabox" }); return; }
-      res.json({ url: finalUrl, via: "terabox-fallback" }); return;
+      // xAPIverse failed — link is dead/expired
+      res.json({ url: finalUrl, via: "terabox-fallback", error: "Link expirado no TeraBox. Tente outro episódio." }); return;
     }
 
     res.json({ url: finalUrl });
