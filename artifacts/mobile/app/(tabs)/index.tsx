@@ -1333,6 +1333,8 @@ function ActorCirclesRow({ actors, onPress }: { actors: typeof ACTORS; onPress: 
 }
 
 // ── Actor category section (label + row) ──────────────────────────────────
+const ACTORS_INITIAL = 8;
+
 function ActorCategorySection({
   category,
   onActorPress,
@@ -1340,6 +1342,10 @@ function ActorCategorySection({
   category: typeof ACTOR_CATEGORIES[0];
   onActorPress: (a: typeof ACTOR_CATEGORIES[0]["actors"][0]) => void;
 }) {
+  const [visibleCount, setVisibleCount] = useState(ACTORS_INITIAL);
+  const hasMore = category.actors.length > visibleCount;
+  const visibleActors = category.actors.slice(0, visibleCount);
+
   return (
     <View style={{ marginBottom: 20 }}>
       {/* Category label pill */}
@@ -1359,10 +1365,27 @@ function ActorCategorySection({
         </Text>
       </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }} decelerationRate="fast">
-        {category.actors.map((a) => (
+        contentContainerStyle={{ paddingHorizontal: 16, gap: 12, alignItems: "center" }} decelerationRate="fast">
+        {visibleActors.map((a) => (
           <ActorCircleItem key={`${category.id}-${a.name}`} actor={a} onPress={() => onActorPress(a)} />
         ))}
+        {hasMore && (
+          <TouchableOpacity
+            onPress={() => setVisibleCount((c) => c + ACTORS_INITIAL)}
+            style={{
+              width: 64, height: 64, borderRadius: 32,
+              backgroundColor: "rgba(255,255,255,0.07)",
+              borderWidth: 1, borderColor: "rgba(255,255,255,0.15)",
+              alignItems: "center", justifyContent: "center", gap: 2,
+            }}
+            activeOpacity={0.75}
+          >
+            <Feather name="chevron-right" size={18} color="rgba(255,255,255,0.7)" />
+            <Text style={{ color: "rgba(255,255,255,0.55)", fontSize: 8, fontWeight: "700" }}>
+              VER MAIS
+            </Text>
+          </TouchableOpacity>
+        )}
       </ScrollView>
     </View>
   );
@@ -2301,17 +2324,6 @@ export default function HomeScreen() {
                 </AnimatedSection>
               )}
 
-              {/* ── 30. MINI-SÉRIES ──────────────────────────────────────────── */}
-              {miniSeries.length > 0 && (
-                <AnimatedSection anim={s[25]}>
-                  <View style={styles.section}>
-                    <SectionHeader title="Mini-Séries" icon="tv"
-                      accentColor={TEAL}
-                      onSeeAll={() => browseTo("series", "Mini-Séries")} />
-                    <CompactRow items={miniSeries} onPress={goTo} />
-                  </View>
-                </AnimatedSection>
-              )}
 
               {/* ── 31. AVENTURA ANIMES ──────────────────────────────────────── */}
               {aventuraAnimes.length > 0 && (
@@ -2376,28 +2388,6 @@ export default function HomeScreen() {
                 </View>
               </AnimatedSection>
 
-              {/* ── 36. GÊNEROS EM CÍRCULO ──────────────────────────────── */}
-              <SectionDivider label="GÊNEROS" accentColor={BLUE} />
-              <AnimatedSection anim={s[29]}>
-                <View style={styles.section}>
-                  <SectionHeader title="Explorar por Gênero" icon="grid"
-                    accentColor={BLUE} />
-                  <CircleGenreRow genres={GENRE_CIRCLES}
-                    onPress={(g) => router.push({ pathname: "/genre-browse",
-                      params: { title: g.label, source: "flix2", flix2_type: "movies" } })} />
-                </View>
-              </AnimatedSection>
-
-              {/* ── 37. MATRIX DE GÊNEROS ───────────────────────────────── */}
-              <AnimatedSection anim={s[30]}>
-                <View style={styles.section}>
-                  <SectionHeader title="Todos os Gêneros" icon="layout"
-                    accentColor={PURPLE} />
-                  <GenreMatrixComp genres={GENRE_CIRCLES}
-                    onPress={(g) => router.push({ pathname: "/genre-browse",
-                      params: { title: g.label, source: "flix2", flix2_type: "movies" } })} />
-                </View>
-              </AnimatedSection>
 
               {/* ── 38. TAGS EM ALTA ────────────────────────────────────── */}
               <AnimatedSection anim={s[30]}>
@@ -2488,19 +2478,8 @@ export default function HomeScreen() {
                 </AnimatedSection>
               )}
 
-              {/* ── 46. DÉCADAS ─────────────────────────────────────────── */}
-              <SectionDivider label="CLÁSSICOS" accentColor={TEAL} />
-              <AnimatedSection anim={s[38]}>
-                <View style={styles.section}>
-                  <SectionHeader title="Navegar por Década" icon="clock"
-                    accentColor={TEAL} subtitle="Do passado ao presente" />
-                  <DecadeRowComp decades={DECADES}
-                    onPress={(d) => router.push({ pathname: "/genre-browse",
-                      params: { title: `Anos ${d.year.slice(2)}`, source: "flix2", flix2_type: "movies" } })} />
-                </View>
-              </AnimatedSection>
-
               {/* ── 47. CLÁSSICOS (featured format) ─────────────────────── */}
+              <SectionDivider label="CLÁSSICOS" accentColor={TEAL} />
               {classicsItems.length > 0 && (
                 <AnimatedSection anim={s[39]}>
                   <View style={styles.section}>
