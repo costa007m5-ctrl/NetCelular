@@ -5,6 +5,7 @@ import {
   Dimensions,
   FlatList,
   Image,
+  Modal,
   Platform,
   Pressable,
   StyleSheet,
@@ -29,6 +30,19 @@ const H_PAD = 12;
 type ViewMode = "grid" | "poster" | "list";
 
 const COLS: Record<ViewMode, number> = { grid: 3, poster: 2, list: 1 };
+
+// ── Sort type ───────────────────────────────────────────────────────────────
+type SortOrder = "default" | "rating_desc" | "rating_asc" | "year_desc" | "year_asc" | "az" | "za";
+
+const SORT_OPTIONS: { id: SortOrder; label: string; icon: React.ComponentProps<typeof Feather>["name"] }[] = [
+  { id: "default",     label: "Relevância",    icon: "zap" },
+  { id: "rating_desc", label: "Melhor nota",   icon: "star" },
+  { id: "rating_asc",  label: "Pior nota",     icon: "star" },
+  { id: "year_desc",   label: "Mais recente",  icon: "calendar" },
+  { id: "year_asc",    label: "Mais antigo",   icon: "calendar" },
+  { id: "az",          label: "A → Z",         icon: "type" },
+  { id: "za",          label: "Z → A",         icon: "type" },
+];
 
 const CARD_W: Record<ViewMode, number> = {
   grid:   Math.floor((SW - H_PAD * 2) / 3) - 4,
@@ -282,6 +296,8 @@ export default function GenreBrowseScreen() {
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);
+  const [sortOrder, setSortOrder] = useState<SortOrder>("default");
+  const [showSortMenu, setShowSortMenu] = useState(false);
   const searchInputRef = useRef<TextInput>(null);
   const searchAnim = useRef(new Animated.Value(0)).current;
 
@@ -293,6 +309,23 @@ export default function GenreBrowseScreen() {
     if (!q) return items;
     return items.filter((i) => i.title.toLowerCase().includes(q));
   }, [items, searchQuery]);
+
+  // ── Sorted items ──────────────────────────────────────────────────────
+  const displayItems = useMemo(() => {
+    if (sortOrder === "default") return filteredItems;
+    const arr = [...filteredItems];
+    switch (sortOrder) {
+      case "rating_desc": return arr.sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
+      case "rating_asc":  return arr.sort((a, b) => (a.rating ?? 0) - (b.rating ?? 0));
+      case "year_desc":   return arr.sort((a, b) => (Number(b.year) || 0) - (Number(a.year) || 0));
+      case "year_asc":    return arr.sort((a, b) => (Number(a.year) || 0) - (Number(b.year) || 0));
+      case "az":          return arr.sort((a, b) => a.title.localeCompare(b.title));
+      case "za":          return arr.sort((a, b) => b.title.localeCompare(a.title));
+      default: return arr;
+    }
+  }, [filteredItems, sortOrder]);
+
+  const currentSortLabel = SORT_OPTIONS.find((o) => o.id === sortOrder)?.label ?? "Ordenar";
 
   // ── Animate search bar expand/collapse ───────────────────────────────
   const openSearch = useCallback(() => {
@@ -525,24 +558,86 @@ export default function GenreBrowseScreen() {
           <TouchableOpacity style={styles.searchBtn} onPress={searchFocused ? closeSearch : openSearch}>
             <Feather name={searchFocused ? "x" : "search"} size={20} color={colors.foreground} />
           </TouchableOpacity>
+          {!searchFocused && (
+            <TouchableOpacity
+              style={[styles.sortBtn, sortOrder !== "default" && { backgroundColor: `${sourceColor}22`, borderColor: `${sourceColor}55` }]}
+              onPress={() => setShowSortMenu(true)}
+            >
+              <Feather name="sliders" size={16} color={sortOrder !== "default" ? sourceColor : colors.foreground} />
+            </TouchableOpacity>
+          )}
           {!searchFocused && <ViewToggle mode={viewMode} onToggle={cycleMode} />}
         </View>
       </View>
 
       <ModeBar mode={viewMode} />
 
-      {/* ── Search results count ────────────────────────────────── */}
-      {searchQuery.trim().length > 0 && !initialLoading && (
+      {/* ── Search + sort status bar ─────────────────────────────── */}
+      {!initialLoading && (searchQuery.trim().length > 0 || sortOrder !== "default") && (
         <View style={styles.searchResultsBar}>
-          <Feather name="search" size={12} color="#888" />
-          <Text style={styles.searchResultsText}>
-            {filteredItems.length === 0
-              ? "Nenhum resultado para "
-              : `${filteredItems.length} resultado${filteredItems.length !== 1 ? "s" : ""} para `}
-            <Text style={{ color: colors.foreground, fontWeight: "600" }}>"{searchQuery.trim()}"</Text>
-          </Text>
+          {searchQuery.trim().length > 0 && (
+            <>
+              <Feather name="search" size={12} color="#888" />
+              <Text style={styles.searchResultsText}>
+                {displayItems.length === 0
+                  ? "Nenhum resultado para "
+                  : `${displayItems.length} resultado${displayItems.length !== 1 ? "s" : ""} para `}
+                <Text style={{ color: colors.foreground, fontWeight: "600" }}>"{searchQuery.trim()}"</Text>
+              </Text>
+            </>
+          )}
+          {sortOrder !== "default" && (
+            <>
+              {searchQuery.trim().length > 0 && <Text style={{ color: "#555", fontSize: 12 }}>·</Text>}
+              <Feather name="sliders" size={12} color={sourceColor} />
+              <Text style={[styles.searchResultsText, { color: sourceColor }]}>{currentSortLabel}</Text>
+              <TouchableOpacity onPress={() => setSortOrder("default")} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Feather name="x" size={12} color="#888" />
+              </TouchableOpacity>
+            </>
+          )}
         </View>
       )}
+
+      {/* ── Sort dropdown modal ──────────────────────────────────── */}
+      <Modal
+        visible={showSortMenu}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowSortMenu(false)}
+        statusBarTranslucent
+      >
+        <Pressable style={styles.sortOverlay} onPress={() => setShowSortMenu(false)}>
+          <Pressable style={[styles.sortSheet, { backgroundColor: "#1c1c1e" }]} onPress={(e) => e.stopPropagation()}>
+            {/* Sheet handle */}
+            <View style={styles.sortHandle} />
+            <Text style={[styles.sortSheetTitle, { color: colors.foreground }]}>Ordenar por</Text>
+            {SORT_OPTIONS.map((opt) => {
+              const active = sortOrder === opt.id;
+              return (
+                <TouchableOpacity
+                  key={opt.id}
+                  style={[styles.sortOption, active && { backgroundColor: `${sourceColor}18` }]}
+                  onPress={() => { setSortOrder(opt.id); setShowSortMenu(false); }}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.sortOptionIcon, active && { backgroundColor: `${sourceColor}25` }]}>
+                    <Feather name={opt.icon} size={15} color={active ? sourceColor : "#888"} />
+                  </View>
+                  <Text style={[styles.sortOptionLabel, { color: active ? colors.foreground : "#aaa" }, active && { fontWeight: "700" }]}>
+                    {opt.label}
+                  </Text>
+                  {active && (
+                    <View style={[styles.sortActiveCheck, { backgroundColor: sourceColor }]}>
+                      <Feather name="check" size={11} color="#fff" />
+                    </View>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {/* ── States ─────────────────────────────────────────────── */}
       {initialLoading ? (
@@ -575,7 +670,7 @@ export default function GenreBrowseScreen() {
       ) : (
         <FlatList
           key={viewMode}
-          data={filteredItems}
+          data={displayItems}
           keyExtractor={keyExtractor}
           numColumns={numCols}
           contentContainerStyle={[
@@ -848,5 +943,65 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textAlign: "center",
     marginTop: 4,
+  },
+
+  sortBtn: {
+    width: 36, height: 36,
+    alignItems: "center", justifyContent: "center",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+  },
+  sortOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "flex-end",
+  },
+  sortSheet: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: 32,
+    paddingTop: 12,
+    paddingHorizontal: 16,
+  },
+  sortHandle: {
+    alignSelf: "center",
+    width: 36, height: 4,
+    borderRadius: 2,
+    backgroundColor: "rgba(255,255,255,0.18)",
+    marginBottom: 16,
+  },
+  sortSheetTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    letterSpacing: -0.2,
+    marginBottom: 12,
+    paddingHorizontal: 4,
+  },
+  sortOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    marginBottom: 2,
+  },
+  sortOptionIcon: {
+    width: 34, height: 34,
+    borderRadius: 10,
+    backgroundColor: "rgba(255,255,255,0.07)",
+    alignItems: "center", justifyContent: "center",
+  },
+  sortOptionLabel: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: "500",
+  },
+  sortActiveCheck: {
+    width: 22, height: 22,
+    borderRadius: 11,
+    alignItems: "center", justifyContent: "center",
   },
 });
