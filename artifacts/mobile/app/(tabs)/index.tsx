@@ -1570,10 +1570,29 @@ export default function HomeScreen() {
   }, [router]);
 
   const BROWSE_GENRE: Record<string, number> = {
-    "Ação & Aventura": 28, "Drama": 18, "Dramas": 18, "Comédia": 35,
-    "Terror": 27, "Ficção Científica": 878, "Animações": 16,
-    "Animes": 16, "Thriller": 53, "Mini-Séries": 18,
-    "Aventura": 12, "Internacional": 18, "Premiados": 18,
+    // Action/Adventure
+    "Ação & Aventura": 28, "Aventura": 12,
+    // Drama
+    "Drama": 18, "Dramas": 18,
+    // Comedy
+    "Comédia": 35,
+    // Horror / Thriller
+    "Terror": 27, "Thriller": 53,
+    // Sci-fi
+    "Ficção Científica": 878,
+    // Animation / Anime
+    "Animações": 16, "Animes": 16,
+    // Series genres
+    "Mini-Séries": 18, "Episódios": 0, "Novos Episódios": 0,
+    // Family / Documentary
+    "Família": 10751, "Documentários": 99,
+    // Misc — genre_id=0 → popular (no filter)
+    "Em Alta": 0, "Top 10 Filmes": 0, "Top 10 Séries": 0,
+    "Séries em Alta": 0, "Séries do Momento": 0,
+    "Para Você": 0, "Panorâmicos": 0,
+    "Clássicos": 0, "Clássicos Imortais": 0,
+    "Internacional": 18, "Premiados": 18,
+    "Anos 80": 0, "Explorar": 0,
   };
   const browseTo = useCallback((type: string, title: string) => {
     const genre_id = String(BROWSE_GENRE[title] ?? 0);
@@ -2259,7 +2278,10 @@ export default function HomeScreen() {
                   <SectionHeader title="Cinema do Mundo" icon="globe"
                     accentColor={TEAL} subtitle="Explore por país" />
                   <FilmNationRow countries={COUNTRIES}
-                    onPress={(c) => router.push({ pathname: "/buscar", params: { q: c.label } })} />
+                    onPress={(c) => router.push({
+                      pathname: "/country-browse",
+                      params: { id: c.id, label: c.label, flag: c.flag, color: c.color },
+                    })} />
                 </View>
               </AnimatedSection>
 

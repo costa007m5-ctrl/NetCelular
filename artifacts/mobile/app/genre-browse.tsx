@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Dimensions,
@@ -78,18 +78,29 @@ export default function GenreBrowseScreen() {
   const router = useRouter();
   const isWeb = Platform.OS === "web";
 
+  const resolvedGenreId = Number(genre_id) > 0 ? Number(genre_id) : 0;
+  const resolvedType: "movie" | "tv" = type === "tv" ? "tv" : "movie";
+
   const [items, setItems] = useState<ContentItem[]>([]);
   const [currentPage, setCurrentPage] = useState(0);
   const [totalPages, setTotalPages] = useState(999);
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
+
   const loadingRef = useRef(false);
+  const mountedRef = useRef(true);
 
-  const resolvedGenreId = Number(genre_id) > 0 ? Number(genre_id) : 0;
-  const resolvedType: "movie" | "tv" = type === "tv" ? "tv" : "movie";
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
-  const loadInitial = useCallback(async () => {
+  // Initial load — runs once on mount + whenever user presses retry
+  useEffect(() => {
+    let cancelled = false;
+
     setError(false);
     setInitialLoading(true);
     setItems([]);
@@ -97,63 +108,61 @@ export default function GenreBrowseScreen() {
     setTotalPages(999);
     loadingRef.current = true;
     setLoading(true);
-    try {
-      const [d1, d2] = await Promise.all([
-        api.tmdb.discover(resolvedType, resolvedGenreId, 1),
-        api.tmdb.discover(resolvedType, resolvedGenreId, 2),
-      ]);
-      const combined = [
-        ...d1.results.map(tmdbItemToContent),
-        ...d2.results.map(tmdbItemToContent),
-      ];
-      setItems(combined);
-      setCurrentPage(2);
-      setTotalPages(d1.total_pages ?? 999);
-      if (combined.length === 0) setError(true);
-    } catch (err) {
-      console.error("genre-browse init error:", err);
-      setError(true);
-    } finally {
-      loadingRef.current = false;
-      setLoading(false);
-      setInitialLoading(false);
-    }
-  }, [resolvedType, resolvedGenreId]);
 
-  useEffect(() => {
-    loadInitial();
-  }, [loadInitial]);
+    Promise.all([
+      api.tmdb.discover(resolvedType, resolvedGenreId, 1),
+      api.tmdb.discover(resolvedType, resolvedGenreId, 2),
+    ])
+      .then(([d1, d2]) => {
+        if (cancelled) return;
+        const combined = [
+          ...d1.results.map(tmdbItemToContent),
+          ...d2.results.map(tmdbItemToContent),
+        ];
+        setItems(combined);
+        setCurrentPage(2);
+        setTotalPages(d1.total_pages ?? 999);
+        if (combined.length === 0) setError(true);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error("genre-browse init error:", err);
+        setError(true);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          loadingRef.current = false;
+          setLoading(false);
+          setInitialLoading(false);
+        }
+      });
 
-  const fetchPage = useCallback(
-    async (page: number) => {
-      if (loadingRef.current || page > totalPages) return;
-      loadingRef.current = true;
-      setLoading(true);
-      try {
-        const data = await api.tmdb.discover(resolvedType, resolvedGenreId, page);
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [retryKey]);
+
+  const loadMore = () => {
+    if (loading || loadingRef.current || currentPage >= totalPages) return;
+    loadingRef.current = true;
+    setLoading(true);
+    api.tmdb
+      .discover(resolvedType, resolvedGenreId, currentPage + 1)
+      .then((data) => {
         const newItems = data.results.map(tmdbItemToContent);
         if (newItems.length > 0) {
           setItems((prev) => [...prev, ...newItems]);
-          setCurrentPage(page);
+          setCurrentPage((p) => p + 1);
           setTotalPages(data.total_pages ?? totalPages);
         }
-      } catch (err) {
-        console.error("genre-browse page error:", err);
-      } finally {
+      })
+      .catch((err) => console.error("genre-browse page error:", err))
+      .finally(() => {
         loadingRef.current = false;
         setLoading(false);
-      }
-    },
-    [resolvedType, resolvedGenreId, totalPages]
-  );
+      });
+  };
 
-  const loadMore = useCallback(() => {
-    if (!loading && currentPage < totalPages && !loadingRef.current) {
-      fetchPage(currentPage + 1);
-    }
-  }, [loading, currentPage, totalPages, fetchPage]);
-
-  const goToDetail = useCallback((item: ContentItem) => {
+  const goToDetail = (item: ContentItem) => {
     router.push({
       pathname: "/detail",
       params: {
@@ -162,15 +171,14 @@ export default function GenreBrowseScreen() {
         title: item.title,
       },
     });
-  }, [router]);
-
-  const renderItem = useCallback(({ item }: { item: ContentItem }) => (
-    <GridCard item={item} onPress={() => goToDetail(item)} />
-  ), [goToDetail]);
-
-  const keyExtractor = useCallback((item: ContentItem, idx: number) => `${item.id}-${idx}`, []);
+  };
 
   const topPad = isWeb ? 0 : insets.top;
+
+  const renderItem = ({ item }: { item: ContentItem }) => (
+    <GridCard item={item} onPress={() => goToDetail(item)} />
+  );
+  const keyExtractor = (item: ContentItem, idx: number) => `${item.id}-${idx}`;
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -185,30 +193,29 @@ export default function GenreBrowseScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      {/* Content */}
       {initialLoading ? (
-        /* ── Loading skeleton ─────────────────────────────────────── */
+        /* ── Loading ─────────────────────────────────────────────── */
         <View style={styles.centered}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={[styles.loadingText, { color: colors.mutedForeground }]}>
+          <ActivityIndicator size="large" color="#e50914" />
+          <Text style={[styles.loadingText, { color: "#888" }]}>
             Carregando conteúdo...
           </Text>
         </View>
-      ) : error && items.length === 0 ? (
-        /* ── Error / empty state ──────────────────────────────────── */
+      ) : error ? (
+        /* ── Error state ─────────────────────────────────────────── */
         <View style={styles.centered}>
-          <View style={[styles.errorIcon, { backgroundColor: `${colors.primary}18` }]}>
-            <Feather name="wifi-off" size={32} color={colors.primary} />
+          <View style={styles.errorIcon}>
+            <Feather name="wifi-off" size={32} color="#e50914" />
           </View>
           <Text style={[styles.errorTitle, { color: colors.foreground }]}>
             Não foi possível carregar
           </Text>
-          <Text style={[styles.errorSub, { color: colors.mutedForeground }]}>
+          <Text style={[styles.errorSub, { color: "#888" }]}>
             Verifique sua conexão e tente novamente
           </Text>
           <TouchableOpacity
-            style={[styles.retryBtn, { backgroundColor: colors.primary }]}
-            onPress={loadInitial}
+            style={styles.retryBtn}
+            onPress={() => setRetryKey((k) => k + 1)}
             activeOpacity={0.8}
           >
             <Feather name="refresh-cw" size={14} color="#fff" />
@@ -223,7 +230,6 @@ export default function GenreBrowseScreen() {
           numColumns={NUM_COLS}
           contentContainerStyle={[
             styles.grid,
-            items.length === 0 ? styles.gridEmpty : null,
             { paddingBottom: insets.bottom + 32 },
           ]}
           columnWrapperStyle={styles.row}
@@ -234,17 +240,16 @@ export default function GenreBrowseScreen() {
           maxToRenderPerBatch={9}
           windowSize={5}
           removeClippedSubviews={Platform.OS !== "web"}
-          updateCellsBatchingPeriod={50}
           showsVerticalScrollIndicator={false}
           ListEmptyComponent={
             <View style={styles.emptyState}>
               <Feather name="film" size={36} color="rgba(255,255,255,0.12)" />
-              <Text style={[styles.emptyTitle, { color: colors.mutedForeground }]}>
+              <Text style={[styles.emptyTitle, { color: "#666" }]}>
                 Nenhum título encontrado
               </Text>
               <TouchableOpacity
-                style={[styles.retryBtn, { backgroundColor: colors.primary }]}
-                onPress={loadInitial}
+                style={styles.retryBtn}
+                onPress={() => setRetryKey((k) => k + 1)}
                 activeOpacity={0.8}
               >
                 <Feather name="refresh-cw" size={14} color="#fff" />
@@ -255,7 +260,7 @@ export default function GenreBrowseScreen() {
           ListFooterComponent={
             loading && items.length > 0 ? (
               <View style={styles.footer}>
-                <ActivityIndicator color={colors.primary} />
+                <ActivityIndicator color="#e50914" />
               </View>
             ) : null
           }
@@ -304,6 +309,7 @@ const styles = StyleSheet.create({
     width: 72,
     height: 72,
     borderRadius: 36,
+    backgroundColor: "rgba(229,9,20,0.1)",
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 4,
@@ -326,6 +332,7 @@ const styles = StyleSheet.create({
     paddingVertical: 11,
     borderRadius: 22,
     marginTop: 8,
+    backgroundColor: "#e50914",
   },
   retryText: {
     color: "#fff",
@@ -335,9 +342,6 @@ const styles = StyleSheet.create({
   grid: {
     paddingHorizontal: H_PAD,
     paddingTop: 8,
-  },
-  gridEmpty: {
-    flex: 1,
   },
   row: {
     justifyContent: "space-between",
@@ -387,7 +391,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.4,
   },
   emptyState: {
-    flex: 1,
     alignItems: "center",
     justifyContent: "center",
     gap: 12,

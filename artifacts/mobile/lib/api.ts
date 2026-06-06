@@ -5,6 +5,17 @@ const TMDB_KEY = "8f0beb08cf016ec8de49e454e09879ec";
 const TMDB_BASE = "https://api.themoviedb.org/3";
 const TMDB_LANG = "pt-BR";
 
+export const COUNTRY_LANG: Record<string, string> = {
+  BR: "pt",
+  US: "en",
+  KR: "ko",
+  JP: "ja",
+  GB: "en",
+  FR: "fr",
+  IT: "it",
+  ES: "es",
+};
+
 const STORAGE_KEY = "@netplay_api_domain";
 const SUPABASE_URL = "https://pjzfsbdcjyhcoptbrlhh.supabase.co";
 const SUPABASE_ANON_KEY =
@@ -308,6 +319,16 @@ export const api = {
       return apiFetchOrDirect(`/tmdb/discover?type=${type}&genre_id=${genreId}&page=${page}`, () =>
         tmdbFetch<TmdbSearchResult>(path, directParams)
       );
+    },
+
+    discoverByCountry: async (type: "movie" | "tv", countryCode: string, page = 1): Promise<TmdbSearchResult> => {
+      const path = type === "movie" ? "/discover/movie" : "/discover/tv";
+      return tmdbFetch<TmdbSearchResult>(path, {
+        with_original_language: COUNTRY_LANG[countryCode] ?? "en",
+        page: String(page),
+        include_adult: "false",
+        sort_by: "popularity.desc",
+      });
     },
 
     providers: async (type: "movie" | "tv", id: number) => {
