@@ -26,6 +26,7 @@ import * as FileSystem from "expo-file-system";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/lib/auth-context";
 import { r2Route, teraboxResolve, extractTitleAndYear } from "@/lib/r2-direct";
+import { getApiDomainDisplay, getApiBase } from "@/lib/api";
 import { listFolder, isFolder as driveIsFolder, isVideo as driveIsVideo, getStreamUrl, formatSize as driveFormatSize, DRIVE_ROOTS, DriveItem, parseEpisodeInfo } from "@/lib/gdrive-index";
 
 const UPLOADED_URLS_KEY = "r2_uploaded_urls_v1";
@@ -5948,6 +5949,12 @@ export default function R2CatalogScreen() {
   const [registerEp, setRegisterEp] = useState<number | undefined>(undefined);
   const [registered, setRegistered] = useState(0);
   const [editEntry, setEditEntry] = useState<CatalogEntry | null>(null);
+  const [apiDomain, setApiDomain] = useState<string>(() => getApiDomainDisplay());
+
+  useEffect(() => {
+    const interval = setInterval(() => setApiDomain(getApiDomainDisplay()), 5000);
+    return () => clearInterval(interval);
+  }, []);
 
   if (!user || user.role !== "admin") {
     return (
@@ -5974,6 +5981,22 @@ export default function R2CatalogScreen() {
           <View style={{ flex: 1, marginLeft: 8 }}>
             <Text style={styles.headerTitle}>Acervo R2</Text>
             <Text style={styles.headerSub}>Cloudflare R2 · Gestão de conteúdo</Text>
+            <Pressable
+              onPress={() => Alert.alert(
+                "API Server",
+                `Domínio ativo:\n${getApiBase() ?? "(não configurado)"}`,
+                [{ text: "OK" }]
+              )}
+              style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 3 }}
+            >
+              <View style={{
+                width: 6, height: 6, borderRadius: 3,
+                backgroundColor: getApiBase() ? "#22c55e" : "#f59e0b"
+              }} />
+              <Text numberOfLines={1} style={{ color: "rgba(255,255,255,0.3)", fontSize: 10 }}>
+                {apiDomain}
+              </Text>
+            </Pressable>
           </View>
           <View style={styles.r2Badge}>
             <Feather name="cloud" size={13} color={RED} />
