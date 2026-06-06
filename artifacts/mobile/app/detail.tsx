@@ -34,15 +34,22 @@ import { searchDriveByTitle, getDriveSeasonEpisodes, DriveMatch } from "@/lib/gd
 import { DriveItem, parseEpisodeInfo } from "@/lib/gdrive-index";
 
 interface RegistryItem {
-  id: string; r2Key: string; teraboxUrl?: string;
+  id: string; r2Key: string; teraboxUrl?: string; flix2Url?: string;
   driveUrl?: string; driveDirectUrl?: string;
   driveFilePath?: string; driveNum?: number;
   tmdbId: number; tmdbType: "movie" | "tv";
   title: string; label: string; season: number | null; episode: number | null;
 }
 
+interface SourceSettings {
+  r2: boolean; drive: boolean; flix2: boolean; gstream: boolean; regular: boolean;
+}
+
+const DEFAULT_SRC: SourceSettings = { r2: true, drive: true, flix2: true, gstream: true, regular: true };
+
 // Um item é "Drive" se tiver driveUrl (link compartilhável) OU driveFilePath (registrado via navegador de pastas)
 const isDriveItem = (i: RegistryItem) => !!i.driveUrl || i.driveFilePath != null;
+const isFlixItem  = (i: RegistryItem) => !!i.flix2Url;
 
 let WebView: any = null;
 try { WebView = require("react-native-webview").WebView; } catch {}
@@ -260,18 +267,27 @@ export default function DetailScreen() {
   const [r2Items, setR2Items] = useState<RegistryItem[]>([]);
   // Episode numbers (parsed from R2 filenames) for the current season's folder item
   const [r2EpisodeNums, setR2EpisodeNums] = useState<Set<number>>(new Set());
+  const [srcSettings, setSrcSettings] = useState<SourceSettings>(DEFAULT_SRC);
 
-  // Load R2 registry items for this title (non-blocking)
+  // Load R2 registry items + source settings (non-blocking)
   useEffect(() => {
     if (!tmdbId) return;
     const loadR2 = async () => {
       try {
-        const { apiGetRegistry } = await import("@/lib/r2-direct");
-        const data = await apiGetRegistry();
-        const items: RegistryItem[] = (data.items ?? []).filter(
-          (i: RegistryItem) => i.tmdbId === tmdbId && i.tmdbType === type
-        );
-        setR2Items(items);
+        const { apiGetRegistry, apiFetch } = await import("@/lib/r2-direct");
+        const [data, settingsRaw] = await Promise.allSettled([
+          apiGetRegistry(),
+          apiFetch<SourceSettings>("/r2/source-settings"),
+        ]);
+        if (data.status === "fulfilled") {
+          const items: RegistryItem[] = (data.value.items ?? []).filter(
+            (i: RegistryItem) => i.tmdbId === tmdbId && i.tmdbType === type
+          );
+          setR2Items(items);
+        }
+        if (settingsRaw.status === "fulfilled") {
+          setSrcSettings({ ...DEFAULT_SRC, ...settingsRaw.value });
+        }
       } catch {}
     };
     loadR2();

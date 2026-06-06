@@ -1802,6 +1802,64 @@ router.post("/flix2/register", async (req, res) => {
   }
 });
 
+// ── Source Settings (global on/off per source, stored in R2) ─────────────────
+
+interface SourceSettings {
+  r2: boolean;
+  drive: boolean;
+  flix2: boolean;
+  gstream: boolean;
+  regular: boolean;
+}
+
+const SOURCE_SETTINGS_KEY = "__source-settings.json";
+const DEFAULT_SOURCE_SETTINGS: SourceSettings = {
+  r2: true, drive: true, flix2: true, gstream: true, regular: true,
+};
+
+async function readSourceSettings(client: S3Client, bucket: string): Promise<SourceSettings> {
+  try {
+    const resp = await client.send(new GetObjectCommand({ Bucket: bucket, Key: SOURCE_SETTINGS_KEY }));
+    const body = await (resp.Body as any).transformToString();
+    return { ...DEFAULT_SOURCE_SETTINGS, ...JSON.parse(body) };
+  } catch {
+    return { ...DEFAULT_SOURCE_SETTINGS };
+  }
+}
+
+async function writeSourceSettings(client: S3Client, bucket: string, settings: SourceSettings): Promise<void> {
+  await client.send(new PutObjectCommand({
+    Bucket: bucket,
+    Key: SOURCE_SETTINGS_KEY,
+    Body: JSON.stringify(settings),
+    ContentType: "application/json",
+  }));
+}
+
+router.get("/source-settings", async (req, res) => {
+  try {
+    const client = getClient();
+    const bucket = getBucket(req.query);
+    const settings = await readSourceSettings(client, bucket);
+    res.json(settings);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "error" });
+  }
+});
+
+router.post("/source-settings", async (req, res) => {
+  try {
+    const client = getClient();
+    const bucket = getBucket(req.query);
+    const current = await readSourceSettings(client, bucket);
+    const updated: SourceSettings = { ...current, ...req.body };
+    await writeSourceSettings(client, bucket, updated);
+    res.json({ ok: true, settings: updated });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "error" });
+  }
+});
+
 // ── GET /flix2/catalog — proxy to nixplay.lat API (avoids CORS on mobile) ─────
 router.get("/flix2/catalog", async (req, res) => {
   try {
