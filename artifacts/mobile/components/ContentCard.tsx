@@ -55,7 +55,7 @@ function PlayOverlay({ visible }: { visible: boolean }) {
   );
 }
 
-function AnimatedCard({
+const AnimatedCard = React.memo(function AnimatedCard({
   item,
   width = 120,
   height = 175,
@@ -67,27 +67,18 @@ function AnimatedCard({
 }: ContentCardProps) {
   const colors = useColors();
   const scale = useRef(new Animated.Value(1)).current;
-  const glow = useRef(new Animated.Value(0)).current;
   const [imgError, setImgError] = useState(false);
   const [pressing, setPressing] = useState(false);
 
   const onPressIn = () => {
     setPressing(true);
-    Animated.parallel([
-      Animated.spring(scale, { toValue: 0.92, useNativeDriver: true, speed: 26, bounciness: 5 }),
-      Animated.timing(glow, { toValue: 1, duration: 100, useNativeDriver: true }),
-    ]).start();
+    Animated.spring(scale, { toValue: 0.92, useNativeDriver: true, speed: 26, bounciness: 5 }).start();
   };
 
   const onPressOut = () => {
     setPressing(false);
-    Animated.parallel([
-      Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 22, bounciness: 6 }),
-      Animated.timing(glow, { toValue: 0, duration: 220, useNativeDriver: true }),
-    ]).start();
+    Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 22, bounciness: 6 }).start();
   };
-
-  const glowOpacity = glow.interpolate({ inputRange: [0, 1], outputRange: [0, 1] });
   const isNew = isNewContent(item.year);
   const isLatest = isRecentContent(item.year);
   const isSeries = item.type === "series";
@@ -184,23 +175,10 @@ function AnimatedCard({
         )}
 
         <PlayOverlay visible={pressing} />
-
-        <Animated.View
-          style={[
-            StyleSheet.absoluteFill,
-            {
-              borderRadius: colors.radius,
-              borderWidth: 1.5,
-              borderColor: colors.primary,
-              opacity: glowOpacity,
-            },
-          ]}
-          pointerEvents="none"
-        />
       </Animated.View>
     </Pressable>
   );
-}
+});
 
 export function ContentCard(props: ContentCardProps) {
   return <AnimatedCard {...props} />;
@@ -253,11 +231,11 @@ const cardStyles = StyleSheet.create({
     ...Platform.select({
       ios: {
         shadowColor: "#000",
-        shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.5,
-        shadowRadius: 14,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.35,
+        shadowRadius: 8,
       },
-      android: { elevation: 8 },
+      android: { elevation: 4 },
     }),
   },
   image: {

@@ -105,6 +105,7 @@ export function ContentRow({
         decelerationRate="fast"
         snapToInterval={cardWidth + 10}
         snapToAlignment="start"
+        removeClippedSubviews={true}
       >
         {displayItems.map((item) => (
           <ContentCardWithLabel

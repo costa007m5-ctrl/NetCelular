@@ -460,12 +460,14 @@ function SpotlightBanner({ item, label, onPress, accentColor = RED }: {
   const pressOut = () => Animated.spring(scale, { toValue: 1,    useNativeDriver: true, speed: 24 }).start();
 
   useEffect(() => {
-    Animated.loop(
+    const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(glow, { toValue: 1, duration: 1800, useNativeDriver: true }),
         Animated.timing(glow, { toValue: 0, duration: 1800, useNativeDriver: true }),
       ])
-    ).start();
+    );
+    loop.start();
+    return () => loop.stop();
   }, []);
 
   const glowOpacity = glow.interpolate({ inputRange: [0, 1], outputRange: [0.5, 1] });
@@ -945,10 +947,12 @@ function OriginalsBannerComp({ onPress }: { onPress: () => void }) {
   const pi = () => Animated.spring(sc, { toValue: 0.97, useNativeDriver: true, speed: 28 }).start();
   const po = () => Animated.spring(sc, { toValue: 1,    useNativeDriver: true, speed: 24 }).start();
   useEffect(() => {
-    Animated.loop(Animated.sequence([
+    const loop = Animated.loop(Animated.sequence([
       Animated.timing(pulse, { toValue: 1, duration: 1600, useNativeDriver: true }),
       Animated.timing(pulse, { toValue: 0, duration: 1600, useNativeDriver: true }),
-    ])).start();
+    ]));
+    loop.start();
+    return () => loop.stop();
   }, []);
   const glowOp = pulse.interpolate({ inputRange: [0,1], outputRange: [0.5,1] });
   return (
@@ -1357,10 +1361,12 @@ export default function HomeScreen() {
   const [continueItems, setContinueItems] = useState<ContinueItem[]>([]);
   const [activeProfile, setActiveProfile] = useState<any>(null);
 
-  // ── section entrance animations (28 sections) ────────────────────────────
-  const SECTION_COUNT = 50;
+  // ── section entrance animations ────────────────────────────────────────────
+  const SECTION_COUNT = 49;
+  // On native, skip entrance animations entirely — set all to 1 immediately.
+  // Stagger of 49 animations at 90ms each takes 4.4s and causes jank on mobile.
   const sectionAnims = useRef(
-    Array.from({ length: SECTION_COUNT }, () => new Animated.Value(0))
+    Array.from({ length: SECTION_COUNT }, () => new Animated.Value(Platform.OS === "web" ? 0 : 1))
   ).current;
 
   // pulse anim for "NOVO" badges
@@ -1380,20 +1386,24 @@ export default function HomeScreen() {
 
   // ── pulse animation ──────────────────────────────────────────────────────
   useEffect(() => {
-    Animated.loop(
+    const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(pulseAnim, { toValue: 1.08, duration: 900,  useNativeDriver: true }),
         Animated.timing(pulseAnim, { toValue: 1,    duration: 900,  useNativeDriver: true }),
       ])
-    ).start();
+    );
+    loop.start();
+    return () => loop.stop();
   }, []);
 
   // ── stagger entrance animations after load ────────────────────────────────
   const startEntranceAnims = useCallback(() => {
+    // Skip stagger on native — values are pre-set to 1, no animation needed.
+    if (Platform.OS !== "web") return;
     Animated.stagger(
-      90,
+      60,
       sectionAnims.map((anim) =>
-        Animated.timing(anim, { toValue: 1, duration: 480, useNativeDriver: true })
+        Animated.timing(anim, { toValue: 1, duration: 320, useNativeDriver: true })
       )
     ).start();
   }, []);

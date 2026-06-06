@@ -4,6 +4,21 @@ import { useColors } from "@/hooks/useColors";
 
 const { width: SW } = Dimensions.get("window");
 
+const sharedTranslateX = new Animated.Value(-SW);
+let _loopStarted = false;
+
+function ensureSharedLoop() {
+  if (_loopStarted) return;
+  _loopStarted = true;
+  Animated.loop(
+    Animated.timing(sharedTranslateX, {
+      toValue: SW,
+      duration: 1400,
+      useNativeDriver: true,
+    })
+  ).start();
+}
+
 interface SkeletonProps {
   width: number | string;
   height: number;
@@ -13,19 +28,10 @@ interface SkeletonProps {
 
 export function Skeleton({ width, height, borderRadius = 8, style }: SkeletonProps) {
   const colors = useColors();
-  const translateX = useRef(new Animated.Value(-SW)).current;
 
   useEffect(() => {
-    const loop = Animated.loop(
-      Animated.timing(translateX, {
-        toValue: SW,
-        duration: 1400,
-        useNativeDriver: true,
-      })
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [translateX]);
+    ensureSharedLoop();
+  }, []);
 
   return (
     <View
@@ -38,7 +44,7 @@ export function Skeleton({ width, height, borderRadius = 8, style }: SkeletonPro
         style={[
           StyleSheet.absoluteFill,
           {
-            transform: [{ translateX }],
+            transform: [{ translateX: sharedTranslateX }],
             backgroundColor: colors.shimmer2,
             opacity: 0.55,
             width: 160,
@@ -49,9 +55,7 @@ export function Skeleton({ width, height, borderRadius = 8, style }: SkeletonPro
   );
 }
 
-/** Row of skeleton content cards */
 export function SkeletonRow() {
-  const colors = useColors();
   return (
     <View style={styles.row}>
       <View style={styles.header}>
@@ -67,9 +71,7 @@ export function SkeletonRow() {
   );
 }
 
-/** Full hero skeleton for home screen */
 export function SkeletonHero() {
-  const colors = useColors();
   return (
     <View style={styles.hero}>
       <Skeleton width="100%" height={500} borderRadius={0} />
@@ -86,9 +88,7 @@ export function SkeletonHero() {
   );
 }
 
-/** Detail page skeleton */
 export function SkeletonDetail() {
-  const colors = useColors();
   return (
     <View style={{ flex: 1 }}>
       <Skeleton width="100%" height={260} borderRadius={0} />
