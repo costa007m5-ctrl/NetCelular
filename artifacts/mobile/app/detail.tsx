@@ -273,96 +273,107 @@ export default function DetailScreen() {
   // Tracks if the R2/Flix2 lookup is still in progress (to avoid race on ASSISTIR AGORA)
   const [r2Loading, setR2Loading] = useState(true);
 
-  // Load R2 registry items + source settings + Flix 2.0 live lookup (non-blocking)
+  // Load R2 registry items + source settings + Flix 2.0 live lookup
+  // ─── Fase 1 (rápida): registry + settings → mostra botões imediatamente
+  // ─── Fase 2 (lenta):  flix2/lookup roda em background e acrescenta itens
   useEffect(() => {
     if (!tmdbId) { setR2Loading(false); return; }
+    let cancelled = false;
     const loadR2 = async () => {
       try {
         const { apiGetRegistry, r2Route } = await import("@/lib/r2-direct");
-        // Look in "all" so animes are found too (not just "series")
-        const flix2Type = type === "movie" ? "movies" : "all";
-        const [data, settingsRaw, flix2Raw] = await Promise.allSettled([
+
+        // ── Fase 1: registro + settings (geralmente < 1s) ──────────────────
+        const [data, settingsRaw] = await Promise.allSettled([
           apiGetRegistry(),
           r2Route<SourceSettings>("/source-settings"),
-          r2Route<{ found: boolean; item: any }>(`/flix2/lookup?tmdbId=${tmdbId}&type=${flix2Type}&title=${encodeURIComponent(params.title ?? "")}`),
         ]);
-        const registryItems: RegistryItem[] = data.status === "fulfilled"
-          ? (data.value.items ?? []).filter(
-              (i: RegistryItem) => i.tmdbId === tmdbId && i.tmdbType === type
-            )
-          : [];
-        // Inject virtual Flix 2.0 registry items if found in catalog and not already registered
+        if (cancelled) return;
+
+        const allItems: RegistryItem[] = data.status === "fulfilled"
+          ? (data.value.items ?? []) : [];
+
+        // Filtro principal: tmdbId + type exato
+        let registryItems = allItems.filter(
+          (i: RegistryItem) => i.tmdbId === tmdbId && i.tmdbType === type
+        );
+        // Fallback: se não encontrou com type exato, tenta só pelo tmdbId
+        // (acontece quando o conteúdo foi registrado com tipo movie/tv trocado)
+        if (registryItems.length === 0) {
+          registryItems = allItems.filter(
+            (i: RegistryItem) => i.tmdbId === tmdbId
+          );
+        }
+
+        if (settingsRaw.status === "fulfilled") {
+          setSrcSettings({ ...DEFAULT_SRC, ...settingsRaw.value });
+        }
+        setR2Items(registryItems);
+        setR2Loading(false);  // fase 1 concluída — UI já pode mostrar botões
+
+        // ── Fase 2: flix2/lookup (pode levar 5-20s, corre em background) ──
         const alreadyHasFlix = registryItems.some(isFlixItem);
-        // Skip flix2 injection if item is already in the R2/Drive registry — avoid external 404s
         const alreadyHasR2orDrive = registryItems.some(
           (i: any) => i.r2Key || i.driveFilePath || i.driveUrl
         );
-        if (!alreadyHasFlix && !alreadyHasR2orDrive && flix2Raw.status === "fulfilled" && flix2Raw.value.found) {
-          const fi = flix2Raw.value.item;
+        if (alreadyHasFlix || alreadyHasR2orDrive) return;  // não precisa de flix2
+
+        try {
+          const flix2Type = type === "movie" ? "movies" : "all";
+          const flix2Raw = await r2Route<{ found: boolean; item: any }>(
+            `/flix2/lookup?tmdbId=${tmdbId}&type=${flix2Type}&title=${encodeURIComponent(params.title ?? "")}`
+          );
+          if (cancelled || !flix2Raw.found) return;
+          const fi = flix2Raw.item;
+          const flixItems: RegistryItem[] = [];
+
           if (fi?.stream_url) {
-            // Movie (or series with a single item-level stream_url): single virtual item
-            registryItems.push({
-              id: `flix2-auto-${tmdbId}`,
-              r2Key: "",
-              flix2Url: fi.stream_url,
-              tmdbId,
-              tmdbType: type,
-              title: fi.title ?? "",
-              label: fi.title ?? "",
-              season: null,
-              episode: null,
+            flixItems.push({
+              id: `flix2-auto-${tmdbId}`, r2Key: "", flix2Url: fi.stream_url,
+              tmdbId, tmdbType: type, title: fi.title ?? "", label: fi.title ?? "",
+              season: null, episode: null,
             });
           } else if (Array.isArray(fi?.episodes) && fi.episodes.length > 0) {
-            // Series / anime: catalog already includes episodes[]
             for (const ep of fi.episodes as Array<{ season: number; episode: number; stream_url?: string }>) {
               if (!ep?.stream_url) continue;
-              registryItems.push({
-                id: `flix2-auto-${tmdbId}-s${ep.season}e${ep.episode}`,
-                r2Key: "",
-                flix2Url: ep.stream_url,
-                tmdbId,
-                tmdbType: type,
+              flixItems.push({
+                id: `flix2-auto-${tmdbId}-s${ep.season}e${ep.episode}`, r2Key: "",
+                flix2Url: ep.stream_url, tmdbId, tmdbType: type,
                 title: fi.title ?? "",
                 label: `T${String(ep.season).padStart(2, "0")} E${String(ep.episode).padStart(2, "0")} · Flix 2.0`,
-                season: ep.season,
-                episode: ep.episode,
+                season: ep.season, episode: ep.episode,
               });
             }
           } else if (fi?.id && type === "tv") {
-            // Series / anime: catalog item has only `id` (Xtream Codes standard).
-            // Fetch per-episode stream URLs via the dedicated series-episodes endpoint.
             try {
-              const epData = await r2Route<{ found: boolean; episodes: Array<{ season: number; episode: number; stream_url: string; title?: string }> }>(
+              const epData = await r2Route<{ found: boolean; episodes: Array<{ season: number; episode: number; stream_url: string }> }>(
                 `/flix2/series-episodes?seriesId=${fi.id}`
               );
-              if (epData.found && epData.episodes.length > 0) {
+              if (epData.found) {
                 for (const ep of epData.episodes) {
                   if (!ep?.stream_url) continue;
-                  registryItems.push({
-                    id: `flix2-auto-${tmdbId}-s${ep.season}e${ep.episode}`,
-                    r2Key: "",
-                    flix2Url: ep.stream_url,
-                    tmdbId,
-                    tmdbType: type,
+                  flixItems.push({
+                    id: `flix2-auto-${tmdbId}-s${ep.season}e${ep.episode}`, r2Key: "",
+                    flix2Url: ep.stream_url, tmdbId, tmdbType: type,
                     title: fi.title ?? "",
                     label: `T${String(ep.season).padStart(2, "0")} E${String(ep.episode).padStart(2, "0")} · Flix 2.0`,
-                    season: ep.season,
-                    episode: ep.episode,
+                    season: ep.season, episode: ep.episode,
                   });
                 }
               }
             } catch {}
           }
-        }
-        setR2Items(registryItems);
-        if (settingsRaw.status === "fulfilled") {
-          setSrcSettings({ ...DEFAULT_SRC, ...settingsRaw.value });
-        }
+
+          if (!cancelled && flixItems.length > 0) {
+            setR2Items((prev) => [...prev, ...flixItems]);
+          }
+        } catch {}
       } catch {} finally {
-        setR2Loading(false);
+        if (!cancelled) setR2Loading(false);
       }
     };
     loadR2();
+    return () => { cancelled = true; };
   }, [tmdbId, type]);
 
   // When a season-level R2 item exists (episode=null), scan its folder to find
@@ -1374,6 +1385,15 @@ export default function DetailScreen() {
                 ].filter(Boolean) as { id: string; press: () => void }[];
 
                 const primaryPress = sources[0]?.press;
+
+                if (r2Loading) {
+                  return (
+                    <View style={{ height: 48, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.06)", justifyContent: "center", alignItems: "center", flexDirection: "row", gap: 8 }}>
+                      <ActivityIndicator size="small" color="rgba(255,255,255,0.3)" />
+                      <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 12 }}>Verificando fontes…</Text>
+                    </View>
+                  );
+                }
 
                 if (sources.length === 0) {
                   return (
