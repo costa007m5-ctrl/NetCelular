@@ -1254,8 +1254,6 @@ export default function DetailScreen() {
                   if (item) goToDrivePlayer(item);
                 };
 
-                const pressRegular = () => goToPlayer(resumeS, resumeE);
-
                 // Flix 2.0 is primary — sources ordered: flix2, r2, drive
                 const sources = [
                   hasFlix  && { id: "flix2",  press: pressFlix },
@@ -1263,26 +1261,15 @@ export default function DetailScreen() {
                   hasDrive && { id: "drive",   press: pressDrive },
                 ].filter(Boolean) as { id: string; press: () => void }[];
 
-                // Primary press: flix2 if available, else regular embed player
-                const primaryPress = hasFlix ? pressFlix : pressRegular;
+                const primaryPress = sources[0]?.press;
 
                 if (sources.length === 0) {
-                  // Always show ASSISTIR AGORA immediately — no INDISPONÍVEL state.
-                  // During lookup (r2Loading) and after (no flix2 found) both fall back
-                  // to the regular embed player so the user can always watch.
-                  return (
-                    <Pressable
-                      style={({ pressed }) => [styles.watchBtn, { backgroundColor: colors.primary }, pressed && { opacity: 0.85 }]}
-                      onPress={pressRegular}
-                    >
-                      <Feather name="play" size={18} color="#fff" />
-                      <Text style={styles.watchBtnText}>ASSISTIR AGORA</Text>
-                    </Pressable>
-                  );
+                  // Nenhuma fonte disponível — não mostrar botão de play
+                  return null;
                 }
 
                 if (sources.length === 1) {
-                  // Single source (most likely flix2) — show as "ASSISTIR AGORA"
+                  // Single source — show as "ASSISTIR AGORA"
                   return (
                     <Pressable
                       style={({ pressed }) => [styles.watchBtn, { backgroundColor: colors.primary }, pressed && { opacity: 0.85 }]}
@@ -1550,7 +1537,7 @@ export default function DetailScreen() {
                           current={current}
                           colors={colors}
                           fallbackImage={details?.backdrop_path ?? details?.poster_path ?? null}
-                          onPress={!r2Ep ? () => goToPlayer(selectedSeason, ep.episode_number) : undefined}
+                          onPress={undefined}
                           onR2Press={srcSettings.r2 && r2Ep && !isDriveItem(r2Ep) && !isFlixItem(r2Ep) ? () => goToR2Player(r2Ep, selectedSeason, ep.episode_number) : undefined}
                           onFlixPress={(() => {
                             if (!srcSettings.flix2) return undefined;
