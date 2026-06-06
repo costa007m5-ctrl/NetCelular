@@ -621,14 +621,14 @@ function ScrollTopBtn({ scrollRef, visible }: { scrollRef: any; visible: boolean
 // STATIC DATA CONSTANTS
 // ══════════════════════════════════════════════════════════════════════════════
 const MOODS = [
-  { id: "terror",   label: "Terror",     emoji: "👻", color: "#dc2626", genreId: 27    },
-  { id: "romance",  label: "Romance",    emoji: "💕", color: "#ec4899", genreId: 10749 },
-  { id: "acao",     label: "Adrenalina", emoji: "💪", color: "#f97316", genreId: 28    },
-  { id: "comedia",  label: "Comédia",    emoji: "😂", color: "#22c55e", genreId: 35    },
-  { id: "drama",    label: "Drama",      emoji: "🎭", color: "#8b5cf6", genreId: 18    },
-  { id: "ficcao",   label: "Ficção",     emoji: "🚀", color: "#3b82f6", genreId: 878   },
-  { id: "misterio", label: "Mistério",   emoji: "🔍", color: "#6366f1", genreId: 9648  },
-  { id: "aventura", label: "Aventura",   emoji: "🗺️",color: "#f59e0b", genreId: 12    },
+  { id: "terror",   label: "Terror",     icon: "alert-triangle" as const, color: "#dc2626", genreId: 27    },
+  { id: "romance",  label: "Romance",    icon: "heart"          as const, color: "#ec4899", genreId: 10749 },
+  { id: "acao",     label: "Adrenalina", icon: "zap"            as const, color: "#f97316", genreId: 28    },
+  { id: "comedia",  label: "Comédia",    icon: "smile"          as const, color: "#22c55e", genreId: 35    },
+  { id: "drama",    label: "Drama",      icon: "film"           as const, color: "#8b5cf6", genreId: 18    },
+  { id: "ficcao",   label: "Ficção",     icon: "cpu"            as const, color: "#3b82f6", genreId: 878   },
+  { id: "misterio", label: "Mistério",   icon: "search"         as const, color: "#6366f1", genreId: 9648  },
+  { id: "aventura", label: "Aventura",   icon: "compass"        as const, color: "#f59e0b", genreId: 12    },
 ];
 
 const GENRE_CIRCLES = [
@@ -656,11 +656,11 @@ const STUDIOS = [
 ];
 
 const DECADES = [
-  { id: "80s",   label: "Anos 80",   emoji: "🕹️", color: "#f97316", year: "1980" },
-  { id: "90s",   label: "Anos 90",   emoji: "📼", color: "#22c55e", year: "1990" },
-  { id: "2000s", label: "Anos 2000", emoji: "💿", color: "#3b82f6", year: "2000" },
-  { id: "2010s", label: "Anos 2010", emoji: "📱", color: "#8b5cf6", year: "2010" },
-  { id: "2020s", label: "Anos 2020", emoji: "🎬", color: "#e50914", year: "2020" },
+  { id: "80s",   label: "Anos 80",   icon: "tv"         as const, color: "#f97316", year: "1980" },
+  { id: "90s",   label: "Anos 90",   icon: "video"      as const, color: "#22c55e", year: "1990" },
+  { id: "2000s", label: "Anos 2000", icon: "disc"       as const, color: "#3b82f6", year: "2000" },
+  { id: "2010s", label: "Anos 2010", icon: "smartphone" as const, color: "#8b5cf6", year: "2010" },
+  { id: "2020s", label: "Anos 2020", icon: "film"       as const, color: "#e50914", year: "2020" },
 ];
 
 const HOT_TAGS = [
@@ -671,7 +671,8 @@ const HOT_TAGS = [
 const ACTOR_CATEGORIES = [
   {
     id: "hollywood",
-    label: "🎬 Hollywood",
+    label: "Hollywood",
+    flagCode: null as string | null,
     color: "#e50914",
     actors: [
       { name: "Tom Cruise",         initial: "TC", color: "#e50914" },
@@ -690,7 +691,8 @@ const ACTOR_CATEGORIES = [
   },
   {
     id: "kdrama",
-    label: "🇰🇷 K-Drama",
+    label: "K-Drama",
+    flagCode: "kr" as string | null,
     color: "#ec4899",
     actors: [
       { name: "Song Joong-ki",   initial: "SJ", color: "#ec4899" },
@@ -705,7 +707,8 @@ const ACTOR_CATEGORIES = [
   },
   {
     id: "brasileiros",
-    label: "🇧🇷 Brasileiros",
+    label: "Brasileiros",
+    flagCode: "br" as string | null,
     color: "#22c55e",
     actors: [
       { name: "Wagner Moura",       initial: "WM", color: "#22c55e" },
@@ -720,7 +723,8 @@ const ACTOR_CATEGORIES = [
   },
   {
     id: "japoneses",
-    label: "🇯🇵 Japoneses",
+    label: "Japoneses",
+    flagCode: "jp" as string | null,
     color: "#e50914",
     actors: [
       { name: "Ken Watanabe",    initial: "KW", color: "#e50914" },
@@ -733,7 +737,8 @@ const ACTOR_CATEGORIES = [
   },
   {
     id: "europeus",
-    label: "🌍 Europeus",
+    label: "Europeus",
+    flagCode: null as string | null,
     color: "#8b5cf6",
     actors: [
       { name: "Timothée Chalamet", initial: "TC", color: "#8b5cf6" },
@@ -749,14 +754,14 @@ const ACTOR_CATEGORIES = [
 const ACTORS = ACTOR_CATEGORIES[0].actors;
 
 const COUNTRIES = [
-  { id: "BR", label: "Brasil",      flag: "🇧🇷", color: "#22c55e" },
-  { id: "US", label: "EUA",         flag: "🇺🇸", color: "#3b82f6" },
-  { id: "KR", label: "Coreia",      flag: "🇰🇷", color: "#ec4899" },
-  { id: "JP", label: "Japão",       flag: "🇯🇵", color: "#e50914" },
-  { id: "GB", label: "Reino Unido", flag: "🇬🇧", color: "#8b5cf6" },
-  { id: "FR", label: "França",      flag: "🇫🇷", color: "#f59e0b" },
-  { id: "IT", label: "Itália",      flag: "🇮🇹", color: "#f97316" },
-  { id: "ES", label: "Espanha",     flag: "🇪🇸", color: "#dc2626" },
+  { id: "BR", label: "Brasil",      flagCode: "br", color: "#22c55e" },
+  { id: "US", label: "EUA",         flagCode: "us", color: "#3b82f6" },
+  { id: "KR", label: "Coreia",      flagCode: "kr", color: "#ec4899" },
+  { id: "JP", label: "Japão",       flagCode: "jp", color: "#e50914" },
+  { id: "GB", label: "Reino Unido", flagCode: "gb", color: "#8b5cf6" },
+  { id: "FR", label: "França",      flagCode: "fr", color: "#f59e0b" },
+  { id: "IT", label: "Itália",      flagCode: "it", color: "#f97316" },
+  { id: "ES", label: "Espanha",     flagCode: "es", color: "#dc2626" },
 ];
 
 const UPCOMING_MOVIES = [
@@ -781,7 +786,9 @@ function MoodCard({ mood, onPress }: {
       <Animated.View style={[styles.moodCard, { borderColor: `${mood.color}40`, transform: [{ scale: sc }] }]}>
         <LinearGradient colors={[`${mood.color}28`, `${mood.color}08`, "transparent"]}
           style={StyleSheet.absoluteFill} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} />
-        <Text style={styles.moodEmoji}>{mood.emoji}</Text>
+        <View style={[styles.moodIconWrap, { backgroundColor: `${mood.color}20` }]}>
+          <Feather name={mood.icon} size={22} color={mood.color} />
+        </View>
         <Text style={[styles.moodLabel, { color: mood.color }]}>{mood.label}</Text>
       </Animated.View>
     </Pressable>
@@ -923,7 +930,9 @@ function DecadeCard({ decade, onPress }: { decade: typeof DECADES[0]; onPress: (
     <Pressable onPress={onPress} onPressIn={pi} onPressOut={po}>
       <Animated.View style={[styles.decadeCard, { borderColor: `${decade.color}40`, transform: [{ scale: sc }] }]}>
         <LinearGradient colors={[`${decade.color}25`,`${decade.color}08`]} style={StyleSheet.absoluteFill} />
-        <Text style={styles.decadeEmoji}>{decade.emoji}</Text>
+        <View style={[styles.decadeIconWrap, { backgroundColor: `${decade.color}20` }]}>
+          <Feather name={decade.icon} size={20} color={decade.color} />
+        </View>
         <Text style={[styles.decadeLabel, { color: decade.color }]}>{decade.label}</Text>
       </Animated.View>
     </Pressable>
@@ -947,7 +956,11 @@ function FilmNationCard({ country, onPress }: { country: typeof COUNTRIES[0]; on
     <Pressable onPress={onPress} onPressIn={pi} onPressOut={po}>
       <Animated.View style={[styles.nationCard, { borderColor: `${country.color}40`, transform: [{ scale: sc }] }]}>
         <LinearGradient colors={[`${country.color}20`,`${country.color}08`]} style={StyleSheet.absoluteFill} />
-        <Text style={styles.nationFlag}>{country.flag}</Text>
+        <Image
+          source={{ uri: `https://flagcdn.com/w80/${country.flagCode}.png` }}
+          style={styles.nationFlagImg}
+          contentFit="cover"
+        />
         <Text style={[styles.nationLabel, { color: country.color }]}>{country.label}</Text>
       </Animated.View>
     </Pressable>
@@ -1089,8 +1102,8 @@ function SurpriseBannerComp({
 
         {/* ── top row ─────────────────────────────────────── */}
         <View style={styles.surpriseContent}>
-          <Animated.View style={{ transform: [{ rotate: spinDeg }] }}>
-            <Text style={styles.surpriseEmoji}>🎲</Text>
+          <Animated.View style={[styles.surpriseIconWrap, { transform: [{ rotate: spinDeg }] }]}>
+            <Feather name="shuffle" size={26} color="#c084fc" />
           </Animated.View>
           <View style={{ flex: 1 }}>
             <Text style={styles.surpriseTitle}>Surpreenda-me!</Text>
@@ -1119,7 +1132,7 @@ function SurpriseBannerComp({
                   />
                 ) : (
                   <View style={[styles.surprisePoster, { backgroundColor: "#2a1030", alignItems: "center", justifyContent: "center" }]}>
-                    <Text style={{ fontSize: 26 }}>🎬</Text>
+                    <Feather name="film" size={26} color="#c084fc" />
                   </View>
                 )}
               </View>
@@ -1128,9 +1141,9 @@ function SurpriseBannerComp({
               <View style={{ flex: 1, gap: 5 }}>
                 <Text style={styles.surpriseRevealTitle} numberOfLines={2}>{item.title}</Text>
                 <Text style={styles.surpriseRevealMeta}>
-                  {(item.mediaType === "movie" || item.type === "movie") ? "🎬 Filme" : "📺 Série"}
+                  {(item.mediaType === "movie" || item.type === "movie") ? "Filme" : "Série"}
                   {item.year ? ` · ${item.year}` : ""}
-                  {item.rating ? ` · ⭐ ${item.rating.toFixed(1)}` : ""}
+                  {item.rating ? ` · ${item.rating.toFixed(1)} ★` : ""}
                 </Text>
                 {item.description ? (
                   <Text style={styles.surpriseRevealDesc} numberOfLines={2}>{item.description}</Text>
@@ -1235,16 +1248,52 @@ function HotTagsComp({ tags, onPress }: { tags: string[]; onPress: (tag: string)
 }
 
 // ── Actor circle (needs own component to avoid hooks in map) ──────────────────
+const _actorPhotoCache: Record<string, string | null> = {};
+const _TMDB_ACTOR_KEY = "8f0beb08cf016ec8de49e454e09879ec";
+
 function ActorCircleItem({ actor, onPress }: { actor: typeof ACTORS[0]; onPress: () => void }) {
   const sc = useRef(new Animated.Value(1)).current;
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [photoErr, setPhotoErr] = useState(false);
+
+  useEffect(() => {
+    const name = actor.name;
+    if (_actorPhotoCache[name] !== undefined) {
+      setPhotoUrl(_actorPhotoCache[name]);
+      return;
+    }
+    fetch(
+      `https://api.themoviedb.org/3/search/person?api_key=${_TMDB_ACTOR_KEY}&query=${encodeURIComponent(name)}&language=pt-BR`
+    )
+      .then((r) => r.json())
+      .then((data) => {
+        const path: string | null = data.results?.[0]?.profile_path ?? null;
+        const photo = path ? `https://image.tmdb.org/t/p/w185${path}` : null;
+        _actorPhotoCache[name] = photo;
+        setPhotoUrl(photo);
+      })
+      .catch(() => { _actorPhotoCache[name] = null; });
+  }, [actor.name]);
+
   const pi = () => Animated.spring(sc, { toValue: 0.88, useNativeDriver: true, speed: 30 }).start();
   const po = () => Animated.spring(sc, { toValue: 1,    useNativeDriver: true, speed: 26 }).start();
   return (
     <Pressable onPress={onPress} onPressIn={pi} onPressOut={po}>
       <Animated.View style={{ alignItems:"center", gap:6, width:72, transform:[{scale:sc}] }}>
         <View style={[styles.actorCircle,{borderColor:`${actor.color}50`}]}>
-          <LinearGradient colors={[`${actor.color}40`,`${actor.color}15`]} style={StyleSheet.absoluteFill} />
-          <Text style={[styles.actorInitial,{color:actor.color}]}>{actor.initial}</Text>
+          {!photoErr && photoUrl ? (
+            <Image
+              source={{ uri: photoUrl }}
+              style={{ width: "100%", height: "100%" }}
+              contentFit="cover"
+              onError={() => setPhotoErr(true)}
+            />
+          ) : (
+            <>
+              <LinearGradient colors={[`${actor.color}40`,`${actor.color}15`]} style={StyleSheet.absoluteFill} />
+              <Text style={[styles.actorInitial,{color:actor.color}]}>{actor.initial}</Text>
+            </>
+          )}
         </View>
         <Text style={styles.actorName} numberOfLines={2}>{actor.name}</Text>
       </Animated.View>
@@ -1273,6 +1322,15 @@ function ActorCategorySection({
       {/* Category label pill */}
       <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, marginBottom: 10, gap: 8 }}>
         <View style={{ width: 3, height: 15, borderRadius: 2, backgroundColor: category.color }} />
+        {category.flagCode ? (
+          <Image
+            source={{ uri: `https://flagcdn.com/w80/${category.flagCode}.png` }}
+            style={{ width: 22, height: 16, borderRadius: 2 }}
+            contentFit="cover"
+          />
+        ) : (
+          <Feather name="film" size={13} color={category.color} />
+        )}
         <Text style={{ color: category.color, fontSize: 13, fontWeight: "700", letterSpacing: 0.2 }}>
           {category.label}
         </Text>
@@ -1342,7 +1400,11 @@ function AwardBannerComp({ item, onPress }: { item: ContentItem | null; onPress:
         <LinearGradient colors={[`${AMBER}35`,"rgba(0,0,0,0.94)"]} locations={[0,1]}
           style={StyleSheet.absoluteFill} />
         <View style={styles.awardContent}>
-          <Text style={styles.awardTrophies}>🏆 🥇 ⭐</Text>
+          <View style={styles.awardTrophies}>
+            <Feather name="award" size={18} color={AMBER} />
+            <View style={{ width: 6 }} />
+            <Feather name="star" size={16} color={AMBER} />
+          </View>
           <Text style={styles.awardTitle} numberOfLines={1}>{item.title}</Text>
           <Text style={styles.awardSub}>Aclamado pela crítica · {item.rating.toFixed(1)} ★</Text>
           <View style={[styles.awardPlayBtn, { backgroundColor:AMBER }]}>
@@ -1404,7 +1466,9 @@ function FamilyBannerComp({ items, onPress, onItem }: {
       <Pressable onPress={onPress} style={{ paddingHorizontal:16, marginBottom:12 }}>
         <View style={[styles.familyHeader, { overflow:"hidden" }]}>
           <LinearGradient colors={["#022c22","#064e3b"]} style={StyleSheet.absoluteFill} />
-          <Text style={styles.familyEmoji}>👨‍👩‍👧‍👦</Text>
+          <View style={styles.familyEmoji}>
+            <Feather name="users" size={26} color="#34d399" />
+          </View>
           <View style={{ flex:1 }}>
             <Text style={styles.familyTitle}>Modo Família</Text>
             <Text style={styles.familySub}>Conteúdo para toda a família</Text>
@@ -2804,7 +2868,10 @@ const styles = StyleSheet.create({
     alignItems: "center", justifyContent: "center", gap: 4,
     borderWidth: 1, marginBottom: 4,
   },
-  moodEmoji: { fontSize: 24 },
+  moodIconWrap: {
+    width: 38, height: 38, borderRadius: 10,
+    alignItems: "center", justifyContent: "center",
+  },
   moodLabel: { fontSize: 12, fontWeight: "700", letterSpacing: 0.1 },
 
   // ── Circle genre ──────────────────────────────────────────────────────────
@@ -2862,7 +2929,10 @@ const styles = StyleSheet.create({
     alignItems: "center", justifyContent: "center", gap: 4,
     borderWidth: 1,
   },
-  decadeEmoji: { fontSize: 22 },
+  decadeIconWrap: {
+    width: 36, height: 36, borderRadius: 10,
+    alignItems: "center", justifyContent: "center",
+  },
   decadeLabel: { fontSize: 12, fontWeight: "800" },
 
   // ── Film nation card ──────────────────────────────────────────────────────
@@ -2871,7 +2941,7 @@ const styles = StyleSheet.create({
     alignItems: "center", justifyContent: "center", gap: 4,
     borderWidth: 1,
   },
-  nationFlag: { fontSize: 26 },
+  nationFlagImg: { width: 36, height: 26, borderRadius: 4 },
   nationLabel: { fontSize: 10, fontWeight: "700" },
 
   // ── Cinematic banner ──────────────────────────────────────────────────────
@@ -2970,7 +3040,11 @@ const styles = StyleSheet.create({
     flexDirection: "row", alignItems: "center",
     padding: 18, gap: 14,
   },
-  surpriseEmoji: { fontSize: 32 },
+  surpriseIconWrap: {
+    width: 44, height: 44, borderRadius: 12,
+    alignItems: "center", justifyContent: "center",
+    backgroundColor: "rgba(192,132,252,0.15)",
+  },
   surpriseTitle: { color: "#fff", fontSize: 16, fontWeight: "900" },
   surpriseSub: { color: "rgba(255,255,255,0.65)", fontSize: 12, marginTop: 2 },
   surpriseBtn: {
@@ -3063,7 +3137,7 @@ const styles = StyleSheet.create({
     position: "absolute", bottom: 0, left: 0, right: 0,
     padding: 18, gap: 6,
   },
-  awardTrophies: { fontSize: 22, letterSpacing: 4 },
+  awardTrophies: { flexDirection: "row", alignItems: "center", marginBottom: 4 },
   awardTitle: { color: "#fff", fontSize: 16, fontWeight: "900", letterSpacing: -0.3 },
   awardSub: { color: "rgba(255,255,255,0.6)", fontSize: 11 },
   awardPlayBtn: {
@@ -3105,7 +3179,11 @@ const styles = StyleSheet.create({
       android: { elevation: 6 },
     }),
   },
-  familyEmoji: { fontSize: 28 },
+  familyEmoji: {
+    width: 46, height: 46, borderRadius: 12,
+    alignItems: "center", justifyContent: "center",
+    backgroundColor: "rgba(52,211,153,0.15)",
+  },
   familyTitle: { color: "#fff", fontSize: 15, fontWeight: "900" },
   familySub: { color: "rgba(255,255,255,0.65)", fontSize: 11, marginTop: 2 },
   familyBtn: {
