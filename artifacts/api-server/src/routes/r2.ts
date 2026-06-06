@@ -1891,6 +1891,66 @@ router.get("/flix2/catalog", async (req, res) => {
   }
 });
 
+// ── In-memory cache for full catalog fetches ───────────────────────────────────
+const FULL_CATALOG_CACHE = new Map<string, { data: any[]; cachedAt: number }>();
+const FULL_CATALOG_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+// ── GET /flix2/catalog-full — fetches ALL pages for a type in parallel batches ─
+// Returns the complete catalog for a type so mobile only makes one request.
+router.get("/flix2/catalog-full", async (req, res) => {
+  try {
+    const { type = "movies" } = req.query as Record<string, string>;
+
+    // Serve from cache if fresh
+    const cached = FULL_CATALOG_CACHE.get(type);
+    if (cached && Date.now() - cached.cachedAt < FULL_CATALOG_TTL_MS) {
+      res.json({ success: true, type, total: cached.data.length, data: cached.data, fromCache: true });
+      return;
+    }
+
+    // Fetch page 1 to discover total_pages
+    const first = await flix2FetchPage(type, 1);
+    if (!first.success) {
+      res.status(502).json({ error: "catalog unavailable", type });
+      return;
+    }
+
+    const totalPages: number = first.pagination?.total_pages ?? 1;
+    const allItems: any[] = [...(first.data ?? [])];
+
+    // Fetch remaining pages in parallel batches of 15
+    const BATCH = 15;
+    for (let start = 2; start <= totalPages; start += BATCH) {
+      const batch = Array.from(
+        { length: Math.min(BATCH, totalPages - start + 1) },
+        (_, i) => flix2FetchPage(type, start + i)
+      );
+      const results = await Promise.allSettled(batch);
+      for (const r of results) {
+        if (r.status === "fulfilled" && r.value.success) {
+          allItems.push(...(r.value.data ?? []));
+        }
+      }
+    }
+
+    // Deduplicate by tmdb_id
+    const seen = new Set<number>();
+    const deduped = allItems.filter((item) => {
+      const id = Number(item.tmdb_id);
+      if (!id || seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+
+    FULL_CATALOG_CACHE.set(type, { data: deduped, cachedAt: Date.now() });
+
+    console.log(`[flix2/catalog-full] type=${type} pages=${totalPages} items=${deduped.length}`);
+    res.json({ success: true, type, total: deduped.length, data: deduped, fromCache: false });
+  } catch (err: any) {
+    res.status(502).json({ error: err?.message ?? "proxy error" });
+  }
+});
+
 // ── GET /flix2/search — parallel page scan with title filter ──────────────────
 // nixplay.lat has no server-side search; this endpoint fetches pages in parallel
 // batches, filters by title match, and returns up to `limit` results.

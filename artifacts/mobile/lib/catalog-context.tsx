@@ -27,9 +27,9 @@ async function fetchFlix2Catalog(): Promise<{
   nextUpdate: string;
 }> {
   const [movies, series, animes] = await Promise.allSettled([
-    r2Route<{ success: boolean; data: Flix2Item[] }>("/flix2/catalog?type=movies&page=1"),
-    r2Route<{ success: boolean; data: Flix2Item[] }>("/flix2/catalog?type=series&page=1"),
-    r2Route<{ success: boolean; data: Flix2Item[] }>("/flix2/catalog?type=animes&page=1"),
+    r2Route<{ success: boolean; total: number; data: Flix2Item[] }>("/flix2/catalog-full?type=movies"),
+    r2Route<{ success: boolean; total: number; data: Flix2Item[] }>("/flix2/catalog-full?type=series"),
+    r2Route<{ success: boolean; total: number; data: Flix2Item[] }>("/flix2/catalog-full?type=animes"),
   ]);
 
   const movieIds = movies.status === "fulfilled" && movies.value.success

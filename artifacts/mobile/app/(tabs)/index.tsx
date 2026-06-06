@@ -373,9 +373,9 @@ export default function HomeScreen() {
   const loadFlix2Data = useCallback(async () => {
     try {
       const [moviesRes, seriesRes, animesRes] = await Promise.allSettled([
-        r2Route<{ success: boolean; pagination: any; data: any[] }>("/flix2/catalog?type=movies&page=1"),
-        r2Route<{ success: boolean; pagination: any; data: any[] }>("/flix2/catalog?type=series&page=1"),
-        r2Route<{ success: boolean; pagination: any; data: any[] }>("/flix2/catalog?type=animes&page=1"),
+        r2Route<{ success: boolean; total: number; data: any[] }>("/flix2/catalog-full?type=movies"),
+        r2Route<{ success: boolean; total: number; data: any[] }>("/flix2/catalog-full?type=series"),
+        r2Route<{ success: boolean; total: number; data: any[] }>("/flix2/catalog-full?type=animes"),
       ]);
 
       if (moviesRes.status === "fulfilled" && moviesRes.value.success) {
@@ -386,21 +386,21 @@ export default function HomeScreen() {
         const heroPool = movies.filter((m: ContentItem) => m.posterPath);
         if (heroPool.length >= 2) setHeroItems(heroPool.slice(0, 6));
         setTop10(movies.slice(0, 10));
-        setFlix2Totals((t) => ({ ...t, movies: moviesRes.value.pagination?.total_items ?? movies.length }));
+        setFlix2Totals((t) => ({ ...t, movies: moviesRes.value.total ?? movies.length }));
       }
       if (seriesRes.status === "fulfilled" && seriesRes.value.success) {
         const series = seriesRes.value.data
           .filter((i: any) => i.tmdb_id > 0)
           .map(flix2ToContent);
         setFlix2Series(series);
-        setFlix2Totals((t) => ({ ...t, series: seriesRes.value.pagination?.total_items ?? series.length }));
+        setFlix2Totals((t) => ({ ...t, series: seriesRes.value.total ?? series.length }));
       }
       if (animesRes.status === "fulfilled" && animesRes.value.success) {
         const animes = animesRes.value.data
           .filter((i: any) => i.tmdb_id > 0)
           .map(flix2ToContent);
         setFlix2Animes(animes);
-        setFlix2Totals((t) => ({ ...t, animes: animesRes.value.pagination?.total_items ?? animes.length }));
+        setFlix2Totals((t) => ({ ...t, animes: animesRes.value.total ?? animes.length }));
       }
     } catch {}
     finally {
