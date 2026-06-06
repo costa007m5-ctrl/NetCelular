@@ -228,6 +228,7 @@ export default function R2PlayerScreen() {
   const [nextEpCountdownSec, setNextEpCountdownSec] = useState(0);
   const [isSpeedBoost, setIsSpeedBoost] = useState(false);
   const [fromCache, setFromCache] = useState(false);
+  const [videoResolution, setVideoResolution] = useState<string | null>(null);
   const lockAnim = useRef(new Animated.Value(0)).current;
 
   // ── Episodes panel ──────────────────────────────────────────────────────────
@@ -407,6 +408,7 @@ export default function R2PlayerScreen() {
     hasSeekedRef.current = false;
     preloadedNextUrlRef.current = null;
     preloadingRef.current = false;
+    setVideoResolution(null);
 
     fakeAnim.current = Animated.timing(loadProgress, { toValue: 80, duration: (isDrive || isFlix2) ? 6000 : 3000, useNativeDriver: false });
     fakeAnim.current.start();
@@ -585,8 +587,24 @@ export default function R2PlayerScreen() {
     if (prev) goToEpisode(prev);
   }, [getPrevEpisodeItem, goToEpisode]);
 
+  // ── Helper: label de qualidade a partir de altura em pixels ─────────────────
+  const resolutionLabel = (h: number): string => {
+    if (h >= 2160) return "4K";
+    if (h >= 1080) return "1080p";
+    if (h >= 720) return "720p";
+    if (h >= 480) return "480p";
+    if (h >= 360) return "360p";
+    return "SD";
+  };
+
   // ── Video callbacks ─────────────────────────────────────────────────────────
   const onVideoLoad = useCallback((status: any) => {
+    // naturalSize disponível no evento de load do expo-av (web + native)
+    const ns = status?.naturalSize;
+    if (ns?.height && ns.height > 0) {
+      const h = ns.orientation === "landscape" ? ns.height : Math.max(ns.width ?? 0, ns.height);
+      setVideoResolution(resolutionLabel(h));
+    }
     transitionToReady(status?.durationMillis ?? 0);
   }, [transitionToReady]);
 
@@ -1271,6 +1289,12 @@ export default function R2PlayerScreen() {
                       <Text style={styles.ctrlEp}>T{season} · Ep {episode}{episodeName ? ` — ${episodeName}` : ""}</Text>
                     )}
                   </View>
+                  {/* Quality badge */}
+                  {videoResolution && (
+                    <View style={styles.qualityBadge}>
+                      <Text style={styles.qualityBadgeText}>{videoResolution}</Text>
+                    </View>
+                  )}
                   {/* Source badge */}
                   <View style={styles.ctrlSourceBadge}>
                     <Feather name="server" size={10} color="#888" />
@@ -1572,6 +1596,8 @@ const styles = StyleSheet.create({
   ctrlEp: { color: "rgba(255,255,255,0.55)", fontSize: 11 },
   ctrlSourceBadge: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: "rgba(255,255,255,0.1)", paddingHorizontal: 7, paddingVertical: 3, borderRadius: 10, marginHorizontal: 4 },
   ctrlSourceBadgeText: { color: "#888", fontSize: 9, fontWeight: "700" },
+  qualityBadge: { backgroundColor: "rgba(255,255,255,0.12)", borderWidth: 1, borderColor: "rgba(255,255,255,0.22)", paddingHorizontal: 7, paddingVertical: 3, borderRadius: 10, marginHorizontal: 2 },
+  qualityBadgeText: { color: "#e8e8e8", fontSize: 9, fontWeight: "900", letterSpacing: 0.5 },
   speedBadge: { backgroundColor: RED, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8, marginHorizontal: 4 },
   speedBadgeText: { color: "#fff", fontSize: 10, fontWeight: "900" },
   episodesBtn: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(255,255,255,0.15)", paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20, borderWidth: 1, borderColor: "rgba(255,255,255,0.3)", marginLeft: 4 },
