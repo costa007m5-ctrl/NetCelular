@@ -56,6 +56,17 @@ export async function initApiDomain(): Promise<void> {
   try {
     const AsyncStorage = require("@react-native-async-storage/async-storage").default;
 
+    // 1. EXPO_PUBLIC_DOMAIN (baked in at build time) always wins — it's the freshest value
+    const fromEnv = process.env.EXPO_PUBLIC_DOMAIN?.trim();
+    if (fromEnv) {
+      _dynamicDomain = fromEnv;
+      // Push the current working domain to Supabase so other devices pick it up
+      await AsyncStorage.setItem(STORAGE_KEY, fromEnv);
+      _saveDomainToSupabase(fromEnv).catch(() => {});
+      return;
+    }
+
+    // 2. Fallback: try Supabase (centrally stored) then local AsyncStorage
     const [fromSupabase, fromStorage] = await Promise.all([
       _fetchDomainFromSupabase(),
       AsyncStorage.getItem(STORAGE_KEY),
