@@ -20,20 +20,20 @@ function NativeTabLayout({ isAdmin }: { isAdmin: boolean }) {
         <Label>Início</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="novidades">
-        <Icon sf={{ default: "sparkles", selected: "sparkles" }} />
-        <Label>Novidades</Label>
+        <Icon sf={{ default: "film", selected: "film.fill" }} />
+        <Label>Filmes</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="descobrir">
-        <Icon sf={{ default: "safari", selected: "safari.fill" }} />
-        <Label>Descobrir</Label>
+        <Icon sf={{ default: "tv", selected: "tv.fill" }} />
+        <Label>Séries</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="franquias">
-        <Icon sf={{ default: "film.stack", selected: "film.stack.fill" }} />
-        <Label>Franquias</Label>
+        <Icon sf={{ default: "externaldrive", selected: "externaldrive.fill" }} />
+        <Label>Acervo</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="channels">
-        <Icon sf={{ default: "tv", selected: "tv.fill" }} />
-        <Label>Canais</Label>
+        <Icon sf={{ default: "magnifyingglass", selected: "magnifyingglass" }} />
+        <Label>Buscar</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="profile">
         <Icon sf={{ default: "person", selected: "person.fill" }} />
@@ -74,7 +74,6 @@ function ClassicTabLayout({ isAdmin }: { isAdmin: boolean }) {
         },
         tabBarBackground: () => (
           <View style={StyleSheet.absoluteFill}>
-            {/* Pill background — overflow:hidden only wraps the rounded pill */}
             <View style={[StyleSheet.absoluteFill, styles.tabBg, { borderRadius: 32 }]}>
               {isIOS ? (
                 <BlurView
@@ -87,8 +86,6 @@ function ClassicTabLayout({ isAdmin }: { isAdmin: boolean }) {
               )}
               <View style={[styles.tabBorder, { borderRadius: 32 }]} />
             </View>
-            {/* Android: black fill below tab bar covering the system nav bar area.
-                Lives OUTSIDE overflow:hidden so it is never clipped. */}
             {isAndroid && (
               <View
                 style={{
@@ -123,33 +120,33 @@ function ClassicTabLayout({ isAdmin }: { isAdmin: boolean }) {
       <Tabs.Screen
         name="novidades"
         options={{
-          title: "Novidades",
-          tabBarIcon: ({ color }) =>
-            isIOS ? <SymbolView name="sparkles" tintColor={color} size={22} /> : <Feather name="star" size={22} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="descobrir"
-        options={{
-          title: "Descobrir",
-          tabBarIcon: ({ color }) =>
-            isIOS ? <SymbolView name="safari" tintColor={color} size={22} /> : <Feather name="compass" size={22} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="franquias"
-        options={{
-          title: "Franquias",
+          title: "Filmes",
           tabBarIcon: ({ color }) =>
             isIOS ? <SymbolView name="film" tintColor={color} size={22} /> : <Feather name="film" size={22} color={color} />,
         }}
       />
       <Tabs.Screen
-        name="channels"
+        name="descobrir"
         options={{
-          title: "Canais",
+          title: "Séries",
           tabBarIcon: ({ color }) =>
             isIOS ? <SymbolView name="tv" tintColor={color} size={22} /> : <Feather name="tv" size={22} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="franquias"
+        options={{
+          title: "Acervo",
+          tabBarIcon: ({ color }) =>
+            isIOS ? <SymbolView name="externaldrive" tintColor={color} size={22} /> : <Feather name="database" size={22} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="channels"
+        options={{
+          title: "Buscar",
+          tabBarIcon: ({ color }) =>
+            isIOS ? <SymbolView name="magnifyingglass" tintColor={color} size={22} /> : <Feather name="search" size={22} color={color} />,
         }}
       />
       <Tabs.Screen

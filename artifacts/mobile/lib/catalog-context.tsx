@@ -7,63 +7,53 @@ import React, {
   useState,
 } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { getApiBase } from "@/lib/api";
+import { r2Route } from "@/lib/r2-direct";
 
-const CACHE_KEY = "netplay_catalog_v1";
+const CACHE_KEY = "netplay_flix2_catalog_v2";
 const TTL_MS   = 60 * 60 * 1000;
 
-const DIRECT_LISTS: Record<string, string> = {
-  movie:  "https://redeflixapi.store/list-movie-ids.txt",
-  tv:     "https://redeflixapi.store/list-tv-ids.txt",
-  anime:  "https://redeflixapi.store/list-anime-ids.txt",
-  dorama: "https://redeflixapi.store/list-dorama-ids.txt",
-};
-
-function parseIds(txt: string): number[] {
-  return txt
-    .split("\n")
-    .map((l) => parseInt(l.trim(), 10))
-    .filter((n) => !isNaN(n) && n > 0);
+interface Flix2Item {
+  id: string | number;
+  tmdb_id: number;
+  title: string;
+  poster?: string;
+  type?: string;
 }
 
-async function fetchDirectCatalog(): Promise<{
+async function fetchFlix2Catalog(): Promise<{
   byType: Record<string, number[]>;
   allIds: number[];
   lastUpdated: string;
   nextUpdate: string;
 }> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10000);
-  try {
-    const [movieTxt, tvTxt, animeTxt, doramaTxt] = await Promise.all([
-      fetch(DIRECT_LISTS.movie,  { signal: controller.signal }).then((r) => r.ok ? r.text() : "").catch(() => ""),
-      fetch(DIRECT_LISTS.tv,     { signal: controller.signal }).then((r) => r.ok ? r.text() : "").catch(() => ""),
-      fetch(DIRECT_LISTS.anime,  { signal: controller.signal }).then((r) => r.ok ? r.text() : "").catch(() => ""),
-      fetch(DIRECT_LISTS.dorama, { signal: controller.signal }).then((r) => r.ok ? r.text() : "").catch(() => ""),
-    ]);
-    clearTimeout(timer);
+  const [movies, series, animes] = await Promise.allSettled([
+    r2Route<{ success: boolean; data: Flix2Item[] }>("/flix2/catalog?type=movies&page=1"),
+    r2Route<{ success: boolean; data: Flix2Item[] }>("/flix2/catalog?type=series&page=1"),
+    r2Route<{ success: boolean; data: Flix2Item[] }>("/flix2/catalog?type=animes&page=1"),
+  ]);
 
-    const movie  = parseIds(movieTxt);
-    const tv     = parseIds(tvTxt);
-    const anime  = parseIds(animeTxt);
-    const dorama = parseIds(doramaTxt);
-    const allIds = [...new Set([...movie, ...tv, ...anime, ...dorama])];
+  const movieIds = movies.status === "fulfilled" && movies.value.success
+    ? movies.value.data.map((i) => i.tmdb_id).filter(Boolean)
+    : [];
+  const seriesIds = series.status === "fulfilled" && series.value.success
+    ? series.value.data.map((i) => i.tmdb_id).filter(Boolean)
+    : [];
+  const animeIds = animes.status === "fulfilled" && animes.value.success
+    ? animes.value.data.map((i) => i.tmdb_id).filter(Boolean)
+    : [];
 
-    const now = new Date();
-    return {
-      byType: { movie, tv, anime, dorama },
-      allIds,
-      lastUpdated: now.toISOString(),
-      nextUpdate: new Date(now.getTime() + TTL_MS).toISOString(),
-    };
-  } catch {
-    clearTimeout(timer);
-    throw new Error("direct catalog fetch failed");
-  }
+  const allIds = [...new Set([...movieIds, ...seriesIds, ...animeIds])];
+  const now = new Date();
+  return {
+    byType: { movie: movieIds, tv: seriesIds, anime: animeIds },
+    allIds,
+    lastUpdated: now.toISOString(),
+    nextUpdate: new Date(now.getTime() + TTL_MS).toISOString(),
+  };
 }
 
 interface CatalogState {
-  allIds: Set<number>;
+  allIds: number[];
   byType: Record<string, number[]>;
   lastUpdated: string;
   nextUpdate: string;
@@ -72,8 +62,8 @@ interface CatalogState {
 }
 
 const defaultState: CatalogState = {
-  allIds: new Set(),
-  byType: { movie: [], tv: [], anime: [], dorama: [] },
+  allIds: [],
+  byType: { movie: [], tv: [], anime: [] },
   lastUpdated: "",
   nextUpdate: "",
   loading: true,
@@ -99,53 +89,28 @@ export function CatalogProvider({ children }: { children: React.ReactNode }) {
           const age = Date.now() - new Date(cached.lastUpdated).getTime();
           if (age < TTL_MS && cached.allIds?.length > 0) {
             setState({
-              allIds: new Set<number>(cached.allIds),
-              byType: cached.byType,
+              allIds: cached.allIds,
+              byType: cached.byType ?? {},
               lastUpdated: cached.lastUpdated,
-              nextUpdate: cached.nextUpdate,
+              nextUpdate: cached.nextUpdate ?? "",
               loading: false,
             });
             return;
           }
         }
       }
+    } catch {}
 
-      let data: { byType: Record<string, number[]>; allIds: number[]; lastUpdated: string; nextUpdate: string } | null = null;
-
-      const base = getApiBase();
-      if (base) {
-        try {
-          const controller = new AbortController();
-          const timer = setTimeout(() => controller.abort(), 5000);
-          const res = await fetch(`${base}/redeflix/catalog`, { signal: controller.signal });
-          clearTimeout(timer);
-          if (res.ok) {
-            data = await res.json();
-          }
-        } catch {
-          data = null;
-        }
-      }
-
-      if (!data || !data.allIds?.length) {
-        data = await fetchDirectCatalog();
-      }
-
-      const allIds = new Set<number>(data.allIds as number[]);
-
-      const snapshot = {
-        allIds,
+    try {
+      const data = await fetchFlix2Catalog();
+      await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(data)).catch(() => {});
+      setState({
+        allIds: data.allIds,
         byType: data.byType,
         lastUpdated: data.lastUpdated,
         nextUpdate: data.nextUpdate,
         loading: false,
-      };
-      setState(snapshot);
-
-      await AsyncStorage.setItem(
-        CACHE_KEY,
-        JSON.stringify({ ...snapshot, allIds: [...allIds] })
-      );
+      });
     } catch {
       setState((prev) => ({ ...prev, loading: false }));
     }
@@ -153,19 +118,16 @@ export function CatalogProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     loadCatalog();
-
-    timerRef.current = setInterval(() => {
-      loadCatalog(true);
-    }, TTL_MS);
-
+    timerRef.current = setInterval(() => loadCatalog(true), TTL_MS);
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [loadCatalog]);
 
+  const idSet = React.useMemo(() => new Set(state.allIds), [state.allIds]);
   const isAvailable = useCallback(
-    (id: number) => state.allIds.size === 0 || state.allIds.has(id),
-    [state.allIds]
+    (id: number) => idSet.has(id),
+    [idSet]
   );
 
   return (

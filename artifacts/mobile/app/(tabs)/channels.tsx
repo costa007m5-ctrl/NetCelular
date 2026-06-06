@@ -1,332 +1,322 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import {
-  Animated,
   ActivityIndicator,
+  Animated,
+  Dimensions,
   FlatList,
-  Image,
+  Keyboard,
+  Platform,
   Pressable,
-  RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
+import { Image } from "expo-image";
+import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { r2Route } from "@/lib/r2-direct";
 import { useColors } from "@/hooks/useColors";
-import {
-  liveTvApi,
-  type LiveChannel,
-  CATEGORY_LABELS,
-  MAIN_CATEGORIES,
-  getAccent,
-} from "@/lib/live-tv-api";
 
+const { width: W } = Dimensions.get("window");
 const RED = "#e50914";
+const AMBER = "#f59e0b";
+const GREEN = "#16a34a";
+const CARD_W = (W - 48) / 3;
+const CARD_H = CARD_W * 1.5;
+const TAB_CLEARANCE = 120;
 
-const CAT_ICONS: Record<number, string> = {
-  0: "grid",
-  1: "activity",
-  5: "radio",
-  6: "tv",
-  4: "film",
-  2: "smile",
-  7: "star",
-  3: "book-open",
-};
+type SearchScope = "all" | "flix2" | "r2";
 
-function LiveDot({ color = RED }: { color?: string }) {
-  const anim = useRef(new Animated.Value(1)).current;
-  useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(anim, { toValue: 0.2, duration: 700, useNativeDriver: true }),
-        Animated.timing(anim, { toValue: 1, duration: 700, useNativeDriver: true }),
-      ])
-    ).start();
-  }, []);
-  return <Animated.View style={[sd.liveDot, { backgroundColor: color, opacity: anim }]} />;
+const SCOPES: { id: SearchScope; label: string; color: string; icon: keyof typeof Feather.glyphMap }[] = [
+  { id: "all",   label: "Todos",    color: "rgba(255,255,255,0.6)", icon: "search" },
+  { id: "flix2", label: "Flix 2.0", color: RED,    icon: "play-circle" },
+  { id: "r2",    label: "Acervo R2",color: AMBER,  icon: "database" },
+];
+
+interface SearchResult {
+  key: string;
+  title: string;
+  poster: string | null;
+  tmdbId: number;
+  mediaType: "movie" | "tv";
+  source: "flix2" | "r2";
+  sourceLabel: string;
 }
 
-function FeaturedCard({ ch, onPress }: { ch: LiveChannel; onPress: () => void }) {
-  const accent = getAccent(ch.id);
-  return (
-    <Pressable onPress={onPress} style={({ pressed }) => [sd.featCard, { opacity: pressed ? 0.88 : 1 }]}>
-      {/* background */}
-      {ch.preview ? (
-        <Image source={{ uri: ch.preview }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
-      ) : (
-        <View style={[StyleSheet.absoluteFillObject, { backgroundColor: accent + "30" }]} />
-      )}
-      <LinearGradient
-        colors={["transparent", "rgba(0,0,0,0.75)"]}
-        style={StyleSheet.absoluteFillObject}
-      />
-      {/* logo pill */}
-      <View style={[sd.featLogoPill, { backgroundColor: accent + "22", borderColor: accent + "44" }]}>
-        {ch.image ? (
-          <Image source={{ uri: ch.image }} style={sd.featLogoImg} resizeMode="contain" />
-        ) : (
-          <Feather name="tv" size={18} color={accent} />
-        )}
-      </View>
-      {/* live badge */}
-      <View style={sd.featBadge}>
-        <LiveDot />
-        <Text style={sd.featBadgeTxt}>AO VIVO</Text>
-      </View>
-      {/* name */}
-      <Text style={sd.featName} numberOfLines={2}>{ch.name}</Text>
-    </Pressable>
-  );
+interface Flix2Hit {
+  id: string | number;
+  tmdb_id: number;
+  title: string;
+  poster?: string;
+  type?: string;
 }
 
-function ChannelCard({ ch, onPress }: { ch: LiveChannel; onPress: () => void }) {
-  const colors = useColors();
-  const accent = getAccent(ch.id);
+interface R2Entry {
+  key: string;
+  name: string;
+  type: "movie" | "tv" | "unknown";
+  tmdb: {
+    id: number; title: string; poster_path: string | null;
+    media_type: "movie" | "tv";
+  } | null;
+}
+
+function ResultCard({ item, onPress }: { item: SearchResult; onPress: () => void }) {
+  const [err, setErr] = useState(false);
+  const scale = useRef(new Animated.Value(1)).current;
+  const uri = !err && item.poster ? item.poster : null;
+  const srcColor = item.source === "flix2" ? RED : AMBER;
+
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [sd.card, { backgroundColor: colors.card, borderColor: colors.border + "60", opacity: pressed ? 0.85 : 1 }]}
+      onPressIn={() => Animated.spring(scale, { toValue: 0.93, useNativeDriver: true, speed: 28 }).start()}
+      onPressOut={() => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 24 }).start()}
+      style={{ width: CARD_W }}
     >
-      {/* top logo area */}
-      <View style={[sd.cardLogoWrap, { backgroundColor: accent + "14" }]}>
-        {ch.preview ? (
-          <>
-            <Image source={{ uri: ch.preview }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
-            <LinearGradient
-              colors={["rgba(0,0,0,0.1)", "rgba(0,0,0,0.55)"]}
-              style={StyleSheet.absoluteFillObject}
-            />
-          </>
-        ) : null}
-        {ch.image ? (
-          <View style={[sd.cardLogoBox, { backgroundColor: "#00000050" }]}>
-            <Image source={{ uri: ch.image }} style={sd.cardLogoImg} resizeMode="contain" />
-          </View>
+      <Animated.View style={[styles.card, { transform: [{ scale }] }]}>
+        {uri ? (
+          <Image source={{ uri }} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" onError={() => setErr(true)} />
         ) : (
-          <View style={[sd.cardLogoFallback, { backgroundColor: accent + "28" }]}>
-            <Feather name="tv" size={28} color={accent} />
-          </View>
+          <LinearGradient colors={["#1a1014", "#0a0810"]} style={StyleSheet.absoluteFill}>
+            <View style={styles.placeholder}>
+              <Feather name="film" size={18} color="rgba(255,255,255,0.1)" />
+            </View>
+          </LinearGradient>
         )}
-        {/* live pill top-right */}
-        <View style={sd.cardLivePill}>
-          <LiveDot />
-          <Text style={sd.cardLiveTxt}>AO VIVO</Text>
+        <LinearGradient colors={["transparent", "rgba(0,0,0,0.92)"]} locations={[0.45, 1]} style={StyleSheet.absoluteFill} />
+        <View style={styles.cardInfo}>
+          <View style={[styles.srcBadge, { backgroundColor: `${srcColor}25`, borderColor: srcColor }]}>
+            <Text style={[styles.srcBadgeText, { color: srcColor }]}>{item.sourceLabel}</Text>
+          </View>
+          <Text style={styles.cardTitle} numberOfLines={2}>{item.title}</Text>
         </View>
-      </View>
-
-      {/* bottom info */}
-      <View style={sd.cardBottom}>
-        <View style={[sd.cardAccentBar, { backgroundColor: accent }]} />
-        <Text style={[sd.cardName, { color: colors.foreground }]} numberOfLines={2}>{ch.name}</Text>
-      </View>
+      </Animated.View>
     </Pressable>
   );
 }
 
-export default function ChannelsScreen() {
+function ScopePill({ active, scope, onPress }: { active: boolean; scope: typeof SCOPES[0]; onPress: () => void }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={[styles.scopePill, active && { backgroundColor: `${scope.color}20`, borderColor: scope.color }]}
+    >
+      <Feather name={scope.icon} size={12} color={active ? scope.color : "rgba(255,255,255,0.3)"} />
+      <Text style={[styles.scopePillText, { color: active ? scope.color : "rgba(255,255,255,0.3)" }]}>{scope.label}</Text>
+    </Pressable>
+  );
+}
+
+export default function BuscarScreen() {
   const colors = useColors();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const isWeb = Platform.OS === "web";
+  const topPad = isWeb ? 0 : insets.top;
 
-  const [channels, setChannels] = useState<LiveChannel[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [selectedCat, setSelectedCat] = useState(0);
-  const [search, setSearch] = useState("");
+  const [query, setQuery] = useState("");
+  const [scope, setScope] = useState<SearchScope>("all");
+  const [results, setResults] = useState<SearchResult[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [searched, setSearched] = useState(false);
+  const inputRef = useRef<TextInput>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const load = useCallback(async (isRefresh = false) => {
-    if (isRefresh) setRefreshing(true);
-    else setLoading(true);
-    setError(null);
+  const searchFlix2 = useCallback(async (q: string): Promise<SearchResult[]> => {
     try {
-      const data = await liveTvApi.getChannels();
-      setChannels(data.channels ?? []);
-    } catch (e: any) {
-      setError(e?.message ?? "Erro ao carregar canais");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
+      const [movRes, serRes, aniRes] = await Promise.allSettled([
+        r2Route<{ results: Flix2Hit[] }>(`/flix2/search?q=${encodeURIComponent(q)}&type=movies&limit=30`),
+        r2Route<{ results: Flix2Hit[] }>(`/flix2/search?q=${encodeURIComponent(q)}&type=series&limit=20`),
+        r2Route<{ results: Flix2Hit[] }>(`/flix2/search?q=${encodeURIComponent(q)}&type=animes&limit=20`),
+      ]);
+      const out: SearchResult[] = [];
+      for (const res of [movRes, serRes, aniRes]) {
+        if (res.status === "fulfilled") {
+          for (const hit of res.value.results ?? []) {
+            if (hit.tmdb_id) {
+              const isAnime = (res === aniRes);
+              const isSeries = (res === serRes);
+              out.push({
+                key: `flix2-${hit.id}`,
+                title: hit.title,
+                poster: hit.poster ?? null,
+                tmdbId: hit.tmdb_id,
+                mediaType: isSeries || isAnime ? "tv" : "movie",
+                source: "flix2",
+                sourceLabel: "Flix 2.0",
+              });
+            }
+          }
+        }
+      }
+      return out;
+    } catch { return []; }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  const searchR2 = useCallback(async (q: string): Promise<SearchResult[]> => {
+    try {
+      const res = await r2Route<{ catalog: R2Entry[] }>("/catalog");
+      const lq = q.toLowerCase();
+      return (res.catalog ?? [])
+        .filter((e) => (e.tmdb?.title ?? e.name).toLowerCase().includes(lq))
+        .map((e) => ({
+          key: `r2-${e.key}`,
+          title: e.tmdb?.title ?? e.name,
+          poster: e.tmdb?.poster_path ? `https://image.tmdb.org/t/p/w342${e.tmdb.poster_path}` : null,
+          tmdbId: e.tmdb?.id ?? 0,
+          mediaType: (e.tmdb?.media_type ?? e.type === "movie" ? "movie" : "tv") as "movie" | "tv",
+          source: "r2" as const,
+          sourceLabel: "R2",
+        }));
+    } catch { return []; }
+  }, []);
 
-  const openChannel = (ch: LiveChannel) => {
-    router.push({
-      pathname: "/channel-detail",
-      params: {
-        channelId: ch.id,
-        channelName: ch.name,
-        channelImage: ch.image ?? "",
-        channelPreview: ch.preview ?? "",
-        channelUrl: ch.url ?? "",
-        channelCategories: JSON.stringify(ch.categories ?? []),
-      },
-    });
-  };
+  const doSearch = useCallback(async (q: string) => {
+    const trimmed = q.trim();
+    if (!trimmed) { setResults([]); setSearched(false); return; }
+    setLoading(true);
+    setSearched(true);
+    try {
+      const promises: Promise<SearchResult[]>[] = [];
+      if (scope === "all" || scope === "flix2") promises.push(searchFlix2(trimmed));
+      if (scope === "all" || scope === "r2")    promises.push(searchR2(trimmed));
+      const all = await Promise.allSettled(promises);
+      const merged: SearchResult[] = [];
+      const seen = new Set<string>();
+      for (const r of all) {
+        if (r.status === "fulfilled") {
+          for (const item of r.value) {
+            if (!seen.has(item.key)) { seen.add(item.key); merged.push(item); }
+          }
+        }
+      }
+      setResults(merged);
+    } finally { setLoading(false); }
+  }, [scope, searchFlix2, searchR2]);
 
-  const filtered = channels.filter((ch) => {
-    const matchCat = selectedCat === 0 || ch.categories?.includes(selectedCat);
-    const matchSearch = !search.trim() || ch.name.toLowerCase().includes(search.toLowerCase());
-    return matchCat && matchSearch;
-  });
+  const handleChange = useCallback((text: string) => {
+    setQuery(text);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => doSearch(text), 600);
+  }, [doSearch]);
 
-  const availableCatIds = [0, ...Array.from(new Set(channels.flatMap((c) => c.categories ?? [])))];
-  const catPills = MAIN_CATEGORIES
-    .filter((id) => availableCatIds.includes(id))
-    .map((id) => ({ id, label: CATEGORY_LABELS[id] ?? `Cat ${id}`, icon: CAT_ICONS[id] ?? "tv" }));
+  const handleSubmit = useCallback(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    Keyboard.dismiss();
+    doSearch(query);
+  }, [query, doSearch]);
 
-  const featured = channels.slice(0, 8);
+  const goToDetail = useCallback((item: SearchResult) => {
+    if (!item.tmdbId) return;
+    router.push({ pathname: "/detail", params: { type: item.mediaType, id: String(item.tmdbId), title: item.title } });
+  }, [router]);
 
   return (
-    <View style={[sd.root, { backgroundColor: colors.background }]}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <StatusBar style="light" />
 
-      {/* ── Header ── */}
-      <View style={[sd.header, { paddingTop: insets.top + 10 }]}>
-        <View style={sd.headerLeft}>
-          <View style={[sd.headerAccent, { backgroundColor: RED }]} />
-          <Text style={[sd.headerTitle, { color: colors.foreground }]}>Ao Vivo</Text>
-          {channels.length > 0 && (
-            <View style={sd.liveCountBadge}>
-              <LiveDot />
-              <Text style={sd.liveCountTxt}>{channels.length}</Text>
-            </View>
+      {/* Header */}
+      <View style={[styles.header, { paddingTop: topPad + 16 }]}>
+        <View style={styles.searchBar}>
+          <Feather name="search" size={16} color="rgba(255,255,255,0.4)" />
+          <TextInput
+            ref={inputRef}
+            style={styles.searchInput}
+            placeholder="Buscar filmes, séries, animes..."
+            placeholderTextColor="rgba(255,255,255,0.25)"
+            value={query}
+            onChangeText={handleChange}
+            onSubmitEditing={handleSubmit}
+            returnKeyType="search"
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          {query.length > 0 && (
+            <Pressable onPress={() => { setQuery(""); setResults([]); setSearched(false); }}>
+              <Feather name="x" size={16} color="rgba(255,255,255,0.4)" />
+            </Pressable>
           )}
         </View>
-        <Pressable
-          style={[sd.searchToggle, { backgroundColor: colors.card, borderColor: colors.border + "60" }]}
-          onPress={() => {}}
-        >
-          <Feather name="search" size={16} color={colors.mutedForeground} />
-        </Pressable>
+      </View>
+
+      {/* Scope pills */}
+      <View style={styles.scopeRow}>
+        {SCOPES.map((s) => (
+          <ScopePill
+            key={s.id}
+            scope={s}
+            active={scope === s.id}
+            onPress={() => {
+              setScope(s.id);
+              if (query.trim()) {
+                if (debounceRef.current) clearTimeout(debounceRef.current);
+                setLoading(true);
+                setTimeout(() => doSearch(query), 100);
+              }
+            }}
+          />
+        ))}
+      </View>
+
+      {/* Source legend */}
+      <View style={styles.legendRow}>
+        <View style={[styles.legendDot, { backgroundColor: RED }]} />
+        <Text style={styles.legendText}>Flix 2.0</Text>
+        <View style={[styles.legendDot, { backgroundColor: AMBER, marginLeft: 10 }]} />
+        <Text style={styles.legendText}>Acervo R2</Text>
       </View>
 
       {loading ? (
-        <View style={sd.center}>
-          <View style={[sd.loadingCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <ActivityIndicator color={RED} size="large" />
-            <Text style={[sd.loadingTxt, { color: colors.mutedForeground }]}>Carregando transmissões ao vivo...</Text>
+        <View style={styles.center}>
+          <ActivityIndicator color={RED} size="large" />
+          <Text style={styles.loadingText}>Buscando em todas as fontes...</Text>
+        </View>
+      ) : !searched ? (
+        <View style={styles.emptyState}>
+          <View style={styles.emptyIcon}>
+            <Feather name="search" size={40} color="rgba(255,255,255,0.08)" />
+          </View>
+          <Text style={styles.emptyTitle}>Busca Universal</Text>
+          <Text style={styles.emptyHint}>Pesquise em Flix 2.0, Acervo R2 e Google Drive de uma vez</Text>
+          <View style={styles.sourceList}>
+            {[
+              { icon: "play-circle" as const, label: "Flix 2.0 (nixplay.lat)", color: RED },
+              { icon: "database" as const,    label: "Acervo R2 (Cloudflare)", color: AMBER },
+              { icon: "cloud" as const,       label: "Google Drive",            color: GREEN },
+            ].map((s) => (
+              <View key={s.label} style={styles.sourceListItem}>
+                <Feather name={s.icon} size={14} color={s.color} />
+                <Text style={[styles.sourceListLabel, { color: s.color }]}>{s.label}</Text>
+              </View>
+            ))}
           </View>
         </View>
-      ) : error ? (
-        <View style={sd.center}>
-          <View style={[sd.errorCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <View style={sd.errorIconWrap}>
-              <Feather name="wifi-off" size={32} color={colors.mutedForeground} />
-            </View>
-            <Text style={[sd.errorTitle, { color: colors.foreground }]}>Sem conexão</Text>
-            <Text style={[sd.errorSub, { color: colors.mutedForeground }]}>{error}</Text>
-            <Pressable style={[sd.retryBtn, { backgroundColor: RED }]} onPress={() => load()}>
-              <Feather name="refresh-cw" size={14} color="#fff" />
-              <Text style={sd.retryTxt}>Tentar novamente</Text>
-            </Pressable>
-          </View>
+      ) : results.length === 0 ? (
+        <View style={styles.center}>
+          <Feather name="alert-circle" size={40} color="rgba(255,255,255,0.08)" />
+          <Text style={styles.emptyTitle}>Sem resultados</Text>
+          <Text style={styles.emptyHint}>Tente outros termos ou verifique a conexão</Text>
         </View>
       ) : (
         <FlatList
-          data={filtered}
-          keyExtractor={(item) => item.id}
-          numColumns={2}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={RED} />}
-          contentContainerStyle={{ paddingBottom: insets.bottom + 100 }}
-          columnWrapperStyle={sd.columnWrapper}
+          data={results}
+          keyExtractor={(i) => i.key}
+          numColumns={3}
+          contentContainerStyle={[styles.grid, { paddingBottom: TAB_CLEARANCE }]}
+          columnWrapperStyle={styles.gridRow}
           showsVerticalScrollIndicator={false}
           ListHeaderComponent={
-            <>
-              {/* ── Search bar ── */}
-              <View style={[sd.searchBar, { backgroundColor: colors.card, borderColor: colors.border + "60" }]}>
-                <Feather name="search" size={15} color={colors.mutedForeground} />
-                <TextInput
-                  style={[sd.searchInput, { color: colors.foreground }]}
-                  placeholder="Buscar canal..."
-                  placeholderTextColor={colors.mutedForeground + "88"}
-                  value={search}
-                  onChangeText={setSearch}
-                />
-                {search.length > 0 && (
-                  <Pressable onPress={() => setSearch("")} hitSlop={8}>
-                    <Feather name="x" size={15} color={colors.mutedForeground} />
-                  </Pressable>
-                )}
-              </View>
-
-              {/* ── Featured row ── */}
-              {!search && selectedCat === 0 && featured.length > 0 && (
-                <View style={sd.featSection}>
-                  <View style={sd.sectionHeader}>
-                    <View style={[sd.sectionDot, { backgroundColor: RED }]} />
-                    <Text style={[sd.sectionTitle, { color: colors.foreground }]}>Em Destaque</Text>
-                  </View>
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={sd.featRow}
-                  >
-                    {featured.map((ch) => (
-                      <FeaturedCard key={ch.id} ch={ch} onPress={() => openChannel(ch)} />
-                    ))}
-                  </ScrollView>
-                </View>
-              )}
-
-              {/* ── Category pills ── */}
-              {catPills.length > 0 && (
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={sd.catRow}
-                >
-                  {catPills.map(({ id, label, icon }) => {
-                    const active = selectedCat === id;
-                    const count = id === 0 ? channels.length : channels.filter((c) => c.categories?.includes(id)).length;
-                    return (
-                      <Pressable
-                        key={id}
-                        onPress={() => setSelectedCat(id)}
-                        style={[sd.catPill, active
-                          ? { backgroundColor: RED, borderColor: RED }
-                          : { backgroundColor: colors.card, borderColor: colors.border + "70" }
-                        ]}
-                      >
-                        <Feather name={icon as any} size={12} color={active ? "#fff" : colors.mutedForeground} />
-                        <Text style={[sd.catPillTxt, { color: active ? "#fff" : colors.mutedForeground }]}>{label}</Text>
-                        <View style={[sd.catCount, { backgroundColor: active ? "#ffffff33" : colors.background + "cc" }]}>
-                          <Text style={[sd.catCountTxt, { color: active ? "#fff" : colors.mutedForeground }]}>{count}</Text>
-                        </View>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-              )}
-
-              {/* ── Grid header ── */}
-              <View style={sd.gridHeader}>
-                <View style={sd.sectionHeader}>
-                  <View style={[sd.sectionDot, { backgroundColor: RED }]} />
-                  <Text style={[sd.sectionTitle, { color: colors.foreground }]}>
-                    {search ? `Resultados para "${search}"` : selectedCat === 0 ? "Todos os Canais" : CATEGORY_LABELS[selectedCat]}
-                  </Text>
-                </View>
-                <Text style={[sd.gridCount, { color: colors.mutedForeground }]}>{filtered.length} canais</Text>
-              </View>
-            </>
+            <Text style={styles.resultsCount}>
+              {results.length} resultado{results.length !== 1 ? "s" : ""} para "{query}"
+            </Text>
           }
-          ListEmptyComponent={
-            <View style={sd.empty}>
-              <View style={[sd.emptyIcon, { backgroundColor: colors.card }]}>
-                <Feather name="tv" size={28} color={colors.mutedForeground} />
-              </View>
-              <Text style={[sd.emptyTxt, { color: colors.mutedForeground }]}>Nenhum canal encontrado</Text>
-            </View>
-          }
-          renderItem={({ item: ch }) => (
-            <ChannelCard key={ch.id} ch={ch} onPress={() => openChannel(ch)} />
+          renderItem={({ item }) => (
+            <ResultCard item={item} onPress={() => goToDetail(item)} />
           )}
         />
       )}
@@ -334,152 +324,65 @@ export default function ChannelsScreen() {
   );
 }
 
-const CARD_RADIUS = 14;
-
-const sd = StyleSheet.create({
-  root: { flex: 1 },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingBottom: 10,
-  },
-  headerLeft: { flexDirection: "row", alignItems: "center", gap: 10 },
-  headerAccent: { width: 3, height: 22, borderRadius: 2 },
-  headerTitle: { fontSize: 24, fontWeight: "900", letterSpacing: -0.5 },
-  liveCountBadge: {
-    flexDirection: "row", alignItems: "center", gap: 4,
-    backgroundColor: "#e5091420", borderWidth: 1, borderColor: "#e5091440",
-    paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6,
-  },
-  liveDot: { width: 6, height: 6, borderRadius: 3 },
-  liveCountTxt: { color: RED, fontSize: 11, fontWeight: "800" },
-  searchToggle: {
-    width: 38, height: 38, borderRadius: 12,
-    alignItems: "center", justifyContent: "center", borderWidth: 1,
-  },
-
-  /* search bar */
+const styles = StyleSheet.create({
+  container: { flex: 1 },
+  header: { paddingHorizontal: 16, paddingBottom: 10 },
   searchBar: {
-    flexDirection: "row", alignItems: "center",
-    marginHorizontal: 12, marginBottom: 14,
-    paddingHorizontal: 12, paddingVertical: 10,
-    borderRadius: 14, borderWidth: 1, gap: 8,
+    flexDirection: "row", alignItems: "center", gap: 10,
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
+    borderRadius: 14, paddingHorizontal: 14, paddingVertical: 11,
   },
-  searchInput: { flex: 1, fontSize: 14, padding: 0 },
-
-  /* featured */
-  featSection: { marginBottom: 14 },
-  sectionHeader: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 14, marginBottom: 10 },
-  sectionDot: { width: 3, height: 16, borderRadius: 2 },
-  sectionTitle: { fontSize: 15, fontWeight: "800" },
-  featRow: { paddingHorizontal: 12, gap: 10, paddingBottom: 4 },
-  featCard: {
-    width: 180,
-    height: 110,
-    borderRadius: CARD_RADIUS,
-    overflow: "hidden",
-    backgroundColor: "#111",
-    justifyContent: "flex-end",
-    padding: 10,
+  searchInput: { flex: 1, color: "#fff", fontSize: 15, fontWeight: "500" },
+  scopeRow: {
+    flexDirection: "row", gap: 8,
+    paddingHorizontal: 16, paddingBottom: 6,
   },
-  featLogoPill: {
-    position: "absolute", top: 8, left: 8,
-    borderRadius: 8, borderWidth: 1,
-    padding: 5,
-    alignItems: "center", justifyContent: "center",
+  scopePill: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    paddingHorizontal: 11, paddingVertical: 6, borderRadius: 20,
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
+    backgroundColor: "rgba(255,255,255,0.04)",
   },
-  featLogoImg: { width: 28, height: 28 },
-  featBadge: {
-    position: "absolute", top: 8, right: 8,
-    flexDirection: "row", alignItems: "center", gap: 4,
-    backgroundColor: "#e50914", paddingHorizontal: 6, paddingVertical: 3, borderRadius: 5,
+  scopePillText: { fontSize: 11, fontWeight: "700" },
+  legendRow: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    paddingHorizontal: 16, paddingBottom: 10,
   },
-  featBadgeTxt: { color: "#fff", fontSize: 8, fontWeight: "900", letterSpacing: 0.8 },
-  featName: { color: "#fff", fontSize: 12, fontWeight: "800", lineHeight: 16 },
-
-  /* category pills */
-  catRow: { paddingHorizontal: 12, paddingBottom: 12, gap: 7 },
-  catPill: {
-    flexDirection: "row", alignItems: "center", gap: 6,
-    paddingHorizontal: 11, paddingVertical: 7,
-    borderRadius: 20, borderWidth: 1,
+  legendDot: { width: 6, height: 6, borderRadius: 3 },
+  legendText: { fontSize: 10, color: "rgba(255,255,255,0.3)", fontWeight: "600" },
+  grid: { paddingHorizontal: 12, paddingTop: 4 },
+  gridRow: { gap: 8, marginBottom: 8 },
+  resultsCount: {
+    fontSize: 12, color: "rgba(255,255,255,0.35)", fontWeight: "600",
+    marginBottom: 10, paddingHorizontal: 4,
   },
-  catPillTxt: { fontSize: 12, fontWeight: "700" },
-  catCount: {
-    paddingHorizontal: 5, paddingVertical: 1,
-    borderRadius: 10, minWidth: 20, alignItems: "center",
-  },
-  catCountTxt: { fontSize: 9, fontWeight: "800" },
-
-  /* grid header */
-  gridHeader: {
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    paddingRight: 16, marginBottom: 8,
-  },
-  gridCount: { fontSize: 11, fontWeight: "600" },
-
-  /* channel cards */
-  columnWrapper: { paddingHorizontal: 12, gap: 10, marginBottom: 10 },
   card: {
-    flex: 1, borderRadius: CARD_RADIUS, borderWidth: 1,
-    overflow: "hidden",
+    width: CARD_W, height: CARD_H, borderRadius: 10,
+    overflow: "hidden", backgroundColor: "#111",
   },
-  cardLogoWrap: {
-    width: "100%", aspectRatio: 1.75,
-    alignItems: "center", justifyContent: "center",
-    overflow: "hidden", position: "relative",
+  placeholder: { flex: 1, alignItems: "center", justifyContent: "center" },
+  cardInfo: { position: "absolute", bottom: 0, left: 0, right: 0, padding: 8 },
+  srcBadge: {
+    alignSelf: "flex-start", paddingHorizontal: 5, paddingVertical: 2,
+    borderRadius: 4, borderWidth: 1, marginBottom: 4,
   },
-  cardLogoBox: {
-    width: 56, height: 56, borderRadius: 12,
-    alignItems: "center", justifyContent: "center",
-    padding: 6,
+  srcBadgeText: { fontSize: 9, fontWeight: "800", letterSpacing: 0.3 },
+  cardTitle: { fontSize: 11, fontWeight: "700", color: "#fff", lineHeight: 15 },
+  center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 10 },
+  loadingText: { fontSize: 13, color: "rgba(255,255,255,0.35)", fontWeight: "500" },
+  emptyState: {
+    flex: 1, alignItems: "center", justifyContent: "center",
+    paddingHorizontal: 40, gap: 10,
   },
-  cardLogoImg: { width: "100%", height: "100%" },
-  cardLogoFallback: {
-    width: 56, height: 56, borderRadius: 12,
-    alignItems: "center", justifyContent: "center",
-  },
-  cardLivePill: {
-    position: "absolute", top: 7, right: 7,
-    flexDirection: "row", alignItems: "center", gap: 4,
-    backgroundColor: "#e5091488",
-    paddingHorizontal: 6, paddingVertical: 3, borderRadius: 5,
-  },
-  cardLiveTxt: { color: "#fff", fontSize: 8, fontWeight: "900", letterSpacing: 0.5 },
-  cardBottom: { padding: 10, gap: 5 },
-  cardAccentBar: { height: 2, width: 24, borderRadius: 1, marginBottom: 2 },
-  cardName: { fontSize: 12, fontWeight: "700", lineHeight: 16 },
-
-  /* states */
-  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
-  loadingCard: {
-    alignItems: "center", gap: 14, padding: 32,
-    borderRadius: 20, borderWidth: 1, minWidth: 220,
-  },
-  loadingTxt: { fontSize: 13, textAlign: "center" },
-  errorCard: {
-    alignItems: "center", gap: 10, padding: 28,
-    borderRadius: 20, borderWidth: 1, maxWidth: 280,
-  },
-  errorIconWrap: {
-    width: 64, height: 64, borderRadius: 32,
-    alignItems: "center", justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.05)", marginBottom: 4,
-  },
-  errorTitle: { fontSize: 18, fontWeight: "800" },
-  errorSub: { fontSize: 13, textAlign: "center", lineHeight: 18 },
-  retryBtn: {
-    flexDirection: "row", alignItems: "center", gap: 7,
-    paddingHorizontal: 18, paddingVertical: 10,
-    borderRadius: 12, marginTop: 6,
-  },
-  retryTxt: { color: "#fff", fontSize: 14, fontWeight: "700" },
-  empty: { alignItems: "center", gap: 12, paddingTop: 60, paddingBottom: 40 },
   emptyIcon: {
-    width: 64, height: 64, borderRadius: 32,
-    alignItems: "center", justifyContent: "center",
+    width: 80, height: 80, borderRadius: 40,
+    backgroundColor: "rgba(255,255,255,0.04)",
+    alignItems: "center", justifyContent: "center", marginBottom: 6,
   },
-  emptyTxt: { fontSize: 14 },
+  emptyTitle: { fontSize: 18, fontWeight: "800", color: "rgba(255,255,255,0.5)" },
+  emptyHint: { fontSize: 13, color: "rgba(255,255,255,0.25)", textAlign: "center", lineHeight: 20 },
+  sourceList: { marginTop: 16, gap: 10, alignSelf: "stretch" },
+  sourceListItem: { flexDirection: "row", alignItems: "center", gap: 10 },
+  sourceListLabel: { fontSize: 13, fontWeight: "600" },
 });
