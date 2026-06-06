@@ -30,6 +30,7 @@ import type { WatchEntry } from "@/hooks/useWatchProgress";
 import { HeroBanner } from "@/components/HeroBanner";
 import { TopTenCard } from "@/components/TopTenCard";
 import { NotificationBell } from "@/components/NotificationBell";
+import { InlineSearchBar } from "@/components/InlineSearchBar";
 import { r2Route } from "@/lib/r2-direct";
 import { checkCatalogWatchAndNotify } from "@/lib/catalog-watch";
 import { useAuth } from "@/lib/auth-context";
@@ -1339,6 +1340,11 @@ export default function HomeScreen() {
   const [continueItems, setContinueItems] = useState<ContinueItem[]>([]);
   const [activeProfile, setActiveProfile] = useState<any>(null);
 
+  // ── Inline search ──────────────────────────────────────────────────────────
+  const [searchQuery,   setSearchQuery]   = useState("");
+  const [searchResults, setSearchResults] = useState<ContentItem[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+
   // ── section entrance animations (28 sections) ────────────────────────────
   const SECTION_COUNT = 50;
   const sectionAnims = useRef(
@@ -1432,6 +1438,42 @@ export default function HomeScreen() {
   }, [user?.id]);
 
   useEffect(() => { loadContinueItems(); }, [loadContinueItems]);
+
+  // Debounced TMDB search for home screen
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (q.length < 2) { setSearchResults([]); return; }
+    setSearchLoading(true);
+    const timer = setTimeout(async () => {
+      try {
+        const url = new URL("https://api.themoviedb.org/3/search/multi");
+        url.searchParams.set("api_key", "8f0beb08cf016ec8de49e454e09879ec");
+        url.searchParams.set("language", "pt-BR");
+        url.searchParams.set("query", q);
+        url.searchParams.set("include_adult", "false");
+        const r = await fetch(url.toString());
+        const data = r.ok ? await r.json() : { results: [] };
+        const IMG = "https://image.tmdb.org/t/p/w500";
+        const items: ContentItem[] = (data.results ?? [])
+          .filter((x: any) => x.media_type === "movie" || x.media_type === "tv")
+          .map((x: any) => ({
+            id: String(x.id), tmdbId: x.id,
+            title: x.title ?? x.name ?? "",
+            year: parseInt(((x.release_date ?? x.first_air_date) || "2024").slice(0, 4)),
+            rating: x.vote_average ?? 0,
+            posterPath: x.poster_path ? `${IMG}${x.poster_path}` : "",
+            backdropPath: x.backdrop_path ? `${IMG}${x.backdrop_path}` : "",
+            description: x.overview ?? "", genres: [],
+            type: x.media_type === "tv" ? ("series" as const) : ("movie" as const),
+            mediaType: x.media_type,
+            progress: 0,
+          }));
+        setSearchResults(items);
+      } catch {}
+      setSearchLoading(false);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   // Refresh "Continue Assistindo" every time the tab gains focus (e.g. returning from player)
   useFocusEffect(
@@ -1616,6 +1658,59 @@ export default function HomeScreen() {
         </Animated.View>
 
         <View style={styles.body}>
+          {/* ── 2. SEARCH BAR ──────────────────────────────────────────────── */}
+          <AnimatedSection anim={s[0]}>
+            <InlineSearchBar
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              placeholder="Buscar filmes, séries, atores..."
+            />
+            {searchQuery.length >= 2 && (
+              <View style={{ paddingBottom: 8 }}>
+                <View style={{ paddingHorizontal: 16, marginBottom: 10, flexDirection: "row", alignItems: "center", gap: 10 }}>
+                  {searchLoading
+                    ? <ActivityIndicator size="small" color={RED} />
+                    : <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 13, flex: 1 }}>
+                        {searchResults.length > 0
+                          ? `${searchResults.length} resultado${searchResults.length !== 1 ? "s" : ""} para "${searchQuery}"`
+                          : `Nenhum resultado para "${searchQuery}"`}
+                      </Text>
+                  }
+                  <Pressable onPress={() => setSearchQuery("")} hitSlop={8}>
+                    <Text style={{ color: RED, fontSize: 13, fontWeight: "700" }}>Limpar</Text>
+                  </Pressable>
+                </View>
+                {!searchLoading && searchResults.length > 0 && (
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}>
+                    {searchResults.slice(0, 15).map((item) => (
+                      <Pressable key={item.id} onPress={() => goTo(item)}
+                        style={{ width: 110 }}>
+                        <View style={{ width: 110, height: 160, borderRadius: 10, overflow: "hidden", backgroundColor: "#1a0a14", marginBottom: 6 }}>
+                          {item.posterPath ? (
+                            <Image source={{ uri: item.posterPath }} style={{ width: 110, height: 160 }} contentFit="cover" />
+                          ) : (
+                            <LinearGradient colors={["#2a1020","#0e0812"]} style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+                              <Feather name="film" size={28} color="rgba(255,255,255,0.2)" />
+                            </LinearGradient>
+                          )}
+                        </View>
+                        <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700", textAlign: "center" }} numberOfLines={2}>{item.title}</Text>
+                        <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 10, textAlign: "center", marginTop: 2 }}>{item.year}</Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                )}
+                {!searchLoading && searchResults.length === 0 && (
+                  <View style={{ alignItems: "center", paddingVertical: 36, gap: 10 }}>
+                    <Feather name="search" size={40} color="rgba(255,255,255,0.1)" />
+                    <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 14, fontWeight: "600" }}>Nenhum resultado encontrado</Text>
+                  </View>
+                )}
+              </View>
+            )}
+          </AnimatedSection>
+
           {/* ── 3. CATEGORY PILLS ──────────────────────────────────────────── */}
           <AnimatedSection anim={s[1]}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}
@@ -2311,6 +2406,11 @@ export default function HomeScreen() {
           </View>
           <View style={styles.headerActions}>
             <NotificationBell onPress={() => router.push("/(tabs)/profile")} />
+            <TouchableOpacity style={styles.iconBtn}
+              onPress={() => { setSearchQuery(""); setTimeout(() => scrollRef.current?.scrollTo({ y: 0, animated: true }), 50); }}
+              activeOpacity={0.75}>
+              <Feather name="search" size={21} color="rgba(255,255,255,0.82)" />
+            </TouchableOpacity>
             <TouchableOpacity style={styles.iconBtn}
               onPress={() => router.push("/(tabs)/profile")} activeOpacity={0.75}>
               {activeProfile?.avatarUrl ? (

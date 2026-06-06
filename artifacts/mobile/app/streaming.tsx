@@ -377,12 +377,6 @@ export default function StreamingScreen() {
             <Feather name="arrow-left" size={20} color="#fff" />
           </TouchableOpacity>
           <PlatformLogo platform={platform} />
-          <TouchableOpacity
-            style={styles.circleBtn}
-            onPress={() => router.push("/(tabs)/search")}
-          >
-            <Feather name="search" size={20} color="rgba(255,255,255,0.85)" />
-          </TouchableOpacity>
         </View>
       </Animated.View>
     </View>

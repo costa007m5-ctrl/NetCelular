@@ -223,9 +223,6 @@ export default function DownloadsScreen() {
             <Text style={[sd.headerTitle, { color: colors.foreground }]}>Downloads</Text>
             <Text style={[sd.headerSub, { color: colors.mutedForeground }]}>Assista sem internet</Text>
           </View>
-          <Pressable style={[sd.headerAdd, { backgroundColor: colors.card, borderColor: colors.border + "60" }]} onPress={() => router.push("/(tabs)/search")}>
-            <Feather name="plus" size={20} color={colors.mutedForeground} />
-          </Pressable>
         </View>
 
         {/* Storage card */}

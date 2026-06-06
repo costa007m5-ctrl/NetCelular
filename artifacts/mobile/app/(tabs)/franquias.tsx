@@ -973,9 +973,6 @@ export default function FranquiasScreen() {
             <Text style={q.logoWhite}>QUIAS</Text>
           </View>
           <View style={{ flexDirection: "row", gap: 4 }}>
-            <TouchableOpacity style={q.iconBtn} onPress={() => router.push("/(tabs)/channels")} activeOpacity={0.75}>
-              <Feather name="search" size={20} color="rgba(255,255,255,0.82)" />
-            </TouchableOpacity>
             <TouchableOpacity style={q.iconBtn} onPress={() => router.push("/(tabs)/list" as any)} activeOpacity={0.75}>
               <Feather name="bookmark" size={20} color="rgba(255,255,255,0.82)" />
             </TouchableOpacity>

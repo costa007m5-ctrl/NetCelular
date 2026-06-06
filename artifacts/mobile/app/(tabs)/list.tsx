@@ -484,9 +484,6 @@ export default function ListScreen() {
               <Text style={s.logoRed}>NET</Text>PLAY
             </Text>
             <View style={s.headerActions}>
-              <Pressable style={s.iconBtn} onPress={() => router.push("/(tabs)/search")}>
-                <Feather name="search" size={20} color="rgba(255,255,255,0.7)" />
-              </Pressable>
               <Pressable style={s.avatarBtn} onPress={() => router.push("/(tabs)/profile")}>
                 <Text style={s.avatarText}>{user.avatarLetter}</Text>
               </Pressable>

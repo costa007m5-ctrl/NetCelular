@@ -146,8 +146,6 @@ function ClassicTabLayout({ isAdmin }: { isAdmin: boolean }) {
         }}
       />
       {/* Hidden screens — accessible via router.push */}
-      <Tabs.Screen name="channels" options={{ href: null }} />
-      <Tabs.Screen name="search" options={{ href: null }} />
       <Tabs.Screen name="downloads" options={{ href: null }} />
       <Tabs.Screen name="list" options={{ href: null }} />
     </Tabs>
