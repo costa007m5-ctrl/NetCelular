@@ -165,6 +165,7 @@ function RootNavigator() {
         <Stack.Screen name="r2-catalog" options={{ headerShown: false }} />
         <Stack.Screen name="r2-player" options={{ headerShown: false, presentation: "fullScreenModal" }} />
         <Stack.Screen name="notification-history" options={{ headerShown: false }} />
+        <Stack.Screen name="buscar" options={{ headerShown: false }} />
         <Stack.Screen name="+not-found" />
       </Stack>
     </>

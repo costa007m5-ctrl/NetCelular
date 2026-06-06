@@ -14,7 +14,8 @@ const https = require("https");
 const fs = require("fs");
 const path = require("path");
 
-const STATIC_ROOT = path.resolve(__dirname, "..", "static-build");
+const STATIC_ROOT   = path.resolve(__dirname, "..", "static-build");
+const WEB_ROOT      = path.resolve(__dirname, "..", "dist");
 const TEMPLATE_PATH = path.resolve(__dirname, "templates", "landing-page.html");
 const basePath = (process.env.BASE_PATH || "/").replace(/\/+$/, "");
 
@@ -105,6 +106,41 @@ function serveStaticFile(urlPath, res) {
   res.end(content);
 }
 
+const webIndexPath = path.join(WEB_ROOT, "index.html");
+const hasWebBuild  = fs.existsSync(webIndexPath);
+
+function serveWebApp(urlPath, res) {
+  const safePath = path.normalize(urlPath).replace(/^(\.\.(\/|\\|$))+/, "");
+  const filePath = path.join(WEB_ROOT, safePath);
+
+  if (!filePath.startsWith(WEB_ROOT)) {
+    res.writeHead(403);
+    res.end("Forbidden");
+    return;
+  }
+
+  if (fs.existsSync(filePath) && !fs.statSync(filePath).isDirectory()) {
+    const ext = path.extname(filePath).toLowerCase();
+    const contentType = MIME_TYPES[ext] || "application/octet-stream";
+    const noCache = !ext || ext === ".html" || ext === ".json";
+    const headers = { "content-type": contentType };
+    if (noCache) {
+      headers["cache-control"] = "no-cache, no-store, must-revalidate";
+    }
+    const content = fs.readFileSync(filePath);
+    res.writeHead(200, headers);
+    res.end(content);
+    return;
+  }
+
+  const content = fs.readFileSync(webIndexPath);
+  res.writeHead(200, {
+    "content-type": "text/html; charset=utf-8",
+    "cache-control": "no-cache, no-store, must-revalidate",
+  });
+  res.end(content);
+}
+
 const landingPageTemplate = fs.readFileSync(TEMPLATE_PATH, "utf-8");
 const appName = getAppName();
 
@@ -170,10 +206,12 @@ const server = http.createServer((req, res) => {
     }
 
     if (pathname === "/") {
+      if (hasWebBuild) return serveWebApp("/index.html", res);
       return serveLandingPage(req, res, landingPageTemplate, appName);
     }
   }
 
+  if (hasWebBuild) return serveWebApp(pathname, res);
   serveStaticFile(pathname, res);
 });
 
