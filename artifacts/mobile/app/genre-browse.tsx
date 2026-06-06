@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
@@ -9,6 +9,7 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -279,8 +280,38 @@ export default function GenreBrowseScreen() {
   const [error, setError] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchFocused, setSearchFocused] = useState(false);
+  const searchInputRef = useRef<TextInput>(null);
+  const searchAnim = useRef(new Animated.Value(0)).current;
 
   const loadingRef = useRef(false);
+
+  // ── Filtered items based on search query ─────────────────────────────
+  const filteredItems = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return items;
+    return items.filter((i) => i.title.toLowerCase().includes(q));
+  }, [items, searchQuery]);
+
+  // ── Animate search bar expand/collapse ───────────────────────────────
+  const openSearch = useCallback(() => {
+    setSearchFocused(true);
+    Animated.spring(searchAnim, { toValue: 1, useNativeDriver: false, speed: 20, bounciness: 4 }).start();
+    setTimeout(() => searchInputRef.current?.focus(), 80);
+  }, [searchAnim]);
+
+  const closeSearch = useCallback(() => {
+    setSearchQuery("");
+    setSearchFocused(false);
+    searchInputRef.current?.blur();
+    Animated.spring(searchAnim, { toValue: 0, useNativeDriver: false, speed: 20, bounciness: 4 }).start();
+  }, [searchAnim]);
+
+  const searchBarWidth = searchAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["0%", "100%"],
+  });
 
   // ── Flix2 fetch ──────────────────────────────────────────────────────
   const fetchFlix2Page = async (page: number): Promise<{ items: ContentItem[]; totalCount: number; totalPages: number }> => {
@@ -446,31 +477,72 @@ export default function GenreBrowseScreen() {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* ── Header ─────────────────────────────────────────────── */}
       <View style={[styles.header, { paddingTop: topPad + 8 }]}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+        <TouchableOpacity style={styles.backBtn} onPress={searchFocused ? closeSearch : () => router.back()}>
           <Feather name="arrow-left" size={22} color={colors.foreground} />
         </TouchableOpacity>
 
-        <View style={styles.headerCenter}>
-          {/* Source pill */}
-          {isFlx2 && (
-            <View style={[styles.sourcePill, { backgroundColor: `${sourceColor}20`, borderColor: `${sourceColor}40` }]}>
-              <Feather name={sourceIcon} size={10} color={sourceColor} />
-              <Text style={[styles.sourcePillText, { color: sourceColor }]}>
-                {flx2Type === "movies" ? "Filmes" : flx2Type === "series" ? "Séries" : "Animes"}
-                {totalCount > 0 ? ` · ${totalCount.toLocaleString("pt-BR")}` : ""}
-              </Text>
-            </View>
+        {/* Animated search bar */}
+        <Animated.View style={[styles.searchBarWrap, { width: searchBarWidth }]}>
+          <Feather name="search" size={15} color="#aaa" style={{ marginRight: 6 }} />
+          <TextInput
+            ref={searchInputRef}
+            style={[styles.searchInput, { color: colors.foreground }]}
+            placeholder="Pesquisar nesta categoria..."
+            placeholderTextColor="#666"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            returnKeyType="search"
+            autoCorrect={false}
+            autoCapitalize="none"
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity onPress={() => setSearchQuery("")} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Feather name="x" size={15} color="#aaa" />
+            </TouchableOpacity>
           )}
-          <Text style={[styles.headerTitle, { color: colors.foreground }]} numberOfLines={1}>
-            {title ?? "Explorar"}
-          </Text>
-          <Text style={styles.modeLabel}>{MODE_LABEL[viewMode]}</Text>
-        </View>
+        </Animated.View>
 
-        <ViewToggle mode={viewMode} onToggle={cycleMode} />
+        {!searchFocused && (
+          <View style={styles.headerCenter}>
+            {/* Source pill */}
+            {isFlx2 && (
+              <View style={[styles.sourcePill, { backgroundColor: `${sourceColor}20`, borderColor: `${sourceColor}40` }]}>
+                <Feather name={sourceIcon} size={10} color={sourceColor} />
+                <Text style={[styles.sourcePillText, { color: sourceColor }]}>
+                  {flx2Type === "movies" ? "Filmes" : flx2Type === "series" ? "Séries" : "Animes"}
+                  {totalCount > 0 ? ` · ${totalCount.toLocaleString("pt-BR")}` : ""}
+                </Text>
+              </View>
+            )}
+            <Text style={[styles.headerTitle, { color: colors.foreground }]} numberOfLines={1}>
+              {title ?? "Explorar"}
+            </Text>
+            <Text style={styles.modeLabel}>{MODE_LABEL[viewMode]}</Text>
+          </View>
+        )}
+
+        <View style={styles.headerActions}>
+          <TouchableOpacity style={styles.searchBtn} onPress={searchFocused ? closeSearch : openSearch}>
+            <Feather name={searchFocused ? "x" : "search"} size={20} color={colors.foreground} />
+          </TouchableOpacity>
+          {!searchFocused && <ViewToggle mode={viewMode} onToggle={cycleMode} />}
+        </View>
       </View>
 
       <ModeBar mode={viewMode} />
+
+      {/* ── Search results count ────────────────────────────────── */}
+      {searchQuery.trim().length > 0 && !initialLoading && (
+        <View style={styles.searchResultsBar}>
+          <Feather name="search" size={12} color="#888" />
+          <Text style={styles.searchResultsText}>
+            {filteredItems.length === 0
+              ? "Nenhum resultado para "
+              : `${filteredItems.length} resultado${filteredItems.length !== 1 ? "s" : ""} para `}
+            <Text style={{ color: colors.foreground, fontWeight: "600" }}>"{searchQuery.trim()}"</Text>
+          </Text>
+        </View>
+      )}
 
       {/* ── States ─────────────────────────────────────────────── */}
       {initialLoading ? (
@@ -503,7 +575,7 @@ export default function GenreBrowseScreen() {
       ) : (
         <FlatList
           key={viewMode}
-          data={items}
+          data={filteredItems}
           keyExtractor={keyExtractor}
           numColumns={numCols}
           contentContainerStyle={[
@@ -512,31 +584,41 @@ export default function GenreBrowseScreen() {
           ]}
           columnWrapperStyle={numCols > 1 ? styles.row : undefined}
           renderItem={renderItem}
-          onEndReached={loadMore}
+          onEndReached={searchQuery.trim() ? undefined : loadMore}
           onEndReachedThreshold={0.5}
           initialNumToRender={viewMode === "list" ? 8 : 12}
           maxToRenderPerBatch={viewMode === "list" ? 5 : 9}
           windowSize={5}
           removeClippedSubviews={Platform.OS !== "web"}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
           ListEmptyComponent={
             <View style={styles.emptyState}>
-              <Feather name="film" size={36} color="rgba(255,255,255,0.12)" />
+              <Feather name={searchQuery.trim() ? "search" : "film"} size={36} color="rgba(255,255,255,0.12)" />
               <Text style={[styles.emptyTitle, { color: "#666" }]}>
-                Nenhum título encontrado
+                {searchQuery.trim()
+                  ? `Nenhum resultado para "${searchQuery.trim()}"`
+                  : "Nenhum título encontrado"}
               </Text>
-              <TouchableOpacity
-                style={[styles.retryBtn, { backgroundColor: sourceColor }]}
-                onPress={() => setRetryKey((k) => k + 1)}
-                activeOpacity={0.8}
-              >
-                <Feather name="refresh-cw" size={14} color="#fff" />
-                <Text style={styles.retryText}>Recarregar</Text>
-              </TouchableOpacity>
+              {!searchQuery.trim() && (
+                <TouchableOpacity
+                  style={[styles.retryBtn, { backgroundColor: sourceColor }]}
+                  onPress={() => setRetryKey((k) => k + 1)}
+                  activeOpacity={0.8}
+                >
+                  <Feather name="refresh-cw" size={14} color="#fff" />
+                  <Text style={styles.retryText}>Recarregar</Text>
+                </TouchableOpacity>
+              )}
+              {searchQuery.trim() && items.length > 0 && currentPage < totalPages && (
+                <Text style={[styles.searchHint, { color: "#555" }]}>
+                  Role a lista para carregar mais títulos
+                </Text>
+              )}
             </View>
           }
           ListFooterComponent={
-            loading && items.length > 0 ? (
+            loading && items.length > 0 && !searchQuery.trim() ? (
               <View style={styles.footer}>
                 <ActivityIndicator color={sourceColor} />
               </View>
@@ -723,4 +805,48 @@ const styles = StyleSheet.create({
   },
   emptyTitle: { fontSize: 15, fontWeight: "600", textAlign: "center" },
   footer: { padding: 24, alignItems: "center" },
+
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  searchBtn: {
+    width: 40, height: 40,
+    alignItems: "center", justifyContent: "center",
+    borderRadius: 20,
+  },
+  searchBarWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderRadius: 22,
+    paddingHorizontal: 12,
+    height: 40,
+    overflow: "hidden",
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    height: 40,
+    paddingVertical: 0,
+  },
+  searchResultsBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+    paddingTop: 2,
+  },
+  searchResultsText: {
+    color: "#888",
+    fontSize: 12,
+    fontWeight: "500",
+  },
+  searchHint: {
+    fontSize: 12,
+    textAlign: "center",
+    marginTop: 4,
+  },
 });
