@@ -285,11 +285,13 @@ export default function DetailScreen() {
     let cancelled = false;
     const loadR2 = async () => {
       try {
-        const { apiGetRegistry, r2Route } = await import("@/lib/r2-direct");
+        const { r2Route } = await import("@/lib/r2-direct");
 
         // ── Fase 1: registro + settings (geralmente < 1s) ──────────────────
+        // Usa r2Route("/registry") em vez de apiGetRegistry() diretamente,
+        // pois no web (Chrome) requisições S3 diretas falham por CORS.
         const [data, settingsRaw] = await Promise.allSettled([
-          apiGetRegistry(),
+          r2Route<{ version: number; items: RegistryItem[] }>("/registry"),
           r2Route<SourceSettings>("/source-settings"),
         ]);
         if (cancelled) return;

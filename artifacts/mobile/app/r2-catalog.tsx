@@ -217,6 +217,25 @@ function SeasonList({ entry, onBack, onSelectSeason, onEdit }: {
   const [registering, setRegistering] = useState<string | null>(null);
   const [registered, setRegisteredSeasons] = useState<Set<string>>(new Set());
 
+  // Carrega quais temporadas já estão registradas no R2
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { r2Route } = await import("@/lib/r2-direct");
+        const reg = await r2Route<{ version: number; items: any[] }>("/registry");
+        if (cancelled) return;
+        const prefixSet = new Set(
+          (reg.items ?? [])
+            .filter((i: any) => entry.seasons.some((s) => s.prefix === i.r2Key))
+            .map((i: any) => i.r2Key as string)
+        );
+        setRegisteredSeasons(prefixSet);
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, [entry]);
+
   const quickRegisterSeason = async (s: SeasonInfo) => {
     if (!entry.tmdb) {
       Alert.alert("Sem TMDB", "Vincule o título ao TMDB primeiro (botão de editar) para poder registrar automaticamente.");
