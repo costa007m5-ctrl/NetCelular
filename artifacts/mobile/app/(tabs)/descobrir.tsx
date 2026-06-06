@@ -27,6 +27,8 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { InlineSearchBar } from "@/components/InlineSearchBar";
+import { HeroBanner } from "@/components/HeroBanner";
+import type { ContentItem } from "@/constants/content";
 import {
   liveTvApi,
   calcProgress,
@@ -45,6 +47,40 @@ import {
 } from "@/lib/live-tv-api";
 
 const { width: W } = Dimensions.get("window");
+
+const TMDB_BASE = "https://api.themoviedb.org/3";
+const TMDB_KEY  = "8f0beb08cf016ec8de49e454e09879ec";
+const LANG      = "pt-BR";
+const IMG_ORIG  = "https://image.tmdb.org/t/p/w1280";
+const IMG_W500  = "https://image.tmdb.org/t/p/w500";
+
+async function tfetch(path: string, params: Record<string, string> = {}): Promise<any> {
+  try {
+    const url = new URL(`${TMDB_BASE}${path}`);
+    url.searchParams.set("api_key", TMDB_KEY);
+    url.searchParams.set("language", LANG);
+    for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+    const r = await fetch(url.toString());
+    if (!r.ok) return { results: [] };
+    return r.json();
+  } catch { return { results: [] }; }
+}
+
+function toItem(raw: any): ContentItem {
+  return {
+    id: String(raw.id),
+    tmdbId: raw.id,
+    title: raw.name ?? raw.title ?? "",
+    year: parseInt(((raw.first_air_date ?? raw.release_date) || "2024").slice(0, 4)),
+    rating: raw.vote_average ?? 0,
+    posterPath: raw.poster_path ? `${IMG_W500}${raw.poster_path}` : "",
+    backdropPath: raw.backdrop_path ? `${IMG_ORIG}${raw.backdrop_path}` : "",
+    description: raw.overview ?? "",
+    genres: raw.genre_ids ?? [],
+    type: "series",
+    mediaType: "tv",
+  };
+}
 
 const RED    = "#e50914";
 const GREEN  = "#22c55e";
@@ -360,6 +396,7 @@ export default function LiveTvScreen() {
   const [categories, setCategories] = useState<LiveCategory[]>([]);
   const [epgs,       setEpgs]       = useState<EpgEntry[]>([]);
   const [jogos,      setJogos]      = useState<JogoEntry[]>([]);
+  const [heroItems,  setHeroItems]  = useState<ContentItem[]>([]);
   const [activeCat,  setActiveCat]  = useState<number>(0);
   const [searchQ,    setSearchQ]    = useState("");
   const [loading,    setLoading]    = useState(true);
@@ -375,6 +412,20 @@ export default function LiveTvScreen() {
   }, []);
 
   const loadAll = useCallback(async () => {
+    // Phase 1: hero banner first (2 fast TMDB calls)
+    const [trendTvRes, popTvRes] = await Promise.allSettled([
+      tfetch("/trending/tv/week"),
+      tfetch("/tv/on_the_air"),
+    ]);
+    const getR = (r: PromiseSettledResult<any>): any[] =>
+      r.status === "fulfilled" ? (r.value?.results ?? []) : [];
+    const heroRaw = [
+      ...getR(trendTvRes).slice(0, 4),
+      ...getR(popTvRes).slice(0, 4),
+    ].slice(0, 8).map(toItem);
+    if (heroRaw.length > 0) setHeroItems(heroRaw);
+
+    // Phase 2: channels + rest
     try {
       const [channelsRes, epgsRes, jogosRes] = await Promise.allSettled([
         liveTvApi.getChannels(),
@@ -559,12 +610,17 @@ export default function LiveTvScreen() {
           }
           ListHeaderComponent={
             <>
+              {/* Hero Banner — séries populares de TV */}
+              {!isSearching && (
+                <HeroBanner items={heroItems} />
+              )}
+
               {/* Search bar */}
               <InlineSearchBar
                 value={searchQ}
                 onChangeText={setSearchQ}
                 placeholder="Buscar canal ao vivo..."
-                style={{ marginTop: 0, marginBottom: 12 }}
+                style={{ marginTop: 12, marginBottom: 12 }}
               />
 
               {/* Jogos section — hidden while searching */}

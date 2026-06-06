@@ -1014,7 +1014,7 @@ export default function NovidadesScreen() {
         <View style={sty.headerInner}>
           <View style={{ flexDirection:"row", alignItems:"center", gap:6 }}>
             <View style={sty.logoAccent} />
-            <Text style={sty.logoRed}>NOVA</Text>
+            <Text style={sty.logoRed}>NOVI</Text>
             <Text style={sty.logoWhite}>DADES</Text>
           </View>
           <View style={sty.headerActions}>
