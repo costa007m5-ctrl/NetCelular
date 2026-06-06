@@ -181,6 +181,11 @@ export default function GenreBrowseScreen() {
           )}
           onEndReached={loadMore}
           onEndReachedThreshold={0.5}
+          initialNumToRender={12}
+          maxToRenderPerBatch={9}
+          windowSize={5}
+          removeClippedSubviews={true}
+          updateCellsBatchingPeriod={50}
           ListFooterComponent={
             loading ? (
               <View style={styles.footer}>

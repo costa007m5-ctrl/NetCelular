@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
   Animated,
   Platform,
@@ -24,19 +24,18 @@ interface ContentCardProps {
   showBadge?: boolean;
 }
 
-const isNewContent = (year: number) => year >= new Date().getFullYear() - 1;
-const isRecentContent = (year: number) => year >= new Date().getFullYear();
+const CURRENT_YEAR = new Date().getFullYear();
+const isNewContent    = (year: number) => year >= CURRENT_YEAR - 1;
+const isRecentContent = (year: number) => year >= CURRENT_YEAR;
+
+const QUALITY_COLORS: Record<string, string> = {
+  "4K": "#a78bfa", "UHD": "#a78bfa",
+  "HD": "#3b82f6", "FHD": "#22d3ee", "DV": "#f59e0b",
+};
 
 function QualityBadge({ quality }: { quality?: string }) {
   if (!quality) return null;
-  const colors: Record<string, string> = {
-    "4K": "#a78bfa",
-    "UHD": "#a78bfa",
-    "HD": "#3b82f6",
-    "FHD": "#22d3ee",
-    "DV": "#f59e0b",
-  };
-  const color = colors[quality] ?? "#888";
+  const color = QUALITY_COLORS[quality] ?? "#888";
   return (
     <View style={[cardStyles.qualityBadge, { borderColor: `${color}55`, backgroundColor: `${color}18` }]}>
       <Text style={[cardStyles.qualityText, { color }]}>{quality}</Text>
@@ -65,24 +64,40 @@ const AnimatedCard = React.memo(function AnimatedCard({
   onPress,
   onLongPress,
 }: ContentCardProps) {
-  const colors = useColors();
-  const scale = useRef(new Animated.Value(1)).current;
+  const colors  = useColors();
+  const scale   = useRef(new Animated.Value(1)).current;
   const [imgError, setImgError] = useState(false);
   const [pressing, setPressing] = useState(false);
 
-  const onPressIn = () => {
+  const onPressIn = useCallback(() => {
     setPressing(true);
     Animated.spring(scale, { toValue: 0.92, useNativeDriver: true, speed: 26, bounciness: 5 }).start();
-  };
+  }, [scale]);
 
-  const onPressOut = () => {
+  const onPressOut = useCallback(() => {
     setPressing(false);
     Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 22, bounciness: 6 }).start();
-  };
-  const isNew = isNewContent(item.year);
-  const isLatest = isRecentContent(item.year);
+  }, [scale]);
+
+  const handleImgError = useCallback(() => setImgError(true), []);
+
+  const progressPct = useMemo(
+    () => item.progress !== undefined ? Math.min(item.progress * 100, 100) : 0,
+    [item.progress]
+  );
+  const isNew    = useMemo(() => isNewContent(item.year),    [item.year]);
+  const isLatest = useMemo(() => isRecentContent(item.year), [item.year]);
   const isSeries = item.type === "series";
-  const progressPct = item.progress !== undefined ? Math.min(item.progress * 100, 100) : 0;
+
+  const cardStyle = useMemo(() => ([
+    cardStyles.card,
+    { width, height, borderRadius: colors.radius, transform: [{ scale }] },
+  ]), [width, height, colors.radius, scale]);
+
+  const progressFillStyle = useMemo(() => ([
+    cardStyles.progressFill,
+    { width: `${progressPct}%` as any, backgroundColor: colors.primary },
+  ]), [progressPct, colors.primary]);
 
   return (
     <Pressable
@@ -92,24 +107,14 @@ const AnimatedCard = React.memo(function AnimatedCard({
       onPressOut={onPressOut}
       android_ripple={{ color: "rgba(229,9,20,0.18)", radius: width / 2 }}
     >
-      <Animated.View
-        style={[
-          cardStyles.card,
-          {
-            width,
-            height,
-            borderRadius: colors.radius,
-            transform: [{ scale }],
-          },
-        ]}
-      >
+      <Animated.View style={cardStyle}>
         {!imgError && item.posterPath ? (
           <Image
             source={{ uri: item.posterPath }}
             style={[cardStyles.image, { borderRadius: colors.radius }]}
             contentFit="cover"
-            transition={220}
-            onError={() => setImgError(true)}
+            transition={200}
+            onError={handleImgError}
             cachePolicy="memory-disk"
           />
         ) : (
@@ -133,12 +138,7 @@ const AnimatedCard = React.memo(function AnimatedCard({
         {showProgress && progressPct > 0 && (
           <View style={cardStyles.progressContainer}>
             <View style={cardStyles.progressTrack}>
-              <View
-                style={[
-                  cardStyles.progressFill,
-                  { width: `${progressPct}%` as any, backgroundColor: colors.primary },
-                ]}
-              />
+              <View style={progressFillStyle} />
             </View>
           </View>
         )}
@@ -154,23 +154,21 @@ const AnimatedCard = React.memo(function AnimatedCard({
         )}
 
         {showBadge && isLatest && (
-          <View style={[cardStyles.newBadge, { backgroundColor: "#e50914" }]}>
+          <View style={cardStyles.newBadgeRed}>
             <Text style={cardStyles.newBadgeText}>NOVO</Text>
           </View>
         )}
 
         {showBadge && !isLatest && isNew && (
-          <View style={[cardStyles.newBadge, { backgroundColor: "#22c55e" }]}>
+          <View style={cardStyles.newBadgeGreen}>
             <Text style={cardStyles.newBadgeText}>RECENTE</Text>
           </View>
         )}
 
         {showRating && item.rating > 0 && (
-          <View style={[cardStyles.ratingBadge, { backgroundColor: "rgba(245,158,11,0.2)" }]}>
+          <View style={cardStyles.ratingBadge}>
             <Feather name="star" size={8} color="#f59e0b" />
-            <Text style={[cardStyles.ratingText, { color: "#f59e0b" }]}>
-              {item.rating.toFixed(1)}
-            </Text>
+            <Text style={cardStyles.ratingText}>{item.rating.toFixed(1)}</Text>
           </View>
         )}
 
@@ -188,7 +186,7 @@ interface ContentCardWithLabelProps extends ContentCardProps {
   showTitle?: boolean;
 }
 
-export function ContentCardWithLabel({
+export const ContentCardWithLabel = React.memo(function ContentCardWithLabel({
   item,
   width = 120,
   height = 175,
@@ -201,7 +199,7 @@ export function ContentCardWithLabel({
 }: ContentCardWithLabelProps) {
   const colors = useColors();
   return (
-    <View style={{ width, marginRight: 10 }}>
+    <View style={[cardStyles.labelWrapper, { width }]}>
       <AnimatedCard
         item={item}
         width={width}
@@ -222,7 +220,7 @@ export function ContentCardWithLabel({
       )}
     </View>
   );
-}
+});
 
 const cardStyles = StyleSheet.create({
   card: {
@@ -309,13 +307,23 @@ const cardStyles = StyleSheet.create({
     fontWeight: "900",
     letterSpacing: 0.5,
   },
-  newBadge: {
+  newBadgeRed: {
     position: "absolute",
     top: 6,
     right: 6,
     paddingHorizontal: 5,
     paddingVertical: 2,
     borderRadius: 4,
+    backgroundColor: "#e50914",
+  },
+  newBadgeGreen: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 4,
+    backgroundColor: "#22c55e",
   },
   newBadgeText: {
     color: "#fff",
@@ -333,10 +341,12 @@ const cardStyles = StyleSheet.create({
     paddingHorizontal: 5,
     paddingVertical: 3,
     borderRadius: 5,
+    backgroundColor: "rgba(245,158,11,0.2)",
   },
   ratingText: {
     fontSize: 10,
     fontWeight: "700",
+    color: "#f59e0b",
   },
   playOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -360,6 +370,9 @@ const cardStyles = StyleSheet.create({
         shadowRadius: 14,
       },
     }),
+  },
+  labelWrapper: {
+    marginRight: 10,
   },
   label: {
     fontSize: 11,

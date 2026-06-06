@@ -1,6 +1,7 @@
-import React from "react";
+import React, { useCallback } from "react";
 import {
   FlatList,
+  Platform,
   StyleSheet,
   View,
 } from "react-native";
@@ -48,6 +49,22 @@ export function ContentGrid({
   headerComponent,
   footerComponent,
 }: ContentGridProps) {
+  const renderItem = useCallback(({ item }: { item: ContentItem }) => (
+    <View style={styles.item}>
+      <ContentCard
+        item={item}
+        width={cardWidth}
+        height={cardHeight}
+        showRating={showRating}
+        showProgress={showProgress}
+        onPress={onItemPress ? () => onItemPress(item) : undefined}
+        onLongPress={onItemLongPress ? () => onItemLongPress(item) : undefined}
+      />
+    </View>
+  ), [cardWidth, cardHeight, showRating, showProgress, onItemPress, onItemLongPress]);
+
+  const keyExtractor = useCallback((item: ContentItem) => item.id, []);
+
   if (loading) {
     return (
       <View>
@@ -71,28 +88,21 @@ export function ContentGrid({
     <FlatList
       data={items}
       numColumns={numColumns}
-      keyExtractor={(item) => item.id}
+      keyExtractor={keyExtractor}
       style={style}
       contentContainerStyle={[styles.content, contentContainerStyle]}
       columnWrapperStyle={numColumns > 1 ? styles.row : undefined}
       ListHeaderComponent={headerComponent}
       ListFooterComponent={footerComponent}
       onEndReached={onEndReached}
-      onEndReachedThreshold={0.3}
+      onEndReachedThreshold={0.4}
       showsVerticalScrollIndicator={false}
-      renderItem={({ item }) => (
-        <View style={styles.item}>
-          <ContentCard
-            item={item}
-            width={cardWidth}
-            height={cardHeight}
-            showRating={showRating}
-            showProgress={showProgress}
-            onPress={onItemPress}
-            onLongPress={onItemLongPress}
-          />
-        </View>
-      )}
+      renderItem={renderItem}
+      initialNumToRender={9}
+      maxToRenderPerBatch={9}
+      windowSize={5}
+      removeClippedSubviews={Platform.OS !== "web"}
+      updateCellsBatchingPeriod={50}
     />
   );
 }

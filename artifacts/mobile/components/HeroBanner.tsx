@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
   Dimensions,
@@ -160,20 +160,27 @@ function HeroItem({ item, colors, onWatch, onDetails, onAddToList, isActive, ind
     }
   }, [isActive]);
 
-  const handleLike = () => {
+  const handleLike = useCallback(() => {
     setLiked((v) => !v);
     Animated.sequence([
       Animated.spring(heartScale, { toValue: 1.45, speed: 30, bounciness: 14, useNativeDriver: true }),
       Animated.spring(heartScale, { toValue: 1, speed: 28, bounciness: 6, useNativeDriver: true }),
     ]).start();
-  };
+  }, [heartScale]);
 
-  const displayGenres = Array.isArray(item.genres)
-    ? item.genres.filter((g) => typeof g === "number").slice(0, 2) as number[]
-    : [];
+  const displayGenres = useMemo(
+    () => Array.isArray(item.genres)
+      ? (item.genres.filter((g: unknown) => typeof g === "number").slice(0, 2) as number[])
+      : [],
+    [item.genres]
+  );
 
-  const runtime = formatRuntime(item.duration ? parseInt(String(item.duration)) : undefined);
-  const isNew = item.year >= new Date().getFullYear() - 1;
+  const runtime = useMemo(
+    () => formatRuntime(item.duration ? parseInt(String(item.duration)) : undefined),
+    [item.duration]
+  );
+  const HERO_YEAR = new Date().getFullYear();
+  const isNew = item.year >= HERO_YEAR - 1;
 
   return (
     <Pressable style={{ width: screenWidth, height: HERO_HEIGHT }} onPress={onDetails ?? onWatch}>
@@ -311,38 +318,38 @@ function HeroItem({ item, colors, onWatch, onDetails, onAddToList, isActive, ind
   );
 }
 
-function TimerDot({ active, duration }: { active: boolean; duration: number }) {
+const TimerDot = React.memo(function TimerDot({ active, duration }: { active: boolean; duration: number }) {
   const progress = useRef(new Animated.Value(active ? 1 : 0)).current;
 
   useEffect(() => {
     if (active) {
       progress.setValue(1);
       Animated.timing(progress, {
-        toValue: 0.15,
+        toValue: 0,
         duration,
-        useNativeDriver: false,
+        useNativeDriver: true,
       }).start();
     } else {
       progress.setValue(0);
     }
   }, [active]);
 
-  const width = progress.interpolate({
+  // Use scaleX instead of width so useNativeDriver: true works
+  const scaleX = progress.interpolate({
     inputRange: [0, 1],
-    outputRange: [6, 28],
+    outputRange: [1, 28 / 6],
   });
+
+  if (!active) {
+    return <View style={heroStyles.dotInactive} />;
+  }
 
   return (
     <Animated.View
-      style={[
-        heroStyles.dot,
-        active
-          ? { width, backgroundColor: "#e50914", opacity: 1 }
-          : { width: 5, backgroundColor: "rgba(255,255,255,0.25)", opacity: 0.6 },
-      ]}
+      style={[heroStyles.dotActive, { transform: [{ scaleX }] }]}
     />
   );
-}
+});
 
 function HeroBannerSkeleton({ width: w }: { width: number }) {
   const pulse = useRef(new Animated.Value(0)).current;
@@ -776,9 +783,19 @@ const heroStyles = StyleSheet.create({
     alignItems: "center",
     gap: 5,
   },
-  dot: {
+  dotActive: {
+    width: 6,
     height: 5,
     borderRadius: 3,
+    backgroundColor: "#e50914",
+    opacity: 1,
+  },
+  dotInactive: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: "rgba(255,255,255,0.25)",
+    opacity: 0.6,
   },
   arrowLeft: {
     position: "absolute",

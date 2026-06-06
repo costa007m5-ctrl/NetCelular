@@ -1,5 +1,6 @@
-import React, { useEffect } from "react";
+import React, { useCallback, useEffect, useMemo } from "react";
 import {
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -44,7 +45,7 @@ interface ContentRowProps {
   accentColor?: string;
 }
 
-export function ContentRow({
+export const ContentRow = React.memo(function ContentRow({
   title,
   subtitle,
   icon,
@@ -62,12 +63,23 @@ export function ContentRow({
   accentColor,
 }: ContentRowProps) {
   const colors = useColors();
-  const displayItems = maxItems ? items.slice(0, maxItems) : items;
-  const hasMore = maxItems ? items.length > maxItems : false;
-  const featherIcon = icon ? (ICON_MAP[icon] ?? (icon as keyof typeof Feather.glyphMap)) : null;
+
+  const displayItems = useMemo(
+    () => (maxItems ? items.slice(0, maxItems) : items),
+    [items, maxItems]
+  );
+  const hasMore = useMemo(
+    () => (maxItems ? items.length > maxItems : false),
+    [items.length, maxItems]
+  );
+  const featherIcon = useMemo(
+    () => icon ? (ICON_MAP[icon] ?? (icon as keyof typeof Feather.glyphMap)) : null,
+    [icon]
+  );
   const accent = accentColor ?? colors.primary;
 
-  // Preload visible posters as a low-priority background task when the row renders.
+  const snapInterval = cardWidth + 10;
+
   useEffect(() => {
     const urls = displayItems
       .slice(0, 8)
@@ -113,9 +125,9 @@ export function ContentRow({
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
         decelerationRate="fast"
-        snapToInterval={cardWidth + 10}
+        snapToInterval={snapInterval}
         snapToAlignment="start"
-        removeClippedSubviews={true}
+        removeClippedSubviews={Platform.OS !== "web"}
       >
         {displayItems.map((item) => (
           <ContentCardWithLabel
@@ -154,7 +166,7 @@ export function ContentRow({
       </ScrollView>
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   container: {

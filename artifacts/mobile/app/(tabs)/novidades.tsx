@@ -763,6 +763,11 @@ function VerMaisModal({
           renderItem={renderItem}
           onEndReached={handleEndReached}
           onEndReachedThreshold={0.4}
+          initialNumToRender={12}
+          maxToRenderPerBatch={9}
+          windowSize={5}
+          removeClippedSubviews={Platform.OS !== "web"}
+          updateCellsBatchingPeriod={50}
           ListFooterComponent={
             loadingMore ? (
               <View style={{ paddingVertical: 20, alignItems: "center" }}>

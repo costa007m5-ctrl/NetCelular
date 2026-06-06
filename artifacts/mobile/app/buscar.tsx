@@ -476,6 +476,11 @@ export default function BuscarScreen() {
               renderItem={({ item }) => (
                 <PosterCard item={item} onPress={() => goTo(item)} />
               )}
+              initialNumToRender={12}
+              maxToRenderPerBatch={9}
+              windowSize={5}
+              removeClippedSubviews={true}
+              updateCellsBatchingPeriod={50}
             />
           )}
         </View>
@@ -526,6 +531,10 @@ export default function BuscarScreen() {
                 renderItem={({ item }) => (
                   <PosterCard item={item} onPress={() => goTo(item)} />
                 )}
+                initialNumToRender={9}
+                maxToRenderPerBatch={9}
+                windowSize={3}
+                removeClippedSubviews={true}
               />
             </SectionRow>
           )}
