@@ -412,6 +412,21 @@ export function HeroBanner({ items, onItemPress, onDetailsPress, onAddToList }: 
   const [activeIndex, setActiveIndex] = useState(0);
   const scrollRef = useRef<any>(null);
   const timerRef = useRef<any>(null);
+  const bannerOpacity = useRef(new Animated.Value(0)).current;
+  const hasItems = items.length > 0;
+
+  // Fade in the real banner when items arrive
+  useEffect(() => {
+    if (hasItems) {
+      Animated.timing(bannerOpacity, {
+        toValue: 1,
+        duration: 520,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      bannerOpacity.setValue(0);
+    }
+  }, [hasItems]);
 
   const goTo = useCallback(
     (idx: number) => {
@@ -445,55 +460,65 @@ export function HeroBanner({ items, onItemPress, onDetailsPress, onAddToList }: 
     [resetTimer, w]
   );
 
-  if (!items.length) return <HeroBannerSkeleton width={w} />;
-
-
   return (
     <View style={{ height: HERO_HEIGHT, width: w, overflow: "hidden" }}>
-      <Animated.ScrollView
-        ref={scrollRef}
-        horizontal
-        pagingEnabled
-        showsHorizontalScrollIndicator={false}
-        scrollEventThrottle={16}
-        onMomentumScrollEnd={onScrollEnd}
-        style={{ width: w, overflow: "hidden" }}
-        contentContainerStyle={{ width: w * items.length }}
-        decelerationRate="fast"
-        bounces={false}
-        overScrollMode="never"
-      >
-        {items.map((item, i) => (
-          <HeroItem
-            key={item.id}
-            item={item}
-            index={i}
-            colors={colors}
-            screenWidth={w}
-            isActive={i === activeIndex}
-            onWatch={onItemPress ? () => onItemPress(item) : undefined}
-            onDetails={
-              onDetailsPress
-                ? () => onDetailsPress(item)
-                : onItemPress
-                ? () => onItemPress(item)
-                : undefined
-            }
-            onAddToList={onAddToList ? () => onAddToList(item) : undefined}
-          />
-        ))}
-      </Animated.ScrollView>
+      {/* Skeleton always rendered as base layer */}
+      <HeroBannerSkeleton width={w} />
 
-      {items.length > 1 && (
-        <View style={heroStyles.dotsContainer}>
-          {items.map((_, i) => (
-            <Pressable key={i} onPress={() => goTo(i)} hitSlop={8}>
-              <TimerDot active={i === activeIndex} duration={AUTO_ADVANCE_MS} />
-            </Pressable>
-          ))}
-        </View>
+      {/* Real banner fades in on top when items arrive */}
+      {hasItems && (
+        <Animated.View
+          style={{
+            position: "absolute",
+            top: 0, left: 0, right: 0, bottom: 0,
+            opacity: bannerOpacity,
+          }}
+        >
+          <Animated.ScrollView
+            ref={scrollRef}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            scrollEventThrottle={16}
+            onMomentumScrollEnd={onScrollEnd}
+            style={{ width: w, overflow: "hidden" }}
+            contentContainerStyle={{ width: w * items.length }}
+            decelerationRate="fast"
+            bounces={false}
+            overScrollMode="never"
+          >
+            {items.map((item, i) => (
+              <HeroItem
+                key={item.id}
+                item={item}
+                index={i}
+                colors={colors}
+                screenWidth={w}
+                isActive={i === activeIndex}
+                onWatch={onItemPress ? () => onItemPress(item) : undefined}
+                onDetails={
+                  onDetailsPress
+                    ? () => onDetailsPress(item)
+                    : onItemPress
+                    ? () => onItemPress(item)
+                    : undefined
+                }
+                onAddToList={onAddToList ? () => onAddToList(item) : undefined}
+              />
+            ))}
+          </Animated.ScrollView>
+
+          {items.length > 1 && (
+            <View style={heroStyles.dotsContainer}>
+              {items.map((_, i) => (
+                <Pressable key={i} onPress={() => goTo(i)} hitSlop={8}>
+                  <TimerDot active={i === activeIndex} duration={AUTO_ADVANCE_MS} />
+                </Pressable>
+              ))}
+            </View>
+          )}
+        </Animated.View>
       )}
-
     </View>
   );
 }
