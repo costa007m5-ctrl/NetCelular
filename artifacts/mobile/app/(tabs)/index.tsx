@@ -8,6 +8,7 @@ import React, {
 import {
   ActivityIndicator,
   Animated,
+  InteractionManager,
   Platform,
   Pressable,
   RefreshControl,
@@ -409,6 +410,8 @@ function SectionHeader({ title, icon, onSeeAll, badge, accentColor = RED, subtit
 
 // Animated section wrapper — fades + slides up on mount
 function AnimatedSection({ anim, children }: { anim: Animated.Value; children: React.ReactNode }) {
+  // On native skip Animated.View entirely — avoids creating 100+ animated wrappers on Android
+  if (Platform.OS !== "web") return <>{children}</>;
   const opacity    = anim;
   const translateY = anim.interpolate({ inputRange: [0, 1], outputRange: [28, 0] });
   return (
@@ -419,7 +422,7 @@ function AnimatedSection({ anim, children }: { anim: Animated.Value; children: R
 }
 
 // Promo action banner
-function PromoBanner({ title, subtitle, actionLabel, onPress, gradient, icon }: {
+const PromoBanner = React.memo(function PromoBanner({ title, subtitle, actionLabel, onPress, gradient, icon }: {
   title: string; subtitle: string; actionLabel: string;
   onPress: () => void; gradient: string[]; icon: keyof typeof Feather.glyphMap;
 }) {
@@ -448,7 +451,7 @@ function PromoBanner({ title, subtitle, actionLabel, onPress, gradient, icon }: 
       </Animated.View>
     </Pressable>
   );
-}
+});
 
 // Wide spotlight banner (single featured item)
 function SpotlightBanner({ item, label, onPress, accentColor = RED }: {
@@ -1569,6 +1572,8 @@ export default function HomeScreen() {
   const [activeProfile, setActiveProfile] = useState<any>(null);
   const [cacheTs, setCacheTs]             = useState<number | null>(null);
   const [timeAgoStr, setTimeAgoStr]       = useState<string | null>(null);
+  // Below-fold sections render after interactions complete (avoids mounting all 56 sections at once on Android)
+  const [belowFoldReady, setBelowFoldReady] = useState(Platform.OS === "web");
 
   // ── section entrance animations ────────────────────────────────────────────
   const SECTION_COUNT = 49;
@@ -1788,6 +1793,7 @@ export default function HomeScreen() {
         setLoading(false);
         setRefreshing(false);
         setTimeout(startEntranceAnims, 60);
+        InteractionManager.runAfterInteractions(() => setBelowFoldReady(true));
 
         // Phase 2: background revalidation — silent, no loading state
         fetchAndCache().then((fresh) => applyCatalog(fresh)).catch(() => {});
@@ -1802,6 +1808,7 @@ export default function HomeScreen() {
       setLoading(false);
       setRefreshing(false);
       setTimeout(startEntranceAnims, 100);
+      InteractionManager.runAfterInteractions(() => setBelowFoldReady(true));
     }
   }, [startEntranceAnims, applyCatalog, fetchAndCache]);
 
@@ -2022,6 +2029,7 @@ export default function HomeScreen() {
                     accentColor={GREEN} subtitle="Retome de onde parou"
                     onSeeAll={() => router.push("/(tabs)/list")} />
                   <ScrollView horizontal showsHorizontalScrollIndicator={false}
+                    removeClippedSubviews={Platform.OS !== "web"}
                     contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }} decelerationRate="fast">
                     {continueItems.slice(0, 6).map((item) => (
                       <ContinueCard
@@ -2070,6 +2078,7 @@ export default function HomeScreen() {
                       badge="SEMANAL" accentColor={AMBER}
                       onSeeAll={() => browseTo("movies", "Top 10 Filmes")} />
                     <ScrollView horizontal showsHorizontalScrollIndicator={false}
+                      removeClippedSubviews={Platform.OS !== "web"}
                       contentContainerStyle={{ paddingHorizontal: 16, gap: 4 }} decelerationRate="fast">
                       {top10Movies.map((item, i) => (
                         <TopTenCard key={item.id} item={item} rank={i + 1}
@@ -2092,6 +2101,10 @@ export default function HomeScreen() {
                   </View>
                 </AnimatedSection>
               )}
+
+              {/* Below-fold: deferred until after first render interactions complete */}
+              {belowFoldReady && (
+              <>
 
               {/* ── 11. PROMO — EXPLORAR SÉRIES ──────────────────────────────── */}
               <AnimatedSection anim={s[9]}>
@@ -2602,6 +2615,9 @@ export default function HomeScreen() {
                   gradient={[GREEN, "#15803d"]}
                 />
               </AnimatedSection>
+
+              </>
+              )}
             </>
           )}
         </View>
