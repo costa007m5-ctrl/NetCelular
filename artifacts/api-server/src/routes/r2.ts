@@ -3,6 +3,7 @@ import {
   S3Client,
   ListObjectsV2Command,
   GetObjectCommand,
+  HeadObjectCommand,
   PutObjectCommand,
   CopyObjectCommand,
   DeleteObjectCommand,
@@ -2032,54 +2033,146 @@ router.get("/flix2/stream-url", async (req, res) => {
   }
 });
 
+// ── In-memory job tracker for async index builds ─────────────────────────────
+
+interface BuildJob {
+  jobId: string;
+  startedAt: number;
+  status: "running" | "done" | "error";
+  currentType: string;
+  typesDone: string[];
+  pagesScanned: number;
+  totalPages: number;
+  summary: Record<string, number>;
+  error?: string;
+}
+
+const buildJobs = new Map<string, BuildJob>();
+
+// Clean up old jobs after 1 hour
+setInterval(() => {
+  const cutoff = Date.now() - 3600_000;
+  for (const [id, job] of buildJobs) {
+    if (job.startedAt < cutoff) buildJobs.delete(id);
+  }
+}, 300_000);
+
+// ── GET /flix2/index-status ────────────────────────────────────────────────────
+// Returns metadata about existing R2 index files (count + last modified age).
+router.get("/flix2/index-status", async (req, res) => {
+  const client = getClient();
+  const bucket = getBucket();
+  const types = ["movies", "series", "animes"];
+  const result: Record<string, { exists: boolean; count: number; ageMs: number | null }> = {};
+
+  await Promise.all(types.map(async (t) => {
+    try {
+      const head = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: `__flix2-index-${t}.json` }));
+      const ageMs = head.LastModified ? Date.now() - head.LastModified.getTime() : null;
+      // Also fetch count from the object
+      const obj = await client.send(new GetObjectCommand({ Bucket: bucket, Key: `__flix2-index-${t}.json` }));
+      const raw = await obj.Body?.transformToString();
+      const count = raw ? Object.keys(JSON.parse(raw)).length : 0;
+      result[t] = { exists: true, count, ageMs };
+    } catch {
+      result[t] = { exists: false, count: 0, ageMs: null };
+    }
+  }));
+
+  res.json({ ok: true, status: result });
+});
+
+// ── GET /flix2/build-progress?jobId=X ────────────────────────────────────────
+router.get("/flix2/build-progress", (req, res) => {
+  const { jobId } = req.query as Record<string, string>;
+  const job = buildJobs.get(jobId);
+  if (!job) { res.status(404).json({ error: "Job not found" }); return; }
+  res.json(job);
+});
+
 // ── POST /flix2/build-index?type=movies|series|animes|all ─────────────────────
-// Fetches ALL catalog pages for one or all types and writes
-// __flix2-index-{type}.json = { [tmdb_id]: stream_url } into R2.
-// This powers the fast-path in /flix2/lookup.
+// Starts an async background job. Returns jobId immediately for progress polling.
+// Client polls GET /flix2/build-progress?jobId=X every 2s.
 router.post("/flix2/build-index", async (req, res) => {
   const { type = "movies" } = req.query as Record<string, string>;
   const typesToIndex = type === "all" ? ["movies", "series", "animes"] : [type];
-  const client = getClient();
-  const bucket = getBucket();
-  const summary: Record<string, number> = {};
+  const jobId = crypto.randomUUID();
 
-  for (const t of typesToIndex) {
-    const index: Record<number, string> = {};
-    try {
-      const first = await flix2FetchPage(t, 1);
-      if (!first.success) { summary[t] = -1; continue; }
-      for (const item of first.data) {
-        if (item.tmdb_id && item.stream_url) index[Number(item.tmdb_id)] = item.stream_url;
-      }
-      const totalPages = first.pagination?.total_pages ?? 1;
-      const BATCH = 10;
-      for (let start = 2; start <= totalPages; start += BATCH) {
-        const batch = Array.from(
-          { length: Math.min(BATCH, totalPages - start + 1) },
-          (_, i) => flix2FetchPage(t, start + i)
-        );
-        const pages = await Promise.allSettled(batch);
-        for (const p of pages) {
-          if (p.status === "fulfilled" && p.value.success) {
-            for (const item of p.value.data) {
-              if (item.tmdb_id && item.stream_url) index[Number(item.tmdb_id)] = item.stream_url;
+  const job: BuildJob = {
+    jobId,
+    startedAt: Date.now(),
+    status: "running",
+    currentType: typesToIndex[0],
+    typesDone: [],
+    pagesScanned: 0,
+    totalPages: 0,
+    summary: {},
+  };
+  buildJobs.set(jobId, job);
+
+  // Respond immediately so the client can start polling
+  res.json({ ok: true, jobId });
+
+  // Run the build in the background
+  (async () => {
+    const client = getClient();
+    const bucket = getBucket();
+    const BATCH = 15;
+
+    for (const t of typesToIndex) {
+      job.currentType = t;
+      job.pagesScanned = 0;
+      job.totalPages = 0;
+      const index: Record<number, string> = {};
+
+      try {
+        const first = await flix2FetchPage(t, 1);
+        if (!first.success) { job.summary[t] = -1; job.typesDone.push(t); continue; }
+
+        for (const item of first.data) {
+          if (item.tmdb_id && item.stream_url) index[Number(item.tmdb_id)] = item.stream_url;
+        }
+        const totalPages = first.pagination?.total_pages ?? 1;
+        job.totalPages = totalPages;
+        job.pagesScanned = 1;
+
+        for (let start = 2; start <= totalPages; start += BATCH) {
+          const batch = Array.from(
+            { length: Math.min(BATCH, totalPages - start + 1) },
+            (_, i) => flix2FetchPage(t, start + i)
+          );
+          const pages = await Promise.allSettled(batch);
+          for (const p of pages) {
+            if (p.status === "fulfilled" && p.value.success) {
+              for (const item of p.value.data) {
+                if (item.tmdb_id && item.stream_url) index[Number(item.tmdb_id)] = item.stream_url;
+              }
             }
           }
+          job.pagesScanned = Math.min(start + BATCH - 1, totalPages);
         }
-      }
-      await client.send(new PutObjectCommand({
-        Bucket: bucket,
-        Key: `__flix2-index-${t}.json`,
-        Body: JSON.stringify(index),
-        ContentType: "application/json",
-      }));
-      summary[t] = Object.keys(index).length;
-    } catch (e: any) {
-      summary[t] = -1;
-    }
-  }
 
-  res.json({ ok: true, indexed: summary });
+        await client.send(new PutObjectCommand({
+          Bucket: bucket,
+          Key: `__flix2-index-${t}.json`,
+          Body: JSON.stringify(index),
+          ContentType: "application/json",
+        }));
+
+        job.summary[t] = Object.keys(index).length;
+        job.typesDone.push(t);
+      } catch (e: any) {
+        job.summary[t] = -1;
+        job.typesDone.push(t);
+      }
+    }
+
+    job.status = "done";
+    job.pagesScanned = job.totalPages;
+  })().catch((e) => {
+    job.status = "error";
+    job.error = e?.message ?? "Unknown error";
+  });
 });
 
 export default router;

@@ -5457,8 +5457,67 @@ function Flix2Panel() {
   const [searching, setSearching] = useState(false);  // debounce in-flight indicator
   const [registerTarget, setRegisterTarget] = useState<Flix2Item | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [indexing, setIndexing] = useState(false);
-  const [indexResult, setIndexResult] = useState<string | null>(null);
+  const [buildJobId, setBuildJobId] = useState<string | null>(null);
+  const [buildProgress, setBuildProgress] = useState<{
+    status: "running" | "done" | "error";
+    currentType: string;
+    typesDone: string[];
+    pagesScanned: number;
+    totalPages: number;
+    summary: Record<string, number>;
+    error?: string;
+  } | null>(null);
+  const [indexStatus, setIndexStatus] = useState<Record<string, { exists: boolean; count: number; ageMs: number | null }> | null>(null);
+  const [statusLoading, setStatusLoading] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const loadIndexStatus = async () => {
+    setStatusLoading(true);
+    try {
+      const data = await apiFetch<{ ok: boolean; status: Record<string, { exists: boolean; count: number; ageMs: number | null }> }>(
+        "/flix2/index-status"
+      );
+      if (data.ok) setIndexStatus(data.status);
+    } catch {}
+    finally { setStatusLoading(false); }
+  };
+
+  useEffect(() => { loadIndexStatus(); }, []);
+
+  const startBuild = async () => {
+    setBuildProgress(null);
+    setBuildJobId(null);
+    try {
+      const data = await apiFetch<{ ok: boolean; jobId: string }>(
+        "/flix2/build-index?type=all",
+        { method: "POST" }
+      );
+      if (data.ok && data.jobId) {
+        setBuildJobId(data.jobId);
+      }
+    } catch (e: any) {
+      setBuildProgress({ status: "error", currentType: "", typesDone: [], pagesScanned: 0, totalPages: 0, summary: {}, error: e.message });
+    }
+  };
+
+  // Poll progress while job is running
+  useEffect(() => {
+    if (!buildJobId) return;
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      try {
+        const data = await apiFetch<any>(`/flix2/build-progress?jobId=${buildJobId}`);
+        setBuildProgress(data);
+        if (data.status === "done" || data.status === "error") {
+          clearInterval(pollRef.current!);
+          pollRef.current = null;
+          setBuildJobId(null);
+          loadIndexStatus();
+        }
+      } catch {}
+    }, 2000);
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, [buildJobId]);
 
   const fetchItems = async (type: Flix2Type, pg: number, append = false) => {
     if (!append) setLoading(true);
@@ -5478,26 +5537,6 @@ function Flix2Panel() {
     finally { setLoading(false); setLoadingMore(false); }
   };
 
-  const buildIndex = async (type: "all" | Flix2Type) => {
-    setIndexing(true);
-    setIndexResult(null);
-    try {
-      const result = await apiFetch<{ ok: boolean; indexed: Record<string, number> }>(
-        `/flix2/build-index?type=${type}`,
-        { method: "POST" }
-      );
-      if (result.ok) {
-        const parts = Object.entries(result.indexed)
-          .map(([t, n]) => `${t}: ${n >= 0 ? n.toLocaleString() + " itens" : "erro"}`)
-          .join(" | ");
-        setIndexResult(`Índice criado! ${parts}`);
-      }
-    } catch (e: any) {
-      setIndexResult(`Erro: ${e.message}`);
-    } finally {
-      setIndexing(false);
-    }
-  };
 
   const runSearch = async (type: Flix2Type, q: string) => {
     setLoading(true);
@@ -5576,25 +5615,106 @@ function Flix2Panel() {
             </Pressable>
           ))}
         </View>
-        {/* Indexar catálogo — gera índice tmdbId→url para lookup rápido */}
-        <Pressable
-          onPress={() => !indexing && buildIndex("all")}
-          style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
-            paddingVertical: 9, borderRadius: 10, marginBottom: 4,
-            backgroundColor: indexing ? "rgba(255,255,255,0.05)" : `${FLIX2_COLOR}18`,
-            borderWidth: 1, borderColor: indexing ? "rgba(255,255,255,0.08)" : `${FLIX2_COLOR}40` }}>
-          {indexing
-            ? <ActivityIndicator size="small" color={FLIX2_COLOR} />
-            : <Feather name="database" size={13} color={FLIX2_COLOR} />}
-          <Text style={{ color: indexing ? "rgba(255,255,255,0.4)" : FLIX2_COLOR, fontSize: 12, fontWeight: "700" }}>
-            {indexing ? "Indexando catálogo completo…" : "Indexar catálogo completo"}
-          </Text>
-        </Pressable>
-        {indexResult && (
-          <Text style={{ color: "#4ade80", fontSize: 10, textAlign: "center", paddingBottom: 4 }}>
-            {indexResult}
-          </Text>
-        )}
+        {/* ── Auto-Sync panel ── */}
+        {(() => {
+          const isRunning = !!buildJobId || buildProgress?.status === "running";
+          const isDone = buildProgress?.status === "done";
+          const isError = buildProgress?.status === "error";
+          const allIndexed = indexStatus && ["movies","series","animes"].every(t => indexStatus[t]?.exists);
+          const totalCount = indexStatus ? Object.values(indexStatus).reduce((s, v) => s + (v.count ?? 0), 0) : 0;
+          const oldestAgeMs = indexStatus ? Math.max(...Object.values(indexStatus).map(v => v.ageMs ?? 0)) : 0;
+          const ageHours = Math.round(oldestAgeMs / 3600000);
+
+          const progressPct = buildProgress && buildProgress.totalPages > 0
+            ? Math.round((buildProgress.pagesScanned / buildProgress.totalPages) * 100)
+            : 0;
+
+          const TYPE_LABELS: Record<string, string> = { movies: "Filmes", series: "Séries", animes: "Animes" };
+
+          return (
+            <View style={{ marginBottom: 6, borderRadius: 12, borderWidth: 1,
+              borderColor: isRunning ? `${FLIX2_COLOR}55` : allIndexed ? "rgba(34,197,94,0.25)" : "rgba(255,255,255,0.1)",
+              backgroundColor: isRunning ? `${FLIX2_COLOR}0d` : "rgba(255,255,255,0.03)",
+              overflow: "hidden" }}>
+
+              {/* Status row */}
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 10 }}>
+                {statusLoading
+                  ? <ActivityIndicator size="small" color={FLIX2_COLOR} />
+                  : isRunning
+                    ? <ActivityIndicator size="small" color={FLIX2_COLOR} />
+                    : isDone || allIndexed
+                      ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: "#22c55e" }} />
+                      : <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: "#f59e0b" }} />
+                }
+
+                <View style={{ flex: 1 }}>
+                  {isRunning && buildProgress ? (
+                    <>
+                      <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>
+                        Sincronizando {TYPE_LABELS[buildProgress.currentType] ?? buildProgress.currentType}…
+                        {buildProgress.typesDone.length > 0 && ` (${buildProgress.typesDone.map(t => TYPE_LABELS[t]).join(", ")} ✓)`}
+                      </Text>
+                      <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 10, marginTop: 1 }}>
+                        {buildProgress.pagesScanned.toLocaleString()} / {buildProgress.totalPages.toLocaleString()} páginas · {progressPct}%
+                      </Text>
+                    </>
+                  ) : isRunning ? (
+                    <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 11 }}>Iniciando sincronização…</Text>
+                  ) : isDone ? (
+                    <>
+                      <Text style={{ color: "#22c55e", fontSize: 11, fontWeight: "700" }}>Índice atualizado!</Text>
+                      <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 10, marginTop: 1 }}>
+                        {Object.entries(buildProgress!.summary)
+                          .map(([t, n]) => `${TYPE_LABELS[t] ?? t}: ${n >= 0 ? n.toLocaleString() : "erro"}`)
+                          .join(" · ")}
+                      </Text>
+                    </>
+                  ) : isError ? (
+                    <Text style={{ color: "#f87171", fontSize: 11 }}>Erro: {buildProgress?.error}</Text>
+                  ) : allIndexed ? (
+                    <>
+                      <Text style={{ color: "#22c55e", fontSize: 11, fontWeight: "700" }}>
+                        {totalCount.toLocaleString()} títulos indexados
+                      </Text>
+                      <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 10, marginTop: 1 }}>
+                        {ageHours < 1 ? "Atualizado há pouco" : `Atualizado há ${ageHours}h`}
+                        {indexStatus && ` · ${Object.entries(indexStatus).map(([t,v]) => `${TYPE_LABELS[t]}: ${v.count.toLocaleString()}`).join(" · ")}`}
+                      </Text>
+                    </>
+                  ) : (
+                    <>
+                      <Text style={{ color: "#f59e0b", fontSize: 11, fontWeight: "700" }}>Catálogo não indexado</Text>
+                      <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 10, marginTop: 1 }}>
+                        Sincronize para ativar botão "Assistir" em todo o app
+                      </Text>
+                    </>
+                  )}
+                </View>
+
+                <Pressable
+                  onPress={() => !isRunning && startBuild()}
+                  style={{ flexDirection: "row", alignItems: "center", gap: 5,
+                    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8,
+                    backgroundColor: isRunning ? "rgba(255,255,255,0.05)" : `${FLIX2_COLOR}22`,
+                    borderWidth: 1, borderColor: isRunning ? "rgba(255,255,255,0.08)" : `${FLIX2_COLOR}55`,
+                    opacity: isRunning ? 0.5 : 1 }}>
+                  <Feather name={isRunning ? "loader" : "refresh-cw"} size={12} color={FLIX2_COLOR} />
+                  <Text style={{ color: FLIX2_COLOR, fontSize: 11, fontWeight: "700" }}>
+                    {isRunning ? "Em curso" : allIndexed ? "Reindexar" : "Sincronizar"}
+                  </Text>
+                </Pressable>
+              </View>
+
+              {/* Progress bar */}
+              {isRunning && buildProgress && buildProgress.totalPages > 0 && (
+                <View style={{ height: 2, backgroundColor: "rgba(255,255,255,0.06)" }}>
+                  <View style={{ height: 2, width: `${progressPct}%`, backgroundColor: FLIX2_COLOR, borderRadius: 2 }} />
+                </View>
+              )}
+            </View>
+          );
+        })()}
       </View>
 
       {/* Search bar */}
