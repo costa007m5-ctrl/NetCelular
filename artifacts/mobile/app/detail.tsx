@@ -273,6 +273,8 @@ export default function DetailScreen() {
   const [srcSettings, setSrcSettings] = useState<SourceSettings>(DEFAULT_SRC);
   // Tracks if the R2/Flix2 lookup is still in progress (to avoid race on ASSISTIR AGORA)
   const [r2Loading, setR2Loading] = useState(true);
+  // Tracks if the background Flix 2.0 lookup is still running (separate from r2Loading)
+  const [flix2Loading, setFlix2Loading] = useState(false);
   // Admin-only: mismatched registry items (content exists but with a different tmdbId)
   const [adminDiagnostic, setAdminDiagnostic] = useState<{ count: number; ids: number[]; titles: string[] } | null>(null);
   const [fixingIds, setFixingIds] = useState(false);
@@ -282,7 +284,8 @@ export default function DetailScreen() {
   // ─── Fase 1 (rápida): registry + settings → mostra botões imediatamente
   // ─── Fase 2 (lenta):  flix2/lookup roda em background e acrescenta itens
   useEffect(() => {
-    if (!tmdbId) { setR2Loading(false); return; }
+    if (!tmdbId) { setR2Loading(false); setFlix2Loading(false); return; }
+    setFlix2Loading(false);  // reset ao navegar para novo título
     let cancelled = false;
     const loadR2 = async () => {
       try {
@@ -376,12 +379,12 @@ export default function DetailScreen() {
         setR2Loading(false);  // fase 1 concluída — UI já pode mostrar botões
 
         // ── Fase 2: flix2/lookup (pode levar 5-20s, corre em background) ──
+        // Roda SEMPRE (mesmo com R2/Drive) para descobrir fontes complementares.
+        // Só pula se o registro já tem um item flix2 explícito.
         const alreadyHasFlix = registryItems.some(isFlixItem);
-        const alreadyHasR2orDrive = registryItems.some(
-          (i: any) => i.r2Key || i.driveFilePath || i.driveUrl
-        );
-        if (alreadyHasFlix || alreadyHasR2orDrive) return;  // não precisa de flix2
+        if (alreadyHasFlix) return;
 
+        if (!cancelled) setFlix2Loading(true);
         try {
           const flix2Type = type === "movie" ? "movies" : "all";
           const flix2Raw = await r2Route<{ found: boolean; item: any }>(
@@ -432,6 +435,7 @@ export default function DetailScreen() {
             setR2Items((prev) => [...prev, ...flixItems]);
           }
         } catch {}
+        finally { if (!cancelled) setFlix2Loading(false); }
       } catch {} finally {
         if (!cancelled) setR2Loading(false);
       }
@@ -1487,6 +1491,16 @@ export default function DetailScreen() {
                   );
                 }
 
+                // Flix 2.0 still loading but no other sources yet → show non-blocking indicator
+                if (sources.length === 0 && flix2Loading) {
+                  return (
+                    <View style={{ height: 48, borderRadius: 10, backgroundColor: "rgba(139,92,246,0.07)", borderWidth: 1, borderColor: "rgba(139,92,246,0.2)", justifyContent: "center", alignItems: "center", flexDirection: "row", gap: 8 }}>
+                      <ActivityIndicator size="small" color="#8b5cf6" />
+                      <Text style={{ color: "#a78bfa", fontSize: 12, fontWeight: "500" }}>Buscando via Flix 2.0…</Text>
+                    </View>
+                  );
+                }
+
                 if (sources.length === 0) {
                   return (
                     <View style={{ gap: 8 }}>
@@ -1567,52 +1581,60 @@ export default function DetailScreen() {
                   );
                 }
 
+                // Helper: small "Flix 2.0 buscando…" pill shown alongside existing sources
+                const flix2SearchingBadge = flix2Loading && !hasFlix ? (
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 20, backgroundColor: "rgba(139,92,246,0.10)", borderWidth: 1, borderColor: "rgba(139,92,246,0.25)", alignSelf: "flex-start", marginTop: 8 }}>
+                    <ActivityIndicator size={10} color="#8b5cf6" />
+                    <Text style={{ color: "#a78bfa", fontSize: 11, fontWeight: "600" }}>Flix 2.0 buscando…</Text>
+                  </View>
+                ) : null;
+
                 if (sources.length === 1) {
                   // Single source — show as "ASSISTIR AGORA"
                   return (
-                    <Pressable
-                      style={({ pressed }) => [styles.watchBtn, { backgroundColor: colors.primary }, pressed && { opacity: 0.85 }]}
-                      onPress={primaryPress}
-                    >
-                      <Feather name="play" size={18} color="#fff" />
-                      <Text style={styles.watchBtnText}>ASSISTIR AGORA</Text>
-                    </Pressable>
+                    <>
+                      <Pressable
+                        style={({ pressed }) => [styles.watchBtn, { backgroundColor: colors.primary }, pressed && { opacity: 0.85 }]}
+                        onPress={primaryPress}
+                      >
+                        <Feather name="play" size={18} color="#fff" />
+                        <Text style={styles.watchBtnText}>ASSISTIR AGORA</Text>
+                      </Pressable>
+                      {flix2SearchingBadge}
+                    </>
                   );
                 }
 
-                // Multiple sources — flix2 is primary "ASSISTIR AGORA", others are secondary
+                // Multiple sources — mostra todos os servidores disponíveis
                 return (
                   <>
-                    {/* Primary: Flix 2.0 or first available source */}
-                    <Pressable
-                      style={({ pressed }) => [
-                        styles.watchBtn,
-                        { backgroundColor: colors.primary },
-                        pressed && { opacity: 0.85 },
-                      ]}
-                      onPress={primaryPress}
-                    >
-                      <Feather name="play" size={18} color="#fff" />
-                      <Text style={styles.watchBtnText}>ASSISTIR AGORA</Text>
-                    </Pressable>
+                    {hasFlix && (
+                      <Pressable
+                        style={({ pressed }) => [styles.watchBtn, { backgroundColor: "#7c3aed" }, pressed && { opacity: 0.85 }]}
+                        onPress={pressFlix}
+                      >
+                        <Feather name="play" size={18} color="#fff" />
+                        <Text style={styles.watchBtnText}>ASSISTIR (FLIX 2.0)</Text>
+                      </Pressable>
+                    )}
                     {hasR2 && (
                       <Pressable
                         style={({ pressed }) => [
                           styles.watchBtn,
-                          { backgroundColor: "rgba(255,255,255,0.10)", marginTop: 8, borderWidth: 1, borderColor: "rgba(255,255,255,0.15)" },
+                          { backgroundColor: hasFlix ? "rgba(255,255,255,0.10)" : colors.primary, marginTop: hasFlix ? 8 : 0, borderWidth: hasFlix ? 1 : 0, borderColor: "rgba(255,255,255,0.15)" },
                           pressed && { opacity: 0.85 },
                         ]}
                         onPress={pressR2}
                       >
                         <Feather name={type === "tv" ? "tv" : "film"} size={18} color="#fff" />
-                        <Text style={styles.watchBtnText}>ASSISTIR (R2)</Text>
+                        <Text style={styles.watchBtnText}>{hasFlix ? "ASSISTIR (R2)" : "ASSISTIR AGORA"}</Text>
                       </Pressable>
                     )}
                     {hasDrive && (
                       <Pressable
                         style={({ pressed }) => [
                           styles.watchBtn,
-                          { backgroundColor: "#16a34a", marginTop: 8 },
+                          { backgroundColor: "#16a34a", marginTop: (hasFlix || hasR2) ? 8 : 0 },
                           pressed && { opacity: 0.85 },
                         ]}
                         onPress={pressDrive}
@@ -1621,6 +1643,7 @@ export default function DetailScreen() {
                         <Text style={styles.watchBtnText}>ASSISTIR (DRIVE)</Text>
                       </Pressable>
                     )}
+                    {flix2SearchingBadge}
                   </>
                 );
               })()}
@@ -1786,27 +1809,36 @@ export default function DetailScreen() {
                     const r2SpecificEps = r2Items.filter(
                       (i) => Number(i.season) === selectedSeason && i.episode != null
                     );
+                    // Separate flix2 from R2/Drive per-episode items
+                    const r2OnlySpecificEps = r2SpecificEps.filter((i) => !isFlixItem(i) && !isDriveItem(i));
+                    const flix2SpecificEps  = r2SpecificEps.filter(isFlixItem);
+                    const driveSpecificEps  = r2SpecificEps.filter(isDriveItem);
+
                     // Season-level registry item (episode=null) — exists when admin
-                    // registered the whole season folder
+                    // registered the whole season folder (always non-flix2)
                     const r2SeasonItem = r2Items.find(
-                      (i) => Number(i.season) === selectedSeason && i.episode == null
+                      (i) => Number(i.season) === selectedSeason && i.episode == null && !isFlixItem(i)
                     );
                     // Whether we have a real file list from the season folder scan
                     const hasFolderScan = r2SeasonItem != null && r2EpisodeNums.size > 0;
 
-                    // Build the episode list to display:
-                    // 1. Per-episode registry entries → show only those episodes
-                    // 2. Season folder with scanned files → show only scanned episodes
-                    // 3. Season folder but scan pending/empty → show all TMDB episodes
-                    // 4. No R2 at all → show all TMDB episodes
-                    const displayedEpisodes =
-                      r2SpecificEps.length > 0
-                        ? episodeList.filter((ep) =>
-                            r2SpecificEps.some((i) => Number(i.episode) === ep.episode_number)
-                          )
-                        : hasFolderScan
-                        ? episodeList.filter((ep) => r2EpisodeNums.has(ep.episode_number))
-                        : episodeList;
+                    // Build the episode list to display (union of all available sources):
+                    // 1. R2 per-episode entries OR flix2/drive entries → union of all covered episodes
+                    // 2. Season folder with scanned files + any flix2 → union
+                    // 3. Season folder only → show scanned episodes
+                    // 4. Only flix2 → show flix2 episodes
+                    // 5. No sources → show all TMDB episodes
+                    const hasAnyPerEpSource = r2OnlySpecificEps.length > 0 || flix2SpecificEps.length > 0 || driveSpecificEps.length > 0;
+                    const displayedEpisodes = hasAnyPerEpSource
+                      ? episodeList.filter((ep) =>
+                          r2OnlySpecificEps.some((i) => Number(i.episode) === ep.episode_number) ||
+                          flix2SpecificEps.some((i) => Number(i.episode) === ep.episode_number) ||
+                          driveSpecificEps.some((i) => Number(i.episode) === ep.episode_number) ||
+                          (hasFolderScan && r2EpisodeNums.has(ep.episode_number))
+                        )
+                      : hasFolderScan
+                      ? episodeList.filter((ep) => r2EpisodeNums.has(ep.episode_number))
+                      : episodeList;
 
                     if (loadingEpisodes) {
                       return <ActivityIndicator color={colors.primary} style={{ marginTop: 20 }} />;
@@ -1817,15 +1849,15 @@ export default function DetailScreen() {
                     return displayedEpisodes.map((ep) => {
                       const { watched, current } = getEpisodeStatus(ep);
 
-                      // R2 match priority:
-                      // 1. Exact per-episode entry
+                      // R2 match priority (excludes flix2 and drive — those have their own buttons):
+                      // 1. Exact per-episode R2 entry
                       // 2. Season folder item — only if this episode was found in the scan
-                      // 3. Whole-series item — only if no season-specific data exists at all
+                      // 3. Whole-series R2 item — only if no season-specific data exists at all
                       const r2Ep =
-                        r2Items.find((i) => Number(i.season) === selectedSeason && Number(i.episode) === ep.episode_number) ??
+                        r2Items.find((i) => !isFlixItem(i) && !isDriveItem(i) && Number(i.season) === selectedSeason && Number(i.episode) === ep.episode_number) ??
                         (r2SeasonItem && (hasFolderScan ? r2EpisodeNums.has(ep.episode_number) : true) ? r2SeasonItem : undefined) ??
-                        (r2SpecificEps.length === 0 && !r2SeasonItem
-                          ? r2Items.find((i) => i.season == null && i.episode == null)
+                        (r2OnlySpecificEps.length === 0 && !r2SeasonItem
+                          ? r2Items.find((i) => !isFlixItem(i) && !isDriveItem(i) && i.season == null && i.episode == null)
                           : undefined);
 
                       return (
