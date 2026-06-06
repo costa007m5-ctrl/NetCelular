@@ -383,7 +383,7 @@ export function HeroBanner({ items, onItemPress, onDetailsPress, onAddToList }: 
   if (!items.length) return <View style={{ height: HERO_HEIGHT, backgroundColor: "#050508" }} />;
 
   return (
-    <View style={{ height: HERO_HEIGHT }}>
+    <View style={{ height: HERO_HEIGHT, overflow: "hidden" }}>
       <Animated.ScrollView
         ref={scrollRef}
         horizontal
@@ -393,6 +393,8 @@ export function HeroBanner({ items, onItemPress, onDetailsPress, onAddToList }: 
         onMomentumScrollEnd={onScrollEnd}
         style={{ width: SCREEN_WIDTH }}
         decelerationRate="fast"
+        bounces={false}
+        overScrollMode="never"
       >
         {items.map((item, i) => (
           <HeroItem
@@ -424,28 +426,6 @@ export function HeroBanner({ items, onItemPress, onDetailsPress, onAddToList }: 
         </View>
       )}
 
-      {items.length > 1 && (
-        <>
-          <Pressable
-            style={heroStyles.arrowLeft}
-            onPress={() => goTo(activeIndex - 1)}
-            hitSlop={16}
-          >
-            <View style={heroStyles.arrowBtn}>
-              <Feather name="chevron-left" size={18} color="rgba(255,255,255,0.7)" />
-            </View>
-          </Pressable>
-          <Pressable
-            style={heroStyles.arrowRight}
-            onPress={() => goTo(activeIndex + 1)}
-            hitSlop={16}
-          >
-            <View style={heroStyles.arrowBtn}>
-              <Feather name="chevron-right" size={18} color="rgba(255,255,255,0.7)" />
-            </View>
-          </Pressable>
-        </>
-      )}
     </View>
   );
 }
