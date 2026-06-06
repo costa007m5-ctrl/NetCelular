@@ -207,11 +207,21 @@ function ChannelCard({
 }: {
   channel: LiveChannel; epg?: EpgEntry; onPress: () => void;
 }) {
-  const sc = useRef(new Animated.Value(1)).current;
+  const sc    = useRef(new Animated.Value(1)).current;
+  const pulse = useRef(new Animated.Value(1)).current;
   const [imgErr, setImgErr] = useState(false);
   const accent  = getAccent(channel.id);
   const prog    = epg ? calcProgress(epg.epg.start_date) : 35;
   const viewers = fakeViewers(channel.id);
+
+  useEffect(() => {
+    const anim = Animated.loop(Animated.sequence([
+      Animated.timing(pulse, { toValue: 0.15, duration: 550, useNativeDriver: true }),
+      Animated.timing(pulse, { toValue: 1,    duration: 550, useNativeDriver: true }),
+    ]));
+    anim.start();
+    return () => anim.stop();
+  }, []);
 
   const pi = () => Animated.spring(sc, { toValue: 0.93, useNativeDriver: true, speed: 30 }).start();
   const po = () => Animated.spring(sc, { toValue: 1,    useNativeDriver: true, speed: 26 }).start();
@@ -230,7 +240,7 @@ function ChannelCard({
           }
         </View>
         <View style={st.liveBadge}>
-          <View style={st.liveDot} />
+          <Animated.View style={[st.liveDot, { opacity: pulse }]} />
           <Text style={st.liveBadgeT}>AO VIVO</Text>
         </View>
         <Text style={st.cardName} numberOfLines={1}>{channel.name}</Text>
