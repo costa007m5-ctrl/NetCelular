@@ -529,7 +529,19 @@ function SectionHeader({
           </View>
         )}
         <View>
-          <Text style={sty.secTitle}>{title}</Text>
+          <View style={{ flexDirection: "row", alignItems: "baseline" }}>
+            {(() => {
+              const words = title.split(" ");
+              const first = words[0];
+              const rest  = words.slice(1).join(" ");
+              return (
+                <>
+                  <Text style={[sty.secTitle, { color: accentColor }]}>{first}</Text>
+                  {rest.length > 0 && <Text style={sty.secTitle}> {rest}</Text>}
+                </>
+              );
+            })()}
+          </View>
           {subtitle && <Text style={sty.secSub}>{subtitle}</Text>}
         </View>
         {badge && (
