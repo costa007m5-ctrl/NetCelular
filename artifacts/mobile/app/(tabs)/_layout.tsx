@@ -20,8 +20,8 @@ function NativeTabLayout({ isAdmin }: { isAdmin: boolean }) {
         <Label>Início</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="novidades">
-        <Icon sf={{ default: "film", selected: "film.fill" }} />
-        <Label>Filmes</Label>
+        <Icon sf={{ default: "sparkles", selected: "sparkles" }} />
+        <Label>Novidades</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="descobrir">
         <Icon sf={{ default: "tv", selected: "tv.fill" }} />
@@ -120,9 +120,9 @@ function ClassicTabLayout({ isAdmin }: { isAdmin: boolean }) {
       <Tabs.Screen
         name="novidades"
         options={{
-          title: "Filmes",
+          title: "Novidades",
           tabBarIcon: ({ color }) =>
-            isIOS ? <SymbolView name="film" tintColor={color} size={22} /> : <Feather name="film" size={22} color={color} />,
+            isIOS ? <SymbolView name="sparkles" tintColor={color} size={22} /> : <Feather name="bell" size={22} color={color} />,
         }}
       />
       <Tabs.Screen
