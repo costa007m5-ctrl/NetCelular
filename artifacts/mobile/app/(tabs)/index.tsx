@@ -372,35 +372,52 @@ export default function HomeScreen() {
 
   const loadFlix2Data = useCallback(async () => {
     try {
+      // Home screen only needs a sample for display rows — fetch first 2 pages per type.
+      // Full catalog (catalog-full) is handled by CatalogContext in the background.
+      const fetchSample = async (type: string) => {
+        const [p1, p2] = await Promise.allSettled([
+          r2Route<{ success: boolean; pagination: any; data: any[] }>(`/flix2/catalog?type=${type}&page=1`),
+          r2Route<{ success: boolean; pagination: any; data: any[] }>(`/flix2/catalog?type=${type}&page=2`),
+        ]);
+        const items: any[] = [];
+        for (const r of [p1, p2]) {
+          if (r.status === "fulfilled" && r.value.success) items.push(...(r.value.data ?? []));
+        }
+        const total = (p1.status === "fulfilled" && p1.value.success)
+          ? (p1.value.pagination?.total_count ?? items.length)
+          : items.length;
+        return { items, total };
+      };
+
       const [moviesRes, seriesRes, animesRes] = await Promise.allSettled([
-        r2Route<{ success: boolean; total: number; data: any[] }>("/flix2/catalog-full?type=movies"),
-        r2Route<{ success: boolean; total: number; data: any[] }>("/flix2/catalog-full?type=series"),
-        r2Route<{ success: boolean; total: number; data: any[] }>("/flix2/catalog-full?type=animes"),
+        fetchSample("movies"),
+        fetchSample("series"),
+        fetchSample("animes"),
       ]);
 
-      if (moviesRes.status === "fulfilled" && moviesRes.value.success) {
-        const movies = moviesRes.value.data
+      if (moviesRes.status === "fulfilled") {
+        const movies = moviesRes.value.items
           .filter((i: any) => i.tmdb_id > 0 && i.poster)
           .map(flix2ToContent);
         setFlix2Movies(movies);
         const heroPool = movies.filter((m: ContentItem) => m.posterPath);
         if (heroPool.length >= 2) setHeroItems(heroPool.slice(0, 6));
         setTop10(movies.slice(0, 10));
-        setFlix2Totals((t) => ({ ...t, movies: moviesRes.value.total ?? movies.length }));
+        setFlix2Totals((t) => ({ ...t, movies: moviesRes.value.total }));
       }
-      if (seriesRes.status === "fulfilled" && seriesRes.value.success) {
-        const series = seriesRes.value.data
+      if (seriesRes.status === "fulfilled") {
+        const series = seriesRes.value.items
           .filter((i: any) => i.tmdb_id > 0)
           .map(flix2ToContent);
         setFlix2Series(series);
-        setFlix2Totals((t) => ({ ...t, series: seriesRes.value.total ?? series.length }));
+        setFlix2Totals((t) => ({ ...t, series: seriesRes.value.total }));
       }
-      if (animesRes.status === "fulfilled" && animesRes.value.success) {
-        const animes = animesRes.value.data
+      if (animesRes.status === "fulfilled") {
+        const animes = animesRes.value.items
           .filter((i: any) => i.tmdb_id > 0)
           .map(flix2ToContent);
         setFlix2Animes(animes);
-        setFlix2Totals((t) => ({ ...t, animes: animesRes.value.total ?? animes.length }));
+        setFlix2Totals((t) => ({ ...t, animes: animesRes.value.total }));
       }
     } catch {}
     finally {

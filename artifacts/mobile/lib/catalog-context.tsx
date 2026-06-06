@@ -117,9 +117,14 @@ export function CatalogProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    loadCatalog();
-    timerRef.current = setInterval(() => loadCatalog(true), TTL_MS);
+    // Delay the initial catalog fetch by 8 seconds so the home screen and tabs
+    // can load their lightweight requests first (catalog-full is very slow: 30-60s).
+    const startDelay = setTimeout(() => {
+      loadCatalog();
+      timerRef.current = setInterval(() => loadCatalog(true), TTL_MS);
+    }, 8000);
     return () => {
+      clearTimeout(startDelay);
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [loadCatalog]);
