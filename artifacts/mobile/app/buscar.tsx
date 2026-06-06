@@ -27,22 +27,30 @@ import { StatusBar } from "expo-status-bar";
 import type { ContentItem } from "@/constants/content";
 import { r2Base } from "@/lib/r2-direct";
 
-async function flix2Search(q: string): Promise<Set<string>> {
+type Flix2RawItem = { title: string; _type: string; thumbnail?: string | null };
+
+type Flix2SearchResult = { titles: Set<string>; raw: Flix2RawItem[] };
+
+async function flix2Search(q: string): Promise<Flix2SearchResult> {
   try {
     const base = r2Base();
     const url = base
       ? `${base}/flix2/search?q=${encodeURIComponent(q)}&type=all&limit=40&maxPages=60`
       : `/api/r2/flix2/search?q=${encodeURIComponent(q)}&type=all&limit=40&maxPages=60`;
     const res = await fetch(url, { signal: AbortSignal.timeout(30000) });
-    if (!res.ok) return new Set();
+    if (!res.ok) return { titles: new Set(), raw: [] };
     const data = await res.json();
     const titles = new Set<string>();
+    const raw: Flix2RawItem[] = [];
     for (const item of (data.results ?? [])) {
-      if (item.title) titles.add(item.title.toLowerCase().trim());
+      if (item.title) {
+        titles.add(item.title.toLowerCase().trim());
+        raw.push({ title: item.title, _type: item._type ?? "movie", thumbnail: item.thumbnail ?? null });
+      }
     }
-    return titles;
+    return { titles, raw };
   } catch {
-    return new Set();
+    return { titles: new Set(), raw: [] };
   }
 }
 
@@ -177,6 +185,39 @@ function PosterCard({ item, onPress, showRating = true, width = CARD_W_3, inFlix
   );
 }
 
+function Flix2OnlyCard({ item, width = CARD_W_3 }: { item: Flix2RawItem; width?: number }) {
+  const h = width * 1.5;
+  const typeLabel = item._type === "series" ? "SÉRIE" : item._type === "anime" ? "ANIME" : "FILME";
+  const typeBg =
+    item._type === "series" ? "rgba(8,145,178,0.85)" :
+    item._type === "anime"  ? "rgba(234,88,12,0.85)" : "rgba(229,9,20,0.85)";
+  return (
+    <View style={{ width, marginBottom: 4, opacity: 0.9 }}>
+      <View style={{ width, height: h, borderRadius: 10, overflow: "hidden", backgroundColor: "#1a0a14", marginBottom: 5 }}>
+        {item.thumbnail ? (
+          <Image source={{ uri: item.thumbnail }} style={StyleSheet.absoluteFill} contentFit="cover" />
+        ) : (
+          <LinearGradient colors={["#2a1020","#0e0810"]} style={[StyleSheet.absoluteFill, { alignItems:"center", justifyContent:"center" }]}>
+            <Feather name="film" size={24} color="rgba(255,255,255,0.1)" />
+          </LinearGradient>
+        )}
+        <LinearGradient colors={["transparent","rgba(0,0,0,0.8)"]} style={{ position:"absolute", bottom:0, left:0, right:0, height: h * 0.4 }} />
+        <View style={{ position:"absolute", top:5, left:5 }}>
+          <View style={[styles.typeBadge, { backgroundColor: typeBg }]}>
+            <Text style={styles.typeBadgeText}>{typeLabel}</Text>
+          </View>
+        </View>
+        <View style={styles.flix2Badge}>
+          <Feather name="zap" size={8} color="#fff" />
+          <Text style={styles.flix2BadgeText}>FLIX 2.0</Text>
+        </View>
+      </View>
+      <Text style={styles.cardTitle} numberOfLines={2}>{item.title}</Text>
+      <Text style={styles.cardYear}>{typeLabel[0] + typeLabel.slice(1).toLowerCase()}</Text>
+    </View>
+  );
+}
+
 function BackdropCard({ item, onPress, rank }: { item: ContentItem; onPress: () => void; rank?: number }) {
   return (
     <Pressable style={styles.backdropCard} onPress={onPress}>
@@ -273,8 +314,10 @@ export default function BuscarScreen() {
   const [query,         setQuery]         = useState(params.q ?? "");
   const [results,       setResults]       = useState<ContentItem[]>([]);
   const [loading,       setLoading]       = useState(false);
-  const [flix2Titles,   setFlix2Titles]   = useState<Set<string>>(new Set());
-  const [flix2Loading,  setFlix2Loading]  = useState(false);
+  const [flix2Titles,      setFlix2Titles]      = useState<Set<string>>(new Set());
+  const [flix2RawResults,  setFlix2RawResults]  = useState<Flix2RawItem[]>([]);
+  const [flix2Loading,     setFlix2Loading]      = useState(false);
+  const [flix2FilterActive,setFlix2FilterActive] = useState(false);
   const [activeCategory,setActiveCategory]= useState<string>("trending");
   const [activeGenre,   setActiveGenre]   = useState<string | null>(null);
 
@@ -363,7 +406,7 @@ export default function BuscarScreen() {
 
   useEffect(() => {
     const q = query.trim();
-    if (q.length < 2) { setResults([]); setFlix2Titles(new Set()); return; }
+    if (q.length < 2) { setResults([]); setFlix2Titles(new Set()); setFlix2RawResults([]); setFlix2FilterActive(false); return; }
     setLoading(true);
     setFlix2Loading(true);
     const timer = setTimeout(async () => {
@@ -380,7 +423,8 @@ export default function BuscarScreen() {
       }
       setLoading(false);
       if (flix2Result.status === "fulfilled") {
-        setFlix2Titles(flix2Result.value);
+        setFlix2Titles(flix2Result.value.titles);
+        setFlix2RawResults(flix2Result.value.raw);
       }
       setFlix2Loading(false);
     }, 380);
@@ -474,8 +518,9 @@ export default function BuscarScreen() {
       {isSearching ? (
         /* ─────────────────── SEARCH RESULTS ───────────────────────────────── */
         <View style={{ flex: 1 }}>
+          {/* ── results bar + Flix 2.0 filter chip ─────────────────────────── */}
           <View style={styles.resultsBar}>
-            <View style={{ gap: 4 }}>
+            <View style={{ gap: 4, flex: 1 }}>
               {loading ? (
                 <ActivityIndicator color={RED} size="small" />
               ) : (
@@ -497,40 +542,88 @@ export default function BuscarScreen() {
                 </View>
               ) : null}
             </View>
+            {!flix2Loading && flix2Titles.size > 0 && (
+              <Pressable
+                style={[styles.flix2FilterChip, flix2FilterActive && styles.flix2FilterChipActive]}
+                onPress={() => setFlix2FilterActive(v => !v)}>
+                <Feather name="zap" size={10} color={flix2FilterActive ? "#fff" : "#a855f7"} />
+                <Text style={[styles.flix2FilterChipText, flix2FilterActive && { color: "#fff" }]}>
+                  Flix 2.0
+                </Text>
+              </Pressable>
+            )}
           </View>
-          {loading ? (
-            <View style={styles.centered}>
-              <ActivityIndicator color={RED} size="large" />
-              <Text style={styles.loadingText}>Buscando...</Text>
-            </View>
-          ) : results.length === 0 ? (
-            <View style={styles.centered}>
-              <Feather name="search" size={56} color="rgba(255,255,255,0.06)" />
-              <Text style={styles.emptyTitle}>Nenhum resultado</Text>
-              <Text style={styles.emptySubtitle}>Tente outro termo de busca</Text>
-              <Text style={styles.emptyHint}>Sugestões: {HOT_TAGS.slice(0,4).join(", ")}</Text>
-            </View>
-          ) : (
-            <FlatList
-              data={results}
-              keyExtractor={(item) => item.id}
-              numColumns={3}
-              contentContainerStyle={styles.grid}
-              showsVerticalScrollIndicator={false}
-              renderItem={({ item }) => (
-                <PosterCard
-                  item={item}
-                  onPress={() => goTo(item)}
-                  inFlix2={flix2Titles.has(item.title.toLowerCase().trim())}
-                />
-              )}
-              initialNumToRender={12}
-              maxToRenderPerBatch={9}
-              windowSize={5}
-              removeClippedSubviews={true}
-              updateCellsBatchingPeriod={50}
-            />
-          )}
+
+          {(() => {
+            const tmdbFiltered = flix2FilterActive
+              ? results.filter(r => flix2Titles.has(r.title.toLowerCase().trim()))
+              : results;
+            const flix2OnlyItems = flix2FilterActive
+              ? flix2RawResults.filter(r => !results.some(tmdb => tmdb.title.toLowerCase().trim() === r.title.toLowerCase().trim()))
+              : [];
+
+            if (loading) {
+              return (
+                <View style={styles.centered}>
+                  <ActivityIndicator color={RED} size="large" />
+                  <Text style={styles.loadingText}>Buscando...</Text>
+                </View>
+              );
+            }
+            if (!flix2FilterActive && results.length === 0) {
+              return (
+                <View style={styles.centered}>
+                  <Feather name="search" size={56} color="rgba(255,255,255,0.06)" />
+                  <Text style={styles.emptyTitle}>Nenhum resultado</Text>
+                  <Text style={styles.emptySubtitle}>Tente outro termo de busca</Text>
+                  <Text style={styles.emptyHint}>Sugestões: {HOT_TAGS.slice(0,4).join(", ")}</Text>
+                </View>
+              );
+            }
+            if (flix2FilterActive && tmdbFiltered.length === 0 && flix2OnlyItems.length === 0) {
+              return (
+                <View style={styles.centered}>
+                  <Feather name="zap" size={42} color="rgba(168,85,247,0.2)" />
+                  <Text style={styles.emptyTitle}>Nada encontrado no Flix 2.0</Text>
+                  <Text style={styles.emptySubtitle}>A busca não retornou resultados no catálogo Flix 2.0</Text>
+                </View>
+              );
+            }
+            return (
+              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 20 }}>
+                {/* ── TMDB results (optionally filtered) ──────────────────── */}
+                {tmdbFiltered.length > 0 && (
+                  <View style={styles.grid}>
+                    {tmdbFiltered.map((item, i) => (
+                      <PosterCard
+                        key={item.id}
+                        item={item}
+                        onPress={() => goTo(item)}
+                        inFlix2={flix2Titles.has(item.title.toLowerCase().trim())}
+                      />
+                    ))}
+                  </View>
+                )}
+
+                {/* ── Flix 2.0-only items (not in TMDB) ───────────────────── */}
+                {flix2FilterActive && flix2OnlyItems.length > 0 && (
+                  <View style={{ marginTop: tmdbFiltered.length > 0 ? 24 : 0 }}>
+                    <View style={styles.flix2OnlyHeader}>
+                      <View style={styles.flix2OnlyAccent} />
+                      <Feather name="zap" size={14} color="#a855f7" />
+                      <Text style={styles.flix2OnlyTitle}>Exclusivos Flix 2.0</Text>
+                      <Text style={styles.flix2OnlySubtitle}>não encontrados no TMDB</Text>
+                    </View>
+                    <View style={styles.grid}>
+                      {flix2OnlyItems.map((item, i) => (
+                        <Flix2OnlyCard key={`flix2only-${i}`} item={item} />
+                      ))}
+                    </View>
+                  </View>
+                )}
+              </ScrollView>
+            );
+          })()}
         </View>
       ) : (
         /* ─────────────────── DISCOVERY STATE ──────────────────────────────── */
@@ -817,4 +910,34 @@ const styles = StyleSheet.create({
   /* flix2 count row in results bar */
   flix2CountRow: { flexDirection: "row", alignItems: "center", gap: 4 },
   flix2CountText: { color: "#a855f7", fontSize: 11, fontWeight: "700" },
+
+  /* flix2 filter chip (toggle button in results bar) */
+  flix2FilterChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: "#a855f7",
+    backgroundColor: "rgba(168,85,247,0.1)",
+  },
+  flix2FilterChipActive: {
+    backgroundColor: "#a855f7",
+    borderColor: "#a855f7",
+  },
+  flix2FilterChipText: { color: "#a855f7", fontSize: 12, fontWeight: "800" },
+
+  /* flix2 exclusive section header */
+  flix2OnlyHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 16,
+    marginBottom: 12,
+  },
+  flix2OnlyAccent: { width: 3, height: 16, borderRadius: 2, backgroundColor: "#a855f7" },
+  flix2OnlyTitle:    { color: "#fff", fontSize: 15, fontWeight: "700" },
+  flix2OnlySubtitle: { color: "rgba(255,255,255,0.35)", fontSize: 11, fontWeight: "500" },
 });
