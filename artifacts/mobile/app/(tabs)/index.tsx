@@ -39,6 +39,7 @@ import type { ContentItem } from "@/constants/content";
 import { HERO_ITEMS } from "@/constants/content";
 import { MAIN_PLATFORMS } from "@/constants/streamings";
 import type { StreamingPlatform } from "@/constants/streamings";
+import { preloadImages, clearPreloadQueue } from "@/lib/image-preloader";
 
 const TAB_BAR_CLEARANCE = 120;
 const RED = "#e50914";
@@ -1493,9 +1494,14 @@ export default function HomeScreen() {
 
       const availableIds = new Set<number>();
 
+      let allMovies: ContentItem[] = [];
+      let allSeries: ContentItem[] = [];
+      let allAnimes: ContentItem[] = [];
+
       if (movRes.status === "fulfilled") {
         const m = movRes.value.items.filter((i: any) => i.tmdb_id > 0 && i.poster).map(flix2ToContent);
         m.forEach((i) => { if (i.tmdbId) availableIds.add(i.tmdbId); });
+        allMovies = m;
         setMovies(m);
         const heroPool = m.filter((x) => x.posterPath);
         if (heroPool.length >= 2) setHeroItems(heroPool.slice(0, 6));
@@ -1505,6 +1511,7 @@ export default function HomeScreen() {
       if (serRes.status === "fulfilled") {
         const s = serRes.value.items.filter((i: any) => i.tmdb_id > 0).map(flix2ToContent);
         s.forEach((i) => { if (i.tmdbId) availableIds.add(i.tmdbId); });
+        allSeries = s;
         setSeries(s);
         setTop10Series(s.slice(0, 10));
         setTotals((t) => ({ ...t, series: serRes.value.total }));
@@ -1512,9 +1519,26 @@ export default function HomeScreen() {
       if (aniRes.status === "fulfilled") {
         const a = aniRes.value.items.filter((i: any) => i.tmdb_id > 0).map(flix2ToContent);
         a.forEach((i) => { if (i.tmdbId) availableIds.add(i.tmdbId); });
+        allAnimes = a;
         setAnimes(a);
         setTotals((t) => ({ ...t, animes: aniRes.value.total }));
       }
+
+      // ── Progressive image preloading ──────────────────────────────────────
+      // High priority: hero + first visible row of each category (above the fold)
+      clearPreloadQueue();
+      const heroUrls   = allMovies.slice(0, 6).map((i) => i.posterPath).filter(Boolean) as string[];
+      const row1Movies = allMovies.slice(0, 6).map((i) => i.posterPath).filter(Boolean) as string[];
+      const row1Series = allSeries.slice(0, 6).map((i) => i.posterPath).filter(Boolean) as string[];
+      preloadImages([...heroUrls, ...row1Movies, ...row1Series], "high");
+
+      // Low priority: next few rows loaded in the background after UI settles
+      setTimeout(() => {
+        const restMovies = allMovies.slice(6, 30).map((i) => i.posterPath).filter(Boolean) as string[];
+        const restSeries = allSeries.slice(6, 24).map((i) => i.posterPath).filter(Boolean) as string[];
+        const restAnimes = allAnimes.slice(0, 18).map((i) => i.posterPath).filter(Boolean) as string[];
+        preloadImages([...restMovies, ...restSeries, ...restAnimes], "low");
+      }, 1500);
 
       if (availableIds.size > 0) checkCatalogWatchAndNotify(availableIds).catch(() => {});
     } catch {}

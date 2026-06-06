@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import {
   ScrollView,
   StyleSheet,
@@ -10,6 +10,7 @@ import { Feather } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
 import { ContentCardWithLabel } from "@/components/ContentCard";
 import type { ContentItem } from "@/constants/content";
+import { preloadImages } from "@/lib/image-preloader";
 
 const ICON_MAP: Record<string, keyof typeof Feather.glyphMap> = {
   fire: "trending-up",
@@ -65,6 +66,15 @@ export function ContentRow({
   const hasMore = maxItems ? items.length > maxItems : false;
   const featherIcon = icon ? (ICON_MAP[icon] ?? (icon as keyof typeof Feather.glyphMap)) : null;
   const accent = accentColor ?? colors.primary;
+
+  // Preload visible posters as a low-priority background task when the row renders.
+  useEffect(() => {
+    const urls = displayItems
+      .slice(0, 8)
+      .map((i) => i.posterPath)
+      .filter((u): u is string => Boolean(u));
+    if (urls.length > 0) preloadImages(urls, "low");
+  }, [displayItems]);
 
   if (displayItems.length === 0) return null;
 
