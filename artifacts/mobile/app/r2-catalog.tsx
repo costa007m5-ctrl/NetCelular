@@ -18,7 +18,7 @@ import {
 } from "react-native";
 import { Image } from "expo-image";
 import { Feather } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as DocumentPicker from "expo-document-picker";
@@ -319,10 +319,11 @@ function SeasonList({ entry, onBack, onSelectSeason, onEdit }: {
 
 // ── Catalog Grid ───────────────────────────────────────────────────────────────
 
-function CatalogGrid({ onSelect, onRegister, onEdit }: {
+function CatalogGrid({ onSelect, onRegister, onEdit, initialSearch }: {
   onSelect: (entry: CatalogEntry) => void;
   onRegister: (key: string) => void;
   onEdit: (entry: CatalogEntry) => void;
+  initialSearch?: string;
 }) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -330,7 +331,7 @@ function CatalogGrid({ onSelect, onRegister, onEdit }: {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(initialSearch ?? "");
   const [opening, setOpening] = useState<string | null>(null);
   const [deletingKey, setDeletingKey] = useState<string | null>(null);
 
@@ -6079,6 +6080,7 @@ export default function R2CatalogScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user } = useAuth();
+  const { initialSearch } = useLocalSearchParams<{ initialSearch?: string }>();
   const [activeTab, setActiveTab] = useState<Tab>("catalog");
   const [catalogView, setCatalogView] = useState<CatalogView>({ screen: "catalog" });
   const [registerKey, setRegisterKey] = useState<string | null>(null);
@@ -6176,6 +6178,7 @@ export default function R2CatalogScreen() {
             onSelect={(entry) => setCatalogView({ screen: "seasons", entry })}
             onRegister={openRegister}
             onEdit={(entry) => setEditEntry(entry)}
+            initialSearch={initialSearch}
           />
         )}
 
