@@ -190,12 +190,20 @@ function BackdropCard({ item, onPress, rank }: { item: ContentItem; onPress: () 
 function SectionRow({ title, badge, accentColor = RED, onSeeAll, children }: {
   title: string; badge?: string; accentColor?: string; onSeeAll?: () => void; children: React.ReactNode;
 }) {
+  const words = title.split(" ");
+  const first = words[0];
+  const rest  = words.slice(1).join(" ");
   return (
     <View style={styles.sectionWrap}>
       <View style={styles.sectionHeader}>
         <View style={{ flexDirection:"row", alignItems:"center", gap:8 }}>
           <View style={{ width:3, height:18, borderRadius:2, backgroundColor: accentColor }} />
-          <Text style={styles.sectionTitle}>{title}</Text>
+          <View style={{ flexDirection:"row", alignItems:"baseline" }}>
+            <Text style={[styles.sectionTitle, { color: accentColor }]}>{first}</Text>
+            {rest.length > 0 && (
+              <Text style={styles.sectionTitle}> {rest}</Text>
+            )}
+          </View>
           {badge && (
             <View style={[styles.badge, { backgroundColor: accentColor }]}>
               <Text style={styles.badgeText}>{badge}</Text>
@@ -509,7 +517,11 @@ export default function BuscarScreen() {
 
           {/* ── MOOD CHIPS ─────────────────────────────────────────────────── */}
           <View style={styles.moodSection}>
-            <Text style={styles.moodTitle}>⚡ O que quer assistir hoje?</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 12 }}>
+              <View style={{ width: 3, height: 16, borderRadius: 2, backgroundColor: AMBER }} />
+              <Text style={[styles.moodTitle, { color: AMBER }]}>O que</Text>
+              <Text style={styles.moodTitle}>quer assistir hoje?</Text>
+            </View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}
               nestedScrollEnabled directionalLockEnabled
               contentContainerStyle={{ gap: 8 }}>
@@ -525,7 +537,11 @@ export default function BuscarScreen() {
 
           {/* ── HOT TAGS ───────────────────────────────────────────────────── */}
           <View style={{ paddingHorizontal: 16, marginBottom: 20 }}>
-            <Text style={styles.tagsTitle}># Tags em Alta</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 10 }}>
+              <View style={{ width: 3, height: 16, borderRadius: 2, backgroundColor: PURPLE }} />
+              <Text style={[styles.tagsTitle, { color: PURPLE }]}>#</Text>
+              <Text style={styles.tagsTitle}>Tags em Alta</Text>
+            </View>
             <View style={styles.tagsWrap}>
               {HOT_TAGS.map((tag) => (
                 <Pressable key={tag} style={styles.tagChip}
