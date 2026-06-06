@@ -272,6 +272,8 @@ export default function DetailScreen() {
   const [srcSettings, setSrcSettings] = useState<SourceSettings>(DEFAULT_SRC);
   // Tracks if the R2/Flix2 lookup is still in progress (to avoid race on ASSISTIR AGORA)
   const [r2Loading, setR2Loading] = useState(true);
+  // Admin-only: mismatched registry items (content exists but with a different tmdbId)
+  const [adminDiagnostic, setAdminDiagnostic] = useState<{ count: number; ids: number[]; titles: string[] } | null>(null);
 
   // Load R2 registry items + source settings + Flix 2.0 live lookup
   // ─── Fase 1 (rápida): registry + settings → mostra botões imediatamente
@@ -303,6 +305,27 @@ export default function DetailScreen() {
           registryItems = allItems.filter(
             (i: RegistryItem) => i.tmdbId === tmdbId
           );
+        }
+
+        // ── Diagnóstico para admin: detecta itens com título parecido mas tmdbId diferente ──
+        if (registryItems.length === 0) {
+          const titleNorm = (params.title ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+          const mismatched = allItems.filter((i: RegistryItem) => {
+            if (i.tmdbId === tmdbId) return false;
+            const iNorm = (i.title ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+            return iNorm.length > 0 && titleNorm.length > 0 && (
+              iNorm.includes(titleNorm.slice(0, 6)) || titleNorm.includes(iNorm.slice(0, 6))
+            );
+          });
+          if (mismatched.length > 0) {
+            const ids = [...new Set(mismatched.map((i: RegistryItem) => i.tmdbId))];
+            const titles = [...new Set(mismatched.map((i: RegistryItem) => i.title))].slice(0, 3);
+            setAdminDiagnostic({ count: mismatched.length, ids, titles });
+          } else {
+            setAdminDiagnostic(null);
+          }
+        } else {
+          setAdminDiagnostic(null);
         }
 
         if (settingsRaw.status === "fulfilled") {
@@ -1405,13 +1428,45 @@ export default function DetailScreen() {
                         </Text>
                       </View>
                       {user?.role === "admin" && (
-                        <Pressable
-                          onPress={() => { setAddSrcUrl(""); setAddSrcErr(null); setShowAddSrcModal(true); }}
-                          style={({ pressed }) => [{ flexDirection: "row", alignItems: "center", gap: 7, alignSelf: "flex-start", paddingVertical: 7, paddingHorizontal: 12, borderRadius: 8, backgroundColor: "rgba(255,255,255,0.07)", borderWidth: 1, borderColor: "rgba(255,255,255,0.12)" }, pressed && { opacity: 0.7 }]}
-                        >
-                          <Feather name="plus-circle" size={14} color={colors.primary} />
-                          <Text style={{ color: colors.primary, fontSize: 13, fontWeight: "600" }}>Adicionar fonte</Text>
-                        </Pressable>
+                        <>
+                          {/* Diagnóstico de mismatch de tmdbId — só para admin */}
+                          <View style={{ paddingVertical: 8, paddingHorizontal: 12, backgroundColor: "rgba(234,179,8,0.08)", borderRadius: 10, borderWidth: 1, borderColor: "rgba(234,179,8,0.25)", gap: 4 }}>
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                              <Feather name="info" size={13} color="#eab308" />
+                              <Text style={{ color: "#eab308", fontSize: 12, fontWeight: "700" }}>Diagnóstico Admin</Text>
+                            </View>
+                            <Text style={{ color: "rgba(234,179,8,0.8)", fontSize: 11 }}>
+                              {"TMDB ID desta tela: "}<Text style={{ fontWeight: "700" }}>{tmdbId}</Text>
+                            </Text>
+                            {adminDiagnostic ? (
+                              <>
+                                <Text style={{ color: "#f87171", fontSize: 11, fontWeight: "600", marginTop: 2 }}>
+                                  ⚠️ {adminDiagnostic.count} episódio(s) no registro com título parecido mas ID diferente!
+                                </Text>
+                                <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 10 }}>
+                                  IDs no registro: {adminDiagnostic.ids.join(", ")}
+                                </Text>
+                                <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 10 }}>
+                                  Título(s): {adminDiagnostic.titles.join(" / ")}
+                                </Text>
+                                <Text style={{ color: "rgba(234,179,8,0.7)", fontSize: 10, marginTop: 2 }}>
+                                  Solução: no Admin Catalog, re-registre o conteúdo buscando o título correto no TMDB. O ID {tmdbId} deve ser usado.
+                                </Text>
+                              </>
+                            ) : (
+                              <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11, marginTop: 2 }}>
+                                Nenhum item no registro — use "Adicionar fonte" para vincular Drive/R2.
+                              </Text>
+                            )}
+                          </View>
+                          <Pressable
+                            onPress={() => { setAddSrcUrl(""); setAddSrcErr(null); setShowAddSrcModal(true); }}
+                            style={({ pressed }) => [{ flexDirection: "row", alignItems: "center", gap: 7, alignSelf: "flex-start", paddingVertical: 7, paddingHorizontal: 12, borderRadius: 8, backgroundColor: "rgba(255,255,255,0.07)", borderWidth: 1, borderColor: "rgba(255,255,255,0.12)" }, pressed && { opacity: 0.7 }]}
+                          >
+                            <Feather name="plus-circle" size={14} color={colors.primary} />
+                            <Text style={{ color: colors.primary, fontSize: 13, fontWeight: "600" }}>Adicionar fonte</Text>
+                          </Pressable>
+                        </>
                       )}
                     </View>
                   );
