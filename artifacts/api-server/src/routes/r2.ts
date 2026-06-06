@@ -632,13 +632,32 @@ router.get("/stream", async (req, res) => {
     const client = getClient();
     const bucket = getBucket(req.query);
 
-    // Se a chave for uma pasta, resolve o primeiro vídeo
+    // Se a chave for uma pasta, resolve o vídeo correto (com suporte a episódio)
     if (key.endsWith("/")) {
+      const episodeParam = req.query["episode"];
+      const episodeNum = episodeParam != null && episodeParam !== "" ? Number(episodeParam) : null;
       const listCmd = new ListObjectsV2Command({ Bucket: bucket, Prefix: key, MaxKeys: 1000 });
       const listData = await client.send(listCmd);
-      const video = (listData.Contents ?? []).find((o) => o.Key && isLikelyVideo(o.Key, o.Size ?? 0));
-      if (!video?.Key) { res.status(404).json({ error: "Nenhum vídeo encontrado na pasta" }); return; }
-      key = video.Key;
+      const videos = (listData.Contents ?? []).filter((o) => o.Key && isLikelyVideo(o.Key, o.Size ?? 0));
+      if (videos.length === 0) { res.status(404).json({ error: "Nenhum vídeo encontrado na pasta" }); return; }
+      let resolved = videos[0];
+      if (episodeNum != null) {
+        const n = episodeNum;
+        const pats = [
+          new RegExp(`[Ee]p?0*${n}(?!\\d)`, "i"),
+          new RegExp(`[Ee]p?\\s*0*${n}[^\\d]`, "i"),
+          new RegExp(`[-_.\\s]0*${n}[-_.\\s]`),
+          new RegExp(`\\b0*${n}\\b`),
+        ];
+        for (const pat of pats) {
+          const hit = videos.find((o) => pat.test((o.Key ?? "").split("/").pop() ?? ""));
+          if (hit) { resolved = hit; break; }
+        }
+      } else {
+        const sorted = [...videos].sort((a, b) => (a.Key ?? "").localeCompare(b.Key ?? ""));
+        resolved = sorted[0];
+      }
+      key = resolved.Key!;
     }
 
     // HEAD para obter tamanho e content-type

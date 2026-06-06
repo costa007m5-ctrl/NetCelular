@@ -427,10 +427,11 @@ export default function R2PlayerScreen() {
         url = data.url;
       } else {
         if (Platform.OS === "web") {
-          // No web: usar proxy de streaming para evitar bloqueios CORS do R2
-          // O endpoint /api/r2/stream serve o vídeo com headers corretos
-          const resolvedKey = await resolveVideoKey(params.key, episode ?? null);
-          url = `/api/r2/stream?key=${encodeURIComponent(resolvedKey)}`;
+          // No web: proxy via API server — evita CORS do R2 direto.
+          // O endpoint /api/r2/stream aceita pastas e resolve episódio no servidor.
+          let streamUrl = `/api/r2/stream?key=${encodeURIComponent(params.key)}`;
+          if (episode != null) streamUrl += `&episode=${episode}`;
+          url = streamUrl;
         } else {
           const cacheKey = `${params.key}__ep${episode ?? ""}`;
           const cached = await getCachedSignedUrl(cacheKey);
