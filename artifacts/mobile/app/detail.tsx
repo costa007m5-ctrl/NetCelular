@@ -1495,7 +1495,6 @@ export default function DetailScreen() {
                       </View>
                       {user?.role === "admin" && (
                         <>
-                          {/* Diagnóstico de mismatch de tmdbId — só para admin */}
                           <View style={{ paddingVertical: 8, paddingHorizontal: 12, backgroundColor: "rgba(234,179,8,0.08)", borderRadius: 10, borderWidth: 1, borderColor: "rgba(234,179,8,0.25)", gap: 4 }}>
                             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                               <Feather name="info" size={13} color="#eab308" />
@@ -1506,22 +1505,20 @@ export default function DetailScreen() {
                             </Text>
                             {fixDone != null && (
                               <Text style={{ color: "#4ade80", fontSize: 11, fontWeight: "700", marginTop: 2 }}>
-                                ✓ {fixDone} item(s) corrigido(s) com sucesso!
+                                ✓ {fixDone} item(s) corrigido(s) com sucesso! Recarregue a tela.
                               </Text>
                             )}
                             {adminDiagnostic ? (
                               <>
                                 <Text style={{ color: "#f87171", fontSize: 11, fontWeight: "600", marginTop: 2 }}>
-                                  ⚠️ {adminDiagnostic.count} episódio(s) no registro com título parecido mas ID diferente!
+                                  ⚠️ Conteúdo registrado com ID diferente!
                                 </Text>
                                 <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 10 }}>
-                                  IDs no registro: {adminDiagnostic.ids.join(", ")}
+                                  ID no registro: <Text style={{ color: "#fbbf24", fontWeight: "700" }}>{adminDiagnostic.ids.join(", ")}</Text>
+                                  {"  →  ID desta tela: "}<Text style={{ color: "#4ade80", fontWeight: "700" }}>{tmdbId}</Text>
                                 </Text>
-                                <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 10 }}>
-                                  Título(s): {adminDiagnostic.titles.join(" / ")}
-                                </Text>
-                                <Text style={{ color: "rgba(234,179,8,0.7)", fontSize: 10, marginTop: 2 }}>
-                                  Use "Corrigir ID" para remapear todos para o ID {tmdbId} automaticamente.
+                                <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 10 }}>
+                                  {adminDiagnostic.titles.join(" / ")}
                                 </Text>
                               </>
                             ) : fixDone == null ? (
@@ -1542,14 +1539,14 @@ export default function DetailScreen() {
                               <Pressable
                                 onPress={fixMismatchedIds}
                                 disabled={fixingIds}
-                                style={({ pressed }) => [{ flexDirection: "row", alignItems: "center", gap: 7, paddingVertical: 7, paddingHorizontal: 12, borderRadius: 8, backgroundColor: fixingIds ? "rgba(34,197,94,0.05)" : "rgba(34,197,94,0.12)", borderWidth: 1, borderColor: "rgba(34,197,94,0.4)" }, (pressed || fixingIds) && { opacity: 0.6 }]}
+                                style={({ pressed }) => [{ flexDirection: "row", alignItems: "center", gap: 7, paddingVertical: 7, paddingHorizontal: 12, borderRadius: 8, backgroundColor: fixingIds ? "rgba(34,197,94,0.05)" : "rgba(34,197,94,0.15)", borderWidth: 1, borderColor: "rgba(34,197,94,0.5)" }, (pressed || fixingIds) && { opacity: 0.6 }]}
                               >
                                 {fixingIds
                                   ? <ActivityIndicator size={13} color="#4ade80" />
                                   : <Feather name="tool" size={14} color="#4ade80" />
                                 }
-                                <Text style={{ color: "#4ade80", fontSize: 13, fontWeight: "600" }}>
-                                  {fixingIds ? "Corrigindo…" : `Corrigir ID (${adminDiagnostic.count})`}
+                                <Text style={{ color: "#4ade80", fontSize: 13, fontWeight: "700" }}>
+                                  {fixingIds ? "Corrigindo…" : `Usar ID ${tmdbId}`}
                                 </Text>
                               </Pressable>
                             )}
