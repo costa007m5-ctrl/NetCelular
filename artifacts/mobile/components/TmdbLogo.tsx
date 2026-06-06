@@ -45,7 +45,7 @@ export function TmdbLogo({ id, type, width = 200, height = 64, style }: Props) {
 
   if (logoPath === undefined || logoPath === null) return null;
 
-  const url = `https://image.tmdb.org/t/p/w500${logoPath}`;
+  const url = `https://image.tmdb.org/t/p/w300${logoPath}`;
   return (
     <Image
       source={{ uri: url }}

@@ -17,8 +17,8 @@ export type ContentItem = {
   channel?: string;
 };
 
-const TMDB_POSTER = "https://image.tmdb.org/t/p/w500";
-const TMDB_BACKDROP = "https://image.tmdb.org/t/p/w1280";
+const TMDB_POSTER = "https://image.tmdb.org/t/p/w342";
+const TMDB_BACKDROP = "https://image.tmdb.org/t/p/w780";
 
 export const p = (path: string) => `${TMDB_POSTER}${path}`;
 export const b = (path: string) => `${TMDB_BACKDROP}${path}`;

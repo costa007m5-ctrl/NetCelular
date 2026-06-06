@@ -51,8 +51,8 @@ const ORANGE = "#f97316";
 const INDIGO = "#6366f1";
 const DARK   = "#dc2626";
 
-const IMG_W500 = "https://image.tmdb.org/t/p/w500";
-const IMG_ORIG = "https://image.tmdb.org/t/p/w1280";
+const IMG_W500 = "https://image.tmdb.org/t/p/w342";
+const IMG_ORIG = "https://image.tmdb.org/t/p/w780";
 
 function flix2ToContent(item: any): ContentItem {
   const isMovie = item.type === "movie";

@@ -4,13 +4,13 @@ type ImageSize =
   | "w45" | "w92" | "w154" | "w185" | "w300" | "w342" | "w500" | "w780" | "w1280"
   | "h632" | "original";
 
-export function tmdbPoster(path: string | null | undefined, size: ImageSize = "w500"): string {
+export function tmdbPoster(path: string | null | undefined, size: ImageSize = "w342"): string {
   if (!path) return "";
   if (path.startsWith("http")) return path;
   return `${TMDB_BASE}/${size}${path}`;
 }
 
-export function tmdbBackdrop(path: string | null | undefined, size: ImageSize = "w1280"): string {
+export function tmdbBackdrop(path: string | null | undefined, size: ImageSize = "w780"): string {
   if (!path) return "";
   if (path.startsWith("http")) return path;
   return `${TMDB_BASE}/${size}${path}`;
@@ -36,7 +36,7 @@ export function tmdbImage(
   size?: ImageSize
 ): string {
   if (prefer === "backdrop") {
-    return tmdbBackdrop(backdropPath, size ?? "w1280") || tmdbPoster(posterPath, size ?? "w500");
+    return tmdbBackdrop(backdropPath, size ?? "w780") || tmdbPoster(posterPath, size ?? "w342");
   }
-  return tmdbPoster(posterPath, size ?? "w500") || tmdbBackdrop(backdropPath, size ?? "w780");
+  return tmdbPoster(posterPath, size ?? "w342") || tmdbBackdrop(backdropPath, size ?? "w780");
 }

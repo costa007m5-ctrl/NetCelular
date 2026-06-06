@@ -36,7 +36,7 @@ function useTmdbLogo(id?: number, type?: "movie" | "tv") {
         const pt = logos.find((l) => l.iso_639_1 === "pt");
         const en = logos.find((l) => l.iso_639_1 === "en");
         const best = pt ?? en ?? logos[0] ?? null;
-        const path = best?.file_path ? `https://image.tmdb.org/t/p/w500${best.file_path}` : null;
+        const path = best?.file_path ? `https://image.tmdb.org/t/p/w300${best.file_path}` : null;
         logoCache.set(key, path);
         setLogo(path);
       })

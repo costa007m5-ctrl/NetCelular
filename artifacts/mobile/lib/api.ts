@@ -528,7 +528,7 @@ export const api = {
 
 };
 
-export const TMDB_IMG = (path: string | null, size: "w500" | "w1280" | "original" = "w500") =>
+export const TMDB_IMG = (path: string | null, size: "w185" | "w300" | "w342" | "w500" | "w780" | "w1280" | "original" = "w342") =>
   path ? `https://image.tmdb.org/t/p/${size}${path}` : null;
 
 export function tmdbItemToContent(item: TmdbItem) {
@@ -539,8 +539,8 @@ export function tmdbItemToContent(item: TmdbItem) {
     title: item.title ?? item.name ?? "Sem título",
     year: Number((item.release_date ?? item.first_air_date ?? "2024").slice(0, 4)),
     rating: Math.round(item.vote_average * 10) / 10,
-    posterPath: TMDB_IMG(item.poster_path, "w500") ?? "",
-    backdropPath: TMDB_IMG(item.backdrop_path, "w1280") ?? "",
+    posterPath: TMDB_IMG(item.poster_path, "w342") ?? "",
+    backdropPath: TMDB_IMG(item.backdrop_path, "w780") ?? "",
     description: item.overview,
     genres: item.genres?.map((g) => g.name) ?? [],
     type: (isMovie ? "movie" : "series") as "movie" | "series",

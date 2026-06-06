@@ -54,8 +54,8 @@ const LIME   = "#84cc16";
 const TMDB_KEY  = "8f0beb08cf016ec8de49e454e09879ec";
 const TMDB_BASE = "https://api.themoviedb.org/3";
 const LANG      = "pt-BR";
-const IMG_W500  = "https://image.tmdb.org/t/p/w500";
-const IMG_ORIG  = "https://image.tmdb.org/t/p/w1280";
+const IMG_W500  = "https://image.tmdb.org/t/p/w342";
+const IMG_ORIG  = "https://image.tmdb.org/t/p/w780";
 
 async function tfetch(path: string, params: Record<string, string> = {}): Promise<any> {
   try {
