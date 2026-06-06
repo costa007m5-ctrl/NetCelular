@@ -1950,4 +1950,108 @@ router.get("/flix2/search", async (req, res) => {
   }
 });
 
+// ── GET /flix2/lookup?tmdbId=X&type=movies|series|animes|all ──────────────────
+// Find a Flix 2.0 catalog item by TMDB ID.
+// Checks a pre-built R2 index file first (fast), falls back to live page scan.
+router.get("/flix2/lookup", async (req, res) => {
+  const { tmdbId, type = "all" } = req.query as Record<string, string>;
+  const id = Number(tmdbId);
+  if (!id) { res.json({ found: false, item: null }); return; }
+
+  const typesToCheck = type === "all" ? ["movies", "series", "animes"] : [type];
+  const client = getClient();
+  const bucket = getBucket();
+
+  for (const t of typesToCheck) {
+    // Fast path: check pre-built index
+    try {
+      const resp = await client.send(new GetObjectCommand({ Bucket: bucket, Key: `__flix2-index-${t}.json` }));
+      const raw = await resp.Body?.transformToString();
+      if (raw) {
+        const index: Record<string, string> = JSON.parse(raw);
+        if (index[id]) {
+          res.json({ found: true, item: { tmdb_id: id, stream_url: index[id], type: t } });
+          return;
+        }
+      }
+    } catch {}
+
+    // Slow path: live page scan (up to 50 pages)
+    try {
+      const first = await flix2FetchPage(t, 1);
+      if (!first.success) continue;
+      const found = first.data.find((i: any) => Number(i.tmdb_id) === id);
+      if (found) { res.json({ found: true, item: found }); return; }
+
+      const totalPages = Math.min(first.pagination?.total_pages ?? 1, 50);
+      const BATCH = 10;
+      outer: for (let start = 2; start <= totalPages; start += BATCH) {
+        const batch = Array.from(
+          { length: Math.min(BATCH, totalPages - start + 1) },
+          (_, i) => flix2FetchPage(t, start + i)
+        );
+        const pages = await Promise.allSettled(batch);
+        for (const p of pages) {
+          if (p.status === "fulfilled" && p.value.success) {
+            const item = p.value.data.find((i: any) => Number(i.tmdb_id) === id);
+            if (item) { res.json({ found: true, item }); return; }
+          }
+        }
+      }
+    } catch {}
+  }
+
+  res.json({ found: false, item: null });
+});
+
+// ── POST /flix2/build-index?type=movies|series|animes|all ─────────────────────
+// Fetches ALL catalog pages for one or all types and writes
+// __flix2-index-{type}.json = { [tmdb_id]: stream_url } into R2.
+// This powers the fast-path in /flix2/lookup.
+router.post("/flix2/build-index", async (req, res) => {
+  const { type = "movies" } = req.query as Record<string, string>;
+  const typesToIndex = type === "all" ? ["movies", "series", "animes"] : [type];
+  const client = getClient();
+  const bucket = getBucket();
+  const summary: Record<string, number> = {};
+
+  for (const t of typesToIndex) {
+    const index: Record<number, string> = {};
+    try {
+      const first = await flix2FetchPage(t, 1);
+      if (!first.success) { summary[t] = -1; continue; }
+      for (const item of first.data) {
+        if (item.tmdb_id && item.stream_url) index[Number(item.tmdb_id)] = item.stream_url;
+      }
+      const totalPages = first.pagination?.total_pages ?? 1;
+      const BATCH = 10;
+      for (let start = 2; start <= totalPages; start += BATCH) {
+        const batch = Array.from(
+          { length: Math.min(BATCH, totalPages - start + 1) },
+          (_, i) => flix2FetchPage(t, start + i)
+        );
+        const pages = await Promise.allSettled(batch);
+        for (const p of pages) {
+          if (p.status === "fulfilled" && p.value.success) {
+            for (const item of p.value.data) {
+              if (item.tmdb_id && item.stream_url) index[Number(item.tmdb_id)] = item.stream_url;
+            }
+          }
+        }
+      }
+      await client.send(new PutObjectCommand({
+        Bucket: bucket,
+        Key: `__flix2-index-${t}.json`,
+        Body: JSON.stringify(index),
+        ContentType: "application/json",
+      }));
+      summary[t] = Object.keys(index).length;
+    } catch (e: any) {
+      summary[t] = -1;
+    }
+  }
+
+  res.json({ ok: true, indexed: summary });
+});
+
 export default router;
