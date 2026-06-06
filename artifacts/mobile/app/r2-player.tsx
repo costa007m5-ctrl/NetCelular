@@ -21,17 +21,15 @@ import {
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-import { apiList, apiSignedUrl, r2Route, teraboxPlay } from "@/lib/r2-direct";
+import { apiList, apiSignedUrl, r2Route } from "@/lib/r2-direct";
 import { getProxiedStreamUrl } from "@/lib/gdrive-index";
 import { useAuth } from "@/lib/auth-context";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
 import { checkAndStartSession, heartbeatSession, endSession, getWhatsAppLink } from "@/lib/session-manager";
 import {
   getCachedSignedUrl, setCachedSignedUrl,
-  getCachedTeraboxUrl, setCachedTeraboxUrl, clearCachedTeraboxUrl,
   getCachedEpisodes, setCachedEpisodes,
 } from "@/lib/r2-cache";
-import { TeraboxWebViewResolver } from "@/lib/terabox-webview-resolver";
 
 let Video: any = null;
 let ResizeMode: any = null;
@@ -130,19 +128,6 @@ async function fetchSignedUrlCached(key: string, episodeNum?: number | null): Pr
   return data.url;
 }
 
-async function fetchTeraboxUrlCached(
-  registryItemId: string,
-  teraboxUrl: string,
-  fileIndex?: number,
-  fileName?: string,
-): Promise<string> {
-  const cached = await getCachedTeraboxUrl(registryItemId);
-  if (cached) return cached;
-  const data = await teraboxPlay(teraboxUrl, fileIndex, fileName);
-  await setCachedTeraboxUrl(registryItemId, data.url);
-  return data.url;
-}
-
 function formatTime(ms: number): string {
   const s = Math.floor(ms / 1000);
   const m = Math.floor(s / 60);
@@ -202,7 +187,6 @@ export default function R2PlayerScreen() {
   const contentType = params.type ?? "movie";
   const isTV = contentType === "tv";
   const savedProgressRatio = params.watchProgressRatio ? Number(params.watchProgressRatio) : 0;
-  const isTerabox = !!params.registryItemId;
   const isDrive = !!params.driveItemId;
   const isFlix2 = !!params.flix2ItemUrl;
   const r2Items: RegistryItem[] = (() => {
@@ -251,11 +235,6 @@ export default function R2PlayerScreen() {
   const [tmdbTotalSeasons, setTmdbTotalSeasons] = useState<number>(1);
   const [expandedEpOverview, setExpandedEpOverview] = useState<number | null>(null);
   const [sessionBlocked, setSessionBlocked] = useState<"trial_expired" | "plan_expired" | "limit_exceeded" | null>(null);
-
-  // ── TeraBox WebView resolver state ──────────────────────────────────────────
-  const [teraboxWebViewVisible, setTeraboxWebViewVisible] = useState(false);
-  const teraboxResolveCallbackRef = useRef<((url: string) => void) | null>(null);
-  const teraboxRejectCallbackRef = useRef<((err: string) => void) | null>(null);
 
   // ── Buffering state ──────────────────────────────────────────────────────────
   const [isBuffering, setIsBuffering] = useState(false);
@@ -413,7 +392,7 @@ export default function R2PlayerScreen() {
 
   // ── Fetch video URL (with cache) ────────────────────────────────────────────
   const loadVideoUrl = useCallback(async () => {
-    if (!isDrive && !isTerabox && !isFlix2 && !params.key) { setPhase("error"); setErrorMsg("Arquivo não especificado"); return; }
+    if (!isDrive && !isFlix2 && !params.key) { setPhase("error"); setErrorMsg("Arquivo não especificado"); return; }
     phaseRef.current = "loading";
     setPhase("loading");
     setVideoUrl(null);
@@ -426,13 +405,8 @@ export default function R2PlayerScreen() {
     preloadedNextUrlRef.current = null;
     preloadingRef.current = false;
 
-    fakeAnim.current = Animated.timing(loadProgress, { toValue: 80, duration: (isTerabox || isDrive || isFlix2) ? 6000 : 3000, useNativeDriver: false });
+    fakeAnim.current = Animated.timing(loadProgress, { toValue: 80, duration: (isDrive || isFlix2) ? 6000 : 3000, useNativeDriver: false });
     fakeAnim.current.start();
-
-    // Get the TeraBox share URL for WebView fallback
-    const currentTeraboxShareUrl = isTerabox
-      ? (r2Items.find((i) => i.id === params.registryItemId)?.teraboxUrl ?? "")
-      : "";
 
     try {
       let url: string;
@@ -442,36 +416,12 @@ export default function R2PlayerScreen() {
         const rawUrl = params.flix2ItemUrl!;
         const data = await r2Route<{ url: string; error?: string; via?: string }>(`/flix2/stream-url?streamUrl=${encodeURIComponent(rawUrl)}`);
         if (data.error) throw new Error(data.error);
-        // If resolution fell back to a raw TeraBox URL (xAPIverse failed), warn the user
-        if (data.via === "terabox-fallback") {
-          throw new Error("Link do episódio expirado no TeraBox. Tente outro episódio.");
-        }
         url = data.url;
       } else if (isDrive) {
         // Drive: resolve via server (/drive/play)
-        // O servidor busca o link assinado via API de listagem e retorna a URL de download
-        // direta (download.aspx?file=...&expiry=...&mac=...) que suporta Range requests (HTTP 206).
-        // Não precisa de proxy — a URL já funciona direto no expo-av.
         const driveId = params.driveItemId!;
         const data = await r2Route<{ url: string; cached: boolean; via?: string }>(`/drive/play?id=${driveId}`);
         url = data.url;
-      } else if (isTerabox) {
-        // 1st attempt: direct client-side resolution via xapiverse (bypasses server)
-        const tbItem = r2Items.find((i) => i.id === params.registryItemId);
-        if (!tbItem?.teraboxUrl) throw new Error("Link TeraBox não encontrado no registry");
-        try {
-          url = await fetchTeraboxUrlCached(params.registryItemId!, tbItem.teraboxUrl, tbItem.fileIndex, tbItem.fileName);
-        } catch {
-          // 2nd attempt: client-side WebView resolution
-          if (!currentTeraboxShareUrl) throw new Error("Link TeraBox não encontrado no registry");
-          url = await new Promise<string>((resolve, reject) => {
-            teraboxResolveCallbackRef.current = resolve;
-            teraboxRejectCallbackRef.current = reject;
-            setTeraboxWebViewVisible(true);
-          });
-          setTeraboxWebViewVisible(false);
-          await setCachedTeraboxUrl(params.registryItemId!, url);
-        }
       } else {
         const cacheKey = `${params.key}__ep${episode ?? ""}`;
         const cached = await getCachedSignedUrl(cacheKey);
@@ -494,30 +444,7 @@ export default function R2PlayerScreen() {
       } else {
         fakeAnim.current = Animated.timing(loadProgress, { toValue: 95, duration: 1200, useNativeDriver: false });
         fakeAnim.current.start();
-        readyTimer.current = setTimeout(async () => {
-          // If it's a TeraBox item and duration is still 0, the URL was likely invalid
-          // (e.g. fast_dlink redirect requiring auth). Clear the bad cache and try WebView.
-          if (isTerabox && durationMsRef.current === 0 && params.registryItemId) {
-            await clearCachedTeraboxUrl(params.registryItemId);
-            const tbItem = r2Items.find((i) => i.id === params.registryItemId);
-            const shareUrl = tbItem?.teraboxUrl ?? "";
-            if (shareUrl && phaseRef.current === "loading") {
-              try {
-                const webViewUrl = await new Promise<string>((resolve, reject) => {
-                  teraboxResolveCallbackRef.current = resolve;
-                  teraboxRejectCallbackRef.current = reject;
-                  setTeraboxWebViewVisible(true);
-                });
-                setTeraboxWebViewVisible(false);
-                await setCachedTeraboxUrl(params.registryItemId, webViewUrl);
-                setVideoUrl(webViewUrl);
-                transitionToReady(0);
-                return;
-              } catch {
-                setTeraboxWebViewVisible(false);
-              }
-            }
-          }
+        readyTimer.current = setTimeout(() => {
           transitionToReady(0);
         }, 12000);
       }
@@ -526,7 +453,7 @@ export default function R2PlayerScreen() {
       setErrorMsg(e.message ?? "Erro ao carregar vídeo");
       fakeAnim.current?.stop();
     }
-  }, [params.key, params.registryItemId, params.flix2ItemUrl, isTerabox, isFlix2, episode, r2Items]);
+  }, [params.key, params.flix2ItemUrl, isFlix2, episode, r2Items]);
 
   useEffect(() => { loadVideoUrl(); }, [params.key, params.registryItemId, params.flix2ItemUrl]);
 
@@ -581,10 +508,8 @@ export default function R2PlayerScreen() {
     const nextItem = getNextEpisodeItem();
     if (!nextItem || preloadedNextUrlRef.current) return;
     preloadingRef.current = true;
-    const fetchFn = nextItem.teraboxUrl
-      ? fetchTeraboxUrlCached(nextItem.id, nextItem.teraboxUrl, nextItem.fileIndex, nextItem.fileName)
-      : fetchSignedUrlCached(nextItem.r2Key, nextItem.episode);
-    fetchFn.then((url) => { preloadedNextUrlRef.current = url; }).catch(() => { preloadingRef.current = false; });
+    fetchSignedUrlCached(nextItem.r2Key, nextItem.episode)
+      .then((url) => { preloadedNextUrlRef.current = url; }).catch(() => { preloadingRef.current = false; });
   }, [Math.floor(progress * 20), isTV, durationMs]);
 
   // ── Navigate to episode ─────────────────────────────────────────────────────
@@ -596,7 +521,7 @@ export default function R2PlayerScreen() {
       pathname: "/r2-player",
       params: {
         key: item.r2Key ?? "",
-        registryItemId: item.teraboxUrl ? item.id : "",
+        registryItemId: "",
         title, episodeName: item.label,
         season: String(item.season ?? ""), episode: String(item.episode ?? ""),
         backdropPath: backdropPath ?? "", posterPath: posterPath ?? "",
@@ -996,30 +921,6 @@ export default function R2PlayerScreen() {
     <View style={{ flex: 1, backgroundColor: "#000", flexDirection: "row" }}>
       <StatusBar hidden />
 
-      {/* ── TeraBox WebView Resolver ─────────────────────────────────────────── */}
-      {teraboxWebViewVisible && (
-        <TeraboxWebViewResolver
-          teraboxUrl={r2Items.find((i) => i.id === params.registryItemId)?.teraboxUrl ?? ""}
-          visible={teraboxWebViewVisible}
-          onResolved={(url) => {
-            setTeraboxWebViewVisible(false);
-            teraboxResolveCallbackRef.current?.(url);
-            teraboxResolveCallbackRef.current = null;
-          }}
-          onError={(msg) => {
-            setTeraboxWebViewVisible(false);
-            teraboxRejectCallbackRef.current?.(msg);
-            teraboxRejectCallbackRef.current = null;
-          }}
-          onCancel={() => {
-            setTeraboxWebViewVisible(false);
-            teraboxRejectCallbackRef.current?.("Cancelado");
-            teraboxRejectCallbackRef.current = null;
-            router.back();
-          }}
-        />
-      )}
-
       {/* ── Session blocked modal ────────────────────────────────────────────── */}
       <Modal visible={!!sessionBlocked} animationType="fade" transparent={false} onRequestClose={() => router.back()}>
         <View style={{ flex: 1, backgroundColor: "#080808", alignItems: "center", justifyContent: "center", padding: 32 }}>
@@ -1088,15 +989,7 @@ export default function R2PlayerScreen() {
         {videoUrl && Video && (
           <Video
             ref={videoRef}
-            source={{
-              uri: videoUrl,
-              ...(isTerabox ? {
-                headers: {
-                  "User-Agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36",
-                  "Referer": "https://www.terabox.com/",
-                },
-              } : {}),
-            }}
+            source={{ uri: videoUrl }}
             style={[StyleSheet.absoluteFill, { opacity: phase === "ready" ? 1 : 0 }]}
             resizeMode={ResizeMode?.CONTAIN ?? "contain"}
             shouldPlay={phase === "ready" && isPlaying}
@@ -1173,8 +1066,8 @@ export default function R2PlayerScreen() {
                 </View>
                 <Animated.Text style={styles.barPct}><ProgressText value={loadProgress} /></Animated.Text>
                 <View style={styles.sourceBadge}>
-                  <Feather name={isTerabox ? "cloud" : "server"} size={10} color="#888" />
-                  <Text style={styles.sourceBadgeText}>{isTerabox ? "Terabox" : fromCache ? "R2 (cache)" : "R2"}</Text>
+                  <Feather name="server" size={10} color="#888" />
+                  <Text style={styles.sourceBadgeText}>{fromCache ? "R2 (cache)" : "R2"}</Text>
                 </View>
               </View>
             )}
@@ -1311,8 +1204,8 @@ export default function R2PlayerScreen() {
                   </View>
                   {/* Source badge */}
                   <View style={styles.ctrlSourceBadge}>
-                    <Feather name={isTerabox ? "cloud" : "server"} size={10} color="#888" />
-                    <Text style={styles.ctrlSourceBadgeText}>{isTerabox ? "TB" : "R2"}</Text>
+                    <Feather name="server" size={10} color="#888" />
+                    <Text style={styles.ctrlSourceBadgeText}>R2</Text>
                   </View>
                   {/* Speed badge */}
                   {playbackSpeed !== 1.0 && (

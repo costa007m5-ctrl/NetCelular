@@ -29,7 +29,6 @@ import { getAllLocalProgress, clearLocalProgress } from "@/hooks/useWatchProgres
 import type { WatchEntry } from "@/hooks/useWatchProgress";
 import { HeroBanner } from "@/components/HeroBanner";
 import { TopTenCard } from "@/components/TopTenCard";
-import { SyncBar } from "@/components/SyncBar";
 import { NotificationBell } from "@/components/NotificationBell";
 import { InlineSearchBar } from "@/components/InlineSearchBar";
 import { r2Route } from "@/lib/r2-direct";
@@ -1327,8 +1326,6 @@ export default function HomeScreen() {
   // ── state ──────────────────────────────────────────────────────────────────
   const [loading, setLoading]             = useState(true);
   const [refreshing, setRefreshing]       = useState(false);
-  const [syncProgress, setSyncProgress]   = useState(2);
-  const [showSync, setShowSync]           = useState(true);
   const [activeCategory, setActiveCategory] = useState("all");
   const [showScrollTop, setShowScrollTop] = useState(false);
 
@@ -1387,22 +1384,6 @@ export default function HomeScreen() {
       )
     ).start();
   }, []);
-
-  // ── sync bar ──────────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!showSync) return;
-    const interval = setInterval(() => {
-      setSyncProgress((p) => {
-        if (p >= 100) {
-          clearInterval(interval);
-          setTimeout(() => setShowSync(false), 800);
-          return 100;
-        }
-        return Math.min(p + Math.floor(Math.random() * 8) + 3, 100);
-      });
-    }, 160);
-    return () => clearInterval(interval);
-  }, [showSync]);
 
   // ── profile ───────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -2437,13 +2418,6 @@ export default function HomeScreen() {
           </View>
         </View>
       </Animated.View>
-
-      {/* ═══ SYNC BAR ════════════════════════════════════════════════════════ */}
-      {showSync && (
-        <View style={[styles.syncWrap, { top: topPad + 50 }]}>
-          <SyncBar progress={Math.min(syncProgress, 100)} visible={showSync} />
-        </View>
-      )}
 
       {/* ═══ SCROLL TO TOP ═══════════════════════════════════════════════════ */}
       <ScrollTopBtn scrollRef={scrollRef} visible={showScrollTop} />

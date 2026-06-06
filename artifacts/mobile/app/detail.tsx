@@ -766,7 +766,7 @@ export default function DetailScreen() {
       pathname: "/r2-player",
       params: {
         key: item.r2Key ?? "",
-        registryItemId: item.teraboxUrl ? item.id : "",
+        registryItemId: "",
         flix2ItemUrl: item.flix2Url ?? "",
         title: details?.title ?? details?.name ?? item.title,
         label: item.label,
@@ -1255,30 +1255,23 @@ export default function DetailScreen() {
                   hasDrive && { id: "drive",  press: pressDrive },
                 ].filter(Boolean) as { id: string; press: () => void }[];
 
-                // Show spinner while R2/Flix2 lookup is still running to prevent
-                // the user clicking before hasFlix is determined (race condition)
-                if (r2Loading) {
-                  return (
-                    <Pressable
-                      style={[styles.watchBtn, { backgroundColor: colors.primary, opacity: 0.7 }]}
-                      disabled
-                    >
-                      <ActivityIndicator size="small" color="#fff" />
-                      <Text style={[styles.watchBtnText, { marginLeft: 8 }]}>VERIFICANDO...</Text>
-                    </Pressable>
-                  );
-                }
-
                 if (sources.length === 0) {
-                  // Only regular player
+                  if (r2Loading) {
+                    return (
+                      <Pressable
+                        style={[styles.watchBtn, { backgroundColor: colors.primary }, { opacity: 0.85 }]}
+                        onPress={pressRegular}
+                      >
+                        <Feather name="play" size={18} color="#fff" />
+                        <Text style={styles.watchBtnText}>ASSISTIR AGORA</Text>
+                      </Pressable>
+                    );
+                  }
                   return (
-                    <Pressable
-                      style={({ pressed }) => [styles.watchBtn, { backgroundColor: colors.primary }, pressed && { opacity: 0.85 }]}
-                      onPress={pressRegular}
-                    >
-                      <Feather name="play" size={18} color="#fff" />
-                      <Text style={styles.watchBtnText}>ASSISTIR AGORA</Text>
-                    </Pressable>
+                    <View style={[styles.watchBtn, { backgroundColor: "rgba(255,255,255,0.07)", borderWidth: 1, borderColor: "rgba(255,255,255,0.12)" }]}>
+                      <Feather name="lock" size={16} color="rgba(255,255,255,0.35)" />
+                      <Text style={[styles.watchBtnText, { color: "rgba(255,255,255,0.35)" }]}>INDISPONÍVEL NO CATÁLOGO</Text>
+                    </View>
                   );
                 }
 
