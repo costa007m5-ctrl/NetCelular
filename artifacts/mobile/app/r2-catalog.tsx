@@ -4701,277 +4701,291 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
     { key: "regular", label: "Player Regular",color: "#e50914", icon: "play-circle", desc: "Player IPTV padrão do app" },
   ];
 
+  const DRIVE_PANEL_H = Math.round(Dimensions.get("window").height * 0.58);
+
   return (
     <View style={{ flex: 1 }}>
-      {/* ── Fontes de vídeo (on/off global) ── */}
+
+      {/* ══════════ ROOT STATE (path === "") ══════════════════════════════════ */}
       {path === "" && (
-        <View style={{ marginHorizontal: 12, marginTop: 10, marginBottom: 2, borderRadius: 12, borderWidth: 1,
-          borderColor: "rgba(229,9,20,0.25)", backgroundColor: "#0d0007", overflow: "hidden" }}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8,
-            paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6 }}>
-            <Feather name="toggle-right" size={15} color="#e50914" />
-            <Text style={{ color: "#e50914", fontWeight: "700", fontSize: 14, flex: 1 }}>
-              Fontes de Vídeo
+        <ScrollView
+          style={{ flex: 1 }}
+          showsVerticalScrollIndicator={false}
+          nestedScrollEnabled
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={{ paddingBottom: 60 }}>
+
+          {/* ── Fontes de vídeo (on/off global) ── */}
+          <View style={{ marginHorizontal: 12, marginTop: 10, marginBottom: 2, borderRadius: 12, borderWidth: 1,
+            borderColor: "rgba(229,9,20,0.25)", backgroundColor: "#0d0007", overflow: "hidden" }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8,
+              paddingHorizontal: 14, paddingTop: 12, paddingBottom: 6 }}>
+              <Feather name="toggle-right" size={15} color="#e50914" />
+              <Text style={{ color: "#e50914", fontWeight: "700", fontSize: 14, flex: 1 }}>
+                Fontes de Vídeo
+              </Text>
+              {srcSaving && <ActivityIndicator size="small" color="#e50914" />}
+              {srcSaved && !srcSaving && (
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                  <Feather name="check-circle" size={13} color="#4ade80" />
+                  <Text style={{ color: "#4ade80", fontSize: 11, fontWeight: "600" }}>Salvo</Text>
+                </View>
+              )}
+            </View>
+            <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 11, paddingHorizontal: 14, paddingBottom: 8 }}>
+              Desativar uma fonte oculta os botões de play para TODOS os usuários imediatamente.
             </Text>
-            {srcSaving && <ActivityIndicator size="small" color="#e50914" />}
-            {srcSaved && !srcSaving && (
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                <Feather name="check-circle" size={13} color="#4ade80" />
-                <Text style={{ color: "#4ade80", fontSize: 11, fontWeight: "600" }}>Salvo</Text>
+            {SRC_ROWS.map(({ key, label, color, icon, desc }) => (
+              <View key={key} style={{ flexDirection: "row", alignItems: "center", gap: 10,
+                paddingHorizontal: 14, paddingVertical: 10,
+                borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.06)" }}>
+                <View style={{ width: 30, height: 30, borderRadius: 8,
+                  backgroundColor: srcSettings[key] ? `${color}22` : "rgba(255,255,255,0.04)",
+                  alignItems: "center", justifyContent: "center" }}>
+                  <Feather name={icon as any} size={14} color={srcSettings[key] ? color : "rgba(255,255,255,0.25)"} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: srcSettings[key] ? "#fff" : "rgba(255,255,255,0.4)",
+                    fontWeight: "600", fontSize: 13 }}>{label}</Text>
+                  <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 10, marginTop: 1 }} numberOfLines={1}>
+                    {desc}
+                  </Text>
+                </View>
+                <Switch
+                  value={srcSettings[key]}
+                  onValueChange={() => toggleSrc(key)}
+                  trackColor={{ false: "rgba(255,255,255,0.1)", true: `${color}66` }}
+                  thumbColor={srcSettings[key] ? color : "rgba(255,255,255,0.4)"}
+                  ios_backgroundColor="rgba(255,255,255,0.1)"
+                />
+              </View>
+            ))}
+            <View style={{ height: 8 }} />
+          </View>
+
+          {/* ── Acervo Drive: extração em background ── */}
+          <View style={{ marginHorizontal: 12, marginTop: 10, marginBottom: 2, borderRadius: 12, borderWidth: 1,
+            borderColor: driveJobStatus === "done" ? "#16a34a55" : driveJobStatus === "error" ? "#f8717155" : "#22c55e25",
+            backgroundColor: "#061409", overflow: "hidden" }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingTop: 10, paddingBottom: 4 }}>
+              <Feather name="cloud" size={15} color="#22c55e" />
+              <Text style={{ color: "#22c55e", fontWeight: "700", fontSize: 13, flex: 1 }}>Acervo Drive</Text>
+              {driveJobStatus === "running" && <ActivityIndicator size="small" color="#22c55e" />}
+              {driveJobStatus === "done" && <Feather name="check-circle" size={14} color="#4ade80" />}
+              {driveJobStatus === "error" && <Feather name="alert-circle" size={14} color="#f87171" />}
+            </View>
+            {driveJobMessage ? (
+              <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 11, paddingHorizontal: 12, paddingBottom: 4 }} numberOfLines={2}>
+                {driveJobMessage}
+              </Text>
+            ) : (
+              <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 11, paddingHorizontal: 12, paddingBottom: 4 }}>
+                Resolve links do Drive e armazena URLs no R2 como backup (sem subir o vídeo)
+              </Text>
+            )}
+            {driveJobStatus === "running" && driveJobProgress > 0 && (
+              <View style={{ height: 3, backgroundColor: "rgba(255,255,255,0.08)", marginHorizontal: 12, borderRadius: 2, marginBottom: 6 }}>
+                <View style={{ height: 3, width: `${driveJobProgress}%` as any, backgroundColor: "#22c55e", borderRadius: 2 }} />
               </View>
             )}
-          </View>
-          <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 11, paddingHorizontal: 14, paddingBottom: 8 }}>
-            Desativar uma fonte oculta os botões de play para TODOS os usuários imediatamente.
-          </Text>
-          {SRC_ROWS.map(({ key, label, color, icon, desc }) => (
-            <View key={key} style={{ flexDirection: "row", alignItems: "center", gap: 10,
-              paddingHorizontal: 14, paddingVertical: 10,
-              borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.06)" }}>
-              <View style={{ width: 30, height: 30, borderRadius: 8,
-                backgroundColor: srcSettings[key] ? `${color}22` : "rgba(255,255,255,0.04)",
-                alignItems: "center", justifyContent: "center" }}>
-                <Feather name={icon as any} size={14} color={srcSettings[key] ? color : "rgba(255,255,255,0.25)"} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={{ color: srcSettings[key] ? "#fff" : "rgba(255,255,255,0.4)",
-                  fontWeight: "600", fontSize: 13 }}>{label}</Text>
-                <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 10, marginTop: 1 }} numberOfLines={1}>
-                  {desc}
-                </Text>
-              </View>
-              <Switch
-                value={srcSettings[key]}
-                onValueChange={() => toggleSrc(key)}
-                trackColor={{ false: "rgba(255,255,255,0.1)", true: `${color}66` }}
-                thumbColor={srcSettings[key] ? color : "rgba(255,255,255,0.4)"}
-                ios_backgroundColor="rgba(255,255,255,0.1)"
-              />
-            </View>
-          ))}
-          <View style={{ height: 8 }} />
-        </View>
-      )}
-
-      {/* ── Acervo Drive: extração em background ── */}
-      {path === "" && (
-        <View style={{ marginHorizontal: 12, marginTop: 10, marginBottom: 2, borderRadius: 12, borderWidth: 1,
-          borderColor: driveJobStatus === "done" ? "#16a34a55" : driveJobStatus === "error" ? "#f8717155" : "#22c55e25",
-          backgroundColor: "#061409", overflow: "hidden" }}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingTop: 10, paddingBottom: 4 }}>
-            <Feather name="cloud" size={15} color="#22c55e" />
-            <Text style={{ color: "#22c55e", fontWeight: "700", fontSize: 13, flex: 1 }}>Acervo Drive</Text>
-            {driveJobStatus === "running" && <ActivityIndicator size="small" color="#22c55e" />}
-            {driveJobStatus === "done" && <Feather name="check-circle" size={14} color="#4ade80" />}
-            {driveJobStatus === "error" && <Feather name="alert-circle" size={14} color="#f87171" />}
-          </View>
-          {driveJobMessage ? (
-            <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 11, paddingHorizontal: 12, paddingBottom: 4 }} numberOfLines={2}>
-              {driveJobMessage}
-            </Text>
-          ) : (
-            <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 11, paddingHorizontal: 12, paddingBottom: 4 }}>
-              Resolve links do Drive e armazena URLs no R2 como backup (sem subir o vídeo)
-            </Text>
-          )}
-          {driveJobStatus === "running" && driveJobProgress > 0 && (
-            <View style={{ height: 3, backgroundColor: "rgba(255,255,255,0.08)", marginHorizontal: 12, borderRadius: 2, marginBottom: 6 }}>
-              <View style={{ height: 3, width: `${driveJobProgress}%` as any, backgroundColor: "#22c55e", borderRadius: 2 }} />
-            </View>
-          )}
-          <Pressable
-            onPress={startDriveExtraction}
-            disabled={driveJobStatus === "running"}
-            style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
-              margin: 10, marginTop: 2, padding: 10, borderRadius: 8,
-              backgroundColor: driveJobStatus === "running" ? "rgba(34,197,94,0.1)" : "#16a34a",
-              opacity: driveJobStatus === "running" ? 0.6 : 1 }}
-          >
-            <Feather name={driveJobStatus === "running" ? "loader" : "download-cloud"} size={14} color="#fff" />
-            <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>
-              {driveJobStatus === "running"
-                ? `Extraindo… ${driveJobProgress}%`
-                : driveJobStatus === "done"
-                ? "Extrair novamente"
-                : "Extrair todos os conteúdos do Drive"}
-            </Text>
-          </Pressable>
-          {/* Navegar Drive button */}
-          <Pressable
-            onPress={() => { setMgDriveOpen((v) => !v); if (!mgDriveOpen) { setMgDriveNav([]); setMgDriveItems([]); } }}
-            style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
-              marginHorizontal: 10, marginBottom: 10, padding: 9, borderRadius: 8,
-              backgroundColor: mgDriveOpen ? "rgba(34,197,94,0.12)" : "rgba(255,255,255,0.05)",
-              borderWidth: 1, borderColor: mgDriveOpen ? "rgba(34,197,94,0.35)" : "rgba(255,255,255,0.1)" }}
-          >
-            <Feather name="folder" size={14} color={mgDriveOpen ? "#4ade80" : "rgba(255,255,255,0.5)"} />
-            <Text style={{ color: mgDriveOpen ? "#4ade80" : "rgba(255,255,255,0.5)", fontWeight: "600", fontSize: 13 }}>
-              {mgDriveOpen ? "Fechar navegador" : "Navegar pastas do Drive"}
-            </Text>
-            <Feather name={mgDriveOpen ? "chevron-up" : "chevron-down"} size={14} color={mgDriveOpen ? "#4ade80" : "rgba(255,255,255,0.4)"} />
-          </Pressable>
-        </View>
-      )}
-
-      {/* Drive browser panel */}
-      {path === "" && mgDriveOpen && (
-        <View style={{ marginHorizontal: 12, marginBottom: 8, borderRadius: 12, borderWidth: 1,
-          borderColor: "rgba(34,197,94,0.2)", backgroundColor: "#040d06", flex: 1, minHeight: 420 }}>
-
-          {/* Header + breadcrumb */}
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingTop: 10, paddingBottom: 6 }}>
-            <Feather name="hard-drive" size={14} color="#22c55e" />
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                <Pressable onPress={() => { setMgDriveNav([]); setMgDriveItems([]); setMgDrivePageToken(null); }}>
-                  <Text style={{ color: mgDriveNav.length === 0 ? "#4ade80" : "rgba(255,255,255,0.4)", fontSize: 12, fontWeight: "700" }}>Drive</Text>
-                </Pressable>
-                {mgDriveNav.map((entry, i) => (
-                  <View key={i} style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                    <Feather name="chevron-right" size={11} color="rgba(255,255,255,0.25)" />
-                    <Pressable onPress={() => {
-                      const next = mgDriveNav.slice(0, i + 1);
-                      setMgDriveNav(next);
-                      loadMgFolder(entry.drive, entry.path);
-                    }}>
-                      <Text style={{ color: i === mgDriveNav.length - 1 ? "#4ade80" : "rgba(255,255,255,0.4)", fontSize: 12, fontWeight: "600" }} numberOfLines={1}>{entry.name}</Text>
-                    </Pressable>
-                  </View>
-                ))}
-              </View>
-            </ScrollView>
-          </View>
-
-          <View style={{ height: 1, backgroundColor: "rgba(34,197,94,0.12)", marginHorizontal: 12, marginBottom: 8 }} />
-
-          {/* Root level — Drive roots */}
-          {mgDriveNav.length === 0 && (
-            <ScrollView contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 12 }} showsVerticalScrollIndicator={false}>
-              <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 11, marginBottom: 10 }}>
-                Selecione uma pasta raiz para navegar e registrar conteúdos no Drive
+            <Pressable
+              onPress={startDriveExtraction}
+              disabled={driveJobStatus === "running"}
+              style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+                margin: 10, marginTop: 2, padding: 10, borderRadius: 8,
+                backgroundColor: driveJobStatus === "running" ? "rgba(34,197,94,0.1)" : "#16a34a",
+                opacity: driveJobStatus === "running" ? 0.6 : 1 }}
+            >
+              <Feather name={driveJobStatus === "running" ? "loader" : "download-cloud"} size={14} color="#fff" />
+              <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>
+                {driveJobStatus === "running"
+                  ? `Extraindo… ${driveJobProgress}%`
+                  : driveJobStatus === "done"
+                  ? "Extrair novamente"
+                  : "Extrair todos os conteúdos do Drive"}
               </Text>
-              {DRIVE_ROOTS.map((root) => (
-                <View key={root.drive} style={{ marginBottom: 12 }}>
-                  <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 10, fontWeight: "700", letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 6 }}>
-                    {root.icon} {root.name}
+            </Pressable>
+            {/* Navegar Drive button */}
+            <Pressable
+              onPress={() => { setMgDriveOpen((v) => !v); if (!mgDriveOpen) { setMgDriveNav([]); setMgDriveItems([]); } }}
+              style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+                marginHorizontal: 10, marginBottom: 10, padding: 9, borderRadius: 8,
+                backgroundColor: mgDriveOpen ? "rgba(34,197,94,0.12)" : "rgba(255,255,255,0.05)",
+                borderWidth: 1, borderColor: mgDriveOpen ? "rgba(34,197,94,0.35)" : "rgba(255,255,255,0.1)" }}
+            >
+              <Feather name="folder" size={14} color={mgDriveOpen ? "#4ade80" : "rgba(255,255,255,0.5)"} />
+              <Text style={{ color: mgDriveOpen ? "#4ade80" : "rgba(255,255,255,0.5)", fontWeight: "600", fontSize: 13 }}>
+                {mgDriveOpen ? "Fechar navegador" : "Navegar pastas do Drive"}
+              </Text>
+              <Feather name={mgDriveOpen ? "chevron-up" : "chevron-down"} size={14} color={mgDriveOpen ? "#4ade80" : "rgba(255,255,255,0.4)"} />
+            </Pressable>
+          </View>
+
+          {/* ── Drive browser panel ── */}
+          {mgDriveOpen && (
+            <View style={{ marginHorizontal: 12, marginTop: 8, marginBottom: 8, borderRadius: 12, borderWidth: 1,
+              borderColor: "rgba(34,197,94,0.2)", backgroundColor: "#040d06", height: DRIVE_PANEL_H }}>
+
+              {/* Header + breadcrumb trail */}
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingTop: 10, paddingBottom: 6 }}>
+                <Feather name="hard-drive" size={14} color="#22c55e" />
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                    <Pressable onPress={() => { setMgDriveNav([]); setMgDriveItems([]); setMgDrivePageToken(null); }}>
+                      <Text style={{ color: mgDriveNav.length === 0 ? "#4ade80" : "rgba(255,255,255,0.4)", fontSize: 12, fontWeight: "700" }}>Drive</Text>
+                    </Pressable>
+                    {mgDriveNav.map((entry, i) => (
+                      <View key={i} style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                        <Feather name="chevron-right" size={11} color="rgba(255,255,255,0.25)" />
+                        <Pressable onPress={() => {
+                          const next = mgDriveNav.slice(0, i + 1);
+                          setMgDriveNav(next);
+                          loadMgFolder(entry.drive, entry.path);
+                        }}>
+                          <Text style={{ color: i === mgDriveNav.length - 1 ? "#4ade80" : "rgba(255,255,255,0.4)", fontSize: 12, fontWeight: "600" }} numberOfLines={1}>{entry.name}</Text>
+                        </Pressable>
+                      </View>
+                    ))}
+                  </View>
+                </ScrollView>
+              </View>
+
+              <View style={{ height: 1, backgroundColor: "rgba(34,197,94,0.12)", marginHorizontal: 12, marginBottom: 8 }} />
+
+              {/* Root level — Drive roots */}
+              {mgDriveNav.length === 0 && (
+                <ScrollView
+                  style={{ flex: 1 }}
+                  contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 16 }}
+                  showsVerticalScrollIndicator={true}
+                  nestedScrollEnabled>
+                  <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 11, marginBottom: 10 }}>
+                    Selecione uma pasta raiz para navegar e registrar conteúdos no Drive
                   </Text>
-                  {root.folders.map((folder) => (
-                    <Pressable key={folder} onPress={() => mgNavPush(root.drive, folder, folder)}
-                      style={{ flexDirection: "row", alignItems: "center", gap: 10, padding: 10, marginBottom: 4, borderRadius: 8,
-                        backgroundColor: "rgba(34,197,94,0.06)", borderWidth: 1, borderColor: "rgba(34,197,94,0.15)" }}>
-                      <Feather name="folder" size={17} color="#22c55e" />
-                      <Text style={{ flex: 1, color: "#fff", fontSize: 13, fontWeight: "600" }}>{folder}</Text>
-                      <Feather name="chevron-right" size={15} color="rgba(255,255,255,0.25)" />
-                    </Pressable>
+                  {DRIVE_ROOTS.map((root) => (
+                    <View key={root.drive} style={{ marginBottom: 12 }}>
+                      <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 10, fontWeight: "700", letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 6 }}>
+                        {root.icon} {root.name}
+                      </Text>
+                      {root.folders.map((folder) => (
+                        <Pressable key={folder} onPress={() => mgNavPush(root.drive, folder, folder)}
+                          style={{ flexDirection: "row", alignItems: "center", gap: 10, padding: 10, marginBottom: 4, borderRadius: 8,
+                            backgroundColor: "rgba(34,197,94,0.06)", borderWidth: 1, borderColor: "rgba(34,197,94,0.15)" }}>
+                          <Feather name="folder" size={17} color="#22c55e" />
+                          <Text style={{ flex: 1, color: "#fff", fontSize: 13, fontWeight: "600" }}>{folder}</Text>
+                          <Feather name="chevron-right" size={15} color="rgba(255,255,255,0.25)" />
+                        </Pressable>
+                      ))}
+                    </View>
                   ))}
-                </View>
-              ))}
-            </ScrollView>
-          )}
-
-          {/* Folder contents */}
-          {mgDriveNav.length > 0 && (
-            <ScrollView contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 12 }} showsVerticalScrollIndicator={false}>
-              {/* Back */}
-              <Pressable onPress={mgNavPop} style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 8, marginBottom: 6 }}>
-                <Feather name="arrow-left" size={15} color="rgba(255,255,255,0.45)" />
-                <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 13 }}>Voltar</Text>
-              </Pressable>
-
-              {mgDriveLoading ? (
-                <View style={{ alignItems: "center", paddingVertical: 24, gap: 8 }}>
-                  <ActivityIndicator color="#22c55e" size="large" />
-                  <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 12 }}>Carregando pasta…</Text>
-                </View>
-              ) : mgDriveError ? (
-                <View style={styles.errorBox}><Feather name="alert-circle" size={13} color="#f87171" /><Text style={styles.errorBoxText}>{mgDriveError}</Text></View>
-              ) : mgDriveItems.length === 0 ? (
-                <View style={{ alignItems: "center", paddingVertical: 20 }}>
-                  <Feather name="inbox" size={26} color="rgba(255,255,255,0.12)" />
-                  <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 12, marginTop: 8 }}>Pasta vazia</Text>
-                </View>
-              ) : (
-                <>
-                  {mgDriveItems.map((item) => {
-                    const isDir = driveIsFolder(item);
-                    const isVid = driveIsVideo(item);
-                    const folderPath = mgCurrent ? `${mgCurrent.path}/${item.name}` : item.name;
-
-                    if (isDir) {
-                      return (
-                        <View key={item.id} style={{ flexDirection: "row", alignItems: "center", gap: 5, marginBottom: 3 }}>
-                          {/* Nav into folder */}
-                          <Pressable
-                            onPress={() => mgNavPush(mgCurrent!.drive, folderPath, item.name)}
-                            style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 10,
-                              paddingVertical: 9, paddingHorizontal: 10, borderRadius: 8,
-                              backgroundColor: "rgba(255,255,255,0.03)", borderWidth: 1, borderColor: "rgba(255,255,255,0.07)" }}>
-                            <Feather name="folder" size={16} color="#f59e0b" />
-                            <Text style={{ flex: 1, color: "rgba(255,255,255,0.75)", fontSize: 12, fontWeight: "600" }} numberOfLines={1}>
-                              {item.name}
-                            </Text>
-                            <Feather name="chevron-right" size={13} color="rgba(255,255,255,0.25)" />
-                          </Pressable>
-                          {/* 📂 Usar — abre FolderBulkModal */}
-                          <Pressable
-                            onPress={() => setFolderBulkTarget({ drive: mgCurrent!.drive, path: folderPath, name: item.name })}
-                            style={{ paddingHorizontal: 10, paddingVertical: 9, borderRadius: 8,
-                              backgroundColor: "rgba(34,197,94,0.07)", borderWidth: 1, borderColor: "rgba(34,197,94,0.25)" }}>
-                            <Text style={{ color: "#4ade80", fontSize: 11, fontWeight: "700" }}>📂 Usar</Text>
-                          </Pressable>
-                        </View>
-                      );
-                    }
-
-                    return (
-                      <Pressable key={item.id}
-                        onPress={() => {
-                          if (isVid) {
-                            setMgDriveRegisterItem(item);
-                            setMgDriveRegisterCtx({ driveNum: mgCurrent!.drive, filePath: folderPath });
-                          }
-                        }}
-                        style={{ flexDirection: "row", alignItems: "center", gap: 10,
-                          paddingVertical: 9, paddingHorizontal: 10, marginBottom: 3, borderRadius: 8,
-                          backgroundColor: isVid ? "rgba(34,197,94,0.05)" : "rgba(255,255,255,0.03)",
-                          borderWidth: 1, borderColor: isVid ? "rgba(34,197,94,0.12)" : "rgba(255,255,255,0.06)" }}>
-                        <Feather
-                          name={isVid ? "film" : "file"}
-                          size={16}
-                          color={isVid ? "#22c55e" : "rgba(255,255,255,0.3)"}
-                        />
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ color: isVid ? "#e2fbe8" : "rgba(255,255,255,0.5)", fontSize: 12 }} numberOfLines={1}>
-                            {item.name}
-                          </Text>
-                          {isVid && item.size && (
-                            <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 10, marginTop: 1 }}>{driveFormatSize(item.size)}</Text>
-                          )}
-                        </View>
-                        {isVid && (
-                          <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor: "rgba(34,197,94,0.15)" }}>
-                            <Text style={{ color: "#4ade80", fontSize: 10, fontWeight: "700" }}>+ Registrar</Text>
-                          </View>
-                        )}
-                      </Pressable>
-                    );
-                  })}
-                  {mgDrivePageToken && (
-                    <Pressable onPress={() => loadMgFolder(mgCurrent!.drive, mgCurrent!.path, mgDrivePageToken)}
-                      style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
-                        marginTop: 8, padding: 10, borderRadius: 8, borderWidth: 1, borderColor: "rgba(34,197,94,0.2)" }}>
-                      <Feather name="more-horizontal" size={14} color="#22c55e" />
-                      <Text style={{ color: "#22c55e", fontSize: 12, fontWeight: "600" }}>Carregar mais</Text>
-                    </Pressable>
-                  )}
-                </>
+                </ScrollView>
               )}
-            </ScrollView>
-          )}
-        </View>
-      )}
 
-      {/* Drive Register Modal (arquivo individual) */}
+              {/* Folder contents */}
+              {mgDriveNav.length > 0 && (
+                <ScrollView
+                  style={{ flex: 1 }}
+                  contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 16 }}
+                  showsVerticalScrollIndicator={true}
+                  nestedScrollEnabled>
+                  {/* Back */}
+                  <Pressable onPress={mgNavPop} style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 8, marginBottom: 6 }}>
+                    <Feather name="arrow-left" size={15} color="rgba(255,255,255,0.45)" />
+                    <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 13 }}>Voltar</Text>
+                  </Pressable>
+
+                  {mgDriveLoading ? (
+                    <View style={{ alignItems: "center", paddingVertical: 24, gap: 8 }}>
+                      <ActivityIndicator color="#22c55e" size="large" />
+                      <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 12 }}>Carregando pasta…</Text>
+                    </View>
+                  ) : mgDriveError ? (
+                    <View style={styles.errorBox}><Feather name="alert-circle" size={13} color="#f87171" /><Text style={styles.errorBoxText}>{mgDriveError}</Text></View>
+                  ) : mgDriveItems.length === 0 ? (
+                    <View style={{ alignItems: "center", paddingVertical: 20 }}>
+                      <Feather name="inbox" size={26} color="rgba(255,255,255,0.12)" />
+                      <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 12, marginTop: 8 }}>Pasta vazia</Text>
+                    </View>
+                  ) : (
+                    <>
+                      {mgDriveItems.map((item) => {
+                        const isDir = driveIsFolder(item);
+                        const isVid = driveIsVideo(item);
+                        const folderPath = mgCurrent ? `${mgCurrent.path}/${item.name}` : item.name;
+
+                        if (isDir) {
+                          return (
+                            <View key={item.id} style={{ flexDirection: "row", alignItems: "center", gap: 5, marginBottom: 3 }}>
+                              <Pressable
+                                onPress={() => mgNavPush(mgCurrent!.drive, folderPath, item.name)}
+                                style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 10,
+                                  paddingVertical: 9, paddingHorizontal: 10, borderRadius: 8,
+                                  backgroundColor: "rgba(255,255,255,0.03)", borderWidth: 1, borderColor: "rgba(255,255,255,0.07)" }}>
+                                <Feather name="folder" size={16} color="#f59e0b" />
+                                <Text style={{ flex: 1, color: "rgba(255,255,255,0.75)", fontSize: 12, fontWeight: "600" }} numberOfLines={1}>
+                                  {item.name}
+                                </Text>
+                                <Feather name="chevron-right" size={13} color="rgba(255,255,255,0.25)" />
+                              </Pressable>
+                              <Pressable
+                                onPress={() => setFolderBulkTarget({ drive: mgCurrent!.drive, path: folderPath, name: item.name })}
+                                style={{ paddingHorizontal: 10, paddingVertical: 9, borderRadius: 8,
+                                  backgroundColor: "rgba(34,197,94,0.07)", borderWidth: 1, borderColor: "rgba(34,197,94,0.25)" }}>
+                                <Text style={{ color: "#4ade80", fontSize: 11, fontWeight: "700" }}>📂 Usar</Text>
+                              </Pressable>
+                            </View>
+                          );
+                        }
+
+                        return (
+                          <Pressable key={item.id}
+                            onPress={() => {
+                              if (isVid) {
+                                setMgDriveRegisterItem(item);
+                                setMgDriveRegisterCtx({ driveNum: mgCurrent!.drive, filePath: folderPath });
+                              }
+                            }}
+                            style={{ flexDirection: "row", alignItems: "center", gap: 10,
+                              paddingVertical: 9, paddingHorizontal: 10, marginBottom: 3, borderRadius: 8,
+                              backgroundColor: isVid ? "rgba(34,197,94,0.05)" : "rgba(255,255,255,0.03)",
+                              borderWidth: 1, borderColor: isVid ? "rgba(34,197,94,0.12)" : "rgba(255,255,255,0.06)" }}>
+                            <Feather name={isVid ? "film" : "file"} size={16} color={isVid ? "#22c55e" : "rgba(255,255,255,0.3)"} />
+                            <View style={{ flex: 1 }}>
+                              <Text style={{ color: isVid ? "#e2fbe8" : "rgba(255,255,255,0.5)", fontSize: 12 }} numberOfLines={1}>
+                                {item.name}
+                              </Text>
+                              {isVid && item.size && (
+                                <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 10, marginTop: 1 }}>{driveFormatSize(item.size)}</Text>
+                              )}
+                            </View>
+                            {isVid && (
+                              <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, backgroundColor: "rgba(34,197,94,0.15)" }}>
+                                <Text style={{ color: "#4ade80", fontSize: 10, fontWeight: "700" }}>+ Registrar</Text>
+                              </View>
+                            )}
+                          </Pressable>
+                        );
+                      })}
+                      {mgDrivePageToken && (
+                        <Pressable onPress={() => loadMgFolder(mgCurrent!.drive, mgCurrent!.path, mgDrivePageToken)}
+                          style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
+                            marginTop: 8, padding: 10, borderRadius: 8, borderWidth: 1, borderColor: "rgba(34,197,94,0.2)" }}>
+                          <Feather name="more-horizontal" size={14} color="#22c55e" />
+                          <Text style={{ color: "#22c55e", fontSize: 12, fontWeight: "600" }}>Carregar mais</Text>
+                        </Pressable>
+                      )}
+                    </>
+                  )}
+                </ScrollView>
+              )}
+            </View>
+          )}
+
+        </ScrollView>
+      )}
+      {/* ══════════ END ROOT STATE ══════════════════════════════════════════ */}
+
+      {/* ── Modals (rendered outside ScrollView, always accessible) ── */}
       {mgDriveRegisterItem && (
         <DriveRegisterModal
           item={mgDriveRegisterItem}
@@ -4981,8 +4995,6 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
           onDone={() => { setMgDriveRegisterItem(null); setMgDriveRegisterCtx(null); Alert.alert("✅ Registrado", "Conteúdo adicionado ao Drive Registry!"); }}
         />
       )}
-
-      {/* Folder Bulk Modal — registrar pasta inteira com intensificação */}
       {folderBulkTarget && (
         <FolderBulkModal
           target={folderBulkTarget}
@@ -4994,109 +5006,113 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
         />
       )}
 
-      {/* Breadcrumb */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.breadcrumb} contentContainerStyle={{ alignItems: "center", paddingHorizontal: 12, gap: 4 }}>
-        <Pressable onPress={() => { setPath(""); load(""); }} style={styles.breadcrumbItem}>
-          <Feather name="home" size={13} color={RED} />
-        </Pressable>
-        {pathParts.map((p, i) => (
-          <React.Fragment key={i}>
-            <Text style={styles.breadcrumbSep}>/</Text>
-            <Pressable onPress={() => {
-              const np = pathParts.slice(0, i + 1).join("/") + "/";
-              setPath(np); load(np);
-            }} style={styles.breadcrumbItem}>
-              <Text style={styles.breadcrumbText} numberOfLines={1}>{p}</Text>
+      {/* ══════════ R2 FILE BROWSER STATE (path !== "") ══════════════════════ */}
+      {path !== "" && (
+        <>
+          {/* Breadcrumb */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.breadcrumb} contentContainerStyle={{ alignItems: "center", paddingHorizontal: 12, gap: 4 }}>
+            <Pressable onPress={() => { setPath(""); load(""); }} style={styles.breadcrumbItem}>
+              <Feather name="home" size={13} color={RED} />
             </Pressable>
-          </React.Fragment>
-        ))}
-      </ScrollView>
-
-      {/* Move banner */}
-      {movingKey && (
-        <View style={styles.moveBox}>
-          <Text style={styles.moveTitle} numberOfLines={1}>Mover: {movingName || movingKey.split("/").pop()}</Text>
-          <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 12, marginBottom: 10 }}>
-            Escolha a pasta de destino abaixo
-          </Text>
-          <View style={{ flexDirection: "row", gap: 8 }}>
-            <Pressable
-              style={[styles.actionBtn, { flex: 1, backgroundColor: "#374151" }]}
-              onPress={() => { setMovingKey(null); setMovingName(""); }}
-            >
-              <Text style={styles.actionBtnText}>Cancelar</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.actionBtn, { flex: 1, backgroundColor: "#1d4ed8" }]}
-              onPress={() => setShowMovePicker(true)}
-            >
-              <Feather name="folder" size={14} color="#fff" />
-              <Text style={styles.actionBtnText}>Escolher pasta</Text>
-            </Pressable>
-          </View>
-        </View>
-      )}
-      {showMovePicker && (
-        <FolderPickerModal
-          onSelect={(folder) => { setShowMovePicker(false); doMove(folder); }}
-          onClose={() => setShowMovePicker(false)}
-        />
-      )}
-
-      {error && (
-        <View style={[styles.errorBox, { margin: 12 }]}>
-          <Text style={styles.errorBoxText}>{error}</Text>
-        </View>
-      )}
-
-      {loading ? (
-        <View style={styles.center}><ActivityIndicator color={RED} size="large" /></View>
-      ) : (
-        <FlatList
-          data={items}
-          keyExtractor={(i) => i.key}
-          contentContainerStyle={{ padding: 12, paddingBottom: insets.bottom + 100 }}
-          ListHeaderComponent={
-            path ? (
-              <Pressable style={styles.upRow} onPress={goUp}>
-                <Feather name="corner-left-up" size={16} color="rgba(255,255,255,0.5)" />
-                <Text style={styles.upText}>.. (pasta acima)</Text>
-              </Pressable>
-            ) : null
-          }
-          ListEmptyComponent={<View style={[styles.center, { paddingTop: 40 }]}><Text style={styles.dim}>Pasta vazia</Text></View>}
-          renderItem={({ item }) => {
-            const KNOWN_NON_VIDEO = /\.(jpg|jpeg|png|gif|webp|txt|json|pdf|doc|docx|html|css|js|xml|zip|rar|keep)$/i;
-            const looksLikeVideo = item.isVideo || (item.type === "file" && (item.size ?? 0) > 5_000_000 && !KNOWN_NON_VIDEO.test(item.name));
-            return (
-            <View style={styles.fileRow}>
-              <Feather
-                name={item.type === "folder" ? "folder" : looksLikeVideo ? "film" : "file"}
-                size={18}
-                color={item.type === "folder" ? "#f59e0b" : looksLikeVideo ? RED : "rgba(255,255,255,0.4)"}
-              />
-              <Pressable style={{ flex: 1, marginLeft: 10 }} onPress={() => item.type === "folder" ? navigate(item) : undefined}>
-                <Text style={styles.fileName} numberOfLines={2}>{item.name}</Text>
-                {item.size ? <Text style={styles.fileMeta}>{formatBytes(item.size)}</Text> : null}
-              </Pressable>
-              {/* Actions */}
-              {looksLikeVideo && (
-                <Pressable onPress={() => onRegister(item.key)} style={styles.fileAction}>
-                  <Feather name="link" size={15} color="#60a5fa" />
+            {pathParts.map((p, i) => (
+              <React.Fragment key={i}>
+                <Text style={styles.breadcrumbSep}>/</Text>
+                <Pressable onPress={() => {
+                  const np = pathParts.slice(0, i + 1).join("/") + "/";
+                  setPath(np); load(np);
+                }} style={styles.breadcrumbItem}>
+                  <Text style={styles.breadcrumbText} numberOfLines={1}>{p}</Text>
                 </Pressable>
-              )}
-              <Pressable onPress={() => { setMovingKey(item.key); setMovingName(item.name); }} style={styles.fileAction}>
-                <Feather name="move" size={15} color="rgba(255,255,255,0.4)" />
-              </Pressable>
-              {item.type === "file" && (
-                <Pressable onPress={() => deleteItem(item)} style={styles.fileAction}>
-                  <Feather name="trash-2" size={15} color="#f87171" />
+              </React.Fragment>
+            ))}
+          </ScrollView>
+
+          {/* Move banner */}
+          {movingKey && (
+            <View style={styles.moveBox}>
+              <Text style={styles.moveTitle} numberOfLines={1}>Mover: {movingName || movingKey.split("/").pop()}</Text>
+              <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 12, marginBottom: 10 }}>
+                Escolha a pasta de destino abaixo
+              </Text>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <Pressable
+                  style={[styles.actionBtn, { flex: 1, backgroundColor: "#374151" }]}
+                  onPress={() => { setMovingKey(null); setMovingName(""); }}
+                >
+                  <Text style={styles.actionBtnText}>Cancelar</Text>
                 </Pressable>
-              )}
+                <Pressable
+                  style={[styles.actionBtn, { flex: 1, backgroundColor: "#1d4ed8" }]}
+                  onPress={() => setShowMovePicker(true)}
+                >
+                  <Feather name="folder" size={14} color="#fff" />
+                  <Text style={styles.actionBtnText}>Escolher pasta</Text>
+                </Pressable>
+              </View>
             </View>
-          );
-          }}
-        />
+          )}
+          {showMovePicker && (
+            <FolderPickerModal
+              onSelect={(folder) => { setShowMovePicker(false); doMove(folder); }}
+              onClose={() => setShowMovePicker(false)}
+            />
+          )}
+
+          {error && (
+            <View style={[styles.errorBox, { margin: 12 }]}>
+              <Text style={styles.errorBoxText}>{error}</Text>
+            </View>
+          )}
+
+          {loading ? (
+            <View style={styles.center}><ActivityIndicator color={RED} size="large" /></View>
+          ) : (
+            <FlatList
+              data={items}
+              keyExtractor={(i) => i.key}
+              contentContainerStyle={{ padding: 12, paddingBottom: insets.bottom + 100 }}
+              ListHeaderComponent={
+                path ? (
+                  <Pressable style={styles.upRow} onPress={goUp}>
+                    <Feather name="corner-left-up" size={16} color="rgba(255,255,255,0.5)" />
+                    <Text style={styles.upText}>.. (pasta acima)</Text>
+                  </Pressable>
+                ) : null
+              }
+              ListEmptyComponent={<View style={[styles.center, { paddingTop: 40 }]}><Text style={styles.dim}>Pasta vazia</Text></View>}
+              renderItem={({ item }) => {
+                const KNOWN_NON_VIDEO = /\.(jpg|jpeg|png|gif|webp|txt|json|pdf|doc|docx|html|css|js|xml|zip|rar|keep)$/i;
+                const looksLikeVideo = item.isVideo || (item.type === "file" && (item.size ?? 0) > 5_000_000 && !KNOWN_NON_VIDEO.test(item.name));
+                return (
+                  <View style={styles.fileRow}>
+                    <Feather
+                      name={item.type === "folder" ? "folder" : looksLikeVideo ? "film" : "file"}
+                      size={18}
+                      color={item.type === "folder" ? "#f59e0b" : looksLikeVideo ? RED : "rgba(255,255,255,0.4)"}
+                    />
+                    <Pressable style={{ flex: 1, marginLeft: 10 }} onPress={() => item.type === "folder" ? navigate(item) : undefined}>
+                      <Text style={styles.fileName} numberOfLines={2}>{item.name}</Text>
+                      {item.size ? <Text style={styles.fileMeta}>{formatBytes(item.size)}</Text> : null}
+                    </Pressable>
+                    {looksLikeVideo && (
+                      <Pressable onPress={() => onRegister(item.key)} style={styles.fileAction}>
+                        <Feather name="link" size={15} color="#60a5fa" />
+                      </Pressable>
+                    )}
+                    <Pressable onPress={() => { setMovingKey(item.key); setMovingName(item.name); }} style={styles.fileAction}>
+                      <Feather name="move" size={15} color="rgba(255,255,255,0.4)" />
+                    </Pressable>
+                    {item.type === "file" && (
+                      <Pressable onPress={() => deleteItem(item)} style={styles.fileAction}>
+                        <Feather name="trash-2" size={15} color="#f87171" />
+                      </Pressable>
+                    )}
+                  </View>
+                );
+              }}
+            />
+          )}
+        </>
       )}
     </View>
   );
