@@ -904,28 +904,107 @@ function OriginalsBannerComp({ onPress }: { onPress: () => void }) {
 }
 
 // ── Surprise banner (random pick) ─────────────────────────────────────────────
-function SurpriseBannerComp({ item, onPress }: { item: ContentItem | null; onPress: () => void }) {
-  const sc = useRef(new Animated.Value(1)).current;
-  const pi = () => Animated.spring(sc, { toValue: 0.97, useNativeDriver: true, speed: 28 }).start();
-  const po = () => Animated.spring(sc, { toValue: 1,    useNativeDriver: true, speed: 24 }).start();
+function SurpriseBannerComp({
+  item, onPick, onPlay,
+}: {
+  item: ContentItem | null;
+  onPick: () => void;
+  onPlay: () => void;
+}) {
+  const TMDB_IMG = "https://image.tmdb.org/t/p";
+  const [spinning, setSpinning] = useState(false);
+  const spin   = useRef(new Animated.Value(0)).current;
+  const reveal = useRef(new Animated.Value(item ? 1 : 0)).current;
+
+  // keep reveal synced when item first arrives
+  useEffect(() => {
+    if (item) Animated.spring(reveal, { toValue: 1, useNativeDriver: true, speed: 18 }).start();
+  }, [!!item]);
+
+  const spinDeg = spin.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "720deg"] });
+  const revealScale = reveal.interpolate({ inputRange: [0, 1], outputRange: [0.86, 1] });
+
+  const handlePick = () => {
+    if (spinning) return;
+    setSpinning(true);
+    reveal.setValue(0);
+    Animated.timing(spin, { toValue: 1, duration: 580, useNativeDriver: true }).start(() => {
+      spin.setValue(0);
+      onPick();
+      setSpinning(false);
+      Animated.spring(reveal, { toValue: 1, useNativeDriver: true, speed: 14 }).start();
+    });
+  };
+
   return (
-    <Pressable onPress={onPress} onPressIn={pi} onPressOut={po} style={{ paddingHorizontal: 16, marginBottom: 28 }}>
-      <Animated.View style={[styles.surpriseCard, { transform: [{ scale: sc }] }]}>
-        <LinearGradient colors={["#1a0a14",PURPLE,"#2e1065"]}
-          start={{ x:0, y:0 }} end={{ x:1, y:1 }} style={StyleSheet.absoluteFill} />
+    <View style={{ paddingHorizontal: 16, marginBottom: 28 }}>
+      <View style={styles.surpriseCard}>
+        <LinearGradient
+          colors={["#1a0a14", PURPLE, "#2e1065"]}
+          start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
+
+        {/* ── top row ─────────────────────────────────────── */}
         <View style={styles.surpriseContent}>
-          <Text style={styles.surpriseEmoji}>🎲</Text>
-          <View style={{ flex:1 }}>
+          <Animated.View style={{ transform: [{ rotate: spinDeg }] }}>
+            <Text style={styles.surpriseEmoji}>🎲</Text>
+          </Animated.View>
+          <View style={{ flex: 1 }}>
             <Text style={styles.surpriseTitle}>Surpreenda-me!</Text>
-            <Text style={styles.surpriseSub}>{item ? `Que tal "${item.title}"?` : "Escolhemos algo especial"}</Text>
+            <Text style={styles.surpriseSub}>Deixa a sorte decidir o que assistir</Text>
           </View>
-          <View style={[styles.surpriseBtn, { backgroundColor: PURPLE }]}>
+          <Pressable
+            onPress={handlePick}
+            style={[styles.surpriseBtn, { backgroundColor: spinning ? "#553d7a" : PURPLE, opacity: spinning ? 0.7 : 1 }]}
+          >
             <Feather name="shuffle" size={13} color="#fff" />
-            <Text style={styles.surpriseBtnText}>Escolher</Text>
-          </View>
+            <Text style={styles.surpriseBtnText}>{spinning ? "..." : "Sortear"}</Text>
+          </Pressable>
         </View>
-      </Animated.View>
-    </Pressable>
+
+        {/* ── revealed item ───────────────────────────────── */}
+        <Animated.View style={{ opacity: reveal, transform: [{ scale: revealScale }] }}>
+          {item && (
+            <Pressable onPress={onPlay} style={styles.surpriseReveal}>
+              {/* poster */}
+              <View style={styles.surprisePosterWrap}>
+                {item.posterPath ? (
+                  <Image
+                    source={{ uri: `${TMDB_IMG}/w92${item.posterPath}` }}
+                    style={styles.surprisePoster}
+                    contentFit="cover"
+                  />
+                ) : (
+                  <View style={[styles.surprisePoster, { backgroundColor: "#2a1030", alignItems: "center", justifyContent: "center" }]}>
+                    <Text style={{ fontSize: 26 }}>🎬</Text>
+                  </View>
+                )}
+              </View>
+
+              {/* info */}
+              <View style={{ flex: 1, gap: 5 }}>
+                <Text style={styles.surpriseRevealTitle} numberOfLines={2}>{item.title}</Text>
+                <Text style={styles.surpriseRevealMeta}>
+                  {(item.mediaType === "movie" || item.type === "movie") ? "🎬 Filme" : "📺 Série"}
+                  {item.year ? ` · ${item.year}` : ""}
+                  {item.rating ? ` · ⭐ ${item.rating.toFixed(1)}` : ""}
+                </Text>
+                {item.description ? (
+                  <Text style={styles.surpriseRevealDesc} numberOfLines={2}>{item.description}</Text>
+                ) : null}
+                <View style={styles.surprisePlayBtn}>
+                  <Feather name="play" size={11} color="#fff" />
+                  <Text style={styles.surprisePlayText}>Assistir agora</Text>
+                </View>
+              </View>
+
+              <Feather name="chevron-right" size={18} color="rgba(255,255,255,0.4)" style={{ alignSelf: "center" }} />
+            </Pressable>
+          )}
+        </Animated.View>
+      </View>
+    </View>
   );
 }
 
@@ -1416,11 +1495,22 @@ export default function HomeScreen() {
   const doubleLeft     = useMemo(() => movies[7] ?? null,    [movies]);
   const doubleRight    = useMemo(() => series[9] ?? null,    [series]);
   const awardItem      = useMemo(() => premiadosM[2] ?? null,[premiadosM]);
-  const surpriseItem   = useMemo(() => {
-    const all = [...movies, ...series, ...animes];
-    if (!all.length) return null;
-    return all[Math.floor(Math.random() * Math.min(all.length, 20))];
+  // ── Surpreenda-me — real random pick ──────────────────────────────────────
+  const [surpriseItem, setSurpriseItem] = useState<ContentItem | null>(null);
+
+  const pickSurprise = useCallback(() => {
+    const pool = [...movies, ...series, ...animes];
+    if (!pool.length) return;
+    const idx = Math.floor(Math.random() * Math.min(pool.length, 60));
+    setSurpriseItem(pool[idx]);
   }, [movies, series, animes]);
+
+  // auto-pick on first catalog load
+  useEffect(() => {
+    if (!surpriseItem && (movies.length || series.length || animes.length)) {
+      pickSurprise();
+    }
+  }, [movies.length, series.length, animes.length]);
 
   const s = sectionAnims; // shorthand
 
@@ -2107,8 +2197,11 @@ export default function HomeScreen() {
               <AnimatedSection anim={s[47]}>
                 <SectionHeader title="Não sabe o que assistir?" icon="shuffle"
                   accentColor={PURPLE} />
-                <SurpriseBannerComp item={surpriseItem}
-                  onPress={() => surpriseItem && goTo(surpriseItem)} />
+                <SurpriseBannerComp
+                  item={surpriseItem}
+                  onPick={pickSurprise}
+                  onPlay={() => surpriseItem && goTo(surpriseItem)}
+                />
               </AnimatedSection>
 
               {/* ── 56. PROMO FINAL ─────────────────────────────────────── */}
@@ -2542,6 +2635,31 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.12)", borderWidth: 1, borderColor: "rgba(255,255,255,0.15)",
   },
   cinematicMoreText: { color: "rgba(255,255,255,0.7)", fontSize: 13, fontWeight: "700" },
+
+  // ── Surprise banner — extra reveal styles ────────────────────────────────
+  surpriseReveal: {
+    flexDirection: "row", alignItems: "flex-start", gap: 14,
+    paddingHorizontal: 18, paddingTop: 0, paddingBottom: 18,
+    borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.08)",
+    marginTop: 4,
+  },
+  surprisePosterWrap: { borderRadius: 10, overflow: "hidden" },
+  surprisePoster: { width: 58, height: 84, borderRadius: 10 },
+  surpriseRevealTitle: {
+    color: "#fff", fontSize: 14, fontWeight: "800", letterSpacing: -0.2, lineHeight: 19,
+  },
+  surpriseRevealMeta: {
+    color: "rgba(255,255,255,0.5)", fontSize: 11, fontWeight: "500",
+  },
+  surpriseRevealDesc: {
+    color: "rgba(255,255,255,0.35)", fontSize: 11, lineHeight: 15,
+  },
+  surprisePlayBtn: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6,
+    backgroundColor: PURPLE, alignSelf: "flex-start",
+  },
+  surprisePlayText: { color: "#fff", fontSize: 11, fontWeight: "800" },
 
   // ── Originals banner ──────────────────────────────────────────────────────
   originalsCard: {
