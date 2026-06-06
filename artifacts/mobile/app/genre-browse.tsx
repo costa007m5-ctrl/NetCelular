@@ -16,7 +16,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useColors } from "@/hooks/useColors";
-import { api, tmdbItemToContent, TMDB_IMG } from "@/lib/api";
+import { api, tmdbItemToContent } from "@/lib/api";
 import type { ContentItem } from "@/constants/content";
 
 const NUM_COLS = 3;
@@ -25,7 +25,13 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const CARD_WIDTH = Math.floor((SCREEN_WIDTH - H_PAD * 2) / NUM_COLS) - 4;
 const CARD_HEIGHT = Math.floor(CARD_WIDTH * 1.5);
 
-function GridCard({ item, onPress }: { item: ContentItem; onPress: () => void }) {
+const GridCard = React.memo(function GridCard({
+  item,
+  onPress,
+}: {
+  item: ContentItem;
+  onPress: () => void;
+}) {
   const colors = useColors();
   const [imgError, setImgError] = useState(false);
   return (
@@ -50,13 +56,16 @@ function GridCard({ item, onPress }: { item: ContentItem; onPress: () => void })
             <Text style={styles.typeBadgeText}>SÉRIE</Text>
           </View>
         )}
+        <LinearGradient
+          colors={["transparent", "rgba(0,0,0,0.75)"]}
+          style={styles.cardGrad}
+          locations={[0.55, 1]}
+        />
+        <Text style={styles.cardLabel} numberOfLines={2}>{item.title}</Text>
       </View>
-      <Text style={[styles.cardLabel, { color: colors.mutedForeground }]} numberOfLines={1}>
-        {item.title}
-      </Text>
     </Pressable>
   );
-}
+});
 
 export default function GenreBrowseScreen() {
   const { genre_id, type, title } = useLocalSearchParams<{
@@ -74,12 +83,46 @@ export default function GenreBrowseScreen() {
   const [totalPages, setTotalPages] = useState(999);
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
+  const [error, setError] = useState(false);
   const loadingRef = useRef(false);
 
-  // genre_id=0 or NaN means "popular content" — no genre filter
   const resolvedGenreId = Number(genre_id) > 0 ? Number(genre_id) : 0;
-  const resolvedType: "movie" | "tv" =
-    type === "tv" ? "tv" : "movie";
+  const resolvedType: "movie" | "tv" = type === "tv" ? "tv" : "movie";
+
+  const loadInitial = useCallback(async () => {
+    setError(false);
+    setInitialLoading(true);
+    setItems([]);
+    setCurrentPage(0);
+    setTotalPages(999);
+    loadingRef.current = true;
+    setLoading(true);
+    try {
+      const [d1, d2] = await Promise.all([
+        api.tmdb.discover(resolvedType, resolvedGenreId, 1),
+        api.tmdb.discover(resolvedType, resolvedGenreId, 2),
+      ]);
+      const combined = [
+        ...d1.results.map(tmdbItemToContent),
+        ...d2.results.map(tmdbItemToContent),
+      ];
+      setItems(combined);
+      setCurrentPage(2);
+      setTotalPages(d1.total_pages ?? 999);
+      if (combined.length === 0) setError(true);
+    } catch (err) {
+      console.error("genre-browse init error:", err);
+      setError(true);
+    } finally {
+      loadingRef.current = false;
+      setLoading(false);
+      setInitialLoading(false);
+    }
+  }, [resolvedType, resolvedGenreId]);
+
+  useEffect(() => {
+    loadInitial();
+  }, [loadInitial]);
 
   const fetchPage = useCallback(
     async (page: number) => {
@@ -87,62 +130,30 @@ export default function GenreBrowseScreen() {
       loadingRef.current = true;
       setLoading(true);
       try {
-        const data = await api.tmdb.discover(
-          resolvedType,
-          resolvedGenreId,
-          page
-        );
+        const data = await api.tmdb.discover(resolvedType, resolvedGenreId, page);
         const newItems = data.results.map(tmdbItemToContent);
-        setItems((prev) => (page === 1 ? newItems : [...prev, ...newItems]));
-        setCurrentPage(page);
-        setTotalPages(data.total_pages);
+        if (newItems.length > 0) {
+          setItems((prev) => [...prev, ...newItems]);
+          setCurrentPage(page);
+          setTotalPages(data.total_pages ?? totalPages);
+        }
       } catch (err) {
-        console.error("Error loading genre page:", err);
+        console.error("genre-browse page error:", err);
       } finally {
         loadingRef.current = false;
         setLoading(false);
-        setInitialLoading(false);
       }
     },
-    [type, genre_id, totalPages]
+    [resolvedType, resolvedGenreId, totalPages]
   );
 
-  useEffect(() => {
-    const init = async () => {
-      setInitialLoading(true);
-      loadingRef.current = true;
-      setLoading(true);
-      try {
-        const [d1, d2] = await Promise.all([
-          api.tmdb.discover(resolvedType, resolvedGenreId, 1),
-          api.tmdb.discover(resolvedType, resolvedGenreId, 2),
-        ]);
-        setItems([
-          ...d1.results.map(tmdbItemToContent),
-          ...d2.results.map(tmdbItemToContent),
-        ]);
-        setCurrentPage(2);
-        setTotalPages(d1.total_pages);
-      } catch (err) {
-        console.error("Error initializing genre browse:", err);
-      } finally {
-        loadingRef.current = false;
-        setLoading(false);
-        setInitialLoading(false);
-      }
-    };
-    init();
-  }, []);
-
   const loadMore = useCallback(() => {
-    if (!loading && currentPage < totalPages) {
+    if (!loading && currentPage < totalPages && !loadingRef.current) {
       fetchPage(currentPage + 1);
     }
   }, [loading, currentPage, totalPages, fetchPage]);
 
-  const topPad = isWeb ? 0 : insets.top;
-
-  const goToDetail = (item: ContentItem) => {
+  const goToDetail = useCallback((item: ContentItem) => {
     router.push({
       pathname: "/detail",
       params: {
@@ -151,10 +162,19 @@ export default function GenreBrowseScreen() {
         title: item.title,
       },
     });
-  };
+  }, [router]);
+
+  const renderItem = useCallback(({ item }: { item: ContentItem }) => (
+    <GridCard item={item} onPress={() => goToDetail(item)} />
+  ), [goToDetail]);
+
+  const keyExtractor = useCallback((item: ContentItem, idx: number) => `${item.id}-${idx}`, []);
+
+  const topPad = isWeb ? 0 : insets.top;
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
+      {/* Header */}
       <View style={[styles.header, { paddingTop: topPad + 8 }]}>
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
           <Feather name="arrow-left" size={22} color={colors.foreground} />
@@ -165,29 +185,75 @@ export default function GenreBrowseScreen() {
         <View style={{ width: 40 }} />
       </View>
 
+      {/* Content */}
       {initialLoading ? (
+        /* ── Loading skeleton ─────────────────────────────────────── */
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={[styles.loadingText, { color: colors.mutedForeground }]}>
+            Carregando conteúdo...
+          </Text>
+        </View>
+      ) : error && items.length === 0 ? (
+        /* ── Error / empty state ──────────────────────────────────── */
+        <View style={styles.centered}>
+          <View style={[styles.errorIcon, { backgroundColor: `${colors.primary}18` }]}>
+            <Feather name="wifi-off" size={32} color={colors.primary} />
+          </View>
+          <Text style={[styles.errorTitle, { color: colors.foreground }]}>
+            Não foi possível carregar
+          </Text>
+          <Text style={[styles.errorSub, { color: colors.mutedForeground }]}>
+            Verifique sua conexão e tente novamente
+          </Text>
+          <TouchableOpacity
+            style={[styles.retryBtn, { backgroundColor: colors.primary }]}
+            onPress={loadInitial}
+            activeOpacity={0.8}
+          >
+            <Feather name="refresh-cw" size={14} color="#fff" />
+            <Text style={styles.retryText}>Tentar novamente</Text>
+          </TouchableOpacity>
         </View>
       ) : (
+        /* ── Grid ────────────────────────────────────────────────── */
         <FlatList
           data={items}
-          keyExtractor={(item, idx) => `${item.id}-${idx}`}
+          keyExtractor={keyExtractor}
           numColumns={NUM_COLS}
-          contentContainerStyle={[styles.grid, { paddingBottom: insets.bottom + 32 }]}
+          contentContainerStyle={[
+            styles.grid,
+            items.length === 0 ? styles.gridEmpty : null,
+            { paddingBottom: insets.bottom + 32 },
+          ]}
           columnWrapperStyle={styles.row}
-          renderItem={({ item }) => (
-            <GridCard item={item} onPress={() => goToDetail(item)} />
-          )}
+          renderItem={renderItem}
           onEndReached={loadMore}
           onEndReachedThreshold={0.5}
           initialNumToRender={12}
           maxToRenderPerBatch={9}
           windowSize={5}
-          removeClippedSubviews={true}
+          removeClippedSubviews={Platform.OS !== "web"}
           updateCellsBatchingPeriod={50}
+          showsVerticalScrollIndicator={false}
+          ListEmptyComponent={
+            <View style={styles.emptyState}>
+              <Feather name="film" size={36} color="rgba(255,255,255,0.12)" />
+              <Text style={[styles.emptyTitle, { color: colors.mutedForeground }]}>
+                Nenhum título encontrado
+              </Text>
+              <TouchableOpacity
+                style={[styles.retryBtn, { backgroundColor: colors.primary }]}
+                onPress={loadInitial}
+                activeOpacity={0.8}
+              >
+                <Feather name="refresh-cw" size={14} color="#fff" />
+                <Text style={styles.retryText}>Recarregar</Text>
+              </TouchableOpacity>
+            </View>
+          }
           ListFooterComponent={
-            loading ? (
+            loading && items.length > 0 ? (
               <View style={styles.footer}>
                 <ActivityIndicator color={colors.primary} />
               </View>
@@ -222,10 +288,56 @@ const styles = StyleSheet.create({
     letterSpacing: -0.3,
     textAlign: "center",
   },
-  centered: { flex: 1, alignItems: "center", justifyContent: "center" },
+  centered: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+    paddingHorizontal: 32,
+  },
+  loadingText: {
+    fontSize: 13,
+    fontWeight: "500",
+    marginTop: 4,
+  },
+  errorIcon: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 4,
+  },
+  errorTitle: {
+    fontSize: 17,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  errorSub: {
+    fontSize: 13,
+    textAlign: "center",
+    lineHeight: 18,
+  },
+  retryBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 11,
+    borderRadius: 22,
+    marginTop: 8,
+  },
+  retryText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "700",
+  },
   grid: {
     paddingHorizontal: H_PAD,
     paddingTop: 8,
+  },
+  gridEmpty: {
+    flex: 1,
   },
   row: {
     justifyContent: "space-between",
@@ -241,6 +353,23 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  cardGrad: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: "50%",
+  },
+  cardLabel: {
+    position: "absolute",
+    bottom: 5,
+    left: 5,
+    right: 5,
+    color: "#fff",
+    fontSize: 9,
+    fontWeight: "600",
+    lineHeight: 12,
+  },
   typeBadge: {
     position: "absolute",
     top: 5,
@@ -249,6 +378,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
     paddingVertical: 2,
     borderRadius: 3,
+    zIndex: 1,
   },
   typeBadgeText: {
     color: "#fff",
@@ -256,10 +386,17 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 0.4,
   },
-  cardLabel: {
-    fontSize: 11,
-    fontWeight: "500",
-    marginTop: 5,
+  emptyState: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+    paddingTop: 80,
+    paddingHorizontal: 32,
+  },
+  emptyTitle: {
+    fontSize: 15,
+    fontWeight: "600",
     textAlign: "center",
   },
   footer: { padding: 24, alignItems: "center" },
