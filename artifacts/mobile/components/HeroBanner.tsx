@@ -8,6 +8,7 @@ import {
   Text,
   TouchableOpacity,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
@@ -80,6 +81,7 @@ interface HeroItemProps {
   onAddToList?: () => void;
   isActive: boolean;
   index: number;
+  screenWidth: number;
 }
 
 function GenreTag({ genreId }: { genreId: number }) {
@@ -130,7 +132,7 @@ function StarRating({ rating }: { rating: number }) {
   );
 }
 
-function HeroItem({ item, colors, onWatch, onDetails, onAddToList, isActive, index }: HeroItemProps) {
+function HeroItem({ item, colors, onWatch, onDetails, onAddToList, isActive, index, screenWidth }: HeroItemProps) {
   const [imgError, setImgError] = useState(false);
   const [logoError, setLogoError] = useState(false);
   const [liked, setLiked] = useState(false);
@@ -174,7 +176,7 @@ function HeroItem({ item, colors, onWatch, onDetails, onAddToList, isActive, ind
   const isNew = item.year >= new Date().getFullYear() - 1;
 
   return (
-    <Pressable style={{ width: SCREEN_WIDTH, height: HERO_HEIGHT }} onPress={onDetails ?? onWatch}>
+    <Pressable style={{ width: screenWidth, height: HERO_HEIGHT }} onPress={onDetails ?? onWatch}>
       {!imgError && item.backdropPath ? (
         <Animated.View style={[heroStyles.heroImageWrap, { transform: [{ scale: scaleAnim }] }]}>
           <Image
@@ -344,6 +346,7 @@ function TimerDot({ active, duration }: { active: boolean; duration: number }) {
 
 export function HeroBanner({ items, onItemPress, onDetailsPress, onAddToList }: HeroBannerProps) {
   const colors = useColors();
+  const { width: w } = useWindowDimensions();
   const [activeIndex, setActiveIndex] = useState(0);
   const scrollRef = useRef<any>(null);
   const timerRef = useRef<any>(null);
@@ -351,10 +354,10 @@ export function HeroBanner({ items, onItemPress, onDetailsPress, onAddToList }: 
   const goTo = useCallback(
     (idx: number) => {
       const next = ((idx % items.length) + items.length) % items.length;
-      scrollRef.current?.scrollTo({ x: next * SCREEN_WIDTH, animated: true });
+      scrollRef.current?.scrollTo({ x: next * w, animated: true });
       setActiveIndex(next);
     },
-    [items.length]
+    [items.length, w]
   );
 
   const resetTimer = useCallback(
@@ -373,17 +376,17 @@ export function HeroBanner({ items, onItemPress, onDetailsPress, onAddToList }: 
 
   const onScrollEnd = useCallback(
     (e: any) => {
-      const idx = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
+      const idx = Math.round(e.nativeEvent.contentOffset.x / w);
       setActiveIndex(idx);
       resetTimer(idx);
     },
-    [resetTimer]
+    [resetTimer, w]
   );
 
   if (!items.length) return <View style={{ height: HERO_HEIGHT, backgroundColor: "#050508" }} />;
 
   return (
-    <View style={{ height: HERO_HEIGHT, overflow: "hidden" }}>
+    <View style={{ height: HERO_HEIGHT, width: w, overflow: "hidden" }}>
       <Animated.ScrollView
         ref={scrollRef}
         horizontal
@@ -391,7 +394,8 @@ export function HeroBanner({ items, onItemPress, onDetailsPress, onAddToList }: 
         showsHorizontalScrollIndicator={false}
         scrollEventThrottle={16}
         onMomentumScrollEnd={onScrollEnd}
-        style={{ width: SCREEN_WIDTH }}
+        style={{ width: w, overflow: "hidden" }}
+        contentContainerStyle={{ width: w * items.length }}
         decelerationRate="fast"
         bounces={false}
         overScrollMode="never"
@@ -402,6 +406,7 @@ export function HeroBanner({ items, onItemPress, onDetailsPress, onAddToList }: 
             item={item}
             index={i}
             colors={colors}
+            screenWidth={w}
             isActive={i === activeIndex}
             onWatch={onItemPress ? () => onItemPress(item) : undefined}
             onDetails={

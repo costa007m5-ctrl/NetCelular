@@ -861,16 +861,30 @@ export default function NovidadesScreen() {
     setModal({ visible: true, title, items, accent });
   const closeModal = () => setModal((m) => ({ ...m, visible: false }));
 
-  // ── Fetch all data ─────────────────────────────────────────────────────────
+  // ── Fetch all data (hero first, rest in background) ────────────────────────
   const loadAll = useCallback(async () => {
+    // Phase 1: load hero banner immediately (2 fast calls)
+    const [nowPlayingRes, onAirRes] = await Promise.allSettled([
+      tfetch("/movie/now_playing"),
+      tfetch("/tv/on_the_air"),
+    ]);
+    const getNow = (r: PromiseSettledResult<any>): any[] =>
+      r.status === "fulfilled" ? (r.value?.results ?? []) : [];
+    const heroRaw = [
+      ...getNow(nowPlayingRes).slice(0, 4).map((x: any) => toItem(x, "movie")),
+      ...getNow(onAirRes).slice(0, 4).map((x: any) => toItem(x, "tv")),
+    ].slice(0, 8);
+    if (heroRaw.length > 0) setHeroItems(heroRaw);
+
+    // Phase 2: load the rest in the background
     const results = await Promise.allSettled([
       tfetch("/trending/all/week"),                                           // 0
       tfetch("/trending/movie/week"),                                         // 1
       tfetch("/trending/tv/week"),                                            // 2
       tfetch("/movie/top_rated"),                                             // 3
       tfetch("/tv/top_rated"),                                                // 4
-      tfetch("/movie/now_playing"),                                           // 5
-      tfetch("/tv/on_the_air"),                                               // 6
+      Promise.resolve(nowPlayingRes.status === "fulfilled" ? nowPlayingRes.value : { results: [] }), // 5 reuse
+      Promise.resolve(onAirRes.status === "fulfilled" ? onAirRes.value : { results: [] }),           // 6 reuse
       tfetch("/movie/popular"),                                               // 7
       tfetch("/tv/popular"),                                                  // 8
       tfetch("/discover/movie", { with_genres:"28,12", sort_by:"popularity.desc" }), // 9
@@ -897,10 +911,6 @@ export default function NovidadesScreen() {
       return r.status === "fulfilled" ? (r.value?.results ?? []) : [];
     };
 
-    const nowPlayingHero = get(5).slice(0, 4).map((x: any) => toItem(x, "movie"));
-    const onAirHero      = get(6).slice(0, 4).map((x: any) => toItem(x, "tv"));
-    const heroRaw = [...nowPlayingHero, ...onAirHero].slice(0, 8);
-    setHeroItems(heroRaw);
     setTrendMovies(get(1).map((x) => toItem(x, "movie")));
     setTrendSeries(get(2).map((x) => toItem(x, "tv")));
     setTop10Movies(get(3).map((x) => toItem(x, "movie")));

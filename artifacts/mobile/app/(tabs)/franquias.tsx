@@ -815,8 +815,26 @@ export default function FranquiasScreen() {
   const [dramaSeries,  setDramaSeries]  = useState<ContentItem[]>([]);
   const [crimeItems,   setCrimeItems]   = useState<ContentItem[]>([]);
 
-  // ── Load ────────────────────────────────────────────────────────────────────
+  // ── Load (hero first, rest in background) ──────────────────────────────────
   const loadAll = useCallback(async () => {
+    // Phase 1: load hero banner immediately (4 franchise calls)
+    const [marvelRes, dcRes, disneyRes, pixarRes] = await Promise.allSettled([
+      tfetch("/discover/movie", { with_companies: "420",  sort_by: "popularity.desc" }),
+      tfetch("/discover/movie", { with_companies: "9993", sort_by: "popularity.desc" }),
+      tfetch("/discover/movie", { with_companies: "2",    sort_by: "popularity.desc" }),
+      tfetch("/discover/movie", { with_companies: "3",    sort_by: "vote_average.desc", "vote_count.gte": "50" }),
+    ]);
+    const getHero = (r: PromiseSettledResult<any>): any[] =>
+      r.status === "fulfilled" ? (r.value?.results ?? []) : [];
+    const franchiseHero = [
+      ...getHero(marvelRes).slice(0, 2),
+      ...getHero(dcRes).slice(0, 2),
+      ...getHero(disneyRes).slice(0, 2),
+      ...getHero(pixarRes).slice(0, 2),
+    ].slice(0, 8).map((x) => toItem(x, "movie"));
+    if (franchiseHero.length > 0) setHeroItems(franchiseHero);
+
+    // Phase 2: load the rest in the background
     const results = await Promise.allSettled([
       tfetch("/trending/all/week"),                                                                          // 0
       tfetch("/trending/movie/week"),                                                                        // 1
@@ -827,10 +845,10 @@ export default function FranquiasScreen() {
       tfetch("/tv/on_the_air"),                                                                              // 6
       tfetch("/movie/popular"),                                                                              // 7
       tfetch("/tv/popular"),                                                                                 // 8
-      tfetch("/discover/movie", { with_companies: "420",  sort_by: "popularity.desc" }),                    // 9  Marvel
-      tfetch("/discover/movie", { with_companies: "9993", sort_by: "popularity.desc" }),                    // 10 DC
-      tfetch("/discover/movie", { with_companies: "2",    sort_by: "popularity.desc" }),                    // 11 Disney
-      tfetch("/discover/movie", { with_companies: "3",    sort_by: "vote_average.desc", "vote_count.gte": "50" }), // 12 Pixar
+      Promise.resolve(marvelRes.status === "fulfilled" ? marvelRes.value : { results: [] }),                // 9  Marvel (reuse)
+      Promise.resolve(dcRes.status === "fulfilled" ? dcRes.value : { results: [] }),                        // 10 DC (reuse)
+      Promise.resolve(disneyRes.status === "fulfilled" ? disneyRes.value : { results: [] }),                // 11 Disney (reuse)
+      Promise.resolve(pixarRes.status === "fulfilled" ? pixarRes.value : { results: [] }),                  // 12 Pixar (reuse)
       tfetch("/discover/movie", { with_genres: "28,12",   sort_by: "popularity.desc" }),                   // 13 Action
       tfetch("/discover/movie", { with_genres: "27",      sort_by: "popularity.desc" }),                   // 14 Horror
       tfetch("/discover/movie", { with_genres: "878",     sort_by: "popularity.desc" }),                   // 15 SciFi
@@ -852,14 +870,6 @@ export default function FranquiasScreen() {
       const r = results[i];
       return r.status === "fulfilled" ? (r.value?.results ?? []) : [];
     };
-
-    const franchiseHero = [
-      ...get(9).slice(0, 2),   // Marvel
-      ...get(10).slice(0, 2),  // DC
-      ...get(11).slice(0, 2),  // Disney
-      ...get(12).slice(0, 2),  // Pixar
-    ].slice(0, 8).map((x) => toItem(x, "movie"));
-    setHeroItems(franchiseHero);
     setTrendMovies(get(1).map((x) => toItem(x, "movie")));
     setTrendSeries(get(2).map((x) => toItem(x, "tv")));
     setTop10Movies(get(3).map((x) => toItem(x, "movie")));
