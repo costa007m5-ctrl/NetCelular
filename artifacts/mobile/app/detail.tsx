@@ -42,10 +42,10 @@ interface RegistryItem {
 }
 
 interface SourceSettings {
-  r2: boolean; drive: boolean; flix2: boolean; gstream: boolean; regular: boolean;
+  r2: boolean; drive: boolean; flix2: boolean; regular: boolean;
 }
 
-const DEFAULT_SRC: SourceSettings = { r2: false, drive: true, flix2: true, gstream: false, regular: false };
+const DEFAULT_SRC: SourceSettings = { r2: false, drive: true, flix2: true, regular: false };
 
 // Um item é "Drive" se tiver driveUrl (link compartilhável) OU driveFilePath (registrado via navegador de pastas)
 const isDriveItem = (i: RegistryItem) => !!i.driveUrl || i.driveFilePath != null;
@@ -78,7 +78,6 @@ function EpisodeRow({
   colors,
   fallbackImage,
   onPress,
-  onGstreamPress,
   onR2Press,
   onDrivePress,
 }: {
@@ -88,7 +87,6 @@ function EpisodeRow({
   colors: ReturnType<typeof import("@/hooks/useColors").useColors>;
   fallbackImage?: string | null;
   onPress?: () => void;
-  onGstreamPress?: () => void;
   onR2Press?: () => void;
   onDrivePress?: () => void;
 }) {
@@ -193,11 +191,6 @@ function EpisodeRow({
             <Feather name="play-circle" size={28} color={current ? colors.primary : colors.foreground} />
           </Pressable>
         )}
-        {onGstreamPress && (
-          <Pressable onPress={onGstreamPress} style={[styles.epPlayBtn, { backgroundColor: "#7c3aed", borderRadius: 8, padding: 4, marginTop: 4 }]}>
-            <Feather name="zap" size={16} color="#fff" />
-          </Pressable>
-        )}
         {onR2Press && (
           <Pressable onPress={onR2Press} style={[styles.epPlayBtn, { backgroundColor: "#e50914", borderRadius: 8, padding: 4, marginTop: onPress ? 4 : 0 }]}>
             <Feather name="play" size={16} color="#fff" />
@@ -236,7 +229,6 @@ export default function DetailScreen() {
   const [imgError, setImgError] = useState(false);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [watchProgress, setWatchProgress] = useState<WatchProgress | null>(null);
-  const [checking, setChecking] = useState(false);
   const [unavailableVisible, setUnavailableVisible] = useState(false);
   const [indicated, setIndicated] = useState(false);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
@@ -258,11 +250,6 @@ export default function DetailScreen() {
   const [driveMatches, setDriveMatches] = useState<DriveMatch[]>([]);
   const [driveEpisodeMap, setDriveEpisodeMap] = useState<Record<number, DriveItem>>({});
   const [driveSeasonItems, setDriveSeasonItems] = useState<DriveItem[]>([]);
-
-  const [gstreamAvailable, setGstreamAvailable] = useState(false);
-  const [gstreamLang, setGstreamLang] = useState<"dub" | "leg">("dub");
-  const [gstreamMovieUrl, setGstreamMovieUrl] = useState<string | null>(null);
-  const [gstreamResolving, setGstreamResolving] = useState(false);
 
   const [r2Items, setR2Items] = useState<RegistryItem[]>([]);
   // Episode numbers (parsed from R2 filenames) for the current season's folder item
@@ -341,31 +328,6 @@ export default function DetailScreen() {
     };
     scanFolder();
   }, [r2Items, selectedSeason, type]);
-
-  // Check GStream availability in background (non-blocking)
-  useEffect(() => {
-    if (!tmdbId) return;
-    setGstreamAvailable(false);
-    setGstreamMovieUrl(null);
-    const check = async () => {
-      try {
-        if (type === "movie") {
-          const r = await tmdbApi.gstream.checkMovie(tmdbId);
-          if (r.movie) {
-            setGstreamAvailable(true);
-            setGstreamMovieUrl(r.url ?? null);
-          }
-        } else {
-          const r = await tmdbApi.gstream.checkTv(tmdbId, 1, 1);
-          if (r.available) {
-            setGstreamAvailable(true);
-            setGstreamLang(r.dub ? "dub" : "leg");
-          }
-        }
-      } catch {}
-    };
-    check();
-  }, [tmdbId, type]);
 
   // Search Drive for matching content by title
   useEffect(() => {
@@ -728,18 +690,7 @@ export default function DetailScreen() {
     );
   };
 
-  const goToPlayer = async (season = 1, episode = 1) => {
-    setChecking(true);
-    try {
-      const result = await tmdbApi.tmdb.checkAvailable(type, tmdbId, season, episode);
-      if (!result.available) {
-        setUnavailableVisible(true);
-        return;
-      }
-    } catch {}
-    finally {
-      setChecking(false);
-    }
+  const goToPlayer = (season = 1, episode = 1) => {
     router.push({
       pathname: "/player",
       params: {
@@ -752,44 +703,6 @@ export default function DetailScreen() {
         backdropPath: details?.backdrop_path ?? "",
       },
     });
-  };
-
-  const goToGstreamPlayer = async (season = 1, episode = 1) => {
-    setGstreamResolving(true);
-    const baseParams = {
-      type,
-      id: String(tmdbId),
-      season: String(season),
-      episode: String(episode),
-      title: details?.title ?? details?.name ?? "",
-      posterPath: details?.poster_path ?? "",
-      backdropPath: details?.backdrop_path ?? "",
-      gstreamMode: "true",
-      gstreamLang,
-      totalSeasons: String((details as any)?.number_of_seasons ?? 1),
-    };
-    try {
-      const resolved = await tmdbApi.gstream.resolveStream(type, tmdbId, season, episode, gstreamLang);
-      router.push({
-        pathname: "/player",
-        params: resolved.m3u8
-          ? { ...baseParams, directM3u8: resolved.m3u8, directReferer: resolved.embedUrl }
-          : resolved.iframeUrl
-          ? { ...baseParams, directEmbed: resolved.iframeUrl, directReferer: resolved.embedUrl }
-          : resolved.embedUrl
-          ? { ...baseParams, directEmbed: resolved.embedUrl, directReferer: resolved.embedUrl }
-          : { ...baseParams, ...(type === "movie" && gstreamMovieUrl ? { gstreamMovieUrl } : {}) },
-      });
-    } catch {
-      router.push({
-        pathname: "/player",
-        params: type === "movie" && gstreamMovieUrl
-          ? { ...baseParams, directEmbed: gstreamMovieUrl, directReferer: gstreamMovieUrl }
-          : baseParams,
-      });
-    } finally {
-      setGstreamResolving(false);
-    }
   };
 
   const goToR2Player = (item: RegistryItem, overrideSeason?: number, overrideEpisode?: number) => {
@@ -1280,14 +1193,12 @@ export default function DetailScreen() {
                   if (item) goToDrivePlayer(item);
                 };
 
-                const pressGstream = () => goToGstreamPlayer(resumeS, resumeE);
                 const pressRegular = () => goToPlayer(resumeS, resumeE);
 
                 const sources = [
                   hasR2   && { id: "r2",     press: pressR2 },
                   hasFlix && { id: "flix2",   press: pressFlix },
                   hasDrive && { id: "drive",  press: pressDrive },
-                  (srcSettings.gstream && gstreamAvailable) && { id: "gstream", press: pressGstream },
                 ].filter(Boolean) as { id: string; press: () => void }[];
 
                 if (sources.length === 0) {
@@ -1296,10 +1207,9 @@ export default function DetailScreen() {
                     <Pressable
                       style={({ pressed }) => [styles.watchBtn, { backgroundColor: colors.primary }, pressed && { opacity: 0.85 }]}
                       onPress={pressRegular}
-                      disabled={checking}
                     >
-                      {checking ? <ActivityIndicator size="small" color="#fff" /> : <Feather name="play" size={18} color="#fff" />}
-                      <Text style={styles.watchBtnText}>{checking ? "Verificando..." : "ASSISTIR AGORA"}</Text>
+                      <Feather name="play" size={18} color="#fff" />
+                      <Text style={styles.watchBtnText}>ASSISTIR AGORA</Text>
                     </Pressable>
                   );
                 }
@@ -1310,14 +1220,9 @@ export default function DetailScreen() {
                     <Pressable
                       style={({ pressed }) => [styles.watchBtn, { backgroundColor: colors.primary }, pressed && { opacity: 0.85 }]}
                       onPress={sources[0].press}
-                      disabled={sources[0].id === "gstream" && gstreamResolving}
                     >
-                      {sources[0].id === "gstream" && gstreamResolving
-                        ? <ActivityIndicator size="small" color="#fff" />
-                        : <Feather name="play" size={18} color="#fff" />}
-                      <Text style={styles.watchBtnText}>
-                        {sources[0].id === "gstream" && gstreamResolving ? "Buscando stream..." : "ASSISTIR AGORA"}
-                      </Text>
+                      <Feather name="play" size={18} color="#fff" />
+                      <Text style={styles.watchBtnText}>ASSISTIR AGORA</Text>
                     </Pressable>
                   );
                 }
@@ -1362,24 +1267,6 @@ export default function DetailScreen() {
                       >
                         <Feather name="cloud" size={18} color="#fff" />
                         <Text style={styles.watchBtnText}>ASSISTIR (DRIVE)</Text>
-                      </Pressable>
-                    )}
-                    {srcSettings.gstream && gstreamAvailable && (
-                      <Pressable
-                        disabled={gstreamResolving}
-                        style={({ pressed }) => [
-                          styles.watchBtn,
-                          { backgroundColor: "#7c3aed", marginTop: 8 },
-                          (pressed || gstreamResolving) && { opacity: 0.7 },
-                        ]}
-                        onPress={pressGstream}
-                      >
-                        <Feather name={gstreamResolving ? "loader" : "zap"} size={18} color="#fff" />
-                        <Text style={styles.watchBtnText}>
-                          {gstreamResolving
-                            ? "Buscando stream..."
-                            : `GSTREAM${type === "tv" ? `  ·  ${gstreamLang.toUpperCase()}` : ""}`}
-                        </Text>
                       </Pressable>
                     )}
                   </>
@@ -1598,7 +1485,6 @@ export default function DetailScreen() {
                           colors={colors}
                           fallbackImage={details?.backdrop_path ?? details?.poster_path ?? null}
                           onPress={!r2Ep ? () => goToPlayer(selectedSeason, ep.episode_number) : undefined}
-                          onGstreamPress={srcSettings.gstream && gstreamAvailable ? () => goToGstreamPlayer(selectedSeason, ep.episode_number) : undefined}
                           onR2Press={srcSettings.r2 && r2Ep && !isDriveItem(r2Ep) && !isFlixItem(r2Ep) ? () => goToR2Player(r2Ep, selectedSeason, ep.episode_number) : undefined}
                           onDrivePress={(() => {
                             if (!srcSettings.drive) return undefined;

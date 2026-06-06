@@ -636,7 +636,6 @@ export default function PlayerScreen() {
     type: string; id: string; season?: string; episode?: string;
     title?: string; posterPath?: string; backdropPath?: string;
     streamUrl?: string; isLive?: string; totalSeasons?: string;
-    gstreamMode?: string; gstreamLang?: string; gstreamMovieUrl?: string;
     directM3u8?: string; directReferer?: string; directEmbed?: string;
   }>();
 
@@ -649,9 +648,6 @@ export default function PlayerScreen() {
   const backdropPath = params.backdropPath ?? "";
   const streamUrl = params.streamUrl ?? "";
   const isLive = params.isLive === "true";
-  const gstreamMode = params.gstreamMode === "true";
-  const gstreamLang = (params.gstreamLang ?? "dub") as "dub" | "leg";
-  const gstreamMovieUrl = params.gstreamMovieUrl ?? "";
   const directM3u8 = params.directM3u8 ?? "";
   const directReferer = params.directReferer ?? "";
   const directEmbed = params.directEmbed ?? "";
@@ -687,13 +683,9 @@ export default function PlayerScreen() {
   const EMBED_BASE = "https://embed.embedplayer.site";
   const playerUrl = directEmbed
     ? directEmbed
-    : gstreamMode
-    ? (type === "tv"
-        ? `${EMBED_BASE}/tv/${id}/${season}/${episode}/${gstreamLang}`
-        : gstreamMovieUrl || `${EMBED_BASE}/${id}`)
     : isLive && streamUrl
     ? streamUrl
-    : api.redeflix.url(type as "movie" | "tv", id, season, episode);
+    : `${EMBED_BASE}/${type === "tv" ? `tv/${id}/${season}/${episode}` : String(id)}`;
 
   useEffect(() => {
     if (Platform.OS === "web" || !ScreenOrientation) return;
@@ -888,7 +880,6 @@ export default function PlayerScreen() {
         episode: String(ep),
         title,
         totalSeasons: String(totalSeasons),
-        ...(gstreamMode ? { gstreamMode: "true", gstreamLang } : {}),
       },
     });
   };
