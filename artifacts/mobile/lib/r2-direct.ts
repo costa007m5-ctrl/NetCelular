@@ -776,6 +776,7 @@ const SERVER_ONLY_ROUTES = new Set([
   "/drive/scan-folder",
   "/flix2/catalog",
   "/flix2/register",
+  "/flix2/search",
   "/source-settings",
 ]);
 

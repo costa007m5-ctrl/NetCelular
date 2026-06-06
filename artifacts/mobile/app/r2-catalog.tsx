@@ -5452,7 +5452,10 @@ function Flix2Panel() {
   const [totalItems, setTotalItems] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [searchQuery, setSearchQuery] = useState(""); // the committed query sent to server
+  const [searching, setSearching] = useState(false);  // debounce in-flight indicator
   const [registerTarget, setRegisterTarget] = useState<Flix2Item | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchItems = async (type: Flix2Type, pg: number, append = false) => {
     if (!append) setLoading(true);
@@ -5472,16 +5475,58 @@ function Flix2Panel() {
     finally { setLoading(false); setLoadingMore(false); }
   };
 
+  const runSearch = async (type: Flix2Type, q: string) => {
+    setLoading(true);
+    setError(null);
+    setItems([]);
+    setPage(1);
+    setTotalPages(1);
+    setTotalItems(0);
+    try {
+      const data = await apiFetch<{ results: Flix2Item[]; total: number; pagesScanned: number; totalPages: number }>(
+        `/flix2/search?q=${encodeURIComponent(q)}&type=${type}&limit=80&maxPages=120`
+      );
+      setItems(data.results ?? []);
+      setTotalItems(data.total ?? 0);
+      setTotalPages(0); // 0 = search mode, hide load-more
+    } catch (e: any) { setError(e.message ?? "Erro de rede"); }
+    finally { setLoading(false); setSearching(false); }
+  };
+
   useEffect(() => {
     setItems([]);
     setPage(1);
     setSearch("");
+    setSearchQuery("");
     fetchItems(subType, 1, false);
   }, [subType]);
 
-  const filtered = search.trim()
-    ? items.filter((i) => i.title.toLowerCase().includes(search.toLowerCase()))
-    : items;
+  // Debounced search: fires 700ms after user stops typing → hits /flix2/search
+  const handleSearchChange = (text: string) => {
+    setSearch(text);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (!text.trim()) {
+      setSearchQuery("");
+      setSearching(false);
+      setItems([]);
+      setPage(1);
+      fetchItems(subType, 1, false);
+      return;
+    }
+    setSearching(true);
+    debounceRef.current = setTimeout(() => {
+      const q = text.trim();
+      setSearchQuery(q);
+      runSearch(subType, q);
+    }, 700);
+  };
+
+  const loadMore = () => {
+    if (loadingMore || loading || page >= totalPages || totalPages === 0) return;
+    fetchItems(subType, page + 1, true);
+  };
+
+  const filtered = items;
 
   const TABS: { id: Flix2Type; label: string; icon: string }[] = [
     { id: "movies", label: "Filmes", icon: "film" },
@@ -5510,39 +5555,58 @@ function Flix2Panel() {
       {/* Search bar */}
       <View style={{ paddingHorizontal: 12, paddingBottom: 8, paddingTop: 4, backgroundColor: "#0a0a0a" }}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(255,255,255,0.06)",
-          borderRadius: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", paddingLeft: 12, paddingRight: 6 }}>
-          <Feather name="search" size={14} color="rgba(255,255,255,0.4)" />
+          borderRadius: 10, borderWidth: 1,
+          borderColor: search ? `${FLIX2_COLOR}55` : "rgba(255,255,255,0.1)",
+          paddingLeft: 12, paddingRight: 6 }}>
+          {searching
+            ? <ActivityIndicator size="small" color={FLIX2_COLOR} style={{ width: 14 }} />
+            : <Feather name="search" size={14} color={search ? FLIX2_COLOR : "rgba(255,255,255,0.4)"} />}
           <TextInput
             style={{ flex: 1, color: "#fff", fontSize: 13, paddingVertical: 10 }}
-            placeholder="Filtrar por título…"
+            placeholder="Buscar em todo o catálogo…"
             placeholderTextColor="rgba(255,255,255,0.3)"
             value={search}
-            onChangeText={setSearch}
+            onChangeText={handleSearchChange}
+            returnKeyType="search"
+            autoCorrect={false}
           />
           {search.length > 0 && (
-            <Pressable onPress={() => setSearch("")} style={{ padding: 4 }}>
+            <Pressable onPress={() => handleSearchChange("")} style={{ padding: 6 }}>
               <Feather name="x" size={14} color="rgba(255,255,255,0.4)" />
             </Pressable>
           )}
         </View>
-        {totalItems > 0 && (
-          <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 10, marginTop: 4 }}>
-            {totalItems.toLocaleString()} títulos · {totalPages} página{totalPages !== 1 ? "s" : ""}
-          </Text>
-        )}
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
+          {totalItems > 0 ? (
+            <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 10 }}>
+              {searchQuery
+                ? `${totalItems.toLocaleString()} resultado${totalItems !== 1 ? "s" : ""} para "${searchQuery}"`
+                : `${totalItems.toLocaleString()} títulos · ${totalPages} página${totalPages !== 1 ? "s" : ""}`}
+            </Text>
+          ) : <View />}
+          {searchQuery && !searching && !loading && (
+            <Pressable onPress={() => handleSearchChange("")}>
+              <Text style={{ color: FLIX2_COLOR, fontSize: 10, fontWeight: "600" }}>Limpar busca</Text>
+            </Pressable>
+          )}
+        </View>
       </View>
 
       {/* Content */}
       {loading ? (
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 12 }}>
           <ActivityIndicator size="large" color={FLIX2_COLOR} />
-          <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 13 }}>Carregando catálogo…</Text>
+          <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 13 }}>
+            {searchQuery ? `Buscando "${searchQuery}"…` : "Carregando catálogo…"}
+          </Text>
         </View>
       ) : error ? (
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 32, gap: 12 }}>
           <Feather name="wifi-off" size={40} color="rgba(255,255,255,0.2)" />
           <Text style={{ color: "#f87171", fontSize: 14, textAlign: "center" }}>{error}</Text>
-          <Pressable onPress={() => fetchItems(subType, 1)} style={{ paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10, backgroundColor: FLIX2_COLOR }}>
+          <Pressable
+            onPress={() => searchQuery ? runSearch(subType, searchQuery) : fetchItems(subType, 1, false)}
+            style={{ paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10, backgroundColor: FLIX2_COLOR }}>
             <Text style={{ color: "#fff", fontWeight: "700" }}>Tentar novamente</Text>
           </Pressable>
         </View>
@@ -5553,9 +5617,11 @@ function Flix2Panel() {
           showsVerticalScrollIndicator={false}
         >
           {filtered.length === 0 ? (
-            <View style={{ alignItems: "center", paddingTop: 64 }}>
+            <View style={{ alignItems: "center", paddingTop: 64, gap: 12 }}>
               <Feather name="inbox" size={40} color="rgba(255,255,255,0.15)" />
-              <Text style={{ color: "rgba(255,255,255,0.3)", marginTop: 12 }}>Nenhum resultado</Text>
+              <Text style={{ color: "rgba(255,255,255,0.3)", textAlign: "center" }}>
+                {searchQuery ? `Nenhum resultado para "${searchQuery}"` : "Nenhum resultado"}
+              </Text>
             </View>
           ) : (
             filtered.map((item) => (
@@ -5564,9 +5630,9 @@ function Flix2Panel() {
           )}
 
           {/* Load more */}
-          {page < totalPages && !search && (
+          {page < totalPages && (
             <Pressable
-              onPress={() => fetchItems(subType, page + 1, true)}
+              onPress={loadMore}
               disabled={loadingMore}
               style={{ marginTop: 12, paddingVertical: 14, borderRadius: 12, alignItems: "center",
                 backgroundColor: "rgba(139,92,246,0.12)", borderWidth: 1, borderColor: `${FLIX2_COLOR}44` }}>

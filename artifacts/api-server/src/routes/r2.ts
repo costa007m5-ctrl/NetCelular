@@ -1860,20 +1860,91 @@ router.post("/source-settings", async (req, res) => {
   }
 });
 
+// ── Flix2 helpers ──────────────────────────────────────────────────────────────
+
+const FLIX2_USER = "Reis007-vods";
+const FLIX2_PASS = encodeURIComponent("Reis12@@");
+
+async function flix2FetchPage(type: string, page: number): Promise<{ success: boolean; pagination: any; data: any[] }> {
+  const url = `https://nixplay.lat/api/catalog.php?username=${FLIX2_USER}&password=${FLIX2_PASS}&type=${type}&page=${page}`;
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), 20000);
+  try {
+    const r = await fetch(url, { signal: ctrl.signal });
+    clearTimeout(tid);
+    return await r.json();
+  } catch (e) {
+    clearTimeout(tid);
+    throw e;
+  }
+}
+
 // ── GET /flix2/catalog — proxy to nixplay.lat API (avoids CORS on mobile) ─────
 router.get("/flix2/catalog", async (req, res) => {
   try {
-    const { type = "movies", page = "1", search = "" } = req.query as Record<string, string>;
-    const user = "Reis007-vods";
-    const pass = encodeURIComponent("Reis12@@");
-    let url = `https://nixplay.lat/api/catalog.php?username=${user}&password=${pass}&type=${type}&page=${page}`;
-    if (search) url += `&search=${encodeURIComponent(search)}`;
-    const ctrl = new AbortController();
-    const tid = setTimeout(() => ctrl.abort(), 15000);
-    const upstream = await fetch(url, { signal: ctrl.signal });
-    clearTimeout(tid);
-    const data = await upstream.json();
+    const { type = "movies", page = "1" } = req.query as Record<string, string>;
+    const data = await flix2FetchPage(type, Number(page));
     res.json(data);
+  } catch (err: any) {
+    res.status(502).json({ error: err?.message ?? "proxy error" });
+  }
+});
+
+// ── GET /flix2/search — parallel page scan with title filter ──────────────────
+// nixplay.lat has no server-side search; this endpoint fetches pages in parallel
+// batches, filters by title match, and returns up to `limit` results.
+router.get("/flix2/search", async (req, res) => {
+  try {
+    const {
+      q = "",
+      type = "movies",
+      limit: limitStr = "60",
+      maxPages: maxPagesStr = "120",
+    } = req.query as Record<string, string>;
+
+    const query = q.trim().toLowerCase();
+    if (!query) { res.json({ results: [], total: 0, pagesScanned: 0 }); return; }
+
+    const limit = Math.min(Number(limitStr) || 60, 200);
+    const maxPages = Math.min(Number(maxPagesStr) || 120, 821);
+
+    // Step 1: fetch page 1 to get total pages
+    const first = await flix2FetchPage(type, 1);
+    if (!first.success) { res.status(502).json({ error: "catalog unavailable" }); return; }
+
+    const totalPages = Math.min(first.pagination?.total_pages ?? 1, maxPages);
+    const results: any[] = first.data.filter((i: any) =>
+      i.title?.toLowerCase().includes(query)
+    );
+
+    if (results.length >= limit || totalPages <= 1) {
+      res.json({ results: results.slice(0, limit), total: results.length, pagesScanned: 1, totalPages });
+      return;
+    }
+
+    // Step 2: fetch remaining pages in batches of 10 in parallel
+    const BATCH = 10;
+    let scanned = 1;
+
+    for (let startPage = 2; startPage <= totalPages && results.length < limit; startPage += BATCH) {
+      const batch = Array.from(
+        { length: Math.min(BATCH, totalPages - startPage + 1) },
+        (_, i) => flix2FetchPage(type, startPage + i)
+      );
+      const pages = await Promise.allSettled(batch);
+      for (const p of pages) {
+        scanned++;
+        if (p.status === "fulfilled" && p.value.success) {
+          const matches = p.value.data.filter((i: any) =>
+            i.title?.toLowerCase().includes(query)
+          );
+          results.push(...matches);
+          if (results.length >= limit) break;
+        }
+      }
+    }
+
+    res.json({ results: results.slice(0, limit), total: results.length, pagesScanned: scanned, totalPages });
   } catch (err: any) {
     res.status(502).json({ error: err?.message ?? "proxy error" });
   }
