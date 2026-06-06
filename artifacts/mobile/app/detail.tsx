@@ -45,7 +45,7 @@ interface SourceSettings {
   r2: boolean; drive: boolean; flix2: boolean; gstream: boolean; regular: boolean;
 }
 
-const DEFAULT_SRC: SourceSettings = { r2: true, drive: true, flix2: true, gstream: true, regular: true };
+const DEFAULT_SRC: SourceSettings = { r2: false, drive: true, flix2: true, gstream: false, regular: false };
 
 // Um item é "Drive" se tiver driveUrl (link compartilhável) OU driveFilePath (registrado via navegador de pastas)
 const isDriveItem = (i: RegistryItem) => !!i.driveUrl || i.driveFilePath != null;
@@ -269,22 +269,41 @@ export default function DetailScreen() {
   const [r2EpisodeNums, setR2EpisodeNums] = useState<Set<number>>(new Set());
   const [srcSettings, setSrcSettings] = useState<SourceSettings>(DEFAULT_SRC);
 
-  // Load R2 registry items + source settings (non-blocking)
+  // Load R2 registry items + source settings + Flix 2.0 live lookup (non-blocking)
   useEffect(() => {
     if (!tmdbId) return;
     const loadR2 = async () => {
       try {
         const { apiGetRegistry, r2Route } = await import("@/lib/r2-direct");
-        const [data, settingsRaw] = await Promise.allSettled([
+        const flix2Type = type === "movie" ? "movies" : "series";
+        const [data, settingsRaw, flix2Raw] = await Promise.allSettled([
           apiGetRegistry(),
           r2Route<SourceSettings>("/source-settings"),
+          r2Route<{ found: boolean; item: any }>(`/flix2/lookup?tmdbId=${tmdbId}&type=${flix2Type}`),
         ]);
-        if (data.status === "fulfilled") {
-          const items: RegistryItem[] = (data.value.items ?? []).filter(
-            (i: RegistryItem) => i.tmdbId === tmdbId && i.tmdbType === type
-          );
-          setR2Items(items);
+        const registryItems: RegistryItem[] = data.status === "fulfilled"
+          ? (data.value.items ?? []).filter(
+              (i: RegistryItem) => i.tmdbId === tmdbId && i.tmdbType === type
+            )
+          : [];
+        // Inject a virtual Flix 2.0 registry item if found in catalog and not already registered
+        const alreadyHasFlix = registryItems.some(isFlixItem);
+        if (!alreadyHasFlix && flix2Raw.status === "fulfilled" && flix2Raw.value.found && flix2Raw.value.item?.stream_url) {
+          const fi = flix2Raw.value.item;
+          const virtualItem: RegistryItem = {
+            id: `flix2-auto-${tmdbId}`,
+            r2Key: "",
+            flix2Url: fi.stream_url,
+            tmdbId,
+            tmdbType: type,
+            title: fi.title ?? "",
+            label: fi.title ?? "",
+            season: null,
+            episode: null,
+          };
+          registryItems.push(virtualItem);
         }
+        setR2Items(registryItems);
         if (settingsRaw.status === "fulfilled") {
           setSrcSettings({ ...DEFAULT_SRC, ...settingsRaw.value });
         }

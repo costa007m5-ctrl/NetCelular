@@ -5456,6 +5456,8 @@ function Flix2Panel() {
   const [searching, setSearching] = useState(false);  // debounce in-flight indicator
   const [registerTarget, setRegisterTarget] = useState<Flix2Item | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [indexing, setIndexing] = useState(false);
+  const [indexResult, setIndexResult] = useState<string | null>(null);
 
   const fetchItems = async (type: Flix2Type, pg: number, append = false) => {
     if (!append) setLoading(true);
@@ -5473,6 +5475,27 @@ function Flix2Panel() {
       else setItems(data.data);
     } catch (e: any) { setError(e.message ?? "Erro de rede"); }
     finally { setLoading(false); setLoadingMore(false); }
+  };
+
+  const buildIndex = async (type: "all" | Flix2Type) => {
+    setIndexing(true);
+    setIndexResult(null);
+    try {
+      const result = await apiFetch<{ ok: boolean; indexed: Record<string, number> }>(
+        `/flix2/build-index?type=${type}`,
+        { method: "POST" }
+      );
+      if (result.ok) {
+        const parts = Object.entries(result.indexed)
+          .map(([t, n]) => `${t}: ${n >= 0 ? n.toLocaleString() + " itens" : "erro"}`)
+          .join(" | ");
+        setIndexResult(`Índice criado! ${parts}`);
+      }
+    } catch (e: any) {
+      setIndexResult(`Erro: ${e.message}`);
+    } finally {
+      setIndexing(false);
+    }
   };
 
   const runSearch = async (type: Flix2Type, q: string) => {
@@ -5537,19 +5560,40 @@ function Flix2Panel() {
   return (
     <View style={{ flex: 1 }}>
       {/* Sub-tab bar */}
-      <View style={{ flexDirection: "row", backgroundColor: "#0a0a0a", paddingHorizontal: 12, paddingVertical: 8, gap: 8 }}>
-        {TABS.map((t) => (
-          <Pressable key={t.id} onPress={() => setSubType(t.id)}
-            style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5,
-              paddingVertical: 8, borderRadius: 10,
-              backgroundColor: subType === t.id ? `${FLIX2_COLOR}22` : "rgba(255,255,255,0.05)",
-              borderWidth: 1, borderColor: subType === t.id ? `${FLIX2_COLOR}55` : "rgba(255,255,255,0.08)" }}>
-            <Feather name={t.icon as any} size={13} color={subType === t.id ? FLIX2_COLOR : "rgba(255,255,255,0.4)"} />
-            <Text style={{ color: subType === t.id ? FLIX2_COLOR : "rgba(255,255,255,0.4)", fontSize: 12, fontWeight: subType === t.id ? "700" : "400" }}>
-              {t.label}
-            </Text>
-          </Pressable>
-        ))}
+      <View style={{ backgroundColor: "#0a0a0a", paddingHorizontal: 12, paddingTop: 8, paddingBottom: 4 }}>
+        <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
+          {TABS.map((t) => (
+            <Pressable key={t.id} onPress={() => setSubType(t.id)}
+              style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5,
+                paddingVertical: 8, borderRadius: 10,
+                backgroundColor: subType === t.id ? `${FLIX2_COLOR}22` : "rgba(255,255,255,0.05)",
+                borderWidth: 1, borderColor: subType === t.id ? `${FLIX2_COLOR}55` : "rgba(255,255,255,0.08)" }}>
+              <Feather name={t.icon as any} size={13} color={subType === t.id ? FLIX2_COLOR : "rgba(255,255,255,0.4)"} />
+              <Text style={{ color: subType === t.id ? FLIX2_COLOR : "rgba(255,255,255,0.4)", fontSize: 12, fontWeight: subType === t.id ? "700" : "400" }}>
+                {t.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+        {/* Indexar catálogo — gera índice tmdbId→url para lookup rápido */}
+        <Pressable
+          onPress={() => !indexing && buildIndex("all")}
+          style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+            paddingVertical: 9, borderRadius: 10, marginBottom: 4,
+            backgroundColor: indexing ? "rgba(255,255,255,0.05)" : `${FLIX2_COLOR}18`,
+            borderWidth: 1, borderColor: indexing ? "rgba(255,255,255,0.08)" : `${FLIX2_COLOR}40` }}>
+          {indexing
+            ? <ActivityIndicator size="small" color={FLIX2_COLOR} />
+            : <Feather name="database" size={13} color={FLIX2_COLOR} />}
+          <Text style={{ color: indexing ? "rgba(255,255,255,0.4)" : FLIX2_COLOR, fontSize: 12, fontWeight: "700" }}>
+            {indexing ? "Indexando catálogo completo…" : "Indexar catálogo completo"}
+          </Text>
+        </Pressable>
+        {indexResult && (
+          <Text style={{ color: "#4ade80", fontSize: 10, textAlign: "center", paddingBottom: 4 }}>
+            {indexResult}
+          </Text>
+        )}
       </View>
 
       {/* Search bar */}

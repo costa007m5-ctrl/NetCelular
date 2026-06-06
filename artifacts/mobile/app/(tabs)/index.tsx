@@ -5,7 +5,6 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { getMergedPreferences } from "@/lib/smart-preferences";
 import {
   Animated,
   Platform,
@@ -30,20 +29,17 @@ import { ContentRow } from "@/components/ContentRow";
 import { TopTenCard } from "@/components/TopTenCard";
 import { SyncBar } from "@/components/SyncBar";
 import { SkeletonRow } from "@/components/SkeletonLoader";
-import { GenreRow } from "@/components/GenreRow";
 import { NotificationBell } from "@/components/NotificationBell";
 import { PromoBanner, MiniStatBanner } from "@/components/PromoBanner";
-import { api, tmdbItemToContent } from "@/lib/api";
+import { r2Route } from "@/lib/r2-direct";
 import { useAuth } from "@/lib/auth-context";
-import { useCatalog } from "@/lib/catalog-context";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
 import type { ContentItem } from "@/constants/content";
-import { HERO_ITEMS, TOP_10_SERIES, TRENDING } from "@/constants/content";
-import { MAIN_PLATFORMS, STREAMING_PLATFORMS } from "@/constants/streamings";
+import { HERO_ITEMS, TOP_10_SERIES } from "@/constants/content";
+import { MAIN_PLATFORMS } from "@/constants/streamings";
 import type { StreamingPlatform } from "@/constants/streamings";
 
 const TAB_BAR_CLEARANCE = 110;
-const TMDB_KEY_HOME = "8f0beb08cf016ec8de49e454e09879ec";
 
 function getTimeGreeting(): { greeting: string; icon: keyof typeof Feather.glyphMap } {
   const h = new Date().getHours();
@@ -53,92 +49,18 @@ function getTimeGreeting(): { greeting: string; icon: keyof typeof Feather.glyph
   return { greeting: "Boa noite", icon: "moon" };
 }
 
-function decadeToYearRange(decades: string[]): { gte: string; lte: string } | null {
-  if (!decades?.length) return null;
-  const MAP: Record<string, [number, number]> = {
-    "Anos 80": [1980, 1989], "Anos 90": [1990, 1999],
-    "Anos 2000": [2000, 2009], "Anos 2010": [2010, 2019],
-    "Anos 2020": [2020, 2024], "2025": [2025, 2025], "2026": [2026, 2026],
-  };
-  let minYear = Infinity, maxYear = -Infinity;
-  for (const d of decades) {
-    const r = MAP[d];
-    if (r) { if (r[0] < minYear) minYear = r[0]; if (r[1] > maxYear) maxYear = r[1]; }
-  }
-  if (minYear === Infinity) return null;
-  return { gte: `${minYear}-01-01`, lte: `${maxYear}-12-31` };
-}
-
-async function discoverPersonalized(
-  type: "movie" | "tv",
-  genres: number[],
-  yearRange: { gte: string; lte: string } | null
-): Promise<any[]> {
-  try {
-    const path = type === "movie" ? "/discover/movie" : "/discover/tv";
-    const url = new URL(`https://api.themoviedb.org/3${path}`);
-    url.searchParams.set("api_key", TMDB_KEY_HOME);
-    url.searchParams.set("language", "pt-BR");
-    if (genres.length) url.searchParams.set("with_genres", genres.slice(0, 3).join(","));
-    url.searchParams.set("sort_by", "popularity.desc");
-    url.searchParams.set("include_adult", "false");
-    if (yearRange) {
-      if (type === "movie") {
-        url.searchParams.set("primary_release_date.gte", yearRange.gte);
-        url.searchParams.set("primary_release_date.lte", yearRange.lte);
-      } else {
-        url.searchParams.set("first_air_date.gte", yearRange.gte);
-        url.searchParams.set("first_air_date.lte", yearRange.lte);
-      }
-    }
-    const res = await fetch(url.toString());
-    const data = await res.json();
-    return (data.results ?? []) as any[];
-  } catch { return []; }
-}
-
-async function fetchNowPlaying(): Promise<any[]> {
-  try {
-    const res = await fetch(
-      `https://api.themoviedb.org/3/movie/now_playing?api_key=${TMDB_KEY_HOME}&language=pt-BR&page=1`
-    );
-    const data = await res.json();
-    return data.results ?? [];
-  } catch { return []; }
-}
-
-async function fetchUpcoming(): Promise<any[]> {
-  try {
-    const res = await fetch(
-      `https://api.themoviedb.org/3/movie/upcoming?api_key=${TMDB_KEY_HOME}&language=pt-BR&page=1`
-    );
-    const data = await res.json();
-    return data.results ?? [];
-  } catch { return []; }
-}
-
-async function fetchTopRated(type: "movie" | "tv"): Promise<any[]> {
-  try {
-    const res = await fetch(
-      `https://api.themoviedb.org/3/${type}/top_rated?api_key=${TMDB_KEY_HOME}&language=pt-BR&page=1`
-    );
-    const data = await res.json();
-    return data.results ?? [];
-  } catch { return []; }
-}
-
-const toContent = (item: any, type: "movie" | "tv"): ContentItem => ({
-  id: String(item.id),
-  tmdbId: item.id,
-  title: item.title ?? item.name ?? "",
-  year: parseInt((item.release_date ?? item.first_air_date ?? "2024").slice(0, 4)) || 2024,
-  rating: item.vote_average ?? 0,
-  posterPath: item.poster_path ? `https://image.tmdb.org/t/p/w500${item.poster_path}` : "",
-  backdropPath: item.backdrop_path ? `https://image.tmdb.org/t/p/w1280${item.backdrop_path}` : "",
-  description: item.overview ?? "",
-  genres: item.genre_ids ?? [],
-  type: type === "movie" ? "movie" : "series",
-  mediaType: type,
+const flix2ToContent = (item: any): ContentItem => ({
+  id: String(item.tmdb_id || item.id),
+  tmdbId: Number(item.tmdb_id) || 0,
+  title: item.title ?? "",
+  year: Number(item.year) || 2024,
+  rating: 0,
+  posterPath: item.poster ?? "",
+  backdropPath: item.poster ?? "",
+  description: item.synopsis ?? "",
+  genres: [],
+  type: item.type === "movie" ? "movie" : "series",
+  mediaType: item.type === "movie" ? "movie" : "tv",
 });
 
 const HOME_STREAMING = MAIN_PLATFORMS.slice(0, 7);
@@ -151,23 +73,6 @@ const CATEGORY_FILTERS = [
   { id: "docs",  label: "Docs",   icon: "eye" as const },
 ];
 
-const DEFAULT_GENRE_SECTIONS = [
-  { id: 28,    type: "movie" as const, label: "Filmes de Ação" },
-  { id: 18,    type: "tv"    as const, label: "Séries Drama" },
-  { id: 16,    type: "movie" as const, label: "Animação" },
-  { id: 35,    type: "movie" as const, label: "Comédia" },
-  { id: 27,    type: "movie" as const, label: "Terror" },
-  { id: 878,   type: "movie" as const, label: "Ficção Científica" },
-  { id: 10749, type: "movie" as const, label: "Romance" },
-];
-
-const GENRE_NAMES: Record<number, string> = {
-  28: "Ação", 12: "Aventura", 16: "Animação", 35: "Comédia", 80: "Crime",
-  99: "Documentário", 18: "Drama", 10751: "Família", 14: "Fantasia",
-  36: "História", 27: "Terror", 10402: "Música", 9648: "Mistério",
-  10749: "Romance", 878: "Ficção Científica", 53: "Suspense",
-  10752: "Guerra", 37: "Faroeste", 10759: "Ação & Aventura",
-};
 
 function StreamingChip({ platform, onPress }: { platform: StreamingPlatform; onPress: () => void }) {
   const [logoError, setLogoError] = useState(false);
@@ -397,7 +302,6 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user } = useAuth();
-  const { isAvailable, byType } = useCatalog();
   const isWeb = Platform.OS === "web";
   const topPad = isWeb ? 0 : insets.top;
 
@@ -409,30 +313,16 @@ export default function HomeScreen() {
   const [showScrollTop, setShowScrollTop] = useState(false);
 
   const [heroItems, setHeroItems] = useState<ContentItem[]>(HERO_ITEMS);
-  const [trendingItems, setTrendingItems] = useState<ContentItem[]>(TRENDING);
+  const [flix2Movies, setFlix2Movies] = useState<ContentItem[]>([]);
+  const [flix2Series, setFlix2Series] = useState<ContentItem[]>([]);
+  const [flix2Animes, setFlix2Animes] = useState<ContentItem[]>([]);
   const [top10, setTop10] = useState<ContentItem[]>(TOP_10_SERIES);
-  const [nowPlayingItems, setNowPlayingItems] = useState<ContentItem[]>([]);
-  const [upcomingItems, setUpcomingItems] = useState<ContentItem[]>([]);
-  const [topRatedMovies, setTopRatedMovies] = useState<ContentItem[]>([]);
-  const [topRatedSeries, setTopRatedSeries] = useState<ContentItem[]>([]);
+  const [flix2Totals, setFlix2Totals] = useState({ movies: 0, series: 0, animes: 0 });
 
   const userId = user?.id ?? "";
   const [continueItems, setContinueItems] = useState<ContentItem[]>([]);
   const [activeProfile, setActiveProfile] = useState<any>(null);
-  const [preferences, setPreferences] = useState<{
-    genres?: number[];
-    contentTypes?: string[];
-    decades?: string[];
-    movies?: number[];
-    series?: number[];
-  } | null>(null);
-  const [personalizedItems, setPersonalizedItems] = useState<ContentItem[]>([]);
 
-  const { greeting, icon: greetIcon } = useMemo(() => getTimeGreeting(), []);
-  const firstName = useMemo(() => {
-    const name = activeProfile?.name ?? user?.name ?? "";
-    return name.split(" ")[0] ?? "";
-  }, [activeProfile, user]);
 
   useEffect(() => {
     AsyncStorage.getItem("netplay_active_profile_v2")
@@ -440,61 +330,6 @@ export default function HomeScreen() {
       .catch(() => {});
   }, [userId]);
 
-  useEffect(() => {
-    getMergedPreferences()
-      .then((merged) => { if (merged) setPreferences(merged); })
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    if (!preferences?.genres?.length) return;
-    const genres = preferences.genres;
-    const yearRange = decadeToYearRange(preferences.decades ?? []);
-    const wantsMovies = !preferences.contentTypes?.length || preferences.contentTypes.includes("Filmes");
-    const wantsSeries = !preferences.contentTypes?.length || preferences.contentTypes.includes("Séries");
-    const primaryType: "movie" | "tv" = wantsSeries && !wantsMovies ? "tv" : "movie";
-    const secondaryType: "movie" | "tv" = primaryType === "movie" ? "tv" : "movie";
-
-    Promise.all([
-      discoverPersonalized(primaryType, genres, yearRange),
-      discoverPersonalized(secondaryType, genres.slice(0, 2), yearRange),
-      discoverPersonalized("movie", genres, yearRange),
-      discoverPersonalized("tv", genres, yearRange),
-    ]).then(([primaryResults, secondaryResults, movieResults, tvResults]) => {
-      const heroPool = [
-        ...primaryResults.filter((i: any) => i.backdrop_path).slice(0, 4),
-        ...secondaryResults.filter((i: any) => i.backdrop_path).slice(0, 2),
-      ];
-      if (heroPool.length >= 2) {
-        setHeroItems(heroPool.slice(0, 5).map((i: any) =>
-          toContent(i, primaryType === "movie" && i.title ? "movie" : "tv")
-        ));
-      }
-      const trendingPool = [
-        ...primaryResults.slice(0, 5).map((i: any) => toContent(i, primaryType)),
-        ...secondaryResults.slice(0, 3).map((i: any) => toContent(i, secondaryType)),
-      ];
-      if (trendingPool.length >= 4) setTrendingItems(trendingPool.slice(0, 10));
-
-      const top10Pool = [
-        ...movieResults.slice(0, 5).map((i: any) => toContent(i, "movie")),
-        ...tvResults.slice(0, 5).map((i: any) => toContent(i, "tv")),
-      ];
-      if (top10Pool.length >= 3) setTop10(top10Pool.slice(0, 10));
-
-      const paraVoce = primaryResults.slice(0, 12).map((i: any) => toContent(i, primaryType));
-      if (paraVoce.length) setPersonalizedItems(paraVoce);
-    }).catch(() => {});
-  }, [preferences]);
-
-  const genreSections = useMemo(() => {
-    if (!preferences?.genres?.length) return DEFAULT_GENRE_SECTIONS;
-    return preferences.genres.slice(0, 8).map((genreId, i) => ({
-      id: genreId,
-      type: (i % 2 === 0 ? "movie" : "tv") as "movie" | "tv",
-      label: GENRE_NAMES[genreId] ?? "Para Você",
-    }));
-  }, [preferences]);
 
   useEffect(() => {
     if (!userId || !isSupabaseConfigured) return;
@@ -531,60 +366,46 @@ export default function HomeScreen() {
     extrapolate: "clamp",
   });
 
-  const loadData = useCallback(async () => {
+  const loadFlix2Data = useCallback(async () => {
     try {
-      try {
-        const data = await api.tmdb.trending();
-        const all    = data.all.map(tmdbItemToContent).filter((c) => isAvailable(c.tmdbId));
-        const movies = data.movies.map(tmdbItemToContent).filter((c) => isAvailable(c.tmdbId));
-        const tv     = data.tv.map(tmdbItemToContent).filter((c) => isAvailable(c.tmdbId));
-
-        if (all.length >= 4) {
-          setHeroItems(all.slice(0, 5));
-          setTrendingItems(all.slice(0, 10));
-          if (movies.length > 0 || tv.length > 0)
-            setTop10([...movies.slice(0, 5), ...tv.slice(0, 5)].slice(0, 10));
-        }
-      } catch {}
-
-      const [nowPlaying, upcoming, topMovies, topSeries] = await Promise.all([
-        fetchNowPlaying(),
-        fetchUpcoming(),
-        fetchTopRated("movie"),
-        fetchTopRated("tv"),
+      const [moviesRes, seriesRes, animesRes] = await Promise.allSettled([
+        r2Route<{ success: boolean; pagination: any; data: any[] }>("/flix2/catalog?type=movies&page=1"),
+        r2Route<{ success: boolean; pagination: any; data: any[] }>("/flix2/catalog?type=series&page=1"),
+        r2Route<{ success: boolean; pagination: any; data: any[] }>("/flix2/catalog?type=animes&page=1"),
       ]);
 
-      setNowPlayingItems(nowPlaying.slice(0, 10).map((i: any) => toContent(i, "movie")));
-      setUpcomingItems(upcoming.slice(0, 8).map((i: any) => toContent(i, "movie")));
-      setTopRatedMovies(topMovies.slice(0, 10).map((i: any) => toContent(i, "movie")));
-      setTopRatedSeries(topSeries.slice(0, 10).map((i: any) => toContent(i, "tv")));
-
-      const movieIds = (byType.movie ?? []).slice(0, 20);
-      const tvIds    = (byType.tv    ?? []).slice(0, 20);
-
-      if ((movieIds.length > 0 || tvIds.length > 0) && trendingItems.length < 4) {
-        const [movieResults, tvResults] = await Promise.all([
-          Promise.all(movieIds.slice(0, 10).map((id) => api.tmdb.movie(id).catch(() => null))),
-          Promise.all(tvIds.slice(0, 10).map((id) => api.tmdb.tv(id).catch(() => null))),
-        ]);
-        const validMovies = movieResults.filter(Boolean).map((i) => toContent(i, "movie"));
-        const validTv     = tvResults.filter(Boolean).map((i) => toContent(i, "tv"));
-        const combined    = [...validMovies.slice(0, 5), ...validTv.slice(0, 5)];
-        if (combined.length > 0) {
-          const heroPool = combined.filter((c) => c.backdropPath);
-          setHeroItems(heroPool.length > 0 ? heroPool.slice(0, 5) : combined.slice(0, 5));
-          setTrendingItems(combined.slice(0, 10));
-          setTop10([...validMovies.slice(0, 5), ...validTv.slice(0, 5)].slice(0, 10));
-        }
+      if (moviesRes.status === "fulfilled" && moviesRes.value.success) {
+        const movies = moviesRes.value.data
+          .filter((i: any) => i.tmdb_id > 0 && i.poster)
+          .map(flix2ToContent);
+        setFlix2Movies(movies);
+        const heroPool = movies.filter((m: ContentItem) => m.posterPath);
+        if (heroPool.length >= 2) setHeroItems(heroPool.slice(0, 6));
+        setTop10(movies.slice(0, 10));
+        setFlix2Totals((t) => ({ ...t, movies: moviesRes.value.pagination?.total_items ?? movies.length }));
+      }
+      if (seriesRes.status === "fulfilled" && seriesRes.value.success) {
+        const series = seriesRes.value.data
+          .filter((i: any) => i.tmdb_id > 0)
+          .map(flix2ToContent);
+        setFlix2Series(series);
+        setFlix2Totals((t) => ({ ...t, series: seriesRes.value.pagination?.total_items ?? series.length }));
+      }
+      if (animesRes.status === "fulfilled" && animesRes.value.success) {
+        const animes = animesRes.value.data
+          .filter((i: any) => i.tmdb_id > 0)
+          .map(flix2ToContent);
+        setFlix2Animes(animes);
+        setFlix2Totals((t) => ({ ...t, animes: animesRes.value.pagination?.total_items ?? animes.length }));
       }
     } catch {}
     finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [isAvailable, byType]);
+  }, []);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { loadFlix2Data(); }, [loadFlix2Data]);
 
   useEffect(() => {
     if (!showSync) return;
@@ -603,8 +424,8 @@ export default function HomeScreen() {
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    loadData();
-  }, [loadData]);
+    loadFlix2Data();
+  }, [loadFlix2Data]);
 
   const goToPlayer = useCallback((item: ContentItem) => {
     router.push({
@@ -617,13 +438,13 @@ export default function HomeScreen() {
     });
   }, [router]);
 
-  const spotlightItem = useMemo(() => nowPlayingItems[0] ?? trendingItems[0] ?? null, [nowPlayingItems, trendingItems]);
+  const spotlightItem = useMemo(() => flix2Movies[0] ?? null, [flix2Movies]);
 
   const miniStats = useMemo(() => [
-    { label: "Em Alta",   value: String(trendingItems.length),   icon: "trending-up" as const, color: "#e50914" },
-    { label: "Filmes",    value: String((byType.movie ?? []).length), icon: "film" as const,    color: "#3b82f6" },
-    { label: "Séries",    value: String((byType.tv ?? []).length),    icon: "tv" as const,      color: "#8b5cf6" },
-  ], [trendingItems, byType]);
+    { label: "Filmes",  value: flix2Totals.movies > 0 ? flix2Totals.movies.toLocaleString("pt-BR") : "–", icon: "film" as const,         color: "#e50914" },
+    { label: "Séries",  value: flix2Totals.series > 0 ? flix2Totals.series.toLocaleString("pt-BR") : "–", icon: "tv" as const,           color: "#3b82f6" },
+    { label: "Animes",  value: flix2Totals.animes > 0 ? flix2Totals.animes.toLocaleString("pt-BR") : "–", icon: "star" as const,         color: "#8b5cf6" },
+  ], [flix2Totals]);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -742,28 +563,6 @@ export default function HomeScreen() {
               {/* ── MINI STATS ───────────────────────────── */}
               <MiniStatBanner stats={miniStats} />
 
-              {/* ── PARA VOCÊ ───────────────────────────── */}
-              {personalizedItems.length > 0 && (
-                <ContentRow
-                  title="Para Você"
-                  subtitle="Baseado nas suas preferências"
-                  icon="star"
-                  items={personalizedItems}
-                  cardWidth={148}
-                  cardHeight={215}
-                  showRating
-                  seeAllLabel="Ver mais"
-                  maxItems={8}
-                  onSeeAll={() =>
-                    router.push({
-                      pathname: "/genre-browse",
-                      params: { genre_id: String(preferences?.genres?.[0] ?? 0), type: "movie", title: "Para Você" },
-                    })
-                  }
-                  onItemPress={goToPlayer}
-                />
-              )}
-
               {/* ── CONTINUE ASSISTINDO ─────────────────── */}
               {continueItems.length > 0 && (
                 <ContentRow
@@ -782,20 +581,21 @@ export default function HomeScreen() {
                 />
               )}
 
-              {/* ── EM ALTA ─────────────────────────────── */}
-              <ContentRow
-                title="Em Alta Agora"
-                subtitle="Os mais assistidos da semana"
-                icon="fire"
-                items={trendingItems}
-                cardWidth={148}
-                cardHeight={215}
-                showRating
-                seeAllLabel="Ver mais"
-                maxItems={8}
-                onSeeAll={() => router.push({ pathname: "/genre-browse", params: { genre_id: "0", type: "movie", title: "Em Alta" } })}
-                onItemPress={goToPlayer}
-              />
+              {/* ── FILMES ──────────────────────────────── */}
+              {flix2Movies.length > 0 && (
+                <ContentRow
+                  title="Filmes"
+                  subtitle="Catálogo Flix 2.0"
+                  icon="film"
+                  items={flix2Movies}
+                  cardWidth={148}
+                  cardHeight={215}
+                  seeAllLabel="Ver mais"
+                  maxItems={10}
+                  onSeeAll={() => router.push({ pathname: "/genre-browse", params: { genre_id: "0", type: "movie", title: "Filmes" } })}
+                  onItemPress={goToPlayer}
+                />
+              )}
 
               {/* ── PROMO NOVIDADES ────────────────────── */}
               <PromoBanner
@@ -833,106 +633,59 @@ export default function HomeScreen() {
                 </ScrollView>
               </View>
 
-              {/* ── DIVIDER ─────────────────────────────── */}
-              <SectionDivider label="EM CARTAZ" />
-
-              {/* ── SPOTLIGHT BANNER ────────────────────── */}
+              {/* ── DESTAQUE ────────────────────────────── */}
               {spotlightItem && (
                 <SpotlightBanner item={spotlightItem} onPress={() => goToPlayer(spotlightItem)} />
               )}
 
-              {/* ── AGORA NOS CINEMAS ───────────────────── */}
-              {nowPlayingItems.length > 0 && (
-                <ContentRow
-                  title="Agora nos Cinemas"
-                  subtitle="Filmes em exibição"
-                  icon="film"
-                  items={nowPlayingItems}
-                  cardWidth={148}
-                  cardHeight={215}
-                  showRating
-                  seeAllLabel="Ver mais"
-                  maxItems={8}
-                  onSeeAll={() => router.push({ pathname: "/genre-browse", params: { genre_id: "0", type: "movie", title: "Em Cartaz" } })}
-                  onItemPress={goToPlayer}
-                  accentColor="#3b82f6"
-                />
-              )}
-
-              {/* ── MELHOR AVALIADOS FILMES ─────────────── */}
-              {topRatedMovies.length > 0 && (
-                <ContentRow
-                  title="Melhores Avaliados"
-                  subtitle="Filmes com maior nota"
-                  icon="award"
-                  items={topRatedMovies}
-                  cardWidth={148}
-                  cardHeight={215}
-                  showRating
-                  seeAllLabel="Ver mais"
-                  maxItems={8}
-                  onSeeAll={() => router.push({ pathname: "/genre-browse", params: { genre_id: "0", type: "movie", title: "Melhores Avaliados" } })}
-                  onItemPress={goToPlayer}
-                  accentColor="#f59e0b"
-                />
-              )}
-
-              {/* ── DIVIDER ─────────────────────────────── */}
-              <SectionDivider label="SÉRIES" />
-
-              {/* ── MELHORES SÉRIES ─────────────────────── */}
-              {topRatedSeries.length > 0 && (
-                <ContentRow
-                  title="Séries Imperdíveis"
-                  subtitle="As séries mais bem avaliadas"
-                  icon="tv"
-                  items={topRatedSeries}
-                  cardWidth={148}
-                  cardHeight={215}
-                  showRating
-                  seeAllLabel="Ver mais"
-                  maxItems={8}
-                  onSeeAll={() => router.push({ pathname: "/genre-browse", params: { genre_id: "0", type: "tv", title: "Séries Imperdíveis" } })}
-                  onItemPress={goToPlayer}
-                  accentColor="#8b5cf6"
-                />
-              )}
-
-              {/* ── PROMO EM BREVE ──────────────────────── */}
-              {upcomingItems.length > 0 && (
-                <PromoBanner
-                  icon="clock"
-                  title="Em Breve no Catálogo"
-                  subtitle={`${upcomingItems.length} novos títulos chegando em breve`}
-                  actionLabel="Ver prévia"
-                  onPress={() => router.push({ pathname: "/genre-browse", params: { genre_id: "0", type: "movie", title: "Em Breve" } })}
-                  gradient={["#7c3aed", "#4c1d95"]}
-                  count={upcomingItems.length}
-                />
-              )}
-
-              {/* ── POR GÊNERO ──────────────────────────── */}
-              <SectionDivider label="POR GÊNERO" />
-
-              {genreSections.map((genre, idx) => (
-                <React.Fragment key={`${genre.type}-${genre.id}`}>
-                  <GenreRow
-                    genreId={genre.id}
-                    type={genre.type}
-                    title={genre.label}
+              {/* ── SÉRIES ──────────────────────────────── */}
+              {flix2Series.length > 0 && (
+                <>
+                  <SectionDivider label="SÉRIES" />
+                  <ContentRow
+                    title="Séries"
+                    subtitle="Catálogo Flix 2.0"
+                    icon="tv"
+                    items={flix2Series}
+                    cardWidth={148}
+                    cardHeight={215}
+                    seeAllLabel="Ver mais"
+                    maxItems={10}
+                    onSeeAll={() => router.push({ pathname: "/genre-browse", params: { genre_id: "0", type: "tv", title: "Séries" } })}
+                    onItemPress={goToPlayer}
+                    accentColor="#8b5cf6"
                   />
-                  {idx === 2 && (
-                    <PromoBanner
-                      icon="bookmark"
-                      title="Sua Lista Pessoal"
-                      subtitle="Salve filmes e séries para assistir depois"
-                      actionLabel="Ver lista"
-                      onPress={() => router.push("/(tabs)/list")}
-                      gradient={["#0891b2", "#0e7490"]}
-                    />
-                  )}
-                </React.Fragment>
-              ))}
+                </>
+              )}
+
+              {/* ── ANIMES ──────────────────────────────── */}
+              {flix2Animes.length > 0 && (
+                <>
+                  <SectionDivider label="ANIMES" />
+                  <ContentRow
+                    title="Animes"
+                    subtitle="Catálogo Flix 2.0"
+                    icon="star"
+                    items={flix2Animes}
+                    cardWidth={148}
+                    cardHeight={215}
+                    seeAllLabel="Ver mais"
+                    maxItems={10}
+                    onSeeAll={() => router.push({ pathname: "/genre-browse", params: { genre_id: "0", type: "tv", title: "Animes" } })}
+                    onItemPress={goToPlayer}
+                    accentColor="#f59e0b"
+                  />
+                </>
+              )}
+
+              <PromoBanner
+                icon="bookmark"
+                title="Sua Lista Pessoal"
+                subtitle="Salve filmes e séries para assistir depois"
+                actionLabel="Ver lista"
+                onPress={() => router.push("/(tabs)/list")}
+                gradient={["#0891b2", "#0e7490"]}
+              />
             </>
           )}
         </View>

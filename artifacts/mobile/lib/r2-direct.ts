@@ -777,6 +777,8 @@ const SERVER_ONLY_ROUTES = new Set([
   "/flix2/catalog",
   "/flix2/register",
   "/flix2/search",
+  "/flix2/lookup",
+  "/flix2/build-index",
   "/source-settings",
 ]);
 
