@@ -29,6 +29,26 @@ import { r2Base } from "@/lib/r2-direct";
 
 type Flix2RawItem = { title: string; _type: string; thumbnail?: string | null };
 
+async function fetchFlix2Catalog(type: string): Promise<Flix2RawItem[]> {
+  try {
+    const base = r2Base();
+    const url = base
+      ? `${base}/flix2/catalog-full?type=${type}`
+      : `/api/r2/flix2/catalog-full?type=${type}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(120_000) });
+    if (!res.ok) return [];
+    const data = await res.json();
+    const kindMap: Record<string, string> = { movies: "movie", series: "series", animes: "anime" };
+    return (data.data ?? []).map((item: any) => ({
+      title: item.title ?? item.name ?? "",
+      _type: kindMap[type] ?? "movie",
+      thumbnail: item.thumbnail ?? null,
+    })).filter((i: Flix2RawItem) => i.title);
+  } catch {
+    return [];
+  }
+}
+
 type Flix2SearchResult = { titles: Set<string>; raw: Flix2RawItem[] };
 
 async function flix2Search(q: string): Promise<Flix2SearchResult> {
@@ -318,6 +338,12 @@ export default function BuscarScreen() {
   const [flix2RawResults,  setFlix2RawResults]  = useState<Flix2RawItem[]>([]);
   const [flix2Loading,     setFlix2Loading]      = useState(false);
   const [flix2FilterActive,setFlix2FilterActive] = useState(false);
+
+  // ── Catálogo Flix 2.0 (browse mode) ─────────────────────────────────────
+  const [showFlix2Catalog, setShowFlix2Catalog] = useState(false);
+  const [flix2CatType,     setFlix2CatType]     = useState<"movies"|"series"|"animes">("movies");
+  const [flix2CatItems,    setFlix2CatItems]    = useState<Flix2RawItem[]>([]);
+  const [flix2CatLoading,  setFlix2CatLoading]  = useState(false);
   const [activeCategory,setActiveCategory]= useState<string>("trending");
   const [activeGenre,   setActiveGenre]   = useState<string | null>(null);
 
@@ -437,6 +463,18 @@ export default function BuscarScreen() {
       params: { type: item.mediaType ?? (item.type === "movie" ? "movie" : "tv"), id: String(item.tmdbId), title: item.title },
     });
   }, [router]);
+
+  // ── Load Flix 2.0 catalog when catalog mode is opened or type changes ───────
+  useEffect(() => {
+    if (!showFlix2Catalog) return;
+    let cancelled = false;
+    setFlix2CatLoading(true);
+    setFlix2CatItems([]);
+    fetchFlix2Catalog(flix2CatType).then((items) => {
+      if (!cancelled) { setFlix2CatItems(items); setFlix2CatLoading(false); }
+    });
+    return () => { cancelled = true; };
+  }, [showFlix2Catalog, flix2CatType]);
 
   const isSearching = query.trim().length >= 2;
 
@@ -625,6 +663,72 @@ export default function BuscarScreen() {
             );
           })()}
         </View>
+      ) : showFlix2Catalog ? (
+        /* ─────────────────── CATÁLOGO FLIX 2.0 ────────────────────────────── */
+        <View style={{ flex: 1 }}>
+          {/* header */}
+          <View style={styles.catHeader}>
+            <TouchableOpacity style={styles.backBtn} onPress={() => setShowFlix2Catalog(false)} hitSlop={12}>
+              <Feather name="arrow-left" size={20} color="#fff" />
+            </TouchableOpacity>
+            <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <Feather name="zap" size={16} color="#a855f7" />
+              <Text style={styles.catHeaderTitle}>Catálogo</Text>
+              <Text style={[styles.catHeaderTitle, { color: "#a855f7" }]}>Flix 2.0</Text>
+            </View>
+            {flix2CatLoading && <ActivityIndicator color="#a855f7" size="small" />}
+            {!flix2CatLoading && (
+              <Text style={styles.catCount}>{flix2CatItems.length} títulos</Text>
+            )}
+          </View>
+
+          {/* type tabs */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingHorizontal: 16, gap: 8, paddingBottom: 12 }}>
+            {([
+              { key: "movies",  label: "🎬 Filmes"  },
+              { key: "series",  label: "📺 Séries"  },
+              { key: "animes",  label: "⛩️ Animes"  },
+            ] as { key: "movies"|"series"|"animes"; label: string }[]).map((t) => (
+              <Pressable key={t.key}
+                style={[styles.catTypeTab, flix2CatType === t.key && styles.catTypeTabActive]}
+                onPress={() => setFlix2CatType(t.key)}>
+                <Text style={[styles.catTypeTabText, flix2CatType === t.key && { color: "#fff" }]}>
+                  {t.label}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+
+          {flix2CatLoading ? (
+            <View style={styles.centered}>
+              <ActivityIndicator color="#a855f7" size="large" />
+              <Text style={[styles.loadingText, { color: "#a855f7" }]}>Carregando catálogo…</Text>
+              <Text style={[styles.loadingText, { fontSize: 11, marginTop: 4 }]}>Pode demorar na primeira vez</Text>
+            </View>
+          ) : flix2CatItems.length === 0 ? (
+            <View style={styles.centered}>
+              <Feather name="zap" size={48} color="rgba(168,85,247,0.15)" />
+              <Text style={styles.emptyTitle}>Catálogo indisponível</Text>
+              <Text style={styles.emptySubtitle}>Tente novamente em instantes</Text>
+            </View>
+          ) : (
+            <FlatList
+              data={flix2CatItems}
+              keyExtractor={(item, i) => `cat-${i}-${item.title}`}
+              numColumns={3}
+              contentContainerStyle={styles.grid}
+              showsVerticalScrollIndicator={false}
+              renderItem={({ item }) => <Flix2OnlyCard item={item} />}
+              initialNumToRender={12}
+              maxToRenderPerBatch={12}
+              windowSize={7}
+              removeClippedSubviews={true}
+              updateCellsBatchingPeriod={50}
+            />
+          )}
+        </View>
+
       ) : (
         /* ─────────────────── DISCOVERY STATE ──────────────────────────────── */
         <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}
@@ -679,6 +783,33 @@ export default function BuscarScreen() {
               />
             </SectionRow>
           )}
+
+          {/* ── FLIX 2.0 CATALOG SHORTCUT ─────────────────────────────────── */}
+          <Pressable style={styles.flix2ShortcutCard} onPress={() => setShowFlix2Catalog(true)}>
+            <LinearGradient
+              colors={["rgba(168,85,247,0.18)", "rgba(88,28,135,0.35)"]}
+              start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+              style={StyleSheet.absoluteFill}
+            />
+            <View style={{ flexDirection: "row", alignItems: "center", flex: 1, gap: 12 }}>
+              <View style={styles.flix2ShortcutIcon}>
+                <Feather name="zap" size={22} color="#a855f7" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 2 }}>
+                  <Text style={styles.flix2ShortcutTitle}>Catálogo</Text>
+                  <Text style={[styles.flix2ShortcutTitle, { color: "#a855f7" }]}>Flix 2.0</Text>
+                  <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, backgroundColor: "rgba(168,85,247,0.25)", borderWidth: 1, borderColor: "rgba(168,85,247,0.4)" }}>
+                    <Text style={{ color: "#c084fc", fontSize: 9, fontWeight: "800" }}>PREMIUM</Text>
+                  </View>
+                </View>
+                <Text style={styles.flix2ShortcutSub}>
+                  Filmes · Séries · Animes — navegue o acervo completo
+                </Text>
+              </View>
+              <Feather name="chevron-right" size={20} color="rgba(168,85,247,0.6)" />
+            </View>
+          </Pressable>
 
           {/* ── MOOD CHIPS ─────────────────────────────────────────────────── */}
           <View style={styles.moodSection}>
@@ -928,6 +1059,39 @@ const styles = StyleSheet.create({
     borderColor: "#a855f7",
   },
   flix2FilterChipText: { color: "#a855f7", fontSize: 12, fontWeight: "800" },
+
+  /* catalog mode */
+  catHeader:      { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 10, gap: 10 },
+  catHeaderTitle: { color: "#fff", fontSize: 18, fontWeight: "900", letterSpacing: 1 },
+  catCount:       { color: "rgba(255,255,255,0.35)", fontSize: 12, fontWeight: "600" },
+  catTypeTab:     { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, borderWidth: 1.5, borderColor: "rgba(168,85,247,0.3)", backgroundColor: "rgba(168,85,247,0.08)" },
+  catTypeTabActive: { backgroundColor: "#a855f7", borderColor: "#a855f7" },
+  catTypeTabText: { color: "rgba(168,85,247,0.9)", fontSize: 13, fontWeight: "700" },
+
+  /* flix2 shortcut card in discovery */
+  flix2ShortcutCard: {
+    marginHorizontal: 16,
+    marginBottom: 20,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(168,85,247,0.3)",
+    overflow: "hidden",
+    padding: 16,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  flix2ShortcutIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: 12,
+    backgroundColor: "rgba(168,85,247,0.15)",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(168,85,247,0.3)",
+  },
+  flix2ShortcutTitle: { color: "#fff", fontSize: 16, fontWeight: "900" },
+  flix2ShortcutSub:   { color: "rgba(255,255,255,0.4)", fontSize: 12, fontWeight: "500" },
 
   /* flix2 exclusive section header */
   flix2OnlyHeader: {
