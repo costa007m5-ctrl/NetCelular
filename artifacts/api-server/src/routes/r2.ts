@@ -2072,10 +2072,55 @@ router.get("/flix2/lookup", async (req, res) => {
 // Follows the 302 redirect from nixplay.lat and returns the final signed CDN URL.
 // The nixplay stream_url redirects to vod99.cineveo.lat with a time-limited signed URL.
 // React Native video players may not follow redirects, so we resolve server-side.
+// If the final URL is TeraBox, resolves via xAPIverse to get a direct download link.
+function isTeraboxUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.replace(/^www\./, "");
+    const TB_HOSTS = [
+      "terabox.com", "1024terabox.com", "1024tera.com", "teraboxapp.com",
+      "terasharelink.com", "4funbox.com", "momerybox.com", "tibibox.com",
+      "terabox.app", "gibibox.com", "nephobox.com",
+    ];
+    return TB_HOSTS.includes(host);
+  } catch { return false; }
+}
+
+async function resolveTeraboxDirect(shareUrl: string): Promise<string | null> {
+  const normalized = normalizeTeraboxUrl(shareUrl);
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), 25000);
+  try {
+    const r = await fetch("https://xapiverse.com/api/terabox-pro", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "xAPIverse-Key": "sk_6d7363a619840df0a07afe194613bf9a" },
+      body: JSON.stringify({ url: normalized }),
+      signal: ctrl.signal,
+    });
+    clearTimeout(tid);
+    const data = await r.json() as any;
+    if (r.ok && data.status === "success") {
+      // Pick the best quality direct link
+      const list: any[] = data.list ?? [];
+      const best = list.find((f: any) => f.direct_link && f.size) ?? list.find((f: any) => f.direct_link);
+      return best?.direct_link ?? null;
+    }
+    return null;
+  } catch { clearTimeout(tid); return null; }
+}
+
 router.get("/flix2/stream-url", async (req, res) => {
   const streamUrl = String(req.query.streamUrl ?? "");
   if (!streamUrl) { res.status(400).json({ error: "streamUrl é obrigatório" }); return; }
   try {
+    // Step 1: if the raw URL is already TeraBox, resolve directly
+    if (isTeraboxUrl(streamUrl)) {
+      const direct = await resolveTeraboxDirect(streamUrl);
+      if (direct) { res.json({ url: direct, via: "terabox" }); return; }
+      // xAPIverse failed — return original so player can still try
+      res.json({ url: streamUrl, via: "terabox-fallback" }); return;
+    }
+
+    // Step 2: follow the redirect chain from nixplay
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8000);
     const response = await fetch(streamUrl, {
@@ -2085,14 +2130,68 @@ router.get("/flix2/stream-url", async (req, res) => {
       headers: { "User-Agent": "Mozilla/5.0" },
     });
     clearTimeout(timer);
-    const finalUrl = response.url;
-    if (!finalUrl || finalUrl === streamUrl) {
-      res.json({ url: streamUrl });
-    } else {
-      res.json({ url: finalUrl });
+    const finalUrl = response.url || streamUrl;
+
+    // Step 3: if the redirect landed on TeraBox, resolve via xAPIverse
+    if (isTeraboxUrl(finalUrl)) {
+      const direct = await resolveTeraboxDirect(finalUrl);
+      if (direct) { res.json({ url: direct, via: "terabox" }); return; }
+      res.json({ url: finalUrl, via: "terabox-fallback" }); return;
     }
+
+    res.json({ url: finalUrl });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /flix2/series-episodes?seriesId=<id> ──────────────────────────────────
+// Fetches per-episode stream URLs for a series from nixplay.lat.
+// Uses the Xtream Codes compatible endpoint: get_series_info.php?series_id=<id>
+// Episode stream URL format: https://nixplay.lat/series/<user>/<pass>/<episode_id>.<ext>
+router.get("/flix2/series-episodes", async (req, res) => {
+  const { seriesId } = req.query as Record<string, string>;
+  if (!seriesId) { res.status(400).json({ error: "seriesId obrigatório" }); return; }
+
+  try {
+    const pass = decodeURIComponent(FLIX2_PASS);
+    const url = `https://nixplay.lat/api/get_series_info.php?username=${FLIX2_USER}&password=${encodeURIComponent(pass)}&series_id=${seriesId}`;
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 20000);
+    let r: Response;
+    try {
+      r = await fetch(url, { signal: ctrl.signal });
+    } finally { clearTimeout(tid); }
+
+    const data = await r.json() as any;
+
+    // Xtream episodes response: { info: {...}, episodes: { "1": [ {id, title, season, episode_num, container_extension} ] } }
+    const allEpisodes: Array<{ season: number; episode: number; stream_url: string; title?: string }> = [];
+
+    if (data?.episodes && typeof data.episodes === "object") {
+      for (const [seasonStr, eps] of Object.entries(data.episodes as Record<string, any[]>)) {
+        if (!Array.isArray(eps)) continue;
+        const season = Number(seasonStr);
+        for (const ep of eps) {
+          if (!ep?.id) continue;
+          const ext = ep.container_extension || "mp4";
+          const streamUrl = `https://nixplay.lat/series/${FLIX2_USER}/${pass}/${ep.id}.${ext}`;
+          allEpisodes.push({
+            season,
+            episode: Number(ep.episode_num ?? ep.episode ?? 1),
+            stream_url: streamUrl,
+            title: ep.title ?? ep.name ?? undefined,
+          });
+        }
+      }
+    }
+
+    // Sort by season then episode
+    allEpisodes.sort((a, b) => a.season - b.season || a.episode - b.episode);
+
+    res.json({ found: allEpisodes.length > 0, episodes: allEpisodes, info: data?.info ?? null });
+  } catch (err: any) {
+    res.status(502).json({ error: err?.message ?? "proxy error" });
   }
 });
 

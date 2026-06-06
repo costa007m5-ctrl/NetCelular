@@ -89,6 +89,7 @@ function EpisodeRow({
   onPress?: () => void;
   onR2Press?: () => void;
   onDrivePress?: () => void;
+  onFlixPress?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [imgFailed, setImgFailed] = useState(false);
@@ -196,6 +197,11 @@ function EpisodeRow({
             <Feather name="play" size={16} color="#fff" />
           </Pressable>
         )}
+        {onFlixPress && (
+          <Pressable onPress={onFlixPress} style={[styles.epPlayBtn, { backgroundColor: "#8b5cf6", borderRadius: 8, padding: 4, marginTop: onR2Press || onPress ? 4 : 0 }]}>
+            <Feather name="zap" size={14} color="#fff" />
+          </Pressable>
+        )}
         {onDrivePress && (
           <Pressable onPress={onDrivePress} style={[styles.epPlayBtn, { backgroundColor: "#16a34a", borderRadius: 8, padding: 4, marginTop: 4 }]}>
             <Feather name="cloud" size={14} color="#fff" />
@@ -279,7 +285,7 @@ export default function DetailScreen() {
         if (!alreadyHasFlix && flix2Raw.status === "fulfilled" && flix2Raw.value.found) {
           const fi = flix2Raw.value.item;
           if (fi?.stream_url) {
-            // Movie: single virtual item
+            // Movie (or series with a single item-level stream_url): single virtual item
             registryItems.push({
               id: `flix2-auto-${tmdbId}`,
               r2Key: "",
@@ -292,7 +298,7 @@ export default function DetailScreen() {
               episode: null,
             });
           } else if (Array.isArray(fi?.episodes) && fi.episodes.length > 0) {
-            // Series / anime: one virtual item per episode
+            // Series / anime: catalog already includes episodes[]
             for (const ep of fi.episodes as Array<{ season: number; episode: number; stream_url?: string }>) {
               if (!ep?.stream_url) continue;
               registryItems.push({
@@ -307,6 +313,30 @@ export default function DetailScreen() {
                 episode: ep.episode,
               });
             }
+          } else if (fi?.id && type === "tv") {
+            // Series / anime: catalog item has only `id` (Xtream Codes standard).
+            // Fetch per-episode stream URLs via the dedicated series-episodes endpoint.
+            try {
+              const epData = await r2Route<{ found: boolean; episodes: Array<{ season: number; episode: number; stream_url: string; title?: string }> }>(
+                `/flix2/series-episodes?seriesId=${fi.id}`
+              );
+              if (epData.found && epData.episodes.length > 0) {
+                for (const ep of epData.episodes) {
+                  if (!ep?.stream_url) continue;
+                  registryItems.push({
+                    id: `flix2-auto-${tmdbId}-s${ep.season}e${ep.episode}`,
+                    r2Key: "",
+                    flix2Url: ep.stream_url,
+                    tmdbId,
+                    tmdbType: type,
+                    title: fi.title ?? "",
+                    label: `T${String(ep.season).padStart(2, "0")} E${String(ep.episode).padStart(2, "0")} · Flix 2.0`,
+                    season: ep.season,
+                    episode: ep.episode,
+                  });
+                }
+              }
+            } catch {}
           }
         }
         setR2Items(registryItems);
@@ -1505,6 +1535,13 @@ export default function DetailScreen() {
                           fallbackImage={details?.backdrop_path ?? details?.poster_path ?? null}
                           onPress={!r2Ep ? () => goToPlayer(selectedSeason, ep.episode_number) : undefined}
                           onR2Press={srcSettings.r2 && r2Ep && !isDriveItem(r2Ep) && !isFlixItem(r2Ep) ? () => goToR2Player(r2Ep, selectedSeason, ep.episode_number) : undefined}
+                          onFlixPress={(() => {
+                            if (!srcSettings.flix2) return undefined;
+                            const flixEp = r2Items.find(
+                              (i) => isFlixItem(i) && Number(i.season) === selectedSeason && Number(i.episode) === ep.episode_number
+                            );
+                            return flixEp ? () => goToR2Player(flixEp, selectedSeason, ep.episode_number) : undefined;
+                          })()}
                           onDrivePress={(() => {
                             if (!srcSettings.drive) return undefined;
                             const driveEp = r2Items.find(
