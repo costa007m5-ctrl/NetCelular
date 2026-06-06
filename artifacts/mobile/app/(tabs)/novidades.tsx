@@ -195,7 +195,7 @@ export default function FilmesScreen() {
           </Text>
         </View>
         <Pressable
-          onPress={() => router.push("/(tabs)/search")}
+          onPress={() => router.push("/(tabs)/channels")}
           style={styles.searchBtn}
         >
           <Feather name="search" size={20} color="rgba(255,255,255,0.7)" />

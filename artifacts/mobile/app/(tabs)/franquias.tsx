@@ -49,14 +49,12 @@ interface R2Entry {
   } | null;
 }
 
-interface DriveItem {
-  id: string;
+interface DriveRoot {
+  drive: 0 | 1;
   name: string;
-  mimeType: string;
-  size?: string;
+  icon: string;
+  folders: string[];
 }
-
-interface DriveRoot { id: string; name: string; folderId: string }
 
 const TMDB_IMG = (p: string | null, size = "w342") =>
   p ? `https://image.tmdb.org/t/p/${size}${p}` : null;
@@ -287,7 +285,7 @@ export default function AcervoScreen() {
       ) : (
         <FlatList
           data={driveRoots}
-          keyExtractor={(i) => i.id}
+          keyExtractor={(i) => String(i.drive)}
           contentContainerStyle={[styles.driveList, { paddingBottom: TAB_CLEARANCE }]}
           showsVerticalScrollIndicator={false}
           refreshControl={
@@ -303,7 +301,7 @@ export default function AcervoScreen() {
           renderItem={({ item }) => (
             <DriveCard
               item={item}
-              onPress={() => router.push({ pathname: "/r2-catalog", params: { tab: "drive", folderId: item.folderId } })}
+              onPress={() => router.push({ pathname: "/r2-catalog", params: { tab: "drive", drive: String(item.drive) } })}
             />
           )}
         />
