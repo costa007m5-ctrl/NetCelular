@@ -1589,7 +1589,7 @@ export default function HomeScreen() {
   }, [heroItems, r2All]);
 
   // ── section entrance animations ────────────────────────────────────────────
-  const SECTION_COUNT = 49;
+  const SECTION_COUNT = 12;
   // On native, skip entrance animations entirely — set all to 1 immediately.
   // Stagger of 49 animations at 90ms each takes 4.4s and causes jank on mobile.
   const sectionAnims = useRef(
@@ -1774,8 +1774,8 @@ export default function HomeScreen() {
     };
 
     const [movRaw, serRaw, aniRaw] = await Promise.all([
-      fetchPages("movies", 2),
-      fetchPages("series", 2),
+      fetchPages("movies", 1),
+      fetchPages("series", 1),
       fetchPages("animes", 1),
     ]);
 
@@ -1877,32 +1877,10 @@ export default function HomeScreen() {
     });
   }, [router]);
 
-  // ── derived slices (sections use different offsets for variety) ───────────
-  const emAltaMovies   = useMemo(() => movies.slice(0, 6),   [movies]);
-  const lancamentos    = useMemo(() => movies.slice(6, 12),  [movies]);
-  const acaoMovies     = useMemo(() => movies.slice(2, 8),   [movies]);
-  const dramaMovies    = useMemo(() => movies.slice(8, 14),  [movies]);
-  const comediaMovies  = useMemo(() => movies.slice(14, 20), [movies]);
-  const terrorMovies   = useMemo(() => movies.slice(4, 10),  [movies]);
-  const scifiMovies    = useMemo(() => movies.slice(10, 16), [movies]);
-  const paraVoce       = useMemo(() => movies.slice(12, 18), [movies]);
-  const internMovies   = useMemo(() => movies.slice(16, 22), [movies]);
-  const premiadosM     = useMemo(() => movies.slice(20, 26), [movies]);
-
-  const emAltaSeries   = useMemo(() => series.slice(0, 6),   [series]);
-  const dramasSeries   = useMemo(() => series.slice(6, 12),  [series]);
-  const thrillerSeries = useMemo(() => series.slice(4, 10),  [series]);
-  const miniSeries     = useMemo(() => series.slice(12, 18), [series]);
-  const franquias      = useMemo(() => series.slice(2, 8),   [series]);
-  const internSeries   = useMemo(() => series.slice(16, 22), [series]);
-
+  // ── derived slices ─────────────────────────────────────────────────────────
+  const emAltaMovies   = useMemo(() => movies.slice(0, 6),  [movies]);
+  const emAltaSeries   = useMemo(() => series.slice(0, 6),  [series]);
   const emAltaAnimes   = useMemo(() => animes.slice(0, 6),  [animes]);
-  const animacaoRow    = useMemo(() => animes.slice(6, 12), [animes]);
-  const aventuraAnimes = useMemo(() => animes.slice(3, 9),  [animes]);
-
-  const spotlightMovie  = useMemo(() => movies[3]  ?? null, [movies]);
-  const spotlightSeries = useMemo(() => series[4]  ?? null, [series]);
-  const spotlightAnime  = useMemo(() => animes[2]  ?? null, [animes]);
 
   const stats = useMemo(() => [
     { label: "Filmes",  value: totals.movies > 0 ? totals.movies.toLocaleString("pt-BR") : "–", icon: "film" as const,  color: RED },
@@ -1910,34 +1888,6 @@ export default function HomeScreen() {
     { label: "Animes",  value: totals.animes > 0 ? totals.animes.toLocaleString("pt-BR") : "–", icon: "star" as const,  color: PURPLE },
   ], [totals]);
 
-  // ── new derived slices for extra sections ─────────────────────────────────
-  const squareItems    = useMemo(() => series.slice(8, 16),  [series]);
-  const panoramicItems = useMemo(() => movies.slice(18, 24), [movies]);
-  const classicsItems  = useMemo(() => premiadosM,           [premiadosM]);
-  const episodeItems   = useMemo(() => series.slice(18, 24), [series]);
-  const newEpItems     = useMemo(() => series.slice(14, 20), [series]);
-  const familyItems    = useMemo(() => animes.slice(8, 14),  [animes]);
-  const docsItems      = useMemo(() => movies.slice(22, 28), [movies]);
-  const cinemaItem     = useMemo(() => movies[5] ?? null,    [movies]);
-  const doubleLeft     = useMemo(() => movies[7] ?? null,    [movies]);
-  const doubleRight    = useMemo(() => series[9] ?? null,    [series]);
-  const awardItem      = useMemo(() => premiadosM[2] ?? null,[premiadosM]);
-  // ── Surpreenda-me — real random pick ──────────────────────────────────────
-  const [surpriseItem, setSurpriseItem] = useState<ContentItem | null>(null);
-
-  const pickSurprise = useCallback(() => {
-    const pool = [...movies, ...series, ...animes];
-    if (!pool.length) return;
-    const idx = Math.floor(Math.random() * Math.min(pool.length, 60));
-    setSurpriseItem(pool[idx]);
-  }, [movies, series, animes]);
-
-  // auto-pick on first catalog load
-  useEffect(() => {
-    if (!surpriseItem && (movies.length || series.length || animes.length)) {
-      pickSurprise();
-    }
-  }, [movies.length, series.length, animes.length]);
 
   const s = sectionAnims; // shorthand
 
@@ -1994,24 +1944,6 @@ export default function HomeScreen() {
             </ScrollView>
           </AnimatedSection>
 
-          {/* ── 4. STREAMING PLATFORMS ─────────────────────────────────────── */}
-          <AnimatedSection anim={s[2]}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.streamingRow} style={{ marginBottom: 24 }}
-              decelerationRate="fast">
-              {MAIN_PLATFORMS.slice(0, 7).map((p) => (
-                <StreamingChip key={p.id} platform={p}
-                  onPress={() => router.push({ pathname: "/streaming", params: { id: p.id } })} />
-              ))}
-              <Pressable onPress={() => router.push("/streamings-all")} style={styles.seeAllChip}>
-                <LinearGradient colors={["rgba(255,255,255,0.06)","rgba(255,255,255,0.02)"]}
-                  style={styles.seeAllChipInner}>
-                  <Feather name="grid" size={14} color="rgba(255,255,255,0.4)" />
-                  <Text style={styles.seeAllChipText}>Todos</Text>
-                </LinearGradient>
-              </Pressable>
-            </ScrollView>
-          </AnimatedSection>
 
           {loading ? (
             // ── SKELETON ──────────────────────────────────────────────────
@@ -2075,14 +2007,6 @@ export default function HomeScreen() {
                 </AnimatedSection>
               )}
 
-              {/* ── 8. SPOTLIGHT — FILME DESTAQUE ────────────────────────────── */}
-              {spotlightMovie && (
-                <AnimatedSection anim={s[6]}>
-                  <SpotlightBanner item={spotlightMovie} label="DESTAQUE DO DIA"
-                    onPress={() => goTo(spotlightMovie)} accentColor={RED} />
-                </AnimatedSection>
-              )}
-
               {/* ── 9. TOP 10 FILMES ─────────────────────────────────────────── */}
               {top10Movies.length > 0 && (
                 <AnimatedSection anim={s[7]}>
@@ -2102,38 +2026,13 @@ export default function HomeScreen() {
                 </AnimatedSection>
               )}
 
-              {/* ── 10. LANÇAMENTOS DA SEMANA ────────────────────────────────── */}
-              {lancamentos.length > 0 && (
-                <AnimatedSection anim={s[8]}>
-                  <View style={styles.section}>
-                    <SectionHeader title="Lançamentos da Semana" icon="zap"
-                      accentColor={GREEN}
-                      onSeeAll={() => router.push("/(tabs)/novidades")} />
-                    <WideRow items={lancamentos} onPress={goTo}
-                      badgeFn={() => "NOVO"} />
-                  </View>
-                </AnimatedSection>
-              )}
-
               {/* Below-fold: deferred until after first render interactions complete */}
               {belowFoldReady && (
               <>
 
-              {/* ── 11. PROMO — EXPLORAR SÉRIES ──────────────────────────────── */}
-              <AnimatedSection anim={s[9]}>
-                <PromoBanner
-                  icon="tv"
-                  title="Maratone Séries"
-                  subtitle="Centenas de séries para você assistir"
-                  actionLabel="Explorar"
-                  onPress={() => router.push("/(tabs)/descobrir")}
-                  gradient={[PURPLE, INDIGO]}
-                />
-              </AnimatedSection>
-
-              {/* ── 12. SÉRIES EM ALTA ───────────────────────────────────────── */}
+              {/* ── 11. SÉRIES EM ALTA ───────────────────────────────────────── */}
               {emAltaSeries.length > 0 && (
-                <AnimatedSection anim={s[10]}>
+                <AnimatedSection anim={s[9]}>
                   <View style={styles.section}>
                     <SectionHeader title="Séries em Alta" icon="trending-up"
                       accentColor={PURPLE}
@@ -2143,11 +2042,9 @@ export default function HomeScreen() {
                 </AnimatedSection>
               )}
 
-              <SectionDivider label="SÉRIES" accentColor={PURPLE} />
-
-              {/* ── 13. TOP 10 SÉRIES ────────────────────────────────────────── */}
+              {/* ── 12. TOP 10 SÉRIES ────────────────────────────────────────── */}
               {top10Series.length > 0 && (
-                <AnimatedSection anim={s[11]}>
+                <AnimatedSection anim={s[10]}>
                   <View style={styles.section}>
                     <SectionHeader title="Top 10 Séries" icon="award"
                       badge="SEMANAL" accentColor={AMBER}
@@ -2163,67 +2060,11 @@ export default function HomeScreen() {
                 </AnimatedSection>
               )}
 
-              {/* ── 14. SPOTLIGHT — SÉRIE DESTAQUE ───────────────────────────── */}
-              {spotlightSeries && (
-                <AnimatedSection anim={s[12]}>
-                  <SpotlightBanner item={spotlightSeries} label="SERIE DA SEMANA"
-                    onPress={() => goTo(spotlightSeries)} accentColor={PURPLE} />
-                </AnimatedSection>
-              )}
-
-              {/* ── 15. AÇÃO & AVENTURA ──────────────────────────────────────── */}
-              {acaoMovies.length > 0 && (
-                <AnimatedSection anim={s[13]}>
-                  <View style={styles.section}>
-                    <SectionHeader title="Ação & Aventura" icon="zap"
-                      accentColor={ORANGE}
-                      onSeeAll={() => browseTo("movies", "Ação & Aventura")} />
-                    <WideRow items={acaoMovies} onPress={goTo} />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              {/* ── 16. DRAMA ────────────────────────────────────────────────── */}
-              {dramaMovies.length > 0 && (
-                <AnimatedSection anim={s[14]}>
-                  <View style={styles.section}>
-                    <SectionHeader title="Drama" icon="heart"
-                      accentColor={PINK}
-                      onSeeAll={() => browseTo("movies", "Drama")} />
-                    <PosterRow items={dramaMovies} onPress={goTo} />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              {/* ── 17. PROMO — MINHA LISTA ──────────────────────────────────── */}
-              <AnimatedSection anim={s[15]}>
-                <PromoBanner
-                  icon="bookmark"
-                  title="Minha Lista Pessoal"
-                  subtitle="Salve filmes e séries para assistir depois"
-                  actionLabel="Ver lista"
-                  onPress={() => router.push("/(tabs)/list")}
-                  gradient={[TEAL, "#0e7490"]}
-                />
-              </AnimatedSection>
-
-              {/* ── 18. DRAMAS DE SÉRIE ──────────────────────────────────────── */}
-              {dramasSeries.length > 0 && (
-                <AnimatedSection anim={s[16]}>
-                  <View style={styles.section}>
-                    <SectionHeader title="Dramas Envolventes" icon="heart"
-                      accentColor={PINK}
-                      onSeeAll={() => browseTo("series", "Dramas")} />
-                    <FeaturedRow items={dramasSeries} onPress={goTo} accentColor={PINK} />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              {/* ── 19. ANIMES ───────────────────────────────────────────────── */}
+              {/* ── 13. ANIMES ───────────────────────────────────────────────── */}
               {emAltaAnimes.length > 0 && (
                 <>
                   <SectionDivider label="ANIMES" accentColor={AMBER} />
-                  <AnimatedSection anim={s[17]}>
+                  <AnimatedSection anim={s[11]}>
                     <View style={styles.section}>
                       <SectionHeader title="Animes em Alta" icon="star"
                         accentColor={AMBER}
@@ -2233,401 +2074,6 @@ export default function HomeScreen() {
                   </AnimatedSection>
                 </>
               )}
-
-              {/* ── 20. SPOTLIGHT ANIME ──────────────────────────────────────── */}
-              {spotlightAnime && (
-                <AnimatedSection anim={s[18]}>
-                  <SpotlightBanner item={spotlightAnime} label="ANIME DESTAQUE"
-                    onPress={() => goTo(spotlightAnime)} accentColor={AMBER} />
-                </AnimatedSection>
-              )}
-
-              {/* ── 21. COMÉDIA ──────────────────────────────────────────────── */}
-              {comediaMovies.length > 0 && (
-                <AnimatedSection anim={s[18]}>
-                  <View style={styles.section}>
-                    <SectionHeader title="Comédia" icon="smile"
-                      accentColor={GREEN}
-                      onSeeAll={() => browseTo("movies", "Comédia")} />
-                    <PosterRow items={comediaMovies} onPress={goTo} showTitle />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              {/* ── 22. TERROR & SUSPENSE ────────────────────────────────────── */}
-              {terrorMovies.length > 0 && (
-                <AnimatedSection anim={s[19]}>
-                  <View style={styles.section}>
-                    <SectionHeader title="Terror & Suspense" icon="eye"
-                      accentColor="#dc2626"
-                      onSeeAll={() => browseTo("movies", "Terror")} />
-                    <FeaturedRow items={terrorMovies} onPress={goTo} accentColor="#dc2626" />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              {/* ── 23. THRILLER SÉRIES ──────────────────────────────────────── */}
-              {thrillerSeries.length > 0 && (
-                <AnimatedSection anim={s[20]}>
-                  <View style={styles.section}>
-                    <SectionHeader title="Thriller & Crime" icon="shield"
-                      accentColor={INDIGO}
-                      onSeeAll={() => browseTo("series", "Thriller")} />
-                    <WideRow items={thrillerSeries} onPress={goTo} />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              {/* ── 24. PROMO — ACERVO ───────────────────────────────────────── */}
-              <AnimatedSection anim={s[21]}>
-                <PromoBanner
-                  icon="archive"
-                  title="Acervo Completo"
-                  subtitle="Explore todo o catálogo disponível"
-                  actionLabel="Explorar"
-                  onPress={() => router.push("/(tabs)/franquias")}
-                  gradient={["#1e1b4b", INDIGO]}
-                />
-              </AnimatedSection>
-
-              {/* ── 25. FICÇÃO CIENTÍFICA ────────────────────────────────────── */}
-              {scifiMovies.length > 0 && (
-                <AnimatedSection anim={s[22]}>
-                  <View style={styles.section}>
-                    <SectionHeader title="Ficção Científica" icon="cpu"
-                      accentColor={BLUE}
-                      onSeeAll={() => browseTo("movies", "Ficção Científica")} />
-                    <WideRow items={scifiMovies} onPress={goTo} />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              {/* ── 26. ANIMAÇÃO ─────────────────────────────────────────────── */}
-              {animacaoRow.length > 0 && (
-                <AnimatedSection anim={s[22]}>
-                  <View style={styles.section}>
-                    <SectionHeader title="Animações" icon="film"
-                      accentColor="#f97316"
-                      onSeeAll={() => browseTo("animes", "Animações")} />
-                    <PosterRow items={animacaoRow} onPress={goTo} />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              {/* ── 27. FRANQUIAS & UNIVERSOS ────────────────────────────────── */}
-              {franquias.length > 0 && (
-                <AnimatedSection anim={s[23]}>
-                  <View style={styles.section}>
-                    <SectionHeader title="Franquias & Universos" icon="layers"
-                      accentColor={AMBER}
-                      onSeeAll={() => router.push("/(tabs)/franquias")} />
-                    <FeaturedRow items={franquias} onPress={goTo} accentColor={AMBER} />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              {/* ── 28. MAIS BEM AVALIADOS ───────────────────────────────────── */}
-              {premiadosM.length > 0 && (
-                <AnimatedSection anim={s[24]}>
-                  <View style={styles.section}>
-                    <SectionHeader title="Mais Bem Avaliados" icon="award"
-                      badge="PREMIADOS" accentColor={AMBER}
-                      onSeeAll={() => browseTo("movies", "Premiados")} />
-                    <PosterRow items={premiadosM} onPress={goTo} showTitle />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              {/* ── 29. PARA VOCÊ ────────────────────────────────────────────── */}
-              {paraVoce.length > 0 && (
-                <AnimatedSection anim={s[24]}>
-                  <View style={styles.section}>
-                    <SectionHeader title="Selecionado para Você" icon="heart"
-                      accentColor={PINK}
-                      onSeeAll={() => browseTo("movies", "Para Você")} />
-                    <PosterRow items={paraVoce} onPress={goTo} />
-                  </View>
-                </AnimatedSection>
-              )}
-
-
-              {/* ── 31. AVENTURA ANIMES ──────────────────────────────────────── */}
-              {aventuraAnimes.length > 0 && (
-                <AnimatedSection anim={s[25]}>
-                  <View style={styles.section}>
-                    <SectionHeader title="Aventura & Fantasia" icon="compass"
-                      accentColor="#f97316"
-                      onSeeAll={() => browseTo("animes", "Aventura")} />
-                    <WideRow items={aventuraAnimes} onPress={goTo} />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              {/* ── 32. INTERNACIONAL ────────────────────────────────────────── */}
-              {internMovies.length > 0 && (
-                <AnimatedSection anim={s[26]}>
-                  <View style={styles.section}>
-                    <SectionHeader title="Cinema Internacional" icon="globe"
-                      accentColor={TEAL}
-                      onSeeAll={() => browseTo("movies", "Internacional")} />
-                    <FeaturedRow items={internMovies} onPress={goTo} accentColor={TEAL} />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              {/* ── 33. SÉRIES INTERNACIONAIS ────────────────────────────────── */}
-              {internSeries.length > 0 && (
-                <AnimatedSection anim={s[26]}>
-                  <View style={styles.section}>
-                    <SectionHeader title="Séries Internacionais" icon="globe"
-                      accentColor={BLUE}
-                      onSeeAll={() => browseTo("series", "Internacional")} />
-                    <PosterRow items={internSeries} onPress={goTo} />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              {/* ── 34. PROMO FINAL ───────────────────────────────────────────── */}
-              <AnimatedSection anim={s[27]}>
-                <PromoBanner
-                  icon="download"
-                  title="Baixe e Assista Offline"
-                  subtitle="Salve conteúdos para assistir sem internet"
-                  actionLabel="Downloads"
-                  onPress={() => router.push("/(tabs)/downloads")}
-                  gradient={["#134e4a", "#0f766e"]}
-                />
-              </AnimatedSection>
-
-              {/* ══════════════════════════════════════════════════════════════ */}
-              {/* ── NOVAS SEÇÕES — TIPOS PREMIUM ──────────────────────────── */}
-              {/* ══════════════════════════════════════════════════════════════ */}
-
-              {/* ── 35. MOOD / CLIMA ─────────────────────────────────────── */}
-              <AnimatedSection anim={s[28]}>
-                <View style={styles.section}>
-                  <SectionHeader title="O que você quer sentir?" icon="heart"
-                    accentColor={PINK} subtitle="Escolha pelo clima" />
-                  <MoodRowComp moods={MOODS}
-                    onPress={(m) => router.push({ pathname: "/genre-browse",
-                      params: { title: m.label, source: "flix2", flix2_type: "movies" } })} />
-                </View>
-              </AnimatedSection>
-
-
-              {/* ── 38. TAGS EM ALTA ────────────────────────────────────── */}
-              <AnimatedSection anim={s[30]}>
-                <View style={styles.section}>
-                  <SectionHeader title="Tags em Alta" icon="hash"
-                    accentColor={RED} badge="TRENDING" />
-                  <HotTagsComp tags={HOT_TAGS}
-                    onPress={(tag) => router.push({ pathname: "/buscar", params: { q: tag.replace("#","") } })} />
-                </View>
-              </AnimatedSection>
-
-              {/* ── 39. CINEMATIC BANNER ────────────────────────────────── */}
-              {cinemaItem && (
-                <AnimatedSection anim={s[31]}>
-                  <SectionHeader title="Destaque Cinemático" icon="film"
-                    accentColor={AMBER} />
-                  <CinematicBannerComp item={cinemaItem}
-                    onPress={() => goTo(cinemaItem)} label="DESTAQUE" />
-                </AnimatedSection>
-              )}
-
-              {/* ── 40. CARDS QUADRADOS ─────────────────────────────────── */}
-              {squareItems.length > 0 && (
-                <AnimatedSection anim={s[32]}>
-                  <View style={styles.section}>
-                    <SectionHeader title="Séries do Momento" icon="square"
-                      accentColor={TEAL}
-                      onSeeAll={() => browseTo("series", "Séries do Momento")} />
-                    <SquareRow items={squareItems} onPress={goTo} />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              {/* ── 41. CARROSSEL PANORÂMICO ────────────────────────────── */}
-              {panoramicItems.length > 0 && (
-                <AnimatedSection anim={s[33]}>
-                  <View style={styles.section}>
-                    <SectionHeader title="Vista Panorâmica" icon="monitor"
-                      accentColor={INDIGO}
-                      onSeeAll={() => browseTo("movies", "Panorâmicos")} />
-                    <PanoramicRow items={panoramicItems} onPress={goTo} />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              {/* ── 42. ESTÚDIOS ────────────────────────────────────────── */}
-              <SectionDivider label="ESTÚDIOS" accentColor={AMBER} />
-              <AnimatedSection anim={s[34]}>
-                <View style={styles.section}>
-                  <SectionHeader title="Por Estúdio" icon="briefcase"
-                    accentColor={AMBER} subtitle="Marvel, DC, Pixar e mais" />
-                  <StudioRowComp studios={STUDIOS}
-                    onPress={(s) => router.push({ pathname: "/buscar", params: { q: s.label } })} />
-                </View>
-              </AnimatedSection>
-
-              {/* ── 43. DOUBLE FEATURE ──────────────────────────────────── */}
-              <AnimatedSection anim={s[35]}>
-                <View style={styles.section}>
-                  <SectionHeader title="Double Feature" icon="copy"
-                    accentColor={BLUE} subtitle="Dois títulos imperdíveis" />
-                  <DoubleFeatureComp
-                    left={doubleLeft} right={doubleRight}
-                    onPressLeft={() => doubleLeft && goTo(doubleLeft)}
-                    onPressRight={() => doubleRight && goTo(doubleRight)}
-                    tagLeft="FILME" tagRight="SÉRIE"
-                  />
-                </View>
-              </AnimatedSection>
-
-              {/* ── 44. BANNER PREMIADOS ────────────────────────────────── */}
-              <AnimatedSection anim={s[36]}>
-                <SectionHeader title="Aclamados pela Crítica" icon="award"
-                  accentColor={AMBER} badge="PREMIADOS" />
-                <AwardBannerComp item={awardItem}
-                  onPress={() => awardItem && goTo(awardItem)} />
-              </AnimatedSection>
-
-              {/* ── 45. EPISÓDIOS (formato especial) ────────────────────── */}
-              {episodeItems.length > 0 && (
-                <AnimatedSection anim={s[37]}>
-                  <View style={styles.section}>
-                    <SectionHeader title="Próximos Episódios" icon="play-circle"
-                      accentColor={GREEN}
-                      onSeeAll={() => browseTo("series", "Episódios")} />
-                    <EpisodeRow items={episodeItems} onPress={goTo} />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              {/* ── 47. CLÁSSICOS (featured format) ─────────────────────── */}
-              <SectionDivider label="CLÁSSICOS" accentColor={TEAL} />
-              {classicsItems.length > 0 && (
-                <AnimatedSection anim={s[39]}>
-                  <View style={styles.section}>
-                    <SectionHeader title="Clássicos Imortais" icon="star"
-                      accentColor={AMBER}
-                      onSeeAll={() => browseTo("movies", "Clássicos")} />
-                    <FeaturedRow items={classicsItems} onPress={goTo} accentColor={AMBER} />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              {/* ── 48. CINEMA POR PAÍS ─────────────────────────────────── */}
-              <AnimatedSection anim={s[40]}>
-                <View style={styles.section}>
-                  <SectionHeader title="Cinema do Mundo" icon="globe"
-                    accentColor={TEAL} subtitle="Explore por país" />
-                  <FilmNationRow countries={COUNTRIES}
-                    onPress={(c) => router.push({
-                      pathname: "/country-browse",
-                      params: { id: c.id, label: c.label, flag: c.flag, color: c.color },
-                    })} />
-                </View>
-              </AnimatedSection>
-
-              {/* ── 49. ATORES EM DESTAQUE ──────────────────────────────── */}
-              <AnimatedSection anim={s[41]}>
-                <View style={styles.section}>
-                  <SectionHeader title="Atores em Destaque" icon="users"
-                    accentColor={PINK} />
-                  {ACTOR_CATEGORIES.map((cat) => (
-                    <ActorCategorySection
-                      key={cat.id}
-                      category={cat}
-                      onActorPress={(a) => router.push({
-                        pathname: "/actor-browse",
-                        params: { name: a.name, color: a.color },
-                      })}
-                    />
-                  ))}
-                </View>
-              </AnimatedSection>
-
-              {/* ── 50. MODO FAMÍLIA ────────────────────────────────────── */}
-              {familyItems.length > 0 && (
-                <AnimatedSection anim={s[42]}>
-                  <FamilyBannerComp items={familyItems}
-                    onPress={() => browseTo("animes", "Família")}
-                    onItem={goTo} />
-                </AnimatedSection>
-              )}
-
-              {/* ── 51. DOCUMENTÁRIOS ───────────────────────────────────── */}
-              {docsItems.length > 0 && (
-                <AnimatedSection anim={s[43]}>
-                  <View style={styles.section}>
-                    <SectionHeader title="Documentários" icon="camera"
-                      accentColor={TEAL}
-                      onSeeAll={() => browseTo("movies", "Documentários")} />
-                    <WideRow items={docsItems} onPress={goTo} />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              {/* ── 52. NOVOS EPISÓDIOS ──────────────────────────────────── */}
-              {newEpItems.length > 0 && (
-                <AnimatedSection anim={s[44]}>
-                  <View style={styles.section}>
-                    <SectionHeader title="Novos Episódios" icon="rss"
-                      badge="HOJE" accentColor={GREEN}
-                      onSeeAll={() => browseTo("series", "Novos Episódios")} />
-                    <PosterRow items={newEpItems} onPress={goTo} showTitle />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              {/* ── 53. EM BREVE (contagens regressivas) ────────────────── */}
-              <SectionDivider label="EM BREVE" accentColor={AMBER} />
-              <AnimatedSection anim={s[45]}>
-                <View style={styles.section}>
-                  <SectionHeader title="Chegando em Breve" icon="clock"
-                    accentColor={AMBER} badge="AGUARDADO" />
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={{ paddingHorizontal:16, gap:12 }} decelerationRate="fast">
-                    {UPCOMING_MOVIES.map((u) => (
-                      <View key={u.title} style={{ width: 260 }}>
-                        <CountdownBannerComp
-                          title={u.title} daysLeft={u.daysLeft}
-                          accentColor={u.accentColor}
-                          onPress={() => router.push("/(tabs)/novidades")} />
-                      </View>
-                    ))}
-                  </ScrollView>
-                </View>
-              </AnimatedSection>
-
-              {/* ── 54. ORIGINALS BANNER ────────────────────────────────── */}
-              <AnimatedSection anim={s[46]}>
-                <OriginalsBannerComp onPress={() => router.push("/(tabs)/novidades")} />
-              </AnimatedSection>
-
-              {/* ── 55. SURPREENDA-ME ────────────────────────────────────── */}
-              <AnimatedSection anim={s[47]}>
-                <SectionHeader title="Não sabe o que assistir?" icon="shuffle"
-                  accentColor={PURPLE} />
-                <SurpriseBannerComp
-                  item={surpriseItem}
-                  onPick={pickSurprise}
-                  onPlay={() => surpriseItem && goTo(surpriseItem)}
-                />
-              </AnimatedSection>
-
-              {/* ── 56. PROMO FINAL ─────────────────────────────────────── */}
-              <AnimatedSection anim={s[48]}>
-                <PromoBanner
-                  icon="wifi"
-                  title="TV ao Vivo"
-                  subtitle="Canais ao vivo com programação completa"
-                  actionLabel="Ao Vivo"
-                  onPress={() => router.push("/(tabs)/descobrir")}
-                  gradient={[GREEN, "#15803d"]}
-                />
-              </AnimatedSection>
 
               </>
               )}

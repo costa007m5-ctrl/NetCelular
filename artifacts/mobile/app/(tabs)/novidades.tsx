@@ -938,7 +938,7 @@ export default function NovidadesScreen() {
   const headerOp  = useRef(new Animated.Value(0)).current;
   const shimmer   = useRef(new Animated.Value(0)).current;
   const scrollFab = useRef(new Animated.Value(0)).current;
-  const s         = useRef(makeAnims(38)).current;
+  const s         = useRef(makeAnims(9)).current;
   // headerOp: 1, shimmer: 1, scrollFab: 1, s[0..37]: 38 = 41 values at module level
   // + glow anims inside SpotlightBanner (×3) = 44
   // + blink inside CountdownBanner = 45
@@ -955,32 +955,12 @@ export default function NovidadesScreen() {
   const [allSeries,   setAllSeries]   = useState<ContentItem[]>([]);
   const [allAnimes,   setAllAnimes]   = useState<ContentItem[]>([]);
 
-  // derived slices — only used in render (avoids stale-closure issues)
-  const trendMovies    = useMemo(() => allMovies.slice(0, 20),   [allMovies]);
-  const trendSeries    = useMemo(() => allSeries.slice(0, 20),   [allSeries]);
-  const top10Movies    = useMemo(() => allMovies.slice(0, 10),   [allMovies]);
-  const top10Series    = useMemo(() => allSeries.slice(0, 10),   [allSeries]);
-  const nowPlaying     = useMemo(() => allMovies.slice(0, 18),   [allMovies]);
-  const onAir          = useMemo(() => allSeries.slice(0, 15),   [allSeries]);
-  const popularMovies  = useMemo(() => allMovies.slice(10, 30),  [allMovies]);
-  const popularSeries  = useMemo(() => allSeries.slice(10, 25),  [allSeries]);
-  const actionMovies   = useMemo(() => allMovies.slice(0, 15),   [allMovies]);
-  const dramaMovies    = useMemo(() => allMovies.slice(5, 20),   [allMovies]);
-  const comedyMovies   = useMemo(() => allMovies.slice(10, 25),  [allMovies]);
-  const horrorMovies   = useMemo(() => allMovies.slice(15, 30),  [allMovies]);
-  const scifiMovies    = useMemo(() => allMovies.slice(20, 35),  [allMovies]);
-  const romanceMovies  = useMemo(() => allMovies.slice(25, 40),  [allMovies]);
-  const thrillerMovies = useMemo(() => allSeries.slice(5, 20),   [allSeries]);
-  const animMovies     = useMemo(() => allAnimes.slice(0, 15),   [allAnimes]);
-  const animeSeries    = useMemo(() => allAnimes.slice(0, 20),   [allAnimes]);
-  const kDramas        = useMemo(() => allSeries.slice(15, 30),  [allSeries]);
-  const spanishSeries  = useMemo(() => allSeries.slice(20, 35),  [allSeries]);
-  const familyMovies   = useMemo(() => allMovies.slice(30, 45),  [allMovies]);
-  const docMovies      = useMemo(() => allMovies.slice(35, 50),  [allMovies]);
-  const nationalContent= useMemo(() => allMovies.slice(40, 55),  [allMovies]);
-  const classicMovies  = useMemo(() => allMovies.slice(45, 60),  [allMovies]);
-  const dramaSeries    = useMemo(() => allSeries.slice(10, 25),  [allSeries]);
-  const crimeSeries    = useMemo(() => allSeries.slice(25, 40),  [allSeries]);
+  // derived slices
+  const trendMovies    = useMemo(() => allMovies.slice(0, 6),  [allMovies]);
+  const top10Movies    = useMemo(() => allMovies.slice(0, 10), [allMovies]);
+  const top10Series    = useMemo(() => allSeries.slice(0, 10), [allSeries]);
+  const nowPlaying     = useMemo(() => allMovies.slice(0, 6),  [allMovies]);
+  const onAir          = useMemo(() => allSeries.slice(0, 6),  [allSeries]);
 
   // ── R2 / Drive catalog ────────────────────────────────────────────────────
   const { r2All } = useR2Catalog();
@@ -1019,9 +999,9 @@ export default function NovidadesScreen() {
   // ── Fetch all data — cache-first + background revalidation ────────────────
   const loadAll = useCallback(async () => {
     const [movRes, serRes, aniRes] = await Promise.allSettled([
-      fetchCatalog("movies", 3, (fresh) => setAllMovies(fresh)),
-      fetchCatalog("series", 3, (fresh) => setAllSeries(fresh)),
-      fetchCatalog("animes", 2, (fresh) => setAllAnimes(fresh)),
+      fetchCatalog("movies", 1, (fresh) => setAllMovies(fresh)),
+      fetchCatalog("series", 1, (fresh) => setAllSeries(fresh)),
+      fetchCatalog("animes", 1, (fresh) => setAllAnimes(fresh)),
     ]);
 
     const movies = movRes.status === "fulfilled" ? movRes.value : [];
@@ -1068,34 +1048,7 @@ export default function NovidadesScreen() {
 
   // Derived spotlights
   const spotlight1    = allMovies[0]  ?? null;
-  const spotlight2    = allSeries[0]  ?? null;
-  const spotlight3    = allMovies[3]  ?? null;
   const countdownItem = allMovies[5]  ?? null;
-
-  // Premiados = best rated items
-  const premiadosItems = useMemo(
-    () => [...allMovies, ...allSeries].filter((x) => x.rating >= 7.5).slice(0, 20),
-    [allMovies, allSeries]
-  );
-
-  // Franquias
-  const franquiasItems = useMemo(
-    () => allMovies.filter((x) => x.rating >= 6).slice(4, 24),
-    [allMovies]
-  );
-
-  // Mais bem avaliados mix
-  const maisAvaliados = useMemo(
-    () => [...allMovies.slice(0, 10), ...allSeries.slice(0, 10)]
-      .sort((a, b) => b.rating - a.rating),
-    [allMovies, allSeries]
-  );
-
-  // Baseado em fatos
-  const basedOnFacts = useMemo(
-    () => [...allMovies.slice(35, 45), ...allSeries.slice(5, 15)],
-    [allMovies, allSeries]
-  );
 
   return (
     <View style={[sty.root, { backgroundColor: colors.background }]}>
@@ -1260,359 +1213,6 @@ export default function NovidadesScreen() {
                 </AnimatedSection>
               )}
 
-              {/* Below-fold: deferred until after first render interactions complete */}
-              {belowFoldReady && (
-              <>
-
-              {/* ── 11. POPULARES FILMES ────────────────────────────────── */}
-              {popularMovies.length > 0 && (
-                <AnimatedSection anim={s[9]}>
-                  <View style={sty.sec}>
-                    <SectionHeader title="Populares" icon="activity" accentColor={ORANGE}
-                      subtitle="Os mais assistidos do momento"
-                      onSeeAll={() => openModal("Populares", popularMovies, ORANGE)} />
-                    <PosterRow items={popularMovies} onPress={goTo} />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              <SectionDivider label="GÊNEROS" accentColor={PURPLE} />
-
-              {/* ── 12. AÇÃO & AVENTURA ─────────────────────────────────── */}
-              {actionMovies.length > 0 && (
-                <AnimatedSection anim={s[10]}>
-                  <View style={sty.sec}>
-                    <SectionHeader title="Ação & Aventura" icon="zap"
-                      accentColor={RED}
-                      onSeeAll={() => openModal("Ação & Aventura", actionMovies, RED)} />
-                    <WideRow items={actionMovies} onPress={goTo}
-                      badgeFn={(i) => i.rating >= 7.5 ? "ÉPICO" : undefined}
-                      accentColor={RED} />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              {/* ── 13. DRAMA ───────────────────────────────────────────── */}
-              {dramaMovies.length > 0 && (
-                <AnimatedSection anim={s[11]}>
-                  <View style={sty.sec}>
-                    <SectionHeader title="Drama" icon="heart"
-                      accentColor={BLUE}
-                      onSeeAll={() => openModal("Drama", dramaMovies, BLUE)} />
-                    <PosterRow items={dramaMovies} onPress={goTo} showTitle />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              {/* ── 14. SPOTLIGHT 2 — SÉRIE ─────────────────────────────── */}
-              {spotlight2 && (
-                <AnimatedSection anim={s[12]}>
-                  <SpotlightBanner item={spotlight2}
-                    label="SÉRIE DO MOMENTO"
-                    onPress={() => goTo(spotlight2)}
-                    accentColor={PURPLE} />
-                </AnimatedSection>
-              )}
-
-              {/* ── 15. COMÉDIA ─────────────────────────────────────────── */}
-              {comedyMovies.length > 0 && (
-                <AnimatedSection anim={s[13]}>
-                  <View style={sty.sec}>
-                    <SectionHeader title="Comédia" icon="smile"
-                      accentColor={ORANGE}
-                      onSeeAll={() => openModal("Comédia", comedyMovies, ORANGE)} />
-                    <FeaturedRow items={comedyMovies} onPress={goTo} accentColor={ORANGE} />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              {/* ── 16. TERROR & SUSPENSE ───────────────────────────────── */}
-              {horrorMovies.length > 0 && (
-                <AnimatedSection anim={s[14]}>
-                  <View style={sty.sec}>
-                    <SectionHeader title="Terror & Suspense" icon="eye"
-                      accentColor={DARK}
-                      onSeeAll={() => openModal("Terror & Suspense", horrorMovies, DARK)} />
-                    <MoodRow items={horrorMovies} onPress={goTo} accentColor={DARK} />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              {/* ── 17. FICÇÃO CIENTÍFICA ───────────────────────────────── */}
-              {scifiMovies.length > 0 && (
-                <AnimatedSection anim={s[15]}>
-                  <View style={sty.sec}>
-                    <SectionHeader title="Ficção Científica" icon="cpu"
-                      accentColor={TEAL}
-                      onSeeAll={() => openModal("Ficção Científica", scifiMovies, TEAL)} />
-                    <WideRow items={scifiMovies} onPress={goTo} accentColor={TEAL} />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              {/* ── 18. STATS BANNER ────────────────────────────────────── */}
-              <AnimatedSection anim={s[16]}>
-                <StatsBanner stats={[
-                  { label:"Filmes", value: `${allMovies.length}+`, color:RED,    icon:"film" },
-                  { label:"Séries", value: `${allSeries.length}+`, color:PURPLE, icon:"tv"   },
-                  { label:"Animes", value: `${allAnimes.length}+`, color:TEAL,   icon:"star" },
-                ]} />
-              </AnimatedSection>
-
-              {/* ── 19. ROMANCE ─────────────────────────────────────────── */}
-              {romanceMovies.length > 0 && (
-                <AnimatedSection anim={s[17]}>
-                  <View style={sty.sec}>
-                    <SectionHeader title="Romance" icon="heart"
-                      accentColor={PINK}
-                      onSeeAll={() => openModal("Romance", romanceMovies, PINK)} />
-                    <PosterRow items={romanceMovies} onPress={goTo} />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              {/* ── 20. PROMO — MINHA LISTA ─────────────────────────────── */}
-              <AnimatedSection anim={s[18]}>
-                <PromoBanner icon="bookmark"
-                  title="Minha Lista Pessoal"
-                  subtitle="Salve filmes e séries para assistir depois"
-                  actionLabel="Abrir lista"
-                  onPress={() => router.push("/(tabs)/list")}
-                  gradient={[TEAL,"#0e7490"]} />
-              </AnimatedSection>
-
-              <SectionDivider label="SÉRIES" accentColor={GREEN} />
-
-              {/* ── 21. DRAMA SÉRIES ────────────────────────────────────── */}
-              {dramaSeries.length > 0 && (
-                <AnimatedSection anim={s[19]}>
-                  <View style={sty.sec}>
-                    <SectionHeader title="Dramas Envolventes" icon="heart"
-                      accentColor={BLUE}
-                      onSeeAll={() => openModal("Dramas Envolventes", dramaSeries, BLUE)} />
-                    <FeaturedRow items={dramaSeries} onPress={goTo} accentColor={BLUE} />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              {/* ── 22. THRILLER & CRIME ────────────────────────────────── */}
-              {thrillerMovies.length > 0 && (
-                <AnimatedSection anim={s[20]}>
-                  <View style={sty.sec}>
-                    <SectionHeader title="Thriller & Crime" icon="shield"
-                      accentColor={INDIGO}
-                      onSeeAll={() => openModal("Thriller & Crime", [...thrillerMovies,...crimeSeries], INDIGO)} />
-                    <WideRow items={thrillerMovies} onPress={goTo} accentColor={INDIGO} />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              {/* ── 23. CRIME SÉRIES ────────────────────────────────────── */}
-              {crimeSeries.length > 0 && (
-                <AnimatedSection anim={s[21]}>
-                  <View style={sty.sec}>
-                    <SectionHeader title="Crime & Investigação" icon="search"
-                      accentColor={INDIGO}
-                      onSeeAll={() => openModal("Crime & Investigação", crimeSeries, INDIGO)} />
-                    <CompactRow items={crimeSeries} onPress={goTo} />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              {/* ── 24. POPULARES SÉRIES ────────────────────────────────── */}
-              {popularSeries.length > 0 && (
-                <AnimatedSection anim={s[22]}>
-                  <View style={sty.sec}>
-                    <SectionHeader title="Séries em Destaque" icon="star"
-                      accentColor={AMBER}
-                      onSeeAll={() => openModal("Séries em Destaque", popularSeries, AMBER)} />
-                    <PosterRow items={popularSeries} onPress={goTo} />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              <SectionDivider label="ESPECIAIS" accentColor={AMBER} />
-
-              {/* ── 25. FRANQUIAS & UNIVERSOS ───────────────────────────── */}
-              {franquiasItems.length > 0 && (
-                <AnimatedSection anim={s[23]}>
-                  <View style={sty.sec}>
-                    <SectionHeader title="Franquias & Universos" icon="layers"
-                      accentColor={AMBER}
-                      onSeeAll={() => openModal("Franquias & Universos", franquiasItems, AMBER)} />
-                    <FeaturedRow items={franquiasItems} onPress={goTo} accentColor={AMBER} />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              {/* ── 26. PREMIADOS ───────────────────────────────────────── */}
-              {premiadosItems.length > 0 && (
-                <AnimatedSection anim={s[24]}>
-                  <View style={sty.sec}>
-                    <SectionHeader title="Premiados & Aclamados" icon="award"
-                      badge="PREMIADO" accentColor={AMBER}
-                      onSeeAll={() => openModal("Premiados & Aclamados", premiadosItems, AMBER)} />
-                    <PosterRow items={premiadosItems} onPress={goTo} showTitle />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              {/* ── 27. SPOTLIGHT 3 ─────────────────────────────────────── */}
-              {spotlight3 && (
-                <AnimatedSection anim={s[25]}>
-                  <SpotlightBanner item={spotlight3}
-                    label="ESCOLHA DO EDITOR"
-                    onPress={() => goTo(spotlight3)}
-                    accentColor={ORANGE} />
-                </AnimatedSection>
-              )}
-
-              {/* ── 28. ANIMAÇÃO ────────────────────────────────────────── */}
-              {animMovies.length > 0 && (
-                <AnimatedSection anim={s[26]}>
-                  <View style={sty.sec}>
-                    <SectionHeader title="Animações" icon="film"
-                      accentColor={ORANGE}
-                      onSeeAll={() => openModal("Animações", animMovies, ORANGE)} />
-                    <PosterRow items={animMovies} onPress={goTo} />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              <SectionDivider label="MUNDO" accentColor={TEAL} />
-
-              {/* ── 29. ANIMES ──────────────────────────────────────────── */}
-              {animeSeries.length > 0 && (
-                <AnimatedSection anim={s[27]}>
-                  <View style={sty.sec}>
-                    <SectionHeader title="Animes" icon="star"
-                      accentColor={AMBER}
-                      onSeeAll={() => openModal("Animes", animeSeries, AMBER)} />
-                    <PosterRow items={animeSeries} onPress={goTo} />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              {/* ── 30. K-DRAMA ─────────────────────────────────────────── */}
-              {kDramas.length > 0 && (
-                <AnimatedSection anim={s[28]}>
-                  <View style={sty.sec}>
-                    <SectionHeader title="K-Drama" icon="globe"
-                      accentColor={PINK}
-                      onSeeAll={() => openModal("K-Drama", kDramas, PINK)} />
-                    <FeaturedRow items={kDramas} onPress={goTo} accentColor={PINK} />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              {/* ── 31. SÉRIES ESPANHOLAS ───────────────────────────────── */}
-              {spanishSeries.length > 0 && (
-                <AnimatedSection anim={s[29]}>
-                  <View style={sty.sec}>
-                    <SectionHeader title="Séries Espanholas" icon="globe"
-                      accentColor={ORANGE}
-                      onSeeAll={() => openModal("Séries Espanholas", spanishSeries, ORANGE)} />
-                    <WideRow items={spanishSeries} onPress={goTo} accentColor={ORANGE} />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              {/* ── 32. DOCUMENTÁRIOS ───────────────────────────────────── */}
-              {docMovies.length > 0 && (
-                <AnimatedSection anim={s[30]}>
-                  <View style={sty.sec}>
-                    <SectionHeader title="Documentários" icon="book-open"
-                      accentColor={GREEN}
-                      onSeeAll={() => openModal("Documentários", docMovies, GREEN)} />
-                    <MoodRow items={docMovies} onPress={goTo} accentColor={GREEN} />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              {/* ── 33. NACIONAL ────────────────────────────────────────── */}
-              {nationalContent.length > 0 && (
-                <AnimatedSection anim={s[31]}>
-                  <View style={sty.sec}>
-                    <SectionHeader title="Produção Nacional" icon="map-pin"
-                      accentColor={GREEN}
-                      onSeeAll={() => openModal("Produção Nacional", nationalContent, GREEN)} />
-                    <PosterRow items={nationalContent} onPress={goTo} showTitle />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              {/* ── 34. PROMO — ACERVO ──────────────────────────────────── */}
-              <AnimatedSection anim={s[32]}>
-                <PromoBanner icon="archive"
-                  title="Acervo Completo"
-                  subtitle="Explore todo o catálogo disponível"
-                  actionLabel="Explorar"
-                  onPress={() => router.push("/(tabs)/franquias")}
-                  gradient={["#1e1b4b", INDIGO]} />
-              </AnimatedSection>
-
-              <SectionDivider label="DESCOBRIR" accentColor={INDIGO} />
-
-              {/* ── 35. PARA A FAMÍLIA ──────────────────────────────────── */}
-              {familyMovies.length > 0 && (
-                <AnimatedSection anim={s[33]}>
-                  <View style={sty.sec}>
-                    <SectionHeader title="Para Toda a Família" icon="users"
-                      accentColor="#06b6d4"
-                      onSeeAll={() => openModal("Para Toda a Família", familyMovies, "#06b6d4")} />
-                    <FeaturedRow items={familyMovies} onPress={goTo} accentColor="#06b6d4" />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              {/* ── 36. CLÁSSICOS ───────────────────────────────────────── */}
-              {classicMovies.length > 0 && (
-                <AnimatedSection anim={s[34]}>
-                  <View style={sty.sec}>
-                    <SectionHeader title="Clássicos do Cinema" icon="video"
-                      accentColor={AMBER}
-                      onSeeAll={() => openModal("Clássicos do Cinema", classicMovies, AMBER)} />
-                    <WideRow items={classicMovies} onPress={goTo} accentColor={AMBER} />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              {/* ── 37. BASEADO EM FATOS ────────────────────────────────── */}
-              {basedOnFacts.length > 0 && (
-                <AnimatedSection anim={s[35]}>
-                  <View style={sty.sec}>
-                    <SectionHeader title="Baseado em Fatos Reais" icon="info"
-                      accentColor={BLUE}
-                      onSeeAll={() => openModal("Baseado em Fatos Reais", basedOnFacts, BLUE)} />
-                    <CompactRow items={basedOnFacts} onPress={goTo} />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              {/* ── 38. MAIS BEM AVALIADOS ──────────────────────────────── */}
-              {maisAvaliados.length > 0 && (
-                <AnimatedSection anim={s[36]}>
-                  <View style={sty.sec}>
-                    <SectionHeader title="Mais Bem Avaliados" icon="star"
-                      badge="NOTA ALTA" accentColor={AMBER}
-                      onSeeAll={() => openModal("Mais Bem Avaliados", maisAvaliados, AMBER)} />
-                    <PosterRow items={maisAvaliados} onPress={goTo} showTitle />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              {/* ── 39. PROMO FINAL ─────────────────────────────────────── */}
-              <AnimatedSection anim={s[37]}>
-                <PromoBanner icon="download"
-                  title="Baixe e Assista Offline"
-                  subtitle="Salve conteúdos para ver sem internet"
-                  actionLabel="Downloads"
-                  onPress={() => router.push("/(tabs)/downloads")}
-                  gradient={["#134e4a","#0f766e"]} />
-              </AnimatedSection>
-
-              </>
-              )}
             </>
           )}
         </View>
