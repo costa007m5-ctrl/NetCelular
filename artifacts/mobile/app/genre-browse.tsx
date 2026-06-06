@@ -223,11 +223,12 @@ function ModeBar({ mode }: { mode: ViewMode }) {
 
 // ── Main screen ────────────────────────────────────────────────────────────
 export default function GenreBrowseScreen() {
-  const { genre_id, type, title, lang } = useLocalSearchParams<{
+  const { genre_id, type, title, lang, sort_by } = useLocalSearchParams<{
     genre_id: string;
     type: string;
     title: string;
     lang?: string;
+    sort_by?: string;
   }>();
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -237,6 +238,7 @@ export default function GenreBrowseScreen() {
   const resolvedGenreId = Number(genre_id) > 0 ? Number(genre_id) : 0;
   const resolvedType: "movie" | "tv" = type === "tv" ? "tv" : "movie";
   const resolvedLang = lang && lang.length > 0 ? lang : null;
+  const resolvedSortBy = sort_by && sort_by.length > 0 ? sort_by : "popularity.desc";
 
   const [items, setItems] = useState<ContentItem[]>([]);
   const [currentPage, setCurrentPage] = useState(0);

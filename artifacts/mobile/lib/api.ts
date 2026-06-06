@@ -330,16 +330,16 @@ export const api = {
       });
     },
 
-    discover: async (type: "movie" | "tv", genreId: number, page = 1): Promise<TmdbSearchResult> => {
+    discover: async (type: "movie" | "tv", genreId: number, page = 1, sortBy = "popularity.desc"): Promise<TmdbSearchResult> => {
       const path = type === "movie" ? "/discover/movie" : "/discover/tv";
       const directParams: Record<string, string> = {
         page: String(page),
         include_adult: "false",
-        sort_by: "popularity.desc",
+        sort_by: sortBy,
       };
       // Only set with_genres when we have a valid genre — "0" is not a real TMDB genre
       if (genreId > 0) directParams.with_genres = String(genreId);
-      return apiFetchOrDirect(`/tmdb/discover?type=${type}&genre_id=${genreId}&page=${page}`, () =>
+      return apiFetchOrDirect(`/tmdb/discover?type=${type}&genre_id=${genreId}&page=${page}&sort_by=${encodeURIComponent(sortBy)}`, () =>
         tmdbFetch<TmdbSearchResult>(path, directParams)
       );
     },
@@ -377,13 +377,13 @@ export const api = {
     },
 
     // Discover filtered by original language + optional genre
-    discoverByLang: async (type: "movie" | "tv", lang: string, genreId: number, page = 1): Promise<TmdbSearchResult> => {
+    discoverByLang: async (type: "movie" | "tv", lang: string, genreId: number, page = 1, sortBy = "popularity.desc"): Promise<TmdbSearchResult> => {
       const path = type === "movie" ? "/discover/movie" : "/discover/tv";
       const params: Record<string, string> = {
         with_original_language: lang,
         page: String(page),
         include_adult: "false",
-        sort_by: "popularity.desc",
+        sort_by: sortBy,
       };
       if (genreId > 0) params.with_genres = String(genreId);
       return tmdbFetch<TmdbSearchResult>(path, params);
