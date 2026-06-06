@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
   Dimensions,
-  FlatList,
   Image,
   Platform,
   Pressable,
@@ -17,32 +17,42 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useColors } from "@/hooks/useColors";
-import { api, tmdbItemToContent } from "@/lib/api";
+import { api, COUNTRY_LANG, tmdbItemToContent } from "@/lib/api";
 import type { ContentItem } from "@/constants/content";
 
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
+const { width: SW } = Dimensions.get("window");
+const BANNER_H = 240;
 const CARD_W = 120;
 const CARD_H = 180;
 
-// Compact horizontal card
-function ContentCardH({
-  item,
-  onPress,
-}: {
-  item: ContentItem;
-  onPress: () => void;
-}) {
+// ── Genre definitions ──────────────────────────────────────────────────────
+const GENRES = [
+  { id: 0,     label: "Em Alta",   icon: "trending-up"  as const },
+  { id: 28,    label: "Ação",      icon: "zap"          as const },
+  { id: 18,    label: "Drama",     icon: "heart"        as const },
+  { id: 35,    label: "Comédia",   icon: "smile"        as const },
+  { id: 10749, label: "Romance",   icon: "heart"        as const },
+  { id: 53,    label: "Thriller",  icon: "alert-circle" as const },
+  { id: 27,    label: "Terror",    icon: "eye-off"      as const },
+  { id: 878,   label: "Sci-Fi",    icon: "cpu"          as const },
+  { id: 16,    label: "Animação",  icon: "star"         as const },
+  { id: 99,    label: "Documentário", icon: "camera"    as const },
+];
+
+const TMDB_IMAGE = "https://image.tmdb.org/t/p/";
+function backdropUrl(path: string | null) {
+  return path ? `${TMDB_IMAGE}w780${path}` : null;
+}
+
+// ── Horizontal card ────────────────────────────────────────────────────────
+function ContentCardH({ item, onPress }: { item: ContentItem; onPress: () => void }) {
   const [imgErr, setImgErr] = useState(false);
   return (
     <Pressable onPress={onPress} style={{ width: CARD_W, marginRight: 10 }}>
       <View style={styles.hCard}>
         {!imgErr && item.posterPath ? (
-          <Image
-            source={{ uri: item.posterPath }}
-            style={StyleSheet.absoluteFill}
-            resizeMode="cover"
-            onError={() => setImgErr(true)}
-          />
+          <Image source={{ uri: item.posterPath }} style={StyleSheet.absoluteFill}
+            resizeMode="cover" onError={() => setImgErr(true)} />
         ) : (
           <LinearGradient colors={["#1e1e1e", "#2a1a1a"]} style={StyleSheet.absoluteFill}>
             <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
@@ -50,11 +60,8 @@ function ContentCardH({
             </View>
           </LinearGradient>
         )}
-        <LinearGradient
-          colors={["transparent", "rgba(0,0,0,0.85)"]}
-          style={styles.hCardGrad}
-          locations={[0.5, 1]}
-        />
+        <LinearGradient colors={["transparent", "rgba(0,0,0,0.85)"]}
+          style={styles.hCardGrad} locations={[0.5, 1]} />
         {item.rating > 0 && (
           <View style={styles.ratingBadge}>
             <Feather name="star" size={8} color="#f59e0b" />
@@ -67,24 +74,127 @@ function ContentCardH({
   );
 }
 
-type Section = {
-  key: string;
-  title: string;
-  emoji: string;
+// ── Rotating hero banner ───────────────────────────────────────────────────
+function HeroBanner({
+  items,
+  accentColor,
+  onPress,
+}: {
+  items: ContentItem[];
+  accentColor: string;
+  onPress: (item: ContentItem) => void;
+}) {
+  const [current, setCurrent] = useState(0);
+  const scrollRef = useRef<ScrollView>(null);
+  const [imgErrors, setImgErrors] = useState<Record<number, boolean>>({});
+
+  useEffect(() => {
+    if (items.length < 2) return;
+    const timer = setInterval(() => {
+      setCurrent((prev) => {
+        const next = (prev + 1) % items.length;
+        scrollRef.current?.scrollTo({ x: next * SW, animated: true });
+        return next;
+      });
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [items.length]);
+
+  if (items.length === 0) return null;
+
+  return (
+    <View style={{ height: BANNER_H, marginBottom: 20 }}>
+      <ScrollView
+        ref={scrollRef}
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        scrollEnabled={false}
+        style={{ flex: 1 }}
+      >
+        {items.map((item, idx) => {
+          const bg = backdropUrl(item.backdropPath ?? null) ?? item.posterPath;
+          return (
+            <Pressable
+              key={`hero-${item.id}-${idx}`}
+              style={{ width: SW, height: BANNER_H }}
+              onPress={() => onPress(item)}
+            >
+              {bg && !imgErrors[idx] ? (
+                <Image source={{ uri: bg }} style={StyleSheet.absoluteFill}
+                  resizeMode="cover"
+                  onError={() => setImgErrors((e) => ({ ...e, [idx]: true }))} />
+              ) : (
+                <LinearGradient colors={["#1a0a14", "#08060e"]} style={StyleSheet.absoluteFill} />
+              )}
+              <LinearGradient
+                colors={["rgba(0,0,0,0.1)", "transparent", "rgba(0,0,0,0.85)"]}
+                locations={[0, 0.4, 1]}
+                style={StyleSheet.absoluteFill}
+              />
+              {/* Bottom info */}
+              <View style={styles.bannerInfo}>
+                <View style={[styles.bannerBadge, { backgroundColor: `${accentColor}25`,
+                  borderColor: `${accentColor}60` }]}>
+                  <Text style={[styles.bannerBadgeText, { color: accentColor }]}>
+                    {item.type === "movie" ? "FILME" : "SÉRIE"}
+                  </Text>
+                </View>
+                <Text style={styles.bannerTitle} numberOfLines={2}>{item.title}</Text>
+                <View style={styles.bannerMeta}>
+                  {item.rating > 0 && (
+                    <View style={styles.bannerRating}>
+                      <Feather name="star" size={10} color="#f59e0b" />
+                      <Text style={styles.bannerRatingText}>{item.rating.toFixed(1)}</Text>
+                    </View>
+                  )}
+                  {item.year ? (
+                    <Text style={styles.bannerYear}>{item.year}</Text>
+                  ) : null}
+                  <TouchableOpacity
+                    style={[styles.bannerPlayBtn, { backgroundColor: accentColor }]}
+                    onPress={() => onPress(item)}
+                  >
+                    <Feather name="play" size={10} color="#fff" />
+                    <Text style={styles.bannerPlayText}>Ver detalhes</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+      {/* Dots */}
+      <View style={styles.dots}>
+        {items.map((_, idx) => (
+          <View
+            key={idx}
+            style={[
+              styles.dot,
+              idx === current
+                ? { backgroundColor: accentColor, width: 18 }
+                : { backgroundColor: "rgba(255,255,255,0.35)", width: 6 },
+            ]}
+          />
+        ))}
+      </View>
+    </View>
+  );
+}
+
+// ── Genre row ──────────────────────────────────────────────────────────────
+type GenreRow = {
+  genreId: number;
+  label: string;
   type: "movie" | "tv";
   items: ContentItem[];
   loading: boolean;
   error: boolean;
-  page: number;
-  totalPages: number;
 };
 
 export default function CountryBrowseScreen() {
   const { id, label, flag, color } = useLocalSearchParams<{
-    id: string;
-    label: string;
-    flag: string;
-    color: string;
+    id: string; label: string; flag: string; color: string;
   }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -96,85 +206,89 @@ export default function CountryBrowseScreen() {
   const countryLabel = label ?? "País";
   const countryFlag = flag ?? "🌍";
   const accentColor = color ?? "#3b82f6";
+  const lang = COUNTRY_LANG[countryId] ?? "en";
 
-  const [sections, setSections] = useState<Section[]>([
-    {
-      key: "movies",
-      title: "Filmes",
-      emoji: "🎬",
-      type: "movie",
-      items: [],
-      loading: true,
-      error: false,
-      page: 0,
-      totalPages: 999,
-    },
-    {
-      key: "series",
-      title: "Séries",
-      emoji: "📺",
-      type: "tv",
-      items: [],
-      loading: true,
-      error: false,
-      page: 0,
-      totalPages: 999,
-    },
-  ]);
+  // Content type tab: movies or series
+  const [tab, setTab] = useState<"movie" | "tv">("movie");
+
+  // Hero items (first page, no genre filter)
+  const [heroItems, setHeroItems] = useState<ContentItem[]>([]);
+  const [heroLoading, setHeroLoading] = useState(true);
+
+  // Genre rows
+  const [movieRows, setMovieRows] = useState<GenreRow[]>(
+    GENRES.map((g) => ({ genreId: g.id, label: g.label, type: "movie", items: [], loading: true, error: false }))
+  );
+  const [tvRows, setTvRows] = useState<GenreRow[]>(
+    GENRES.map((g) => ({ genreId: g.id, label: g.label, type: "tv", items: [], loading: true, error: false }))
+  );
+
   const [retryKey, setRetryKey] = useState(0);
+  const loadedRef = useRef<Set<string>>(new Set());
 
-  const loadingRef = useRef<Record<string, boolean>>({});
+  const updateRow = (
+    type: "movie" | "tv",
+    genreId: number,
+    patch: Partial<GenreRow>
+  ) => {
+    const setter = type === "movie" ? setMovieRows : setTvRows;
+    setter((prev) => prev.map((r) => r.genreId === genreId ? { ...r, ...patch } : r));
+  };
 
-  const fetchSection = (type: "movie" | "tv", page: number, append: boolean) => {
-    const key = type === "movie" ? "movies" : "series";
-    if (loadingRef.current[key]) return;
-    loadingRef.current[key] = true;
-
-    setSections((prev) =>
-      prev.map((s) =>
-        s.key === key ? { ...s, loading: true, error: false } : s
-      )
-    );
+  // Load a single genre row
+  const loadRow = (type: "movie" | "tv", genreId: number) => {
+    const key = `${type}-${genreId}`;
+    if (loadedRef.current.has(key)) return;
+    loadedRef.current.add(key);
 
     api.tmdb
-      .discoverByCountry(type, countryId, page)
+      .discoverByLang(type, lang, genreId, 1)
       .then((data) => {
-        const newItems = data.results.map(tmdbItemToContent);
-        setSections((prev) =>
-          prev.map((s) => {
-            if (s.key !== key) return s;
-            return {
-              ...s,
-              items: append ? [...s.items, ...newItems] : newItems,
-              page,
-              totalPages: data.total_pages ?? 999,
-              loading: false,
-              error: newItems.length === 0 && !append,
-            };
-          })
-        );
+        updateRow(type, genreId, {
+          items: data.results.slice(0, 15).map(tmdbItemToContent),
+          loading: false,
+          error: data.results.length === 0,
+        });
       })
       .catch(() => {
-        setSections((prev) =>
-          prev.map((s) =>
-            s.key === key ? { ...s, loading: false, error: true } : s
-          )
-        );
-      })
-      .finally(() => {
-        loadingRef.current[key] = false;
+        loadedRef.current.delete(key);
+        updateRow(type, genreId, { loading: false, error: true });
       });
   };
 
+  // Load hero + first 3 rows of each type on mount / retry
   useEffect(() => {
-    loadingRef.current = {};
-    setSections((prev) =>
-      prev.map((s) => ({ ...s, items: [], loading: true, error: false, page: 0 }))
-    );
-    fetchSection("movie", 1, false);
-    fetchSection("tv", 1, false);
+    loadedRef.current = new Set();
+    setHeroLoading(true);
+    setMovieRows(GENRES.map((g) => ({ genreId: g.id, label: g.label, type: "movie", items: [], loading: true, error: false })));
+    setTvRows(GENRES.map((g) => ({ genreId: g.id, label: g.label, type: "tv", items: [], loading: true, error: false })));
+
+    // Hero: top movies
+    api.tmdb
+      .discoverByLang("movie", lang, 0, 1)
+      .then((data) => {
+        const withBackdrop = data.results
+          .filter((r) => r.backdrop_path)
+          .slice(0, 5)
+          .map(tmdbItemToContent);
+        setHeroItems(withBackdrop.length > 0 ? withBackdrop : data.results.slice(0, 5).map(tmdbItemToContent));
+        setHeroLoading(false);
+      })
+      .catch(() => setHeroLoading(false));
+
+    // Load first 4 genres for current tab eagerly
+    GENRES.slice(0, 4).forEach((g) => {
+      loadRow("movie", g.id);
+      loadRow("tv", g.id);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [retryKey, countryId]);
+
+  // Lazy-load remaining rows when tab becomes visible
+  useEffect(() => {
+    GENRES.forEach((g) => loadRow(tab, g.id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
 
   const goToDetail = (item: ContentItem) => {
     router.push({
@@ -187,24 +301,26 @@ export default function CountryBrowseScreen() {
     });
   };
 
-  const goToMore = (type: "movie" | "tv", sectionTitle: string) => {
+  const goToMore = (type: "movie" | "tv", genreId: number, rowLabel: string) => {
     router.push({
       pathname: "/genre-browse",
-      params: { genre_id: "0", type, title: `${countryFlag} ${sectionTitle} de ${countryLabel}` },
+      params: {
+        genre_id: String(genreId),
+        type,
+        title: `${countryFlag} ${rowLabel} · ${countryLabel}`,
+        lang,
+      },
     });
   };
 
-  const allLoading = sections.every((s) => s.loading && s.items.length === 0);
-  const allError = sections.every((s) => s.error && s.items.length === 0);
+  const rows = tab === "movie" ? movieRows : tvRows;
+  const allLoading = heroLoading && rows.every((r) => r.loading);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* ── Header ─────────────────────────────────────────────── */}
       <View style={[styles.headerWrap, { paddingTop: topPad + 8 }]}>
-        <LinearGradient
-          colors={[`${accentColor}30`, "transparent"]}
-          style={StyleSheet.absoluteFill}
-        />
+        <LinearGradient colors={[`${accentColor}28`, "transparent"]} style={StyleSheet.absoluteFill} />
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
           <Feather name="arrow-left" size={22} color="#fff" />
         </TouchableOpacity>
@@ -212,170 +328,99 @@ export default function CountryBrowseScreen() {
           <Text style={styles.headerFlag}>{countryFlag}</Text>
           <View>
             <Text style={styles.headerSub}>Cinema do Mundo</Text>
-            <Text style={[styles.headerLabel, { color: accentColor }]}>
-              {countryLabel}
-            </Text>
+            <Text style={[styles.headerLabel, { color: accentColor }]}>{countryLabel}</Text>
           </View>
         </View>
         <View style={{ width: 40 }} />
       </View>
 
-      {/* ── Content ────────────────────────────────────────────── */}
       {allLoading ? (
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={accentColor} />
-          <Text style={[styles.loadingText, { color: "#888" }]}>
+          <Text style={{ color: "#888", fontSize: 13, marginTop: 8 }}>
             Carregando conteúdo de {countryLabel}...
           </Text>
         </View>
-      ) : allError ? (
-        <View style={styles.centered}>
-          <View style={[styles.errorIcon, { backgroundColor: `${accentColor}18` }]}>
-            <Feather name="wifi-off" size={32} color={accentColor} />
-          </View>
-          <Text style={[styles.errorTitle, { color: colors.foreground }]}>
-            Não foi possível carregar
-          </Text>
-          <Text style={{ color: "#888", fontSize: 13, textAlign: "center" }}>
-            Verifique sua conexão e tente novamente
-          </Text>
-          <TouchableOpacity
-            style={[styles.retryBtn, { backgroundColor: accentColor }]}
-            onPress={() => setRetryKey((k) => k + 1)}
-          >
-            <Feather name="refresh-cw" size={14} color="#fff" />
-            <Text style={styles.retryText}>Tentar novamente</Text>
-          </TouchableOpacity>
-        </View>
       ) : (
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}
-        >
-          {/* Country badge */}
-          <View style={[styles.heroBadge, { borderColor: `${accentColor}40` }]}>
-            <LinearGradient
-              colors={[`${accentColor}20`, `${accentColor}08`]}
-              style={StyleSheet.absoluteFill}
+        <ScrollView showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: insets.bottom + 48 }}>
+
+          {/* Hero banner */}
+          {heroItems.length > 0 && (
+            <HeroBanner
+              items={heroItems}
+              accentColor={accentColor}
+              onPress={goToDetail}
             />
-            <Text style={styles.heroBadgeFlag}>{countryFlag}</Text>
-            <Text style={[styles.heroBadgeTitle, { color: accentColor }]}>
-              {countryLabel}
-            </Text>
-            <Text style={styles.heroBadgeSub}>
-              Filmes e séries originais de {countryLabel}
-            </Text>
+          )}
+
+          {/* ── Tabs: Filmes / Séries ─────────────────────────── */}
+          <View style={styles.tabs}>
+            {(["movie", "tv"] as const).map((t) => (
+              <TouchableOpacity
+                key={t}
+                style={[styles.tab, tab === t && { borderBottomColor: accentColor }]}
+                onPress={() => setTab(t)}
+              >
+                <Feather
+                  name={t === "movie" ? "film" : "tv"}
+                  size={14}
+                  color={tab === t ? accentColor : "#666"}
+                />
+                <Text style={[styles.tabText, { color: tab === t ? accentColor : "#666" }]}>
+                  {t === "movie" ? "Filmes" : "Séries"}
+                </Text>
+              </TouchableOpacity>
+            ))}
           </View>
 
-          {sections.map((section) => (
-            <View key={section.key} style={styles.sectionWrap}>
-              {/* Section header */}
-              <View style={styles.sectionRow}>
-                <View style={styles.sectionTitleWrap}>
-                  <View
-                    style={[styles.sectionAccent, { backgroundColor: accentColor }]}
-                  />
-                  <Text style={styles.sectionEmoji}>{section.emoji}</Text>
-                  <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
-                    {section.title}
-                  </Text>
-                  {section.loading && (
-                    <ActivityIndicator
-                      size="small"
-                      color={accentColor}
-                      style={{ marginLeft: 8 }}
-                    />
-                  )}
+          {/* ── Genre rows ───────────────────────────────────────── */}
+          {rows.map((row, ridx) => {
+            if (row.error && row.items.length === 0) return null;
+            return (
+              <View key={`${tab}-${row.genreId}`} style={styles.genreSection}>
+                {/* Row header */}
+                <View style={styles.rowHeader}>
+                  <View style={styles.rowTitleWrap}>
+                    <View style={[styles.rowAccent, { backgroundColor: accentColor }]} />
+                    <Text style={[styles.rowTitle, { color: colors.foreground }]}>
+                      {row.label}
+                    </Text>
+                    {row.loading && (
+                      <ActivityIndicator size="small" color={accentColor} style={{ marginLeft: 8 }} />
+                    )}
+                  </View>
+                  <TouchableOpacity
+                    style={styles.verMaisBtn}
+                    onPress={() => goToMore(tab, row.genreId, row.label)}
+                  >
+                    <Text style={[styles.verMaisText, { color: accentColor }]}>Ver mais</Text>
+                    <Feather name="chevron-right" size={14} color={accentColor} />
+                  </TouchableOpacity>
                 </View>
-                <TouchableOpacity
-                  onPress={() => goToMore(section.type, section.title)}
-                  style={styles.verMaisBtn}
-                >
-                  <Text style={[styles.verMaisText, { color: accentColor }]}>
-                    Ver mais
-                  </Text>
-                  <Feather name="chevron-right" size={14} color={accentColor} />
-                </TouchableOpacity>
-              </View>
 
-              {/* Cards */}
-              {section.error && section.items.length === 0 ? (
-                <View style={styles.sectionError}>
-                  <Feather name="alert-circle" size={18} color="#555" />
-                  <Text style={{ color: "#555", fontSize: 13 }}>
-                    Falha ao carregar
-                  </Text>
-                </View>
-              ) : section.items.length === 0 && !section.loading ? (
-                <View style={styles.sectionError}>
-                  <Text style={{ color: "#555", fontSize: 13 }}>
-                    Nenhum título encontrado
-                  </Text>
-                </View>
-              ) : (
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.hScroll}
-                  decelerationRate="fast"
-                >
-                  {section.items.map((item, idx) => (
-                    <ContentCardH
-                      key={`${item.id}-${idx}`}
-                      item={item}
-                      onPress={() => goToDetail(item)}
-                    />
-                  ))}
-                  {/* Load more button at end */}
-                  {section.page < section.totalPages && (
-                    <TouchableOpacity
-                      style={styles.loadMoreCard}
-                      onPress={() => fetchSection(section.type, section.page + 1, true)}
-                    >
-                      <LinearGradient
-                        colors={[`${accentColor}20`, `${accentColor}08`]}
-                        style={StyleSheet.absoluteFill}
+                {/* Cards */}
+                {row.items.length > 0 ? (
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.hScroll} decelerationRate="fast">
+                    {row.items.map((item, idx) => (
+                      <ContentCardH
+                        key={`${item.id}-${idx}`}
+                        item={item}
+                        onPress={() => goToDetail(item)}
                       />
-                      <Feather name="plus" size={22} color={accentColor} />
-                      <Text style={[styles.loadMoreText, { color: accentColor }]}>
-                        Mais
-                      </Text>
-                    </TouchableOpacity>
-                  )}
-                </ScrollView>
-              )}
-            </View>
-          ))}
-
-          {/* Ver tudo de filmes e séries */}
-          <View style={styles.ctaRow}>
-            <TouchableOpacity
-              style={[styles.ctaBtn, { borderColor: `${accentColor}50` }]}
-              onPress={() => goToMore("movie", "Filmes")}
-            >
-              <LinearGradient
-                colors={[`${accentColor}18`, "transparent"]}
-                style={StyleSheet.absoluteFill}
-              />
-              <Feather name="film" size={16} color={accentColor} />
-              <Text style={[styles.ctaBtnText, { color: accentColor }]}>
-                Todos os filmes
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.ctaBtn, { borderColor: `${accentColor}50` }]}
-              onPress={() => goToMore("tv", "Séries")}
-            >
-              <LinearGradient
-                colors={[`${accentColor}18`, "transparent"]}
-                style={StyleSheet.absoluteFill}
-              />
-              <Feather name="tv" size={16} color={accentColor} />
-              <Text style={[styles.ctaBtnText, { color: accentColor }]}>
-                Todas as séries
-              </Text>
-            </TouchableOpacity>
-          </View>
+                    ))}
+                  </ScrollView>
+                ) : row.loading ? (
+                  <View style={styles.rowLoading}>
+                    {[0, 1, 2, 3].map((i) => (
+                      <View key={i} style={styles.skeleton} />
+                    ))}
+                  </View>
+                ) : null}
+              </View>
+            );
+          })}
         </ScrollView>
       )}
     </View>
@@ -393,178 +438,103 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   backBtn: {
-    width: 40,
-    height: 40,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 20,
+    width: 40, height: 40,
+    alignItems: "center", justifyContent: "center", borderRadius: 20,
   },
   headerCenter: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    flex: 1,
-    justifyContent: "center",
+    flexDirection: "row", alignItems: "center", gap: 10,
+    flex: 1, justifyContent: "center",
   },
-  headerFlag: {
-    fontSize: 34,
-  },
+  headerFlag: { fontSize: 32 },
   headerSub: {
-    color: "#888",
-    fontSize: 11,
-    fontWeight: "500",
-    textTransform: "uppercase",
-    letterSpacing: 0.8,
+    color: "#888", fontSize: 10, fontWeight: "500",
+    textTransform: "uppercase", letterSpacing: 0.8,
   },
-  headerLabel: {
-    fontSize: 20,
-    fontWeight: "800",
-    letterSpacing: -0.3,
-  },
+  headerLabel: { fontSize: 19, fontWeight: "800", letterSpacing: -0.3 },
   centered: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 12,
-    paddingHorizontal: 32,
+    flex: 1, alignItems: "center", justifyContent: "center",
+    gap: 12, paddingHorizontal: 32,
   },
-  loadingText: { fontSize: 13, fontWeight: "500", marginTop: 4 },
-  errorIcon: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 4,
+  // Hero banner
+  bannerInfo: {
+    position: "absolute", bottom: 0, left: 0, right: 0,
+    paddingHorizontal: 16, paddingBottom: 44, gap: 4,
   },
-  errorTitle: { fontSize: 17, fontWeight: "700", textAlign: "center" },
-  retryBtn: {
+  bannerBadge: {
+    alignSelf: "flex-start",
+    borderWidth: 1, borderRadius: 5,
+    paddingHorizontal: 7, paddingVertical: 2, marginBottom: 2,
+  },
+  bannerBadgeText: { fontSize: 9, fontWeight: "800", letterSpacing: 0.5 },
+  bannerTitle: {
+    color: "#fff", fontSize: 22, fontWeight: "800",
+    letterSpacing: -0.3, lineHeight: 26,
+  },
+  bannerMeta: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 4 },
+  bannerRating: { flexDirection: "row", alignItems: "center", gap: 3 },
+  bannerRatingText: { color: "#f59e0b", fontSize: 12, fontWeight: "700" },
+  bannerYear: { color: "#aaa", fontSize: 12 },
+  bannerPlayBtn: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, marginLeft: "auto",
+  },
+  bannerPlayText: { color: "#fff", fontSize: 11, fontWeight: "700" },
+  dots: {
+    position: "absolute", bottom: 10, left: 0, right: 0,
+    flexDirection: "row", justifyContent: "center", gap: 5,
+  },
+  dot: { height: 4, borderRadius: 2 },
+  // Tabs
+  tabs: {
     flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 20,
-    paddingVertical: 11,
-    borderRadius: 22,
-    marginTop: 8,
-  },
-  retryText: { color: "#fff", fontSize: 14, fontWeight: "700" },
-  heroBadge: {
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.08)",
     marginHorizontal: 16,
-    marginVertical: 12,
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 16,
-    alignItems: "center",
-    gap: 4,
-    overflow: "hidden",
+    marginBottom: 16,
   },
-  heroBadgeFlag: { fontSize: 48, marginBottom: 4 },
-  heroBadgeTitle: { fontSize: 22, fontWeight: "800" },
-  heroBadgeSub: { color: "#888", fontSize: 13, textAlign: "center" },
-  sectionWrap: { marginBottom: 28 },
-  sectionRow: {
-    flexDirection: "row",
-    alignItems: "center",
+  tab: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    paddingVertical: 10, paddingHorizontal: 16,
+    borderBottomWidth: 2, borderBottomColor: "transparent",
+  },
+  tabText: { fontSize: 14, fontWeight: "700" },
+  // Genre sections
+  genreSection: { marginBottom: 24 },
+  rowHeader: {
+    flexDirection: "row", alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 16,
-    marginBottom: 12,
+    paddingHorizontal: 16, marginBottom: 10,
   },
-  sectionTitleWrap: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  sectionAccent: {
-    width: 3,
-    height: 18,
-    borderRadius: 2,
-  },
-  sectionEmoji: { fontSize: 16 },
-  sectionTitle: { fontSize: 17, fontWeight: "700" },
+  rowTitleWrap: { flexDirection: "row", alignItems: "center", gap: 8 },
+  rowAccent: { width: 3, height: 17, borderRadius: 2 },
+  rowTitle: { fontSize: 16, fontWeight: "700" },
   verMaisBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 2,
-    paddingVertical: 4,
-    paddingHorizontal: 8,
+    flexDirection: "row", alignItems: "center", gap: 2,
+    paddingVertical: 4, paddingHorizontal: 6,
   },
-  verMaisText: { fontSize: 13, fontWeight: "600" },
+  verMaisText: { fontSize: 12, fontWeight: "600" },
   hScroll: { paddingHorizontal: 16 },
   hCard: {
-    width: CARD_W,
-    height: CARD_H,
-    borderRadius: 10,
-    overflow: "hidden",
-    backgroundColor: "#1a1a1a",
+    width: CARD_W, height: CARD_H,
+    borderRadius: 10, overflow: "hidden", backgroundColor: "#1a1a1a",
   },
-  hCardGrad: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: "55%",
-  },
+  hCardGrad: { position: "absolute", bottom: 0, left: 0, right: 0, height: "55%" },
   hCardTitle: {
-    position: "absolute",
-    bottom: 6,
-    left: 5,
-    right: 5,
-    color: "#fff",
-    fontSize: 9,
-    fontWeight: "600",
-    lineHeight: 12,
+    position: "absolute", bottom: 6, left: 5, right: 5,
+    color: "#fff", fontSize: 9, fontWeight: "600", lineHeight: 12,
   },
   ratingBadge: {
-    position: "absolute",
-    top: 5,
-    right: 5,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 2,
+    position: "absolute", top: 5, right: 5,
+    flexDirection: "row", alignItems: "center", gap: 2,
     backgroundColor: "rgba(0,0,0,0.75)",
-    paddingHorizontal: 4,
-    paddingVertical: 2,
-    borderRadius: 4,
+    paddingHorizontal: 4, paddingVertical: 2, borderRadius: 4,
   },
   ratingText: { color: "#f59e0b", fontSize: 8, fontWeight: "700" },
-  loadMoreCard: {
-    width: CARD_W,
-    height: CARD_H,
-    borderRadius: 10,
-    overflow: "hidden",
-    backgroundColor: "#141414",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    marginRight: 10,
+  rowLoading: {
+    flexDirection: "row", paddingHorizontal: 16, gap: 10,
   },
-  loadMoreText: { fontSize: 12, fontWeight: "600" },
-  sectionError: {
-    paddingHorizontal: 16,
-    paddingVertical: 20,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
+  skeleton: {
+    width: CARD_W, height: CARD_H,
+    borderRadius: 10, backgroundColor: "#1e1e1e",
   },
-  ctaRow: {
-    flexDirection: "row",
-    gap: 10,
-    paddingHorizontal: 16,
-    marginTop: 8,
-    marginBottom: 8,
-  },
-  ctaBtn: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    paddingVertical: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    overflow: "hidden",
-  },
-  ctaBtnText: { fontSize: 14, fontWeight: "700" },
 });

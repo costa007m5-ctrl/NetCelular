@@ -32,7 +32,6 @@ const GridCard = React.memo(function GridCard({
   item: ContentItem;
   onPress: () => void;
 }) {
-  const colors = useColors();
   const [imgError, setImgError] = useState(false);
   return (
     <Pressable onPress={onPress} style={{ width: CARD_WIDTH, marginBottom: 12 }}>
@@ -68,10 +67,11 @@ const GridCard = React.memo(function GridCard({
 });
 
 export default function GenreBrowseScreen() {
-  const { genre_id, type, title } = useLocalSearchParams<{
+  const { genre_id, type, title, lang } = useLocalSearchParams<{
     genre_id: string;
     type: string;
     title: string;
+    lang?: string;  // optional language filter (e.g. "pt", "ko", "ja")
   }>();
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -80,6 +80,7 @@ export default function GenreBrowseScreen() {
 
   const resolvedGenreId = Number(genre_id) > 0 ? Number(genre_id) : 0;
   const resolvedType: "movie" | "tv" = type === "tv" ? "tv" : "movie";
+  const resolvedLang = lang && lang.length > 0 ? lang : null;
 
   const [items, setItems] = useState<ContentItem[]>([]);
   const [currentPage, setCurrentPage] = useState(0);
@@ -90,12 +91,14 @@ export default function GenreBrowseScreen() {
   const [retryKey, setRetryKey] = useState(0);
 
   const loadingRef = useRef(false);
-  const mountedRef = useRef(true);
 
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => { mountedRef.current = false; };
-  }, []);
+  // Fetch a single page with the correct API method
+  const fetchData = (page: number) => {
+    if (resolvedLang) {
+      return api.tmdb.discoverByLang(resolvedType, resolvedLang, resolvedGenreId, page);
+    }
+    return api.tmdb.discover(resolvedType, resolvedGenreId, page);
+  };
 
   // Initial load — runs once on mount + whenever user presses retry
   useEffect(() => {
@@ -109,10 +112,7 @@ export default function GenreBrowseScreen() {
     loadingRef.current = true;
     setLoading(true);
 
-    Promise.all([
-      api.tmdb.discover(resolvedType, resolvedGenreId, 1),
-      api.tmdb.discover(resolvedType, resolvedGenreId, 2),
-    ])
+    Promise.all([fetchData(1), fetchData(2)])
       .then(([d1, d2]) => {
         if (cancelled) return;
         const combined = [
@@ -145,8 +145,7 @@ export default function GenreBrowseScreen() {
     if (loading || loadingRef.current || currentPage >= totalPages) return;
     loadingRef.current = true;
     setLoading(true);
-    api.tmdb
-      .discover(resolvedType, resolvedGenreId, currentPage + 1)
+    fetchData(currentPage + 1)
       .then((data) => {
         const newItems = data.results.map(tmdbItemToContent);
         if (newItems.length > 0) {
@@ -174,7 +173,6 @@ export default function GenreBrowseScreen() {
   };
 
   const topPad = isWeb ? 0 : insets.top;
-
   const renderItem = ({ item }: { item: ContentItem }) => (
     <GridCard item={item} onPress={() => goToDetail(item)} />
   );
@@ -194,7 +192,6 @@ export default function GenreBrowseScreen() {
       </View>
 
       {initialLoading ? (
-        /* ── Loading ─────────────────────────────────────────────── */
         <View style={styles.centered}>
           <ActivityIndicator size="large" color="#e50914" />
           <Text style={[styles.loadingText, { color: "#888" }]}>
@@ -202,7 +199,6 @@ export default function GenreBrowseScreen() {
           </Text>
         </View>
       ) : error ? (
-        /* ── Error state ─────────────────────────────────────────── */
         <View style={styles.centered}>
           <View style={styles.errorIcon}>
             <Feather name="wifi-off" size={32} color="#e50914" />
@@ -223,15 +219,11 @@ export default function GenreBrowseScreen() {
           </TouchableOpacity>
         </View>
       ) : (
-        /* ── Grid ────────────────────────────────────────────────── */
         <FlatList
           data={items}
           keyExtractor={keyExtractor}
           numColumns={NUM_COLS}
-          contentContainerStyle={[
-            styles.grid,
-            { paddingBottom: insets.bottom + 32 },
-          ]}
+          contentContainerStyle={[styles.grid, { paddingBottom: insets.bottom + 32 }]}
           columnWrapperStyle={styles.row}
           renderItem={renderItem}
           onEndReached={loadMore}
@@ -300,11 +292,7 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingHorizontal: 32,
   },
-  loadingText: {
-    fontSize: 13,
-    fontWeight: "500",
-    marginTop: 4,
-  },
+  loadingText: { fontSize: 13, fontWeight: "500", marginTop: 4 },
   errorIcon: {
     width: 72,
     height: 72,
@@ -314,16 +302,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 4,
   },
-  errorTitle: {
-    fontSize: 17,
-    fontWeight: "700",
-    textAlign: "center",
-  },
-  errorSub: {
-    fontSize: 13,
-    textAlign: "center",
-    lineHeight: 18,
-  },
+  errorTitle: { fontSize: 17, fontWeight: "700", textAlign: "center" },
+  errorSub: { fontSize: 13, textAlign: "center", lineHeight: 18 },
   retryBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -334,36 +314,12 @@ const styles = StyleSheet.create({
     marginTop: 8,
     backgroundColor: "#e50914",
   },
-  retryText: {
-    color: "#fff",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  grid: {
-    paddingHorizontal: H_PAD,
-    paddingTop: 8,
-  },
-  row: {
-    justifyContent: "space-between",
-    marginBottom: 0,
-  },
-  card: {
-    borderRadius: 10,
-    overflow: "hidden",
-    backgroundColor: "#1a1a1a",
-  },
-  cardPlaceholder: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  cardGrad: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: "50%",
-  },
+  retryText: { color: "#fff", fontSize: 14, fontWeight: "700" },
+  grid: { paddingHorizontal: H_PAD, paddingTop: 8 },
+  row: { justifyContent: "space-between" },
+  card: { borderRadius: 10, overflow: "hidden", backgroundColor: "#1a1a1a" },
+  cardPlaceholder: { flex: 1, alignItems: "center", justifyContent: "center" },
+  cardGrad: { position: "absolute", bottom: 0, left: 0, right: 0, height: "50%" },
   cardLabel: {
     position: "absolute",
     bottom: 5,
@@ -384,12 +340,7 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     zIndex: 1,
   },
-  typeBadgeText: {
-    color: "#fff",
-    fontSize: 8,
-    fontWeight: "700",
-    letterSpacing: 0.4,
-  },
+  typeBadgeText: { color: "#fff", fontSize: 8, fontWeight: "700", letterSpacing: 0.4 },
   emptyState: {
     alignItems: "center",
     justifyContent: "center",
@@ -397,10 +348,6 @@ const styles = StyleSheet.create({
     paddingTop: 80,
     paddingHorizontal: 32,
   },
-  emptyTitle: {
-    fontSize: 15,
-    fontWeight: "600",
-    textAlign: "center",
-  },
+  emptyTitle: { fontSize: 15, fontWeight: "600", textAlign: "center" },
   footer: { padding: 24, alignItems: "center" },
 });

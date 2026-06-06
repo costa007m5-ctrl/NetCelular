@@ -376,6 +376,19 @@ export const api = {
       });
     },
 
+    // Discover filtered by original language + optional genre
+    discoverByLang: async (type: "movie" | "tv", lang: string, genreId: number, page = 1): Promise<TmdbSearchResult> => {
+      const path = type === "movie" ? "/discover/movie" : "/discover/tv";
+      const params: Record<string, string> = {
+        with_original_language: lang,
+        page: String(page),
+        include_adult: "false",
+        sort_by: "popularity.desc",
+      };
+      if (genreId > 0) params.with_genres = String(genreId);
+      return tmdbFetch<TmdbSearchResult>(path, params);
+    },
+
     providers: async (type: "movie" | "tv", id: number) => {
       try {
         return await apiFetchOrDirect(`/tmdb/${type}/${id}/providers`, async () => {
