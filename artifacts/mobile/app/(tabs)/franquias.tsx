@@ -29,7 +29,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { HeroBanner } from "@/components/HeroBanner";
 import { TopTenCard } from "@/components/TopTenCard";
-import { GlobalSearchBar } from "@/components/GlobalSearchBar";
+import { InlineSearchBar } from "@/components/InlineSearchBar";
 import type { ContentItem } from "@/constants/content";
 
 // ─── Dimensions ────────────────────────────────────────────────────────────────
@@ -783,6 +783,11 @@ export default function FranquiasScreen() {
     setModal({ visible: true, title, items, accent });
   const closeModal = () => setModal((m) => ({ ...m, visible: false }));
 
+  // ── Inline search ──────────────────────────────────────────────────────────
+  const [searchQuery,   setSearchQuery]   = useState("");
+  const [searchResults, setSearchResults] = useState<ContentItem[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+
   // ── Data ────────────────────────────────────────────────────────────────────
   const [loading,      setLoading]      = useState(true);
   const [refreshing,   setRefreshing]   = useState(false);
@@ -913,6 +918,22 @@ export default function FranquiasScreen() {
     });
   }, [router]);
 
+  // Debounced TMDB search
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (q.length < 2) { setSearchResults([]); return; }
+    setSearchLoading(true);
+    const timer = setTimeout(async () => {
+      const data = await tfetch("/search/multi", { query: q, include_adult: "false" });
+      const items: ContentItem[] = (data.results ?? [])
+        .filter((r: any) => r.media_type === "movie" || r.media_type === "tv")
+        .map((r: any) => toItem(r));
+      setSearchResults(items);
+      setSearchLoading(false);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
   // ── Derived ─────────────────────────────────────────────────────────────────
   const franquiasEmAlta = useMemo(() =>
     [...trendMovies.slice(0, 10), ...trendSeries.slice(0, 6)].filter((x) => x.rating >= 6),
@@ -987,9 +1008,37 @@ export default function FranquiasScreen() {
           }
 
           {/* ── SEARCH BAR ───────────────────────────────────────────────── */}
-          <GlobalSearchBar placeholder="Buscar franquias, universos, filmes..." />
+          <InlineSearchBar
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder="Buscar franquias, universos, filmes..."
+          />
 
-          {loading ? (
+          {searchQuery.length >= 2 ? (
+            <View style={{ paddingBottom: 20 }}>
+              <View style={{ paddingHorizontal: 16, marginBottom: 12, flexDirection: "row", alignItems: "center", gap: 10 }}>
+                {searchLoading
+                  ? <ActivityIndicator size="small" color={AMBER} />
+                  : <Text style={{ color: "rgba(255,255,255,0.55)", fontSize: 13, flex: 1 }}>
+                      {searchResults.length > 0
+                        ? `${searchResults.length} resultado${searchResults.length !== 1 ? "s" : ""} para "${searchQuery}"`
+                        : `Nenhum resultado para "${searchQuery}"`}
+                    </Text>
+                }
+              </View>
+              {!searchLoading && searchResults.length > 0 && (
+                <WideRow items={searchResults} onPress={goTo} />
+              )}
+              {!searchLoading && searchResults.length === 0 && (
+                <View style={{ alignItems: "center", paddingVertical: 56, gap: 14 }}>
+                  <Feather name="search" size={48} color="rgba(255,255,255,0.1)" />
+                  <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 15, fontWeight: "600" }}>
+                    Nenhum resultado encontrado
+                  </Text>
+                </View>
+              )}
+            </View>
+          ) : loading ? (
             <View style={{ marginTop: 24 }}>
               <SkeletonRow shimmer={shimmer} />
               <SkeletonRow shimmer={shimmer} wide />

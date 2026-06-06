@@ -30,7 +30,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { HeroBanner } from "@/components/HeroBanner";
 import { TopTenCard } from "@/components/TopTenCard";
-import { GlobalSearchBar } from "@/components/GlobalSearchBar";
+import { InlineSearchBar } from "@/components/InlineSearchBar";
 import type { ContentItem } from "@/constants/content";
 
 const { width: W, height: H } = Dimensions.get("window");
@@ -861,6 +861,11 @@ export default function NovidadesScreen() {
     setModal({ visible: true, title, items, accent });
   const closeModal = () => setModal((m) => ({ ...m, visible: false }));
 
+  // ── Inline search ──────────────────────────────────────────────────────────
+  const [searchQuery,   setSearchQuery]   = useState("");
+  const [searchResults, setSearchResults] = useState<ContentItem[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+
   // ── Fetch all data ─────────────────────────────────────────────────────────
   const loadAll = useCallback(async () => {
     const results = await Promise.allSettled([
@@ -959,6 +964,22 @@ export default function NovidadesScreen() {
     });
   }, [router]);
 
+  // Debounced TMDB search
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (q.length < 2) { setSearchResults([]); return; }
+    setSearchLoading(true);
+    const timer = setTimeout(async () => {
+      const data = await tfetch("/search/multi", { query: q, include_adult: "false" });
+      const items: ContentItem[] = (data.results ?? [])
+        .filter((r: any) => r.media_type === "movie" || r.media_type === "tv")
+        .map((r: any) => toItem(r));
+      setSearchResults(items);
+      setSearchLoading(false);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
   // Derived spotlights
   const spotlight1 = trendMovies[0] ?? popularMovies[0];
   const spotlight2 = top10Series[0] ?? popularSeries[0];
@@ -1055,10 +1076,38 @@ export default function NovidadesScreen() {
           )}
 
           {/* ── SEARCH BAR ───────────────────────────────────────────────── */}
-          <GlobalSearchBar placeholder="Buscar novidades, lançamentos..." />
+          <InlineSearchBar
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder="Buscar novidades, lançamentos..."
+          />
 
           {/* ── BODY ─────────────────────────────────────────────────────── */}
-          {loading ? (
+          {searchQuery.length >= 2 ? (
+            <View style={{ paddingBottom: 20 }}>
+              <View style={{ paddingHorizontal: 16, marginBottom: 12, flexDirection: "row", alignItems: "center", gap: 10 }}>
+                {searchLoading
+                  ? <ActivityIndicator size="small" color={RED} />
+                  : <Text style={{ color: "rgba(255,255,255,0.55)", fontSize: 13, flex: 1 }}>
+                      {searchResults.length > 0
+                        ? `${searchResults.length} resultado${searchResults.length !== 1 ? "s" : ""} para "${searchQuery}"`
+                        : `Nenhum resultado para "${searchQuery}"`}
+                    </Text>
+                }
+              </View>
+              {!searchLoading && searchResults.length > 0 && (
+                <WideRow items={searchResults} onPress={goTo} />
+              )}
+              {!searchLoading && searchResults.length === 0 && (
+                <View style={{ alignItems: "center", paddingVertical: 56, gap: 14 }}>
+                  <Feather name="search" size={48} color="rgba(255,255,255,0.1)" />
+                  <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 15, fontWeight: "600" }}>
+                    Nenhum resultado encontrado
+                  </Text>
+                </View>
+              )}
+            </View>
+          ) : loading ? (
             <View style={{ marginTop: 24 }}>
               <SkeletonRow shimmer={shimmer} />
               <SkeletonRow shimmer={shimmer} />
