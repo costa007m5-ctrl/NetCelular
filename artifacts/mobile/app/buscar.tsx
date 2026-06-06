@@ -190,11 +190,21 @@ function BackdropCard({ item, onPress, rank }: { item: ContentItem; onPress: () 
 function SectionRow({ title, badge, accentColor = RED, onSeeAll, children }: {
   title: string; badge?: string; accentColor?: string; onSeeAll?: () => void; children: React.ReactNode;
 }) {
+  const anim  = useRef(new Animated.Value(0)).current;
   const words = title.split(" ");
   const first = words[0];
   const rest  = words.slice(1).join(" ");
+
+  useEffect(() => {
+    Animated.timing(anim, {
+      toValue: 1, duration: 420, delay: 80, useNativeDriver: true,
+    }).start();
+  }, []);
+
+  const ty = anim.interpolate({ inputRange: [0, 1], outputRange: [24, 0] });
+
   return (
-    <View style={styles.sectionWrap}>
+    <Animated.View style={[styles.sectionWrap, { opacity: anim, transform: [{ translateY: ty }] }]}>
       <View style={[styles.sectionHeader, { overflow: "hidden" }]}>
         <LinearGradient
           colors={[`${accentColor}28`, "transparent"]}
@@ -222,7 +232,7 @@ function SectionRow({ title, badge, accentColor = RED, onSeeAll, children }: {
         )}
       </View>
       {children}
-    </View>
+    </Animated.View>
   );
 }
 
