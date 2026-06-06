@@ -33,6 +33,7 @@ import { TopTenCard } from "@/components/TopTenCard";
 import { NotificationBell } from "@/components/NotificationBell";
 import { SearchTriggerBar } from "@/components/SearchTriggerBar";
 import { r2Route } from "@/lib/r2-direct";
+import { useR2Catalog } from "@/lib/r2-catalog-hook";
 import { getCached, setCached, getCacheTimestamp } from "@/lib/catalog-cache";
 import { checkCatalogWatchAndNotify } from "@/lib/catalog-watch";
 import { useAuth } from "@/lib/auth-context";
@@ -1575,6 +1576,9 @@ export default function HomeScreen() {
   // Below-fold sections render after interactions complete (avoids mounting all 56 sections at once on Android)
   const [belowFoldReady, setBelowFoldReady] = useState(Platform.OS === "web");
 
+  // ── R2 / Drive catalog ────────────────────────────────────────────────────
+  const { r2All } = useR2Catalog();
+
   // ── section entrance animations ────────────────────────────────────────────
   const SECTION_COUNT = 49;
   // On native, skip entrance animations entirely — set all to 1 immediately.
@@ -2047,6 +2051,27 @@ export default function HomeScreen() {
                       />
                     ))}
                   </ScrollView>
+                </AnimatedSection>
+              )}
+
+              {/* ── MINHA BIBLIOTECA (R2/Drive) ──────────────────────────────── */}
+              {r2All.length > 0 && (
+                <AnimatedSection anim={s[5]}>
+                  <View style={styles.section}>
+                    <SectionHeader
+                      title="Minha Biblioteca"
+                      icon="hard-drive"
+                      badge="DRIVE"
+                      accentColor={GREEN}
+                      subtitle="Conteúdo do seu armazenamento"
+                    />
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={{ paddingHorizontal: 16 }} decelerationRate="fast">
+                      {r2All.slice(0, 12).map((item) => (
+                        <PosterCard key={item.id} item={item} onPress={() => goTo(item)} />
+                      ))}
+                    </ScrollView>
+                  </View>
                 </AnimatedSection>
               )}
 

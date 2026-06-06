@@ -35,6 +35,7 @@ import { TopTenCard } from "@/components/TopTenCard";
 import { SearchTriggerBar } from "@/components/SearchTriggerBar";
 import type { ContentItem } from "@/constants/content";
 import { r2Route } from "@/lib/r2-direct";
+import { useR2Catalog } from "@/lib/r2-catalog-hook";
 import { getCached, setCached } from "@/lib/catalog-cache";
 
 const { width: W, height: H } = Dimensions.get("window");
@@ -981,6 +982,9 @@ export default function NovidadesScreen() {
   const dramaSeries    = useMemo(() => allSeries.slice(10, 25),  [allSeries]);
   const crimeSeries    = useMemo(() => allSeries.slice(25, 40),  [allSeries]);
 
+  // ── R2 / Drive catalog ────────────────────────────────────────────────────
+  const { r2All } = useR2Catalog();
+
   // modal state
   const [modal, setModal] = useState<{
     visible: boolean; title: string; items: ContentItem[]; accent: string;
@@ -1160,6 +1164,18 @@ export default function NovidadesScreen() {
                   })} />
                 </View>
               </AnimatedSection>
+
+              {/* ── MINHA BIBLIOTECA (R2/Drive) ─────────────────────────── */}
+              {r2All.length > 0 && (
+                <AnimatedSection anim={s[1]}>
+                  <View style={sty.sec}>
+                    <SectionHeader title="Minha Biblioteca" icon="hard-drive"
+                      badge="DRIVE" accentColor={GREEN}
+                      subtitle="Conteúdo do seu armazenamento" />
+                    <PosterRow items={r2All.slice(0, 12)} onPress={goTo} showTitle />
+                  </View>
+                </AnimatedSection>
+              )}
 
               {/* ── 3. TRENDING HOJE ────────────────────────────────────── */}
               {trendMovies.length > 0 && (

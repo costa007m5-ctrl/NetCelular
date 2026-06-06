@@ -31,6 +31,7 @@ import { HeroBanner } from "@/components/HeroBanner";
 import { TopTenCard } from "@/components/TopTenCard";
 import { SearchTriggerBar } from "@/components/SearchTriggerBar";
 import type { ContentItem } from "@/constants/content";
+import { useR2Catalog } from "@/lib/r2-catalog-hook";
 
 // ─── Dimensions ────────────────────────────────────────────────────────────────
 const { width: W, height: H } = Dimensions.get("window");
@@ -832,6 +833,9 @@ export default function FranquiasScreen() {
   const [dramaSeries,  setDramaSeries]  = useState<ContentItem[]>([]);
   const [crimeItems,   setCrimeItems]   = useState<ContentItem[]>([]);
 
+  // ── R2 / Drive catalog ────────────────────────────────────────────────────
+  const { r2All } = useR2Catalog();
+
   // ── Load (hero first, rest in background) ──────────────────────────────────
   const loadAll = useCallback(async () => {
     // Phase 1: load hero banner immediately (4 franchise calls)
@@ -1138,6 +1142,19 @@ export default function FranquiasScreen() {
                   { label: "Universos", value: "10+",                                        color: CYAN,   icon: "layers" },
                 ]} />
               </AnimatedSection>
+
+              {/* ── MINHA BIBLIOTECA (R2/Drive) ──────────────────────────── */}
+              {r2All.length > 0 && (
+                <AnimatedSection anim={s_anims[10]}>
+                  <View style={q.sec}>
+                    <SectionHeader title="Minha Biblioteca" icon="hard-drive"
+                      badge="DRIVE" accentColor={GREEN}
+                      subtitle="Conteúdo do seu armazenamento"
+                      onSeeAll={() => openModal("Minha Biblioteca", r2All, GREEN)} />
+                    <PosterRow items={r2All.slice(0, 12)} onPress={goTo} showTitle />
+                  </View>
+                </AnimatedSection>
+              )}
 
               <SectionDivider label="LANÇAMENTOS" accentColor={BLUE} />
 

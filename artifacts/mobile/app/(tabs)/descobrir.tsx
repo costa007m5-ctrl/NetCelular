@@ -30,6 +30,7 @@ import { InlineSearchBar } from "@/components/InlineSearchBar";
 import { HeroBanner } from "@/components/HeroBanner";
 import type { ContentItem } from "@/constants/content";
 import { r2Route } from "@/lib/r2-direct";
+import { useR2Catalog } from "@/lib/r2-catalog-hook";
 import {
   liveTvApi,
   calcProgress,
@@ -355,6 +356,34 @@ function SectionHeader({ title, count, accentColor = RED }: {
   );
 }
 
+// ─── R2MiniCard — small poster card for Minha Biblioteca row ─────────────────
+function R2MiniCard({ item, onPress }: { item: ContentItem; onPress: () => void }) {
+  const [err, setErr] = useState(false);
+  return (
+    <TouchableOpacity onPress={onPress} activeOpacity={0.8}>
+      <View style={{ width: 108, marginRight: 0 }}>
+        <View style={{ width: 108, height: 158, borderRadius: 10, overflow: "hidden", backgroundColor: "#111" }}>
+          {!err && item.posterPath ? (
+            <Image source={{ uri: item.posterPath }} style={{ width: "100%", height: "100%" }}
+              contentFit="cover" cachePolicy="memory-disk" onError={() => setErr(true)} />
+          ) : (
+            <LinearGradient colors={["#1a0a14","#08060e"]} style={{ flex: 1 }}>
+              <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+                <Feather name="film" size={20} color="rgba(255,255,255,0.1)" />
+              </View>
+            </LinearGradient>
+          )}
+          <LinearGradient colors={["transparent","rgba(0,0,0,0.8)"]}
+            locations={[0.6, 1]}
+            style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 60 }} />
+        </View>
+        <Text numberOfLines={1} style={{ color: "rgba(255,255,255,0.7)", fontSize: 10,
+          fontWeight: "600", marginTop: 5 }}>{item.title}</Text>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // MAIN SCREEN
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -369,6 +398,20 @@ export default function LiveTvScreen() {
   const gridFade   = useRef(new Animated.Value(0)).current;
   const featFade   = useRef(new Animated.Value(0)).current;
   const blink      = useRef(new Animated.Value(1)).current;
+
+  // ── R2 / Drive catalog ────────────────────────────────────────────────────
+  const { r2All } = useR2Catalog();
+
+  const goTo = useCallback((item: ContentItem) => {
+    router.push({
+      pathname: "/detail",
+      params: {
+        type: item.mediaType ?? (item.type === "movie" ? "movie" : "tv"),
+        id: String(item.tmdbId ?? item.id),
+        title: item.title,
+      },
+    });
+  }, [router]);
 
   const [channels,   setChannels]   = useState<LiveChannel[]>([]);
   const [categories, setCategories] = useState<LiveCategory[]>([]);
@@ -642,6 +685,38 @@ export default function LiveTvScreen() {
                     onPress={() => goToChannel(featured)}
                   />
                 </Animated.View>
+              )}
+
+              {/* Minha Biblioteca (R2/Drive) — hidden while searching */}
+              {!isSearching && r2All.length > 0 && (
+                <View style={{ marginBottom: 8 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+                    paddingHorizontal: 16, paddingVertical: 10 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                      <View style={{ width: 3, height: 18, borderRadius: 2, backgroundColor: GREEN }} />
+                      <Feather name="hard-drive" size={14} color={GREEN} />
+                      <View>
+                        <View style={{ flexDirection: "row", alignItems: "baseline", gap: 4 }}>
+                          <Text style={{ color: GREEN, fontSize: 14, fontWeight: "800" }}>Minha</Text>
+                          <Text style={{ color: "#fff", fontSize: 14, fontWeight: "800" }}> Biblioteca</Text>
+                        </View>
+                        <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 10, marginTop: 1 }}>
+                          Conteúdo do seu armazenamento
+                        </Text>
+                      </View>
+                      <View style={{ backgroundColor: `${GREEN}22`, borderColor: `${GREEN}44`, borderWidth: 1,
+                        borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2, marginLeft: 4 }}>
+                        <Text style={{ color: GREEN, fontSize: 8, fontWeight: "900" }}>DRIVE</Text>
+                      </View>
+                    </View>
+                  </View>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }} decelerationRate="fast">
+                    {r2All.slice(0, 12).map((item) => (
+                      <R2MiniCard key={item.id} item={item} onPress={() => goTo(item)} />
+                    ))}
+                  </ScrollView>
+                </View>
               )}
 
               {/* Section header */}
