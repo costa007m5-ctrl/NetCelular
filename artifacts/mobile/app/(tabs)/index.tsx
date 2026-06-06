@@ -32,6 +32,7 @@ import { TopTenCard } from "@/components/TopTenCard";
 import { NotificationBell } from "@/components/NotificationBell";
 import { SearchTriggerBar } from "@/components/SearchTriggerBar";
 import { r2Route } from "@/lib/r2-direct";
+import { getCached, setCached } from "@/lib/catalog-cache";
 import { checkCatalogWatchAndNotify } from "@/lib/catalog-watch";
 import { useAuth } from "@/lib/auth-context";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
@@ -1652,85 +1653,113 @@ export default function HomeScreen() {
     }, [loadContinueItems])
   );
 
-  // ── load data ─────────────────────────────────────────────────────────────
-  const loadData = useCallback(async () => {
-    try {
-      const fetchSample = async (type: string) => {
-        const [p1, p2] = await Promise.allSettled([
-          r2Route<{ success: boolean; pagination: any; data: any[] }>(`/flix2/catalog?type=${type}&page=1`),
-          r2Route<{ success: boolean; pagination: any; data: any[] }>(`/flix2/catalog?type=${type}&page=2`),
-        ]);
-        const items: any[] = [];
-        for (const r of [p1, p2]) {
-          if (r.status === "fulfilled" && r.value.success) items.push(...(r.value.data ?? []));
-        }
-        const total = p1.status === "fulfilled" && p1.value.success
-          ? (p1.value.pagination?.total_count ?? items.length) : items.length;
-        return { items, total };
-      };
+  // ── apply catalog data to state ───────────────────────────────────────────
+  const applyCatalog = useCallback((
+    raw: { movies: any[]; series: any[]; animes: any[] }
+  ) => {
+    const m = raw.movies.filter((i: any) => i.tmdb_id > 0 && i.poster).map(flix2ToContent);
+    const s = raw.series.filter((i: any) => i.tmdb_id > 0).map(flix2ToContent);
+    const a = raw.animes.filter((i: any) => i.tmdb_id > 0).map(flix2ToContent);
 
-      const [movRes, serRes, aniRes] = await Promise.allSettled([
-        fetchSample("movies"),
-        fetchSample("series"),
-        fetchSample("animes"),
-      ]);
+    if (m.length) {
+      setMovies(m);
+      setHeroItems(m.filter((x) => x.backdropPath || x.posterPath).slice(0, 6));
+      setTop10Movies(m.slice(0, 10));
+      setTotals((t) => ({ ...t, movies: m.length }));
+    }
+    if (s.length) {
+      setSeries(s);
+      setTop10Series(s.slice(0, 10));
+      setTotals((t) => ({ ...t, series: s.length }));
+    }
+    if (a.length) {
+      setAnimes(a);
+      setTotals((t) => ({ ...t, animes: a.length }));
+    }
 
-      const availableIds = new Set<number>();
+    const availableIds = new Set<number>();
+    [...m, ...s, ...a].forEach((i) => { if (i.tmdbId) availableIds.add(i.tmdbId); });
 
-      let allMovies: ContentItem[] = [];
-      let allSeries: ContentItem[] = [];
-      let allAnimes: ContentItem[] = [];
-
-      if (movRes.status === "fulfilled") {
-        const m = movRes.value.items.filter((i: any) => i.tmdb_id > 0 && i.poster).map(flix2ToContent);
-        m.forEach((i) => { if (i.tmdbId) availableIds.add(i.tmdbId); });
-        allMovies = m;
-        setMovies(m);
-        const heroPool = m.filter((x) => x.posterPath);
-        if (heroPool.length >= 2) setHeroItems(heroPool.slice(0, 6));
-        setTop10Movies(m.slice(0, 10));
-        setTotals((t) => ({ ...t, movies: movRes.value.total }));
-      }
-      if (serRes.status === "fulfilled") {
-        const s = serRes.value.items.filter((i: any) => i.tmdb_id > 0).map(flix2ToContent);
-        s.forEach((i) => { if (i.tmdbId) availableIds.add(i.tmdbId); });
-        allSeries = s;
-        setSeries(s);
-        setTop10Series(s.slice(0, 10));
-        setTotals((t) => ({ ...t, series: serRes.value.total }));
-      }
-      if (aniRes.status === "fulfilled") {
-        const a = aniRes.value.items.filter((i: any) => i.tmdb_id > 0).map(flix2ToContent);
-        a.forEach((i) => { if (i.tmdbId) availableIds.add(i.tmdbId); });
-        allAnimes = a;
-        setAnimes(a);
-        setTotals((t) => ({ ...t, animes: aniRes.value.total }));
-      }
-
-      // ── Progressive image preloading ──────────────────────────────────────
-      // High priority: hero + first visible row of each category (above the fold)
-      clearPreloadQueue();
-      const heroUrls   = allMovies.slice(0, 6).map((i) => i.posterPath).filter(Boolean) as string[];
-      const row1Movies = allMovies.slice(0, 6).map((i) => i.posterPath).filter(Boolean) as string[];
-      const row1Series = allSeries.slice(0, 6).map((i) => i.posterPath).filter(Boolean) as string[];
+    clearPreloadQueue();
+    const heroUrls   = m.slice(0, 6).map((i) => i.posterPath).filter(Boolean) as string[];
+    const row1Movies = m.slice(0, 6).map((i) => i.posterPath).filter(Boolean) as string[];
+    const row1Series = s.slice(0, 6).map((i) => i.posterPath).filter(Boolean) as string[];
+    if (Platform.OS === "web") {
       preloadImages([...heroUrls, ...row1Movies, ...row1Series], "high");
-
-      // Low priority: next few rows loaded in the background after UI settles
       setTimeout(() => {
-        const restMovies = allMovies.slice(6, 30).map((i) => i.posterPath).filter(Boolean) as string[];
-        const restSeries = allSeries.slice(6, 24).map((i) => i.posterPath).filter(Boolean) as string[];
-        const restAnimes = allAnimes.slice(0, 18).map((i) => i.posterPath).filter(Boolean) as string[];
+        const restMovies = m.slice(6, 30).map((i) => i.posterPath).filter(Boolean) as string[];
+        const restSeries = s.slice(6, 24).map((i) => i.posterPath).filter(Boolean) as string[];
+        const restAnimes = a.slice(0, 18).map((i) => i.posterPath).filter(Boolean) as string[];
         preloadImages([...restMovies, ...restSeries, ...restAnimes], "low");
       }, 1500);
+    }
 
-      if (availableIds.size > 0) checkCatalogWatchAndNotify(availableIds).catch(() => {});
+    if (availableIds.size > 0) checkCatalogWatchAndNotify(availableIds).catch(() => {});
+  }, []);
+
+  // ── fetch fresh from API and store in cache ────────────────────────────────
+  const fetchAndCache = useCallback(async (): Promise<{ movies: any[]; series: any[]; animes: any[] }> => {
+    const fetchPages = async (type: string, pages = 2) => {
+      const calls = Array.from({ length: pages }, (_, i) =>
+        r2Route<{ success: boolean; pagination: any; data: any[] }>(`/flix2/catalog?type=${type}&page=${i + 1}`)
+      );
+      const results = await Promise.allSettled(calls);
+      const items: any[] = [];
+      for (const r of results) {
+        if (r.status === "fulfilled" && r.value.success) items.push(...(r.value.data ?? []));
+      }
+      return items;
+    };
+
+    const [movRaw, serRaw, aniRaw] = await Promise.all([
+      fetchPages("movies", 2),
+      fetchPages("series", 2),
+      fetchPages("animes", 1),
+    ]);
+
+    if (movRaw.length) setCached("movies", movRaw);
+    if (serRaw.length) setCached("series", serRaw);
+    if (aniRaw.length) setCached("animes", aniRaw);
+
+    return { movies: movRaw, series: serRaw, animes: aniRaw };
+  }, []);
+
+  // ── load data — cache-first with background revalidation ─────────────────
+  const loadData = useCallback(async () => {
+    try {
+      // Phase 1: try cache — display instantly if available
+      const [cachedMov, cachedSer, cachedAni] = await Promise.all([
+        getCached("movies"),
+        getCached("series"),
+        getCached("animes"),
+      ]);
+
+      const hasCached = cachedMov?.length || cachedSer?.length;
+      if (hasCached) {
+        applyCatalog({
+          movies: cachedMov ?? [],
+          series: cachedSer ?? [],
+          animes: cachedAni ?? [],
+        });
+        setLoading(false);
+        setRefreshing(false);
+        setTimeout(startEntranceAnims, 60);
+
+        // Phase 2: background revalidation — silent, no loading state
+        fetchAndCache().then((fresh) => applyCatalog(fresh)).catch(() => {});
+        return;
+      }
+
+      // Phase 1 fallback: no cache — fetch normally (with loading state)
+      const fresh = await fetchAndCache();
+      applyCatalog(fresh);
     } catch {}
     finally {
       setLoading(false);
       setRefreshing(false);
       setTimeout(startEntranceAnims, 100);
     }
-  }, [startEntranceAnims]);
+  }, [startEntranceAnims, applyCatalog, fetchAndCache]);
 
   useEffect(() => { loadData(); }, [loadData]);
 

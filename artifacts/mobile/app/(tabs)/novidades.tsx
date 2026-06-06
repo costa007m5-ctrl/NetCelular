@@ -34,6 +34,7 @@ import { TopTenCard } from "@/components/TopTenCard";
 import { SearchTriggerBar } from "@/components/SearchTriggerBar";
 import type { ContentItem } from "@/constants/content";
 import { r2Route } from "@/lib/r2-direct";
+import { getCached, setCached } from "@/lib/catalog-cache";
 
 const { width: W, height: H } = Dimensions.get("window");
 const STATUS_H = RNStatusBar.currentHeight ?? 0;
@@ -69,22 +70,42 @@ function flix2ToContent(item: any): ContentItem {
   };
 }
 
-async function fetchCatalog(type: "movies" | "series" | "animes", pages = 2): Promise<ContentItem[]> {
+async function fetchFromApi(type: "movies" | "series" | "animes", pages = 3): Promise<any[]> {
   const calls = Array.from({ length: pages }, (_, i) =>
     r2Route<{ success: boolean; data: any[] }>(`/flix2/catalog?type=${type}&page=${i + 1}`)
   );
   const results = await Promise.allSettled(calls);
-  const items: ContentItem[] = [];
+  const raw: any[] = [];
   for (const r of results) {
     if (r.status === "fulfilled" && r.value.success) {
-      items.push(
-        ...(r.value.data ?? [])
-          .filter((i: any) => i.tmdb_id > 0 && i.poster)
-          .map(flix2ToContent)
-      );
+      raw.push(...(r.value.data ?? []).filter((i: any) => i.tmdb_id > 0 && i.poster));
     }
   }
-  return items;
+  return raw;
+}
+
+async function fetchCatalog(
+  type: "movies" | "series" | "animes",
+  pages = 3,
+  onRefresh?: (items: ContentItem[]) => void
+): Promise<ContentItem[]> {
+  // 1. Try cache first — instant display
+  const cached = await getCached(type);
+  if (cached) {
+    const items = cached.map(flix2ToContent);
+    // Background revalidation — fetch fresh without blocking UI
+    fetchFromApi(type, pages).then((raw) => {
+      if (raw.length) {
+        setCached(type, raw);
+        onRefresh?.(raw.map(flix2ToContent));
+      }
+    }).catch(() => {});
+    return items;
+  }
+  // 2. Cache miss — fetch normally and store
+  const raw = await fetchFromApi(type, pages);
+  if (raw.length) setCached(type, raw);
+  return raw.map(flix2ToContent);
 }
 
 function makeAnims(n: number) {
