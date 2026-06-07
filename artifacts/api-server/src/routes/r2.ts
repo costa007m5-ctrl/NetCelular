@@ -2665,17 +2665,21 @@ async function resolveTeraboxDirect(shareUrl: string): Promise<string | null> {
   } catch { clearTimeout(tid); return null; }
 }
 
-// ── Stream URL redirect cache (90s TTL) — CDN signed URLs expire quickly ────
+// ── Stream URL redirect cache (20s TTL) — CDN signed URLs can expire in ~30-60s ─
+// Short TTL ensures retries get a fresh signed URL instead of a stale one.
+// Pass ?nocache=1 from the client to bypass the cache immediately (used on retries).
 const STREAM_URL_CACHE = new Map<string, { result: any; cachedAt: number }>();
-const STREAM_URL_TTL_MS = 90 * 1000;
+const STREAM_URL_TTL_MS = 20 * 1000;
 
 router.get("/flix2/stream-url", async (req, res) => {
   const streamUrl = String(req.query.streamUrl ?? "");
   if (!streamUrl) { res.status(400).json({ error: "streamUrl é obrigatório" }); return; }
 
-  // Fast path: return cached resolved URL
+  const noCache = req.query.nocache === "1";
+
+  // Fast path: return cached resolved URL (skip if nocache=1)
   const cached = STREAM_URL_CACHE.get(streamUrl);
-  if (cached && Date.now() - cached.cachedAt < STREAM_URL_TTL_MS) {
+  if (!noCache && cached && Date.now() - cached.cachedAt < STREAM_URL_TTL_MS) {
     CACHE_STATS.streamUrl.hits++;
     res.json({ ...cached.result, fromCache: true });
     return;

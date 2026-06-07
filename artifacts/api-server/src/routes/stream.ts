@@ -60,9 +60,133 @@ function isAllowedHost(urlStr: string): boolean {
   }
 }
 
+function isFlix2Host(urlStr: string): boolean {
+  try {
+    const host = new URL(urlStr).hostname;
+    for (const root of FLIX2_CDN_ROOTS) {
+      if (host === root || host.endsWith(`.${root}`)) return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+function isHlsContentType(contentType: string | null, url: string): boolean {
+  if (!contentType) return url.includes(".m3u8");
+  const ct = contentType.toLowerCase();
+  return (
+    ct.includes("application/x-mpegurl") ||
+    ct.includes("application/vnd.apple.mpegurl") ||
+    ct.includes("audio/mpegurl") ||
+    ct.includes("audio/x-mpegurl") ||
+    // Some CDNs return octet-stream for m3u8
+    (ct.includes("application/octet-stream") && url.includes(".m3u8"))
+  );
+}
+
+/**
+ * Build a self-referencing proxy URL so that HLS segment requests also go through this proxy.
+ * `baseProxyUrl` is the public URL of this server (e.g. https://xxx.replit.app/api/stream/proxy).
+ * If we don't know it, fall back to using a relative path that the client can resolve.
+ */
+function buildSegmentProxyUrl(segmentAbsoluteUrl: string, proxyBase: string): string {
+  return `${proxyBase}?url=${encodeURIComponent(segmentAbsoluteUrl)}`;
+}
+
+/**
+ * Resolve a possibly-relative URI against a base URL.
+ */
+function resolveUrl(uri: string, base: string): string {
+  try {
+    return new URL(uri, base).toString();
+  } catch {
+    return uri;
+  }
+}
+
+/**
+ * Rewrite an HLS manifest (m3u8) so that all segment and init-section URIs
+ * go through this proxy. This ensures ExoPlayer fetches every .ts/.aac/.mp4
+ * segment with browser UA headers — not directly to the CDN.
+ *
+ * Handles:
+ *   - Segment URI lines (non-comment, non-tag lines)
+ *   - EXT-X-KEY URI="..." attributes (encryption keys)
+ *   - EXT-X-MAP URI="..." attributes (initialization segments)
+ *   - EXT-X-MEDIA URI="..." attributes (alternate rendition playlists)
+ *   - Nested m3u8 variant playlists (master → media playlists)
+ */
+function rewriteHlsManifest(body: string, manifestUrl: string, proxyBase: string): string {
+  const lines = body.split("\n");
+  const out: string[] = [];
+
+  // Regex to match URI="..." in EXT-X-* tags
+  const uriAttrRe = /URI="([^"]+)"/g;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trimEnd();
+
+    // Comment / empty → pass through as-is
+    if (line === "" || line.startsWith("#EXT-X-ENDLIST") || line.startsWith("#EXTM3U") || line.startsWith("#EXT-X-VERSION") || line.startsWith("#EXT-X-TARGETDURATION") || line.startsWith("#EXT-X-MEDIA-SEQUENCE") || line.startsWith("#EXT-X-PLAYLIST-TYPE") || line.startsWith("#EXT-X-ALLOW-CACHE") || line.startsWith("#EXT-X-DISCONTINUITY") || line.startsWith("#EXTINF") || line.startsWith("#EXT-X-BYTERANGE") || line.startsWith("#EXT-X-DISCONTINUITY-SEQUENCE") || line.startsWith("#EXT-X-PROGRAM-DATE-TIME") || line.startsWith("#EXT-X-INDEPENDENT-SEGMENTS")) {
+      out.push(line);
+      continue;
+    }
+
+    // Tags that have URI="..." attributes to rewrite
+    if (line.startsWith("#EXT-X-KEY") || line.startsWith("#EXT-X-MAP") || line.startsWith("#EXT-X-MEDIA") || line.startsWith("#EXT-X-I-FRAME-STREAM-INF") || line.startsWith("#EXT-X-SESSION-DATA")) {
+      const rewritten = line.replace(uriAttrRe, (_match, uri) => {
+        const abs = resolveUrl(uri, manifestUrl);
+        if (!isAllowedHost(abs)) return `URI="${uri}"`;
+        return `URI="${buildSegmentProxyUrl(abs, proxyBase)}"`;
+      });
+      out.push(rewritten);
+      continue;
+    }
+
+    // EXT-X-STREAM-INF is followed by a URI on the next line (variant playlist)
+    if (line.startsWith("#EXT-X-STREAM-INF") || line.startsWith("#EXT-X-I-FRAME-STREAM-INF")) {
+      out.push(line);
+      // Rewrite the URI="..." inside the tag too (for I-FRAME-STREAM-INF)
+      continue;
+    }
+
+    // Any other # tag — pass through
+    if (line.startsWith("#")) {
+      out.push(line);
+      continue;
+    }
+
+    // Non-empty, non-comment line = a URI (segment or playlist)
+    const abs = resolveUrl(line, manifestUrl);
+    if (isAllowedHost(abs)) {
+      out.push(buildSegmentProxyUrl(abs, proxyBase));
+    } else {
+      // Unknown host — pass through unchanged (won't be proxied)
+      out.push(line);
+    }
+  }
+
+  return out.join("\n");
+}
+
+/**
+ * Derive the public proxy base URL from the incoming Express request.
+ * Works both in dev (Replit preview proxy) and in deployed .replit.app environments.
+ */
+function getProxyBase(req: Request): string {
+  // x-forwarded-host is set by Replit's reverse proxy
+  const host = req.headers["x-forwarded-host"] ?? req.headers["host"] ?? "localhost:8080";
+  const proto = req.headers["x-forwarded-proto"] ?? (req.secure ? "https" : "http");
+  // The proxy endpoint is at /api/stream/proxy
+  return `${proto}://${host}/api/stream/proxy`;
+}
+
 // GET /stream/proxy?url=<encoded-url>
 // Transparent video proxy with Range request support for native video players.
-// Follows redirect chains, forwards Range headers, streams response.
+// For HLS manifests (m3u8): rewrites all segment/init URLs to go through this proxy,
+// so ExoPlayer fetches EVERY request (manifest + segments) with browser UA — bypassing
+// CDN Cloudflare WAF blocks that target ExoPlayer/Dalvik User-Agents.
 router.get("/proxy", async (req: Request, res: Response) => {
   const rawUrl = (req.query["url"] as string ?? "").trim();
 
@@ -90,8 +214,13 @@ router.get("/proxy", async (req: Request, res: Response) => {
     "Accept": "*/*",
     "Accept-Encoding": "identity",
     "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
-    "Referer": "https://animezey16082023.animezey16082023.workers.dev/",
+    // Use Flix2-specific Referer for Flix2 CDN domains; fallback to animezey for Drive
+    "Referer": isFlix2Host(decodedUrl) ? "https://nixplay.lat/" : "https://animezey16082023.animezey16082023.workers.dev/",
   };
+
+  if (isFlix2Host(decodedUrl)) {
+    upstreamHeaders["Origin"] = "https://nixplay.lat";
+  }
 
   if (rangeHeader) {
     upstreamHeaders["Range"] = rangeHeader;
@@ -117,6 +246,30 @@ router.get("/proxy", async (req: Request, res: Response) => {
       return;
     }
 
+    const contentType = upstream.headers.get("content-type");
+
+    // ── HLS manifest rewriting ────────────────────────────────────────────────
+    // When the upstream returns an HLS manifest (m3u8), we rewrite all segment URIs
+    // so they go through this proxy. This ensures ExoPlayer fetches segments with
+    // browser UA headers — the only way to guarantee Cloudflare CDN doesn't block them
+    // regardless of how expo-av handles custom headers internally on Android.
+    // Range requests are NOT for m3u8 manifests (they're small text files), so we
+    // only do this rewriting on non-Range requests for HLS content.
+    if (!rangeHeader && isHlsContentType(contentType, decodedUrl)) {
+      const body = await upstream.text();
+      const proxyBase = getProxyBase(req);
+      const rewritten = rewriteHlsManifest(body, decodedUrl, proxyBase);
+
+      res.writeHead(200, {
+        "Content-Type": "application/x-mpegurl",
+        "Access-Control-Allow-Origin": "*",
+        "Cache-Control": "no-store",
+      });
+      res.end(rewritten);
+      return;
+    }
+
+    // ── Regular proxy (non-HLS or range request) ──────────────────────────────
     // Forward key response headers
     const forwardHeaders: Record<string, string> = {
       "Accept-Ranges": upstream.headers.get("accept-ranges") ?? "bytes",
@@ -124,7 +277,6 @@ router.get("/proxy", async (req: Request, res: Response) => {
       "Cache-Control": "no-store",
     };
 
-    const contentType = upstream.headers.get("content-type");
     if (contentType) forwardHeaders["Content-Type"] = contentType;
 
     const contentLength = upstream.headers.get("content-length");

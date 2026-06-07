@@ -477,30 +477,26 @@ export default function R2PlayerScreen() {
       let url: string;
       if (isEffectiveFlix2) {
         // Flix 2.0: nixplay.lat stream_url redirects 302 → signed CDN URL on fontedecanais/cineveo CDN.
-        // We resolve server-side because React Native video players may not follow redirects.
+        // We resolve server-side (redirect:manual) because the CDN blocks server IPs on HEAD with
+        // redirect:follow — only nixplay.lat is hit, and we read the Location header.
         //
-        // Android APK strategy: use the raw CDN URL directly with browser UA headers on the
-        // expo-av source. This is critical for HLS streams — the proxy only handles the initial
-        // manifest request but ExoPlayer fetches segments directly; if segments go without browser
-        // headers, Cloudflare blocks them. Setting headers on the source ensures ALL requests
-        // (manifest + every HLS segment) use browser UA. Expo Go works differently because its
-        // UA fingerprint is not caught by the CDN WAF, but signed Codemagic APKs are blocked.
-        //
-        // Web / iOS: use proxy (handles CORS for web; iOS uses AVPlayer which is not blocked).
+        // All platforms use the API proxy (/api/stream/proxy). The proxy:
+        //   1. Sends browser User-Agent + Referer (nixplay.lat) — bypasses Cloudflare WAF blocks
+        //      on ExoPlayer/Dalvik UA in signed Codemagic APKs.
+        //   2. Detects HLS manifests (m3u8) and REWRITES all segment URLs to also go through
+        //      the proxy — ensures every .ts/.aac/.mp4 request uses browser UA, not just the
+        //      initial manifest. This covers the case where ExoPlayer fetches segments directly.
+        // nocache=1: always bypass server cache — CDN signed URLs expire in ~30-60s, so stale
+        //      cached URLs cause retries to fail with the same expired URL.
         const rawUrl = effectiveFlix2Url!;
-        const data = await r2Route<{ url: string; error?: string; via?: string }>(`/flix2/stream-url?streamUrl=${encodeURIComponent(rawUrl)}`);
+        const data = await r2Route<{ url: string; error?: string; via?: string }>(`/flix2/stream-url?streamUrl=${encodeURIComponent(rawUrl)}&nocache=1`);
         if (data.error) throw new Error(data.error);
-        if (Platform.OS === "android") {
-          url = data.url;
-          setVideoSourceHeaders({
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            "Referer": "https://nixplay.lat/",
-            "Origin": "https://nixplay.lat",
-          });
-        } else {
-          url = getProxiedStreamUrl(data.url);
-          setVideoSourceHeaders(null);
-        }
+        // All platforms: route through the API proxy.
+        // The proxy now rewrites HLS manifests (m3u8) so ALL segment (.ts/.aac/.mp4)
+        // URLs are also proxied — ensuring every request uses browser UA.
+        // This prevents Cloudflare CDN blocks on ExoPlayer segment fetches,
+        // which happen DIRECTLY to the CDN if the manifest is not rewritten.
+        url = getProxiedStreamUrl(data.url);
       } else if (isEffectiveDrive) {
         // Drive: resolve client-side (bypasses server IP block by Cloudflare).
         // Then proxy through API server so ExoPlayer sends a browser User-Agent
