@@ -22,7 +22,9 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { apiList, apiSignedUrl, r2Route, drivePlayDirect } from "@/lib/r2-direct";
+import { getApiBase } from "@/lib/api";
 import { downloadsManager } from "@/lib/downloads";
+import { CastModal } from "@/components/CastModal";
 import { getProxiedStreamUrl } from "@/lib/gdrive-index";
 import { useAuth } from "@/lib/auth-context";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
@@ -215,6 +217,7 @@ export default function R2PlayerScreen() {
   const [activeFlix2Override, setActiveFlix2Override] = useState<string | null>(null);
   const [fallbackNotice, setFallbackNotice] = useState<string | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [showCastModal, setShowCastModal] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [positionMs, setPositionMs] = useState(0);
   const [durationMs, setDurationMs] = useState(0);
@@ -1454,7 +1457,13 @@ export default function R2PlayerScreen() {
                       <Text style={styles.speedBadgeText}>{playbackSpeed}×</Text>
                     </View>
                   )}
-                  {/* Share */}
+                  {/* Cast to TV */}
+                  <Pressable
+                    style={styles.iconBtn}
+                    onPress={() => setShowCastModal(true)}
+                    disabled={!videoUrl}>
+                    <Feather name="cast" size={18} color={videoUrl ? "#fff" : "rgba(255,255,255,0.3)"} />
+                  </Pressable>
                   <Pressable style={styles.iconBtn} onPress={handleShare}>
                     <Feather name="share-2" size={18} color="#fff" />
                   </Pressable>
@@ -1698,6 +1707,17 @@ export default function R2PlayerScreen() {
           })()}
         </ScrollView>
       </Animated.View>
+
+      {/* ── Cast to TV modal ── */}
+      <CastModal
+        visible={showCastModal}
+        onClose={() => setShowCastModal(false)}
+        castUrl={videoUrl
+          ? `${getApiBase()}/api/cast?url=${encodeURIComponent(videoUrl)}&title=${encodeURIComponent(title ?? "")}`
+          : ""}
+        title={title ?? undefined}
+        videoUrl={videoUrl ?? undefined}
+      />
     </View>
   );
 }

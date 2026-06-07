@@ -1944,6 +1944,28 @@ export default function HomeScreen() {
             </ScrollView>
           </AnimatedSection>
 
+          {/* ── 4. PLATAFORMAS DE STREAMING ────────────────────────────── */}
+          <AnimatedSection anim={s[2]}>
+            <View style={{ marginBottom: 20 }}>
+              <SectionHeader title="Plataformas" icon="tv" accentColor={RED}
+                subtitle="Explore por serviço" />
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}
+                contentContainerStyle={[styles.streamingRow, { paddingBottom: 4 }]}
+                decelerationRate="fast">
+                {MAIN_PLATFORMS.map((platform) => (
+                  <StreamingChip key={platform.id} platform={platform}
+                    onPress={() => browseTo("movies", platform.name)} />
+                ))}
+                <Pressable style={styles.seeAllChip}
+                  onPress={() => router.push("/buscar")}>
+                  <View style={styles.seeAllChipInner}>
+                    <Feather name="grid" size={14} color="rgba(255,255,255,0.5)" />
+                    <Text style={styles.seeAllChipText}>Ver todas</Text>
+                  </View>
+                </Pressable>
+              </ScrollView>
+            </View>
+          </AnimatedSection>
 
           {loading ? (
             // ── SKELETON ──────────────────────────────────────────────────

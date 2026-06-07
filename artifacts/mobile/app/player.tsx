@@ -24,7 +24,8 @@ import { Feather } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
-import { api, TMDB_IMG } from "@/lib/api";
+import { api, TMDB_IMG, getApiBase } from "@/lib/api";
+import { CastModal } from "@/components/CastModal";
 import { useAuth } from "@/lib/auth-context";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
 import { checkAndStartSession, heartbeatSession, endSession, getWhatsAppLink } from "@/lib/session-manager";
@@ -875,6 +876,7 @@ export default function PlayerScreen() {
   const [initialLoadDone, setInitialLoadDone] = useState(false);
   const [error, setError] = useState(false);
   const [progressSaved, setProgressSaved] = useState(false);
+  const [showCastModal, setShowCastModal] = useState(false);
   const [pipEnabled, setPipEnabled] = useState(false);
   const [pipActive, setPipActive] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -1425,16 +1427,18 @@ export default function PlayerScreen() {
             </Pressable>
             {title ? <Text style={styles.playerTitle} numberOfLines={1}>{title}</Text> : null}
             <View style={{ flexDirection: "row", gap: 8 }}>
-              {Platform.OS === "android" && (
-                <Pressable
-                  style={styles.iconBtn}
-                  onPress={() => {
-                    Alert.alert("Espelhar Tela", "Use a função 'Transmitir' ou 'Screen Mirror' do seu dispositivo Android para espelhar o vídeo em uma TV.", [{ text: "OK" }]);
-                  }}
-                >
-                  <Feather name="cast" size={19} color="rgba(255,255,255,0.9)" />
-                </Pressable>
-              )}
+              {/* Cast to TV — works on all platforms */}
+              <Pressable
+                style={styles.iconBtn}
+                onPress={() => setShowCastModal(true)}
+                disabled={!streamUrl && !m3u8Url}
+              >
+                <Feather
+                  name="cast"
+                  size={19}
+                  color={(streamUrl || m3u8Url) ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.3)"}
+                />
+              </Pressable>
               {pipEnabled ? (
                 <Pressable onPress={triggerPiP} style={[styles.iconBtn, pipActive && styles.iconBtnActive]}>
                   <Feather name="minimize-2" size={19} color={pipActive ? "#e50914" : "rgba(255,255,255,0.9)"} />
@@ -1485,6 +1489,17 @@ export default function PlayerScreen() {
         episodes={pickerEpisodes} loading={loadingEpisodes}
         onSelectSeason={(s) => { setPickerSeason(s); fetchEpisodes(s); }}
         onSelectEpisode={goToEpisode}
+      />
+
+      {/* ── Cast to TV modal ── */}
+      <CastModal
+        visible={showCastModal}
+        onClose={() => setShowCastModal(false)}
+        castUrl={(streamUrl || m3u8Url)
+          ? `${getApiBase()}/api/cast?url=${encodeURIComponent(streamUrl || m3u8Url || "")}&title=${encodeURIComponent(String(title ?? ""))}`
+          : ""}
+        title={String(title ?? "")}
+        videoUrl={streamUrl || m3u8Url || undefined}
       />
     </View>
   );
