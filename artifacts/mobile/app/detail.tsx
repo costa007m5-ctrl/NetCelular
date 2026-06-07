@@ -921,7 +921,7 @@ export default function DetailScreen() {
     }
   };
 
-  const goToR2Player = (item: RegistryItem, overrideSeason?: number, overrideEpisode?: number) => {
+  const goToR2Player = (item: RegistryItem, overrideSeason?: number, overrideEpisode?: number, fallbackDriveItemId?: string, fallbackFlix2Url?: string) => {
     const seasonVal = overrideSeason != null ? overrideSeason : item.season;
     const episodeVal = overrideEpisode != null ? overrideEpisode : item.episode;
     router.push({
@@ -930,6 +930,8 @@ export default function DetailScreen() {
         key: item.r2Key ?? "",
         registryItemId: "",
         flix2ItemUrl: item.flix2Url ?? "",
+        fallbackDriveItemId: fallbackDriveItemId ?? "",
+        fallbackFlix2Url: fallbackFlix2Url ?? "",
         title: details?.title ?? details?.name ?? item.title,
         label: item.label,
         backdropPath: details?.backdrop_path ?? "",
@@ -946,7 +948,7 @@ export default function DetailScreen() {
     });
   };
 
-  const goToDrivePlayer = (item: RegistryItem, overrideSeason?: number, overrideEpisode?: number) => {
+  const goToDrivePlayer = (item: RegistryItem, overrideSeason?: number, overrideEpisode?: number, fallbackFlix2Url?: string) => {
     const seasonVal = overrideSeason != null ? overrideSeason : item.season;
     const episodeVal = overrideEpisode != null ? overrideEpisode : item.episode;
     router.push({
@@ -954,6 +956,8 @@ export default function DetailScreen() {
       params: {
         driveItemId: item.id,
         key: "",
+        fallbackFlix2Url: fallbackFlix2Url ?? "",
+        fallbackDriveItemId: "",
         title: details?.title ?? details?.name ?? item.title,
         label: item.label,
         backdropPath: details?.backdrop_path ?? "",
@@ -1860,6 +1864,13 @@ export default function DetailScreen() {
                           ? r2Items.find((i) => !isFlixItem(i) && !isDriveItem(i) && i.season == null && i.episode == null)
                           : undefined);
 
+                      const flixEpForRow = r2Items.find(
+                        (i) => isFlixItem(i) && Number(i.season) === selectedSeason && Number(i.episode) === ep.episode_number
+                      );
+                      const driveEpForRow = r2Items.find(
+                        (i) => isDriveItem(i) && Number(i.season) === selectedSeason && Number(i.episode) === ep.episode_number
+                      );
+
                       return (
                         <EpisodeRow
                           key={ep.episode_number}
@@ -1872,17 +1883,15 @@ export default function DetailScreen() {
                           onR2Press={srcSettings.r2 && r2Ep && !isDriveItem(r2Ep) && !isFlixItem(r2Ep) ? () => goToR2Player(r2Ep, selectedSeason, ep.episode_number) : undefined}
                           onFlixPress={(() => {
                             if (!srcSettings.flix2) return undefined;
-                            const flixEp = r2Items.find(
-                              (i) => isFlixItem(i) && Number(i.season) === selectedSeason && Number(i.episode) === ep.episode_number
-                            );
-                            return flixEp ? () => goToR2Player(flixEp, selectedSeason, ep.episode_number) : undefined;
+                            if (!flixEpForRow) return undefined;
+                            const driveId = driveEpForRow?.id;
+                            return () => goToR2Player(flixEpForRow, selectedSeason, ep.episode_number, driveId, undefined);
                           })()}
                           onDrivePress={(() => {
                             if (!srcSettings.drive) return undefined;
-                            const driveEp = r2Items.find(
-                              (i) => isDriveItem(i) && Number(i.season) === selectedSeason && Number(i.episode) === ep.episode_number
-                            );
-                            return driveEp ? () => goToDrivePlayer(driveEp, selectedSeason, ep.episode_number) : undefined;
+                            if (!driveEpForRow) return undefined;
+                            const flix2Url = flixEpForRow?.flix2Url;
+                            return () => goToDrivePlayer(driveEpForRow, selectedSeason, ep.episode_number, flix2Url);
                           })()}
                         />
                       );

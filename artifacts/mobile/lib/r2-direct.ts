@@ -394,6 +394,7 @@ export async function apiDeleteCatalogEntry(prefix: string, tmdbId?: number) {
     const before: number = reg.items.length;
     reg.items = reg.items.filter((i: any) => i.tmdbId !== tmdbId);
     await putRaw("__registry.json", JSON.stringify(reg, null, 2));
+    _catalogCache = null;
     return { ok: true, deleted: before - reg.items.length, type: "registry" };
   }
   // R2 folder entry: list all objects under prefix and delete each
@@ -410,6 +411,17 @@ export async function apiDeleteCatalogEntry(prefix: string, tmdbId?: number) {
     if (meta?.overrides?.[prefix]) {
       delete meta.overrides[prefix];
       await putRaw("__catalog-meta.json", JSON.stringify(meta, null, 2));
+    }
+  } catch {}
+  // Remove registry entries that reference this prefix (r2Key starts with prefix)
+  try {
+    const reg = await apiGetRegistry();
+    const before = reg.items.length;
+    reg.items = reg.items.filter((i: any) =>
+      !i.r2Key || (!i.r2Key.startsWith(prefix) && i.r2Key !== prefix.replace(/\/$/, ""))
+    );
+    if (reg.items.length !== before) {
+      await putRaw("__registry.json", JSON.stringify(reg, null, 2));
     }
   } catch {}
   // Invalidate in-memory catalog cache

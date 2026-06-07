@@ -948,6 +948,18 @@ router.delete("/catalog-entry", async (req, res) => {
       }
     } catch {}
 
+    // Remove registry entries that reference this prefix
+    try {
+      const registry = await readRegistry(client, bucket);
+      const before = registry.items.length;
+      registry.items = registry.items.filter((i) =>
+        !i.r2Key || (!i.r2Key.startsWith(prefix) && i.r2Key !== prefix.replace(/\/$/, ""))
+      );
+      if (registry.items.length !== before) {
+        await writeRegistry(client, bucket, registry);
+      }
+    } catch {}
+
     catalogCache = null;
     res.json({ ok: true, deleted, type: "r2" });
   } catch (err: any) {

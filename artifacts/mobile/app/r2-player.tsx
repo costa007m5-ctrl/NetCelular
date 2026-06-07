@@ -167,6 +167,7 @@ export default function R2PlayerScreen() {
   const { width: W } = useWindowDimensions();
   const params = useLocalSearchParams<{
     key: string; registryItemId?: string; driveItemId?: string; flix2ItemUrl?: string;
+    fallbackDriveItemId?: string; fallbackFlix2Url?: string;
     title: string; episodeName?: string;
     season?: string; episode?: string; backdropPath?: string; posterPath?: string;
     tmdbId?: string; type?: string; r2ItemsJson?: string;
@@ -190,6 +191,8 @@ export default function R2PlayerScreen() {
   const savedProgressRatio = params.watchProgressRatio ? Number(params.watchProgressRatio) : 0;
   const isDrive = !!params.driveItemId;
   const isFlix2 = !!params.flix2ItemUrl;
+  const hasFallbackDrive = !!params.fallbackDriveItemId;
+  const hasFallbackFlix2 = !!params.fallbackFlix2Url;
   const r2Items: RegistryItem[] = (() => {
     try { return params.r2ItemsJson ? JSON.parse(params.r2ItemsJson) : []; } catch { return []; }
   })();
@@ -207,6 +210,9 @@ export default function R2PlayerScreen() {
   const [retryCount, setRetryCount] = useState(0);
   const [autoRetryCountdown, setAutoRetryCountdown] = useState<number | null>(null);
   const autoRetryTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [activeDriveOverride, setActiveDriveOverride] = useState<string | null>(null);
+  const [activeFlix2Override, setActiveFlix2Override] = useState<string | null>(null);
+  const [fallbackNotice, setFallbackNotice] = useState<string | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [positionMs, setPositionMs] = useState(0);
@@ -419,7 +425,12 @@ export default function R2PlayerScreen() {
 
   // ── Fetch video URL (with cache) ────────────────────────────────────────────
   const loadVideoUrl = useCallback(async () => {
-    if (!isDrive && !isFlix2 && !activeKeyRef.current) { setPhase("error"); setErrorMsg("Arquivo não especificado"); return; }
+    const effectiveDriveId = activeDriveOverride ?? (isDrive ? params.driveItemId! : null);
+    const effectiveFlix2Url = activeFlix2Override ?? (isFlix2 ? params.flix2ItemUrl! : null);
+    const isEffectiveDrive = !!effectiveDriveId && !effectiveFlix2Url;
+    const isEffectiveFlix2 = !!effectiveFlix2Url;
+
+    if (!isEffectiveDrive && !isEffectiveFlix2 && !activeKeyRef.current) { setPhase("error"); setErrorMsg("Arquivo não especificado"); return; }
     phaseRef.current = "loading";
     setPhase("loading");
     setVideoUrl(null);
@@ -433,21 +444,21 @@ export default function R2PlayerScreen() {
     preloadingRef.current = false;
     setVideoResolution(null);
 
-    fakeAnim.current = Animated.timing(loadProgress, { toValue: 80, duration: (isDrive || isFlix2) ? 6000 : 3000, useNativeDriver: false });
+    fakeAnim.current = Animated.timing(loadProgress, { toValue: 80, duration: (isEffectiveDrive || isEffectiveFlix2) ? 6000 : 3000, useNativeDriver: false });
     fakeAnim.current.start();
 
     try {
       let url: string;
-      if (isFlix2) {
+      if (isEffectiveFlix2) {
         // Flix 2.0: nixplay.lat stream_url redirects 302 → signed CDN URL on vod99.cineveo.lat.
         // We resolve server-side because React Native video players may not follow redirects.
-        const rawUrl = params.flix2ItemUrl!;
+        const rawUrl = effectiveFlix2Url!;
         const data = await r2Route<{ url: string; error?: string; via?: string }>(`/flix2/stream-url?streamUrl=${encodeURIComponent(rawUrl)}`);
         if (data.error) throw new Error(data.error);
         url = data.url;
-      } else if (isDrive) {
+      } else if (isEffectiveDrive) {
         // Drive: resolve client-side (bypasses server IP block by Cloudflare)
-        const driveId = params.driveItemId!;
+        const driveId = effectiveDriveId!;
         const data = await drivePlayDirect(driveId);
         url = data.url;
       } else {
@@ -489,7 +500,14 @@ export default function R2PlayerScreen() {
       setErrorMsg(e.message ?? "Erro ao carregar vídeo");
       fakeAnim.current?.stop();
     }
-  }, [params.flix2ItemUrl, params.driveItemId, isFlix2, isDrive, episode, r2Items]);
+  }, [params.flix2ItemUrl, params.driveItemId, isFlix2, isDrive, episode, r2Items, activeDriveOverride, activeFlix2Override]);
+
+  // ── Reload when fallback source changes ──────────────────────────────────────
+  useEffect(() => {
+    if (activeDriveOverride !== null || activeFlix2Override !== null) {
+      loadVideoUrl();
+    }
+  }, [activeDriveOverride, activeFlix2Override]);
 
   const switchQuality = useCallback((item: RegistryItem) => {
     activeKeyRef.current = item.r2Key;
@@ -507,7 +525,7 @@ export default function R2PlayerScreen() {
     loadVideoUrl();
   }, [params.key, params.registryItemId, params.flix2ItemUrl, params.driveItemId]);
 
-  // ── Auto-retry on first error: countdown 5s then retry automatically ────────
+  // ── Auto-retry on first error; then auto-fallback to alternative source ─────
   useEffect(() => {
     if (phase === "error" && retryCount === 0) {
       setAutoRetryCountdown(5);
@@ -523,6 +541,26 @@ export default function R2PlayerScreen() {
           return prev - 1;
         });
       }, 1000);
+    } else if (phase === "error" && retryCount === 1) {
+      // After first retry failed, try fallback source if available
+      const effectiveFlix2 = activeFlix2Override ?? (isFlix2 ? params.flix2ItemUrl! : null);
+      const effectiveDriveId = activeDriveOverride ?? (isDrive ? params.driveItemId! : null);
+      const isCurrentlyFlix2 = !!effectiveFlix2;
+      const isCurrentlyDrive = !!effectiveDriveId && !effectiveFlix2;
+
+      if (isCurrentlyFlix2 && hasFallbackDrive && params.fallbackDriveItemId) {
+        setFallbackNotice("Flix 2.0 indisponível. Tentando Drive...");
+        setActiveDriveOverride(params.fallbackDriveItemId);
+        setActiveFlix2Override(null);
+        setRetryCount(0);
+        setTimeout(() => setFallbackNotice(null), 4000);
+      } else if (isCurrentlyDrive && hasFallbackFlix2 && params.fallbackFlix2Url) {
+        setFallbackNotice("Drive indisponível. Tentando Flix 2.0...");
+        setActiveFlix2Override(params.fallbackFlix2Url);
+        setActiveDriveOverride(null);
+        setRetryCount(0);
+        setTimeout(() => setFallbackNotice(null), 4000);
+      }
     } else if (phase !== "error") {
       if (autoRetryTimerRef.current) { clearInterval(autoRetryTimerRef.current); autoRetryTimerRef.current = null; }
       setAutoRetryCountdown(null);
@@ -530,7 +568,7 @@ export default function R2PlayerScreen() {
     return () => {
       if (autoRetryTimerRef.current) { clearInterval(autoRetryTimerRef.current); autoRetryTimerRef.current = null; }
     };
-  }, [phase]);
+  }, [phase, retryCount]);
 
   // ── transitionToReady ───────────────────────────────────────────────────────
   const transitionToReady = useCallback((durationMillis = 0) => {
@@ -998,6 +1036,12 @@ export default function R2PlayerScreen() {
             </View>
           </View>
         )}
+        {fallbackNotice !== null && (
+          <View style={{ position: "absolute", top: 60, left: 20, right: 20, backgroundColor: "rgba(0,0,0,0.85)", borderRadius: 10, padding: 12, flexDirection: "row", alignItems: "center", gap: 8, zIndex: 99 }}>
+            <Feather name="refresh-cw" size={14} color="#f59e0b" />
+            <Text style={{ color: "#f59e0b", fontSize: 13, fontWeight: "600", flex: 1 }}>{fallbackNotice}</Text>
+          </View>
+        )}
         {phase === "error" && (
           <View style={[StyleSheet.absoluteFill, styles.loadOverlay, styles.loadCenter]}>
             <Feather name="alert-circle" size={48} color={RED} />
@@ -1154,6 +1198,12 @@ export default function R2PlayerScreen() {
             ) : null}
             <View style={styles.loadOverlay} />
 
+            {fallbackNotice !== null && (
+              <View style={{ position: "absolute", top: 0, left: 20, right: 20, backgroundColor: "rgba(0,0,0,0.85)", borderRadius: 10, padding: 12, flexDirection: "row", alignItems: "center", gap: 8, zIndex: 99 }}>
+                <Feather name="refresh-cw" size={14} color="#f59e0b" />
+                <Text style={{ color: "#f59e0b", fontSize: 13, fontWeight: "600", flex: 1 }}>{fallbackNotice}</Text>
+              </View>
+            )}
             {phase === "error" ? (
               <View style={styles.loadCenter}>
                 {posterPath && (
