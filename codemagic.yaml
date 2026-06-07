@@ -72,10 +72,11 @@ workflows:
             CHANGELOG="• Melhorias de desempenho e correções gerais"
           fi
 
-          # Salva para uso no passo de publishing
-          echo "$CHANGELOG" > /tmp/changelog.txt
+          # release_notes/pt-BR.txt → Codemagic envia automaticamente para o Google Play
+          mkdir -p release_notes
+          echo "$CHANGELOG" > release_notes/pt-BR.txt
           echo "--- Changelog ---"
-          cat /tmp/changelog.txt
+          cat release_notes/pt-BR.txt
           echo "-----------------"
 
           node -e "
@@ -147,9 +148,6 @@ workflows:
         track: internal          # Teste Interno → promova para alpha/beta/produção pelo Play Console
         submit_as_draft: false
         changes_not_sent_for_review: false
-        release_notes:
-          - language: pt-BR
-            description: $(cat /tmp/changelog.txt 2>/dev/null || echo "Melhorias de desempenho e correções gerais")
       email:
         recipients:
           - your@email.com
@@ -230,8 +228,9 @@ workflows:
           if [ -z "$CHANGELOG" ]; then
             CHANGELOG="• Melhorias de desempenho e correções gerais"
           fi
-          echo "$CHANGELOG" > /tmp/changelog.txt
-          echo "--- Changelog ---" && cat /tmp/changelog.txt && echo "-----------------"
+          mkdir -p release_notes
+          echo "$CHANGELOG" > release_notes/pt-BR.txt
+          echo "--- Changelog ---" && cat release_notes/pt-BR.txt && echo "-----------------"
 
           node -e "
             const fs = require('fs');
