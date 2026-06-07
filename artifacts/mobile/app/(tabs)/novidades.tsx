@@ -959,6 +959,7 @@ export default function NovidadesScreen() {
   const trendMovies    = useMemo(() => allMovies.slice(0, 6),  [allMovies]);
   const nowPlaying     = useMemo(() => allMovies.slice(0, 6),  [allMovies]);
   const onAir          = useMemo(() => allSeries.slice(0, 6),  [allSeries]);
+  const trendAnimes    = useMemo(() => allAnimes.slice(0, 10), [allAnimes]);
 
   // ── R2 / Drive catalog ────────────────────────────────────────────────────
   const { r2All } = useR2Catalog();
@@ -1177,6 +1178,26 @@ export default function NovidadesScreen() {
                       accentColor={GREEN} />
                   </View>
                 </AnimatedSection>
+              )}
+
+              {/* ── 8. ANIMES ───────────────────────────────────────────── */}
+              {trendAnimes.length > 0 && (
+                <>
+                  <SectionDivider label="ANIMES" accentColor={ORANGE} />
+                  <AnimatedSection anim={s[6]}>
+                    <View style={sty.sec}>
+                      <SectionHeader title="Animes em Alta" icon="star"
+                        badge="ANIME" accentColor={ORANGE}
+                        subtitle="Os mais assistidos agora"
+                        onSeeAll={() => openModal("Animes em Alta", trendAnimes, ORANGE,
+                          (pg) => fetchCatalog("animes", pg)
+                        )} />
+                      <MoodRow items={trendAnimes.slice(0, 6)} onPress={goTo}
+                        labels={["NOVO","EM ALTA","NOVO","POPULAR","NOVO","EM ALTA"]}
+                        accentColor={ORANGE} />
+                    </View>
+                  </AnimatedSection>
+                </>
               )}
 
               {/* ── 10. EM BREVE / COUNTDOWN ────────────────────────────── */}
