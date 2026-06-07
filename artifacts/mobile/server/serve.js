@@ -13,6 +13,7 @@ const http = require("http");
 const https = require("https");
 const fs = require("fs");
 const path = require("path");
+const { spawn } = require("child_process");
 
 const STATIC_ROOT   = path.resolve(__dirname, "..", "static-build");
 const WEB_ROOT      = path.resolve(__dirname, "..", "dist");
@@ -144,8 +145,53 @@ function serveWebApp(urlPath, res) {
 const landingPageTemplate = fs.readFileSync(TEMPLATE_PATH, "utf-8");
 const appName = getAppName();
 
-// ── Proxy: encaminha /api/* para o API server (porta 8080) ─────────────────────
+// ── API Server: sobe automaticamente como processo filho ───────────────────────
 const API_PORT = parseInt(process.env.API_PORT || "8080", 10);
+
+const net = require("net");
+
+function isPortInUse(port) {
+  return new Promise((resolve) => {
+    const s = net.createConnection({ port, host: "127.0.0.1" });
+    s.once("connect", () => { s.destroy(); resolve(true); });
+    s.once("error", () => { s.destroy(); resolve(false); });
+  });
+}
+
+function spawnApiServer() {
+  const apiDist = path.resolve(__dirname, "..", "..", "api-server", "dist", "index.mjs");
+  if (!fs.existsSync(apiDist)) {
+    console.warn("[api-server] dist não encontrado em:", apiDist, "— proxy pode falhar.");
+    return;
+  }
+
+  const child = spawn(process.execPath, ["--enable-source-maps", apiDist], {
+    env: Object.assign({}, process.env, { PORT: String(API_PORT) }),
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  child.stdout.on("data", (d) => process.stdout.write(`[api] ${d}`));
+  child.stderr.on("data", (d) => process.stderr.write(`[api] ${d}`));
+
+  child.on("exit", (code, signal) => {
+    console.error(`[api-server] Saiu (code=${code} signal=${signal}) — reiniciando em 3s`);
+    setTimeout(spawnApiServer, 3000);
+  });
+
+  console.log(`[api-server] Iniciado na porta ${API_PORT}`);
+}
+
+// Sobe o API server somente se a porta não estiver já em uso
+// (em desenvolvimento o workflow do API server ocupa a porta; em produção não)
+isPortInUse(API_PORT).then((inUse) => {
+  if (inUse) {
+    console.log(`[api-server] Porta ${API_PORT} já ocupada — usando servidor existente.`);
+  } else {
+    spawnApiServer();
+  }
+});
+
+// ── Proxy: encaminha /api/* para o API server (porta 8080) ─────────────────────
 
 function proxyToApi(req, res) {
   const options = {
