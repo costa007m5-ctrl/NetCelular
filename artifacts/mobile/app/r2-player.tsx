@@ -481,23 +481,41 @@ export default function R2PlayerScreen() {
         const rawUrl = effectiveFlix2Url!;
         const data = await r2Route<{ url: string; error?: string; via?: string }>(`/flix2/stream-url?streamUrl=${encodeURIComponent(rawUrl)}&nocache=1`);
         if (data.error) throw new Error(data.error);
-        // HTTPS CDN on native → pass URL directly so ExoPlayer uses Range natively.
-        // HTTP CDN → must proxy through HTTPS: Android 9+ production APKs block cleartext
-        //   HTTP by default (Expo Go allows it in dev mode, standalone APKs do not).
-        //   The proxy also spoofs browser UA for Cloudflare CDN blocks on ExoPlayer.
-        const isHttps = data.url.startsWith("https://");
-        if (Platform.OS !== "web" && isHttps) {
-          // HTTPS CDN: ExoPlayer/AVPlayer make Range requests natively with our browser headers.
-          url = data.url;
+        // CDN routing:
+        //
+        //  cineveo.lat (vod99.cineveo.lat) — HTTPS, token = exp+sig (time-based, any IP).
+        //    → Play directly with browser UA headers. ExoPlayer uses Range natively.
+        //
+        //  fontedecanais (72yrci50ppqp71.com) — HTTP or HTTPS, token = username+token
+        //    bound to the IP that resolved the nixplay redirect (Replit server).
+        //    → MUST proxy: the proxy runs on the same server IP that got the token,
+        //    so the CDN accepts the request. Direct play fails because ExoPlayer
+        //    would use the device IP — CDN rejects with 403 → "Erro ao reproduzir".
+        //
+        //  Unresolved nixplay.lat URL (stream-url endpoint returned original URL) —
+        //    direct play sends ExoPlayer to nixplay.lat which redirects to fontedecanais
+        //    HTTP → cleartext block on Android APKs. Proxy handles the redirect safely.
+        //
+        //  Web → always proxy (CORS).
+        const resolvedUrl = data.url;
+        const isHttps = resolvedUrl.startsWith("https://");
+        const isFontedecanais = ["72yrci50ppqp71.com", "fontedecanais.me"].some(
+          (root) => resolvedUrl.includes(root)
+        );
+        const isUnresolved = resolvedUrl.includes("nixplay.lat/movie/");
+
+        if (Platform.OS !== "web" && isHttps && !isFontedecanais && !isUnresolved) {
+          // cineveo HTTPS: time-based sig works from any IP — direct with browser headers.
+          url = resolvedUrl;
           setVideoSourceHeaders({
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             "Referer": "https://nixplay.lat/",
             "Origin": "https://nixplay.lat",
           });
         } else {
-          // HTTP CDN or web: route through HTTPS proxy.
-          // Fixes cleartext block on Android APKs + spoofs browser UA for Cloudflare WAF.
-          url = getProxiedStreamUrl(data.url);
+          // Fontedecanais (IP-bound token), HTTP CDN, unresolved nixplay, or web → proxy.
+          // Proxy runs on the same Replit server IP that resolved the token — CDN accepts.
+          url = getProxiedStreamUrl(resolvedUrl);
         }
       } else if (isEffectiveDrive) {
         // Drive: resolve client-side (bypasses server IP block by Cloudflare).
