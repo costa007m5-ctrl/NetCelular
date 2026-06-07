@@ -379,15 +379,22 @@ export default function Flix2PlayerScreen() {
           // Abort body download — we only needed the final URL; expo-av streams separately
           ctrl.abort();
 
-          if (finalUrl && !isTeraboxUrl(finalUrl)) {
+          if (resp.ok && finalUrl && !isTeraboxUrl(finalUrl)) {
             const isFd = isFonteUrl(finalUrl);
             const isCv = isCineveoUrl(finalUrl);
-            setResolvedCdnType(isFd ? "fontedecanais" : isCv ? "cineveo" : "flix2");
-            setVideoSourceHeaders(FLIX2_HEADERS);
-            setVideoUrl(finalUrl);
-            return;
+            // Only play direct if the URL actually redirected to a real CDN.
+            // If still on nixplay.lat (direct stream, no CDN redirect), fall through to proxy:
+            //   nixplay.lat is whitelisted in stream/proxy, so the server can relay it
+            //   with browser UA — avoiding Cloudflare WAF blocking ExoPlayer on native.
+            if (isFd || isCv) {
+              setResolvedCdnType(isFd ? "fontedecanais" : "cineveo");
+              setVideoSourceHeaders(FLIX2_HEADERS);
+              setVideoUrl(finalUrl);
+              return;
+            }
+            // nixplay.lat direct stream or unknown host → fall through to proxy
           }
-          // TeraBox or empty → fall through to server-side resolution
+          // Non-2xx (e.g. 403 token mismatch), TeraBox, or no CDN redirect → fall through
         } catch {
           // Device-side fetch failed (network error, timeout) → fall through to server+proxy
         }
