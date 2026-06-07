@@ -2,9 +2,27 @@ workflows:
 
   # ─────────────────────────────────────────────────────────────
   # ANDROID — gera APK (debug) e AAB (release para Play Store)
-  # Variáveis necessárias (cadastrar em Codemagic > Environment variables):
-  #   SUPABASE_URL, SUPABASE_ANON_KEY, TMDB_API_KEY
-  #   CM_KEYSTORE (base64), CM_KEYSTORE_PASSWORD, CM_KEY_ALIAS, CM_KEY_PASSWORD
+  #
+  # Variáveis obrigatórias (Codemagic > Environment variables):
+  #
+  #   API_DOMAIN          → URL estável do servidor (ex: seuapp.replit.app)
+  #                         NÃO use a URL de dev do Replit (*.janeway.replit.dev) —
+  #                         ela muda a cada sessão e quebra o Flix 2.0 no APK.
+  #                         Use a URL do deploy permanente: publique o app no Replit
+  #                         e use o domínio *.replit.app gerado.
+  #
+  #   SUPABASE_URL        → URL do projeto Supabase
+  #   SUPABASE_ANON_KEY   → Anon/public key do Supabase
+  #
+  #   TMDB_API_KEY        → Chave da API TMDB (themoviedb.org)
+  #
+  #   R2_ACCOUNT_ID       → Account ID do Cloudflare R2
+  #   R2_ACCESS_KEY_ID    → Access Key ID do R2
+  #   R2_SECRET_ACCESS_KEY → Secret Access Key do R2
+  #   R2_BUCKET_NAME      → Nome do bucket R2 (ex: netplay-media-storage)
+  #
+  #   CM_KEYSTORE         → Keystore em base64
+  #   CM_KEYSTORE_PASSWORD, CM_KEY_ALIAS, CM_KEY_PASSWORD
   # ─────────────────────────────────────────────────────────────
   android-release:
     name: NETPLAY — Android Release
@@ -31,6 +49,11 @@ workflows:
           echo "EXPO_PUBLIC_SUPABASE_URL=${SUPABASE_URL}" > .env
           echo "EXPO_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}" >> .env
           echo "EXPO_PUBLIC_DOMAIN=${API_DOMAIN}" >> .env
+          echo "EXPO_PUBLIC_TMDB_API_KEY=${TMDB_API_KEY}" >> .env
+          echo "EXPO_PUBLIC_R2_ACCOUNT_ID=${R2_ACCOUNT_ID}" >> .env
+          echo "EXPO_PUBLIC_R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID}" >> .env
+          echo "EXPO_PUBLIC_R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY}" >> .env
+          echo "EXPO_PUBLIC_R2_BUCKET_NAME=${R2_BUCKET_NAME}" >> .env
 
       - name: Expo Prebuild (gera pasta android/)
         script: |
@@ -76,8 +99,25 @@ workflows:
 
   # ─────────────────────────────────────────────────────────────
   # iOS — gera IPA para App Store / TestFlight
-  # Variáveis necessárias (cadastrar em Codemagic > Environment variables):
-  #   SUPABASE_URL, SUPABASE_ANON_KEY
+  #
+  # Variáveis obrigatórias (Codemagic > Environment variables):
+  #
+  #   API_DOMAIN          → URL estável do servidor (ex: seuapp.replit.app)
+  #                         NÃO use a URL de dev do Replit (*.janeway.replit.dev) —
+  #                         ela muda a cada sessão e quebra o Flix 2.0 no IPA.
+  #                         Use a URL do deploy permanente: publique o app no Replit
+  #                         e use o domínio *.replit.app gerado.
+  #
+  #   SUPABASE_URL        → URL do projeto Supabase
+  #   SUPABASE_ANON_KEY   → Anon/public key do Supabase
+  #
+  #   TMDB_API_KEY        → Chave da API TMDB (themoviedb.org)
+  #
+  #   R2_ACCOUNT_ID       → Account ID do Cloudflare R2
+  #   R2_ACCESS_KEY_ID    → Access Key ID do R2
+  #   R2_SECRET_ACCESS_KEY → Secret Access Key do R2
+  #   R2_BUCKET_NAME      → Nome do bucket R2 (ex: netplay-media-storage)
+  #
   #   APP_STORE_CONNECT_KEY_IDENTIFIER, APP_STORE_CONNECT_ISSUER_ID
   #   APP_STORE_CONNECT_PRIVATE_KEY, CERTIFICATE_PRIVATE_KEY
   # ─────────────────────────────────────────────────────────────
@@ -111,6 +151,11 @@ workflows:
           echo "EXPO_PUBLIC_SUPABASE_URL=${SUPABASE_URL}" > .env
           echo "EXPO_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}" >> .env
           echo "EXPO_PUBLIC_DOMAIN=${API_DOMAIN}" >> .env
+          echo "EXPO_PUBLIC_TMDB_API_KEY=${TMDB_API_KEY}" >> .env
+          echo "EXPO_PUBLIC_R2_ACCOUNT_ID=${R2_ACCOUNT_ID}" >> .env
+          echo "EXPO_PUBLIC_R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID}" >> .env
+          echo "EXPO_PUBLIC_R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY}" >> .env
+          echo "EXPO_PUBLIC_R2_BUCKET_NAME=${R2_BUCKET_NAME}" >> .env
 
       - name: Expo Prebuild (gera pasta ios/)
         script: |
@@ -154,6 +199,8 @@ workflows:
   # EAS BUILD — alternativa usando Expo Application Services
   # Variáveis necessárias (cadastrar em Codemagic > Environment variables):
   #   EXPO_TOKEN, SUPABASE_URL, SUPABASE_ANON_KEY
+  #   API_DOMAIN, TMDB_API_KEY
+  #   R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME
   # ─────────────────────────────────────────────────────────────
   eas-build:
     name: NETPLAY — EAS Build
@@ -169,6 +216,18 @@ workflows:
 
       - name: Instalar dependências
         script: pnpm install --frozen-lockfile
+
+      - name: Configurar variáveis de ambiente do Expo
+        script: |
+          cd artifacts/mobile
+          echo "EXPO_PUBLIC_SUPABASE_URL=${SUPABASE_URL}" > .env
+          echo "EXPO_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}" >> .env
+          echo "EXPO_PUBLIC_DOMAIN=${API_DOMAIN}" >> .env
+          echo "EXPO_PUBLIC_TMDB_API_KEY=${TMDB_API_KEY}" >> .env
+          echo "EXPO_PUBLIC_R2_ACCOUNT_ID=${R2_ACCOUNT_ID}" >> .env
+          echo "EXPO_PUBLIC_R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID}" >> .env
+          echo "EXPO_PUBLIC_R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY}" >> .env
+          echo "EXPO_PUBLIC_R2_BUCKET_NAME=${R2_BUCKET_NAME}" >> .env
 
       - name: Instalar EAS CLI
         script: npm install -g eas-cli
