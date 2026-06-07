@@ -861,7 +861,7 @@ function PosterRow({ items, onPress, showTitle=false, isNew=false }: {
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false}
       contentContainerStyle={{ paddingHorizontal:16 }} decelerationRate="fast">
-      {items.slice(0,6).map((item) => (
+      {items.slice(0,4).map((item) => (
         <PosterCard key={item.id} item={item} onPress={()=>onPress(item)}
           showTitle={showTitle} isNew={isNew} />
       ))}
@@ -876,7 +876,7 @@ function WideRow({ items, onPress, badgeFn, accentColor }: {
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false}
       contentContainerStyle={{ paddingHorizontal:16, gap:10 }} decelerationRate="fast">
-      {items.slice(0,6).map((item) => (
+      {items.slice(0,4).map((item) => (
         <WideCard key={item.id} item={item} onPress={()=>onPress(item)}
           badge={badgeFn?.(item)} accentColor={accentColor} />
       ))}
@@ -890,7 +890,7 @@ function FeaturedRow({ items, onPress, accentColor=RED }: {
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false}
       contentContainerStyle={{ paddingHorizontal:16, gap:10 }} decelerationRate="fast">
-      {items.slice(0,6).map((item) => (
+      {items.slice(0,4).map((item) => (
         <FeaturedCard key={item.id} item={item} onPress={()=>onPress(item)} accentColor={accentColor} />
       ))}
     </ScrollView>
@@ -904,7 +904,7 @@ function MoodRow({ items, onPress, labels, accentColor }: {
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false}
       contentContainerStyle={{ paddingHorizontal:16, gap:10 }} decelerationRate="fast">
-      {items.slice(0,6).map((item,i) => (
+      {items.slice(0,4).map((item,i) => (
         <MoodCard key={item.id} item={item} onPress={()=>onPress(item)}
           label={labels?.[i]} accentColor={accentColor} />
       ))}
@@ -987,11 +987,11 @@ export default function NovidadesScreen() {
   const [allSeries,   setAllSeries]   = useState<ContentItem[]>([]);
   const [allAnimes,   setAllAnimes]   = useState<ContentItem[]>([]);
 
-  // derived slices — each section gets a unique, non-overlapping slice
-  const trendMovies    = useMemo(() => allMovies.slice(0, 6),   [allMovies]);
-  const nowPlaying     = useMemo(() => allMovies.slice(6, 12),  [allMovies]);
-  const onAir          = useMemo(() => allSeries.slice(0, 6),   [allSeries]);
-  const trendAnimes    = useMemo(() => allAnimes.slice(0, 10),  [allAnimes]);
+  // derived slices — reduced to 4 per section for performance
+  const trendMovies    = useMemo(() => allMovies.slice(0, 4),   [allMovies]);
+  const nowPlaying     = useMemo(() => allMovies.slice(6, 10),  [allMovies]);
+  const onAir          = useMemo(() => allSeries.slice(0, 4),   [allSeries]);
+  const trendAnimes    = useMemo(() => allAnimes.slice(0, 6),   [allAnimes]);
 
   // ── R2 / Drive catalog ────────────────────────────────────────────────────
   const { r2Movies, r2Series, r2All } = useR2Catalog();

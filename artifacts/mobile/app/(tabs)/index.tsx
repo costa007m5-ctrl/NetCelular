@@ -559,7 +559,7 @@ function PosterRow({ items, onPress, cardWidth = 118, cardHeight = 172, showTitl
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false}
       contentContainerStyle={{ paddingHorizontal: 16 }} decelerationRate="fast">
-      {items.slice(0, 6).map((item) => (
+      {items.slice(0, 4).map((item) => (
         <PosterCard key={item.id} item={item} onPress={() => onPress(item)}
           width={cardWidth} height={cardHeight} showTitle={showTitle} />
       ))}
@@ -574,7 +574,7 @@ function WideRow({ items, onPress, badgeFn }: {
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false}
       contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }} decelerationRate="fast">
-      {items.slice(0, 6).map((item) => (
+      {items.slice(0, 4).map((item) => (
         <WideCard key={item.id} item={item} onPress={() => onPress(item)}
           badge={badgeFn ? badgeFn(item) : undefined} />
       ))}
@@ -1926,10 +1926,10 @@ export default function HomeScreen() {
     });
   }, [router]);
 
-  // ── derived slices ─────────────────────────────────────────────────────────
-  const emAltaMovies   = useMemo(() => movies.slice(0, 6),  [movies]);
-  const emAltaSeries   = useMemo(() => series.slice(0, 6),  [series]);
-  const emAltaAnimes   = useMemo(() => animes.slice(0, 6),  [animes]);
+  // ── derived slices — reduced to 4 per carousel for performance ────────────
+  const emAltaMovies   = useMemo(() => movies.slice(0, 4),  [movies]);
+  const emAltaSeries   = useMemo(() => series.slice(0, 4),  [series]);
+  const emAltaAnimes   = useMemo(() => animes.slice(0, 4),  [animes]);
 
   const stats = useMemo(() => [
     { label: "Filmes",  value: totals.movies > 0 ? totals.movies.toLocaleString("pt-BR") : "–", icon: "film" as const,  color: RED },
@@ -2047,7 +2047,7 @@ export default function HomeScreen() {
                   <ScrollView horizontal showsHorizontalScrollIndicator={false}
                     removeClippedSubviews={Platform.OS !== "web"}
                     contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }} decelerationRate="fast">
-                    {continueItems.slice(0, 6).map((item) => (
+                    {continueItems.slice(0, 4).map((item) => (
                       <ContinueCard
                         key={item.id}
                         item={item}
@@ -2100,7 +2100,7 @@ export default function HomeScreen() {
                       accentColor={PURPLE}
                       subtitle={`${r2Movies.length + r2Series.length} títulos exclusivos`}
                     />
-                    <PosterRow items={[...r2Movies, ...r2Series].slice(0, 6)} onPress={goTo} showTitle />
+                    <PosterRow items={[...r2Movies, ...r2Series].slice(0, 4)} onPress={goTo} showTitle />
                   </View>
                 </AnimatedSection>
               )}
@@ -2115,7 +2115,7 @@ export default function HomeScreen() {
                     <ScrollView horizontal showsHorizontalScrollIndicator={false}
                       removeClippedSubviews={Platform.OS !== "web"}
                       contentContainerStyle={{ paddingHorizontal: 16, gap: 4 }} decelerationRate="fast">
-                      {top10Movies.map((item, i) => (
+                      {top10Movies.slice(0, 5).map((item, i) => (
                         <TopTenCard key={item.id} item={item} rank={i + 1}
                           onPress={() => goTo(item)} />
                       ))}
@@ -2149,7 +2149,7 @@ export default function HomeScreen() {
                       onSeeAll={() => browseTo("series", "Top 10 Séries", "rating_desc")} />
                     <ScrollView horizontal showsHorizontalScrollIndicator={false}
                       contentContainerStyle={{ paddingHorizontal: 16, gap: 4 }} decelerationRate="fast">
-                      {top10Series.map((item, i) => (
+                      {top10Series.slice(0, 5).map((item, i) => (
                         <TopTenCard key={item.id} item={item} rank={i + 1}
                           onPress={() => goTo(item)} />
                       ))}
