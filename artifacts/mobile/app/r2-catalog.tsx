@@ -4623,6 +4623,7 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
   const [mgDriveRegisterItem, setMgDriveRegisterItem] = useState<DriveItem | null>(null);
   const [mgDriveRegisterCtx, setMgDriveRegisterCtx] = useState<{ driveNum: number; filePath: string } | null>(null);
   const [folderBulkTarget, setFolderBulkTarget] = useState<FolderBulkTarget | null>(null);
+  const [mgDriveFilter, setMgDriveFilter] = useState("");
 
   // ── Remap history ────────────────────────────────────────────────────────────
   interface RemapEntry { id: string; doneAt: string; fromIds: number[]; toId: number; toType: string; titles: string[]; updated: number }
@@ -4692,12 +4693,14 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
   };
 
   const mgNavPush = (drive: 0 | 1, folderPath: string, name: string) => {
+    setMgDriveFilter("");
     setMgDriveNav((prev) => [...prev, { drive, path: folderPath, name }]);
     loadMgFolder(drive, folderPath);
   };
 
   const mgNavPop = () => {
     if (mgDriveNav.length === 0) return;
+    setMgDriveFilter("");
     const next = mgDriveNav.slice(0, -1);
     setMgDriveNav(next);
     if (next.length > 0) { const e = next[next.length - 1]; loadMgFolder(e.drive, e.path); }
@@ -4921,7 +4924,32 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
                 </ScrollView>
               </View>
 
-              <View style={{ height: 1, backgroundColor: "rgba(34,197,94,0.12)", marginHorizontal: 12, marginBottom: 8 }} />
+              <View style={{ height: 1, backgroundColor: "rgba(34,197,94,0.12)", marginHorizontal: 12, marginBottom: 6 }} />
+
+              {/* Search filter bar — shows inside a folder */}
+              {mgDriveNav.length > 0 && (
+                <View style={{ flexDirection:"row", alignItems:"center", gap:6,
+                  marginHorizontal:12, marginBottom:8,
+                  backgroundColor:"rgba(255,255,255,0.05)", borderRadius:8,
+                  borderWidth:1, borderColor:"rgba(255,255,255,0.09)", paddingHorizontal:10, paddingVertical:6 }}>
+                  <Feather name="search" size={13} color="rgba(255,255,255,0.3)" />
+                  <TextInput
+                    value={mgDriveFilter}
+                    onChangeText={setMgDriveFilter}
+                    placeholder="Filtrar pastas…"
+                    placeholderTextColor="rgba(255,255,255,0.2)"
+                    style={{ flex:1, color:"#fff", fontSize:12, padding:0 }}
+                    returnKeyType="search"
+                    autoCorrect={false}
+                    autoCapitalize="none"
+                  />
+                  {mgDriveFilter.length > 0 && (
+                    <Pressable onPress={() => setMgDriveFilter("")} hitSlop={8}>
+                      <Feather name="x" size={13} color="rgba(255,255,255,0.35)" />
+                    </Pressable>
+                  )}
+                </View>
+              )}
 
               {/* Root level — Drive roots */}
               {mgDriveNav.length === 0 && (
@@ -4979,7 +5007,10 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
                     </View>
                   ) : (
                     <>
-                      {mgDriveItems.map((item) => {
+                      {(mgDriveFilter.trim()
+                        ? mgDriveItems.filter((i) => i.name.toLowerCase().includes(mgDriveFilter.toLowerCase()))
+                        : mgDriveItems
+                      ).map((item) => {
                         const isDir = driveIsFolder(item);
                         const isVid = driveIsVideo(item);
                         const folderPath = mgCurrent ? `${mgCurrent.path}/${item.name}` : item.name;

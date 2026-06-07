@@ -1855,6 +1855,20 @@ router.post("/drive/scan-folder", async (req, res) => {
     return null;
   }
 
+  // Detects season number embedded anywhere in a full folder name:
+  // "ShowName.S01.blah" → 1, "ShowName.Season.2...." → 2
+  function detectSeasonEmbedded(name: string): number | null {
+    const pure = detectSeason(name);
+    if (pure !== null) return pure;
+    // S01 / S1 preceded by separator
+    const m1 = name.match(/[._\-\s]S(\d{1,2})(?:[._\-\s\d]|$)/i);
+    if (m1) return parseInt(m1[1], 10);
+    // season/temporada anywhere
+    const m2 = name.match(/(?:season|temporada|temp)[._\-\s]*(\d{1,2})/i);
+    if (m2) return parseInt(m2[1], 10);
+    return null;
+  }
+
   function detectEp(fileName: string): { season?: number; episode?: number } {
     const bare = fileName.replace(/\.[^.]+$/, "");
     const sxe = bare.match(/[Ss](\d{1,2})[Ee][Pp]?(\d{1,3})/);
@@ -1889,14 +1903,28 @@ router.post("/drive/scan-folder", async (req, res) => {
           results.push({ filePath: `${path}/${f.name}`, fileName: f.name, size: fmtSize(f.size) });
         }
       }
+      // Fallback: se não achou vídeos diretos, desce um nível em cada subpasta
+      if (results.length === 0) {
+        const subDirs = items.filter((f) => f.mimeType === "application/vnd.google-apps.folder");
+        for (const sd of subDirs) {
+          const subItems = await listAll(`${path}/${sd.name}`);
+          for (const f of subItems) {
+            if (isVid(f) && f.link) {
+              results.push({ filePath: `${path}/${sd.name}/${f.name}`, fileName: f.name, size: fmtSize(f.size) });
+            }
+          }
+        }
+      }
     } else {
       const rootItems = await listAll(path);
-      const seasonFolders = rootItems
+
+      // Passo 1: pastas de temporada com nome puro ("S01", "Temporada 1", "1")
+      const pureSeasonFolders = rootItems
         .filter((f) => f.mimeType === "application/vnd.google-apps.folder" && detectSeason(f.name) !== null)
         .sort((a, b) => (detectSeason(a.name) ?? 0) - (detectSeason(b.name) ?? 0));
 
-      if (seasonFolders.length > 0) {
-        for (const sf of seasonFolders) {
+      if (pureSeasonFolders.length > 0) {
+        for (const sf of pureSeasonFolders) {
           const seasonNum = detectSeason(sf.name)!;
           const seasonPath = `${path}/${sf.name}`;
           const eps = await listAll(seasonPath);
@@ -1904,27 +1932,66 @@ router.post("/drive/scan-folder", async (req, res) => {
             if (isVid(ep) && ep.link) {
               const info = detectEp(ep.name);
               results.push({
-                filePath: `${seasonPath}/${ep.name}`,
-                fileName: ep.name,
-                size: fmtSize(ep.size),
-                season: info.season ?? seasonNum,
-                episode: info.episode,
+                filePath: `${seasonPath}/${ep.name}`, fileName: ep.name,
+                size: fmtSize(ep.size), season: info.season ?? seasonNum, episode: info.episode,
               });
             }
           }
         }
       } else {
-        // Sem subpastas de temporada — detecta pelo nome do arquivo
-        for (const f of rootItems) {
-          if (isVid(f) && f.link) {
-            const info = detectEp(f.name);
-            results.push({
-              filePath: `${path}/${f.name}`,
-              fileName: f.name,
-              size: fmtSize(f.size),
-              season: info.season ?? 1,
-              episode: info.episode,
-            });
+        // Passo 2: pastas com número de temporada embutido no nome ("ShowName.S01.blah")
+        const embeddedSeasonFolders = rootItems
+          .filter((f) => f.mimeType === "application/vnd.google-apps.folder" && detectSeasonEmbedded(f.name) !== null)
+          .sort((a, b) => (detectSeasonEmbedded(a.name) ?? 0) - (detectSeasonEmbedded(b.name) ?? 0));
+
+        if (embeddedSeasonFolders.length > 0) {
+          for (const sf of embeddedSeasonFolders) {
+            const seasonNum = detectSeasonEmbedded(sf.name)!;
+            const seasonPath = `${path}/${sf.name}`;
+            const eps = await listAll(seasonPath);
+            for (const ep of eps) {
+              if (isVid(ep) && ep.link) {
+                const info = detectEp(ep.name);
+                results.push({
+                  filePath: `${seasonPath}/${ep.name}`, fileName: ep.name,
+                  size: fmtSize(ep.size), season: info.season ?? seasonNum, episode: info.episode,
+                });
+              }
+            }
+          }
+        } else {
+          // Passo 3: qualquer subpasta que tenha vídeos (sem detecção de temporada)
+          const anySubDirs = rootItems.filter((f) => f.mimeType === "application/vnd.google-apps.folder");
+          let seasonCounter = 1;
+          let foundInSub = false;
+          for (const sf of anySubDirs) {
+            const seasonPath = `${path}/${sf.name}`;
+            const eps = await listAll(seasonPath);
+            const videos = eps.filter((ep) => isVid(ep) && ep.link);
+            if (videos.length > 0) {
+              foundInSub = true;
+              for (const ep of videos) {
+                const info = detectEp(ep.name);
+                results.push({
+                  filePath: `${seasonPath}/${ep.name}`, fileName: ep.name,
+                  size: fmtSize(ep.size), season: info.season ?? seasonCounter, episode: info.episode,
+                });
+              }
+              seasonCounter++;
+            }
+          }
+
+          // Passo 4 (último recurso): vídeos diretamente na raiz
+          if (!foundInSub) {
+            for (const f of rootItems) {
+              if (isVid(f) && f.link) {
+                const info = detectEp(f.name);
+                results.push({
+                  filePath: `${path}/${f.name}`, fileName: f.name,
+                  size: fmtSize(f.size), season: info.season ?? 1, episode: info.episode,
+                });
+              }
+            }
           }
         }
       }
