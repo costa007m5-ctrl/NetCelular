@@ -370,6 +370,7 @@ function CatalogGrid({ onSelect, onRegister, onEdit, initialSearch }: {
   const [entries, setEntries] = useState<CatalogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [forceRefreshing, setForceRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState(initialSearch ?? "");
   const [opening, setOpening] = useState<string | null>(null);
@@ -384,7 +385,7 @@ function CatalogGrid({ onSelect, onRegister, onEdit, initialSearch }: {
       setEntries(data.catalog);
     } catch (e: any) {
       setError(e.message ?? "Erro ao carregar catálogo");
-    } finally { setLoading(false); setRefreshing(false); }
+    } finally { setLoading(false); setRefreshing(false); setForceRefreshing(false); }
   }, []);
 
   useEffect(() => { load(); }, []);
@@ -461,6 +462,15 @@ function CatalogGrid({ onSelect, onRegister, onEdit, initialSearch }: {
         <Feather name="search" size={15} color="rgba(255,255,255,0.4)" />
         <TextInput style={styles.searchInput} placeholder="Buscar título..." placeholderTextColor="rgba(255,255,255,0.3)" value={search} onChangeText={setSearch} />
         {search.length > 0 && <Pressable onPress={() => setSearch("")}><Feather name="x" size={15} color="rgba(255,255,255,0.4)" /></Pressable>}
+        <Pressable
+          onPress={() => { if (!forceRefreshing) { setForceRefreshing(true); load(true); } }}
+          style={{ marginLeft: 6, padding: 6, borderRadius: 8, backgroundColor: forceRefreshing ? "rgba(229,9,20,0.15)" : "rgba(255,255,255,0.06)" }}
+          hitSlop={8}
+        >
+          {forceRefreshing
+            ? <ActivityIndicator size={14} color={RED} />
+            : <Feather name="refresh-cw" size={15} color={entries.length === 0 ? RED : "rgba(255,255,255,0.45)"} />}
+        </Pressable>
       </View>
       {error ? (
         <View style={styles.center}>
