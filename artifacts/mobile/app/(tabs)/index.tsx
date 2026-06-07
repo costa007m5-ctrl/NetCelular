@@ -8,13 +8,17 @@ import React, {
 import {
   ActivityIndicator,
   Animated,
+  Dimensions,
+  FlatList,
   InteractionManager,
+  Modal,
   Platform,
   Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -47,6 +51,7 @@ import { preloadImages, clearPreloadQueue } from "@/lib/image-preloader";
 import { computeRecommendations } from "@/lib/recommendations";
 
 const TAB_BAR_CLEARANCE = 120;
+const { width: W, height: H } = Dimensions.get("window");
 const RED = "#e50914";
 const PURPLE = "#8b5cf6";
 const BLUE = "#3b82f6";
@@ -1551,6 +1556,167 @@ const CATEGORIES = [
   { id: "top",   label: "Top 10" },
 ];
 
+// ── VerMaisModal ──────────────────────────────────────────────────────────────
+function VerMaisModal({
+  visible, title, items, accentColor = PURPLE, onClose, onItemPress,
+}: {
+  visible: boolean; title: string; items: ContentItem[];
+  accentColor?: string; onClose: () => void; onItemPress: (item: ContentItem) => void;
+}) {
+  const slideY   = useRef(new Animated.Value(H)).current;
+  const backdrop = useRef(new Animated.Value(0)).current;
+  const [page,        setPage]        = useState(1);
+  const [searchQuery, setSearchQuery] = useState("");
+  const PAGE = 20;
+
+  const q            = searchQuery.trim().toLowerCase();
+  const shown        = useMemo(() => items.slice(0, page * PAGE), [items, page]);
+  const filteredItems = useMemo(() =>
+    q ? items.filter((i) => i.title.toLowerCase().includes(q)) : shown,
+    [q, items, shown]
+  );
+
+  useEffect(() => {
+    if (visible) {
+      setPage(1); setSearchQuery("");
+      Animated.parallel([
+        Animated.timing(slideY,   { toValue: 0, duration: 340, useNativeDriver: true }),
+        Animated.timing(backdrop, { toValue: 1, duration: 280, useNativeDriver: true }),
+      ]).start();
+    } else {
+      Animated.parallel([
+        Animated.timing(slideY,   { toValue: H, duration: 300, useNativeDriver: true }),
+        Animated.timing(backdrop, { toValue: 0, duration: 240, useNativeDriver: true }),
+      ]).start();
+    }
+  }, [visible]);
+
+  const CARD_W = (W - 48) / 3;
+  const CARD_H = CARD_W * 1.5;
+
+  const renderItem = useCallback(({ item }: { item: ContentItem }) => (
+    <Pressable onPress={() => { onItemPress(item); onClose(); }}
+      style={{ width: CARD_W, marginBottom: 8 }}>
+      <View style={{ width: CARD_W, height: CARD_H, borderRadius: 10, overflow: "hidden", backgroundColor: "#111" }}>
+        {item.posterPath ? (
+          <Image source={{ uri: item.posterPath }} style={StyleSheet.absoluteFill}
+            contentFit="cover" cachePolicy="memory-disk" />
+        ) : (
+          <LinearGradient colors={["#1a0a14","#08060e"]} style={StyleSheet.absoluteFill} />
+        )}
+        <LinearGradient colors={["transparent","rgba(0,0,0,0.88)"]} locations={[0.5,1]}
+          style={StyleSheet.absoluteFill} />
+        <View style={{ position:"absolute", bottom:0, left:0, right:0, padding:7 }}>
+          <Text style={{ color:"#fff", fontSize:10, fontWeight:"700", lineHeight:14 }}
+            numberOfLines={2}>{item.title}</Text>
+          {item.rating > 0 && (
+            <View style={{ flexDirection:"row", alignItems:"center", gap:3, marginTop:2 }}>
+              <Feather name="star" size={7} color={AMBER} />
+              <Text style={{ color:AMBER, fontSize:8, fontWeight:"700" }}>{item.rating.toFixed(1)}</Text>
+            </View>
+          )}
+        </View>
+      </View>
+    </Pressable>
+  ), [onItemPress, onClose, CARD_W, CARD_H]);
+
+  const handleEndReached = useCallback(() => {
+    if (q) return;
+    if (shown.length < items.length) setPage((p) => p + 1);
+  }, [q, shown.length, items.length]);
+
+  return (
+    <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
+      <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor:"rgba(0,0,0,0.7)", opacity: backdrop }]}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+      </Animated.View>
+      <Animated.View style={{
+        position:"absolute", bottom:0, left:0, right:0, height: H * 0.88,
+        backgroundColor:"#0a0810", borderTopLeftRadius:18, borderTopRightRadius:18,
+        overflow:"hidden", transform:[{ translateY: slideY }],
+      }}>
+        <LinearGradient colors={["#0a0810","#060408"]} style={StyleSheet.absoluteFill} />
+        <View style={{ width:40, height:4, borderRadius:2,
+          backgroundColor:`${accentColor}60`, alignSelf:"center", marginTop:10 }} />
+        <View style={{ flexDirection:"row", alignItems:"center", justifyContent:"space-between",
+          paddingHorizontal:18, paddingVertical:14 }}>
+          <View style={{ flexDirection:"row", alignItems:"center", gap:10 }}>
+            <View style={{ width:3, height:18, borderRadius:2, backgroundColor:accentColor }} />
+            <Text style={{ color:"#fff", fontSize:17, fontWeight:"800" }}>{title}</Text>
+            <View style={{ paddingHorizontal:8, paddingVertical:3, borderRadius:20,
+              backgroundColor:`${accentColor}20`, borderWidth:1, borderColor:`${accentColor}40` }}>
+              <Text style={{ color:accentColor, fontSize:11, fontWeight:"700" }}>
+                {q ? `${filteredItems.length} de ${items.length}` : items.length}
+              </Text>
+            </View>
+          </View>
+          <TouchableOpacity onPress={onClose} activeOpacity={0.7}
+            style={{ width:34, height:34, borderRadius:17,
+              backgroundColor:"rgba(255,255,255,0.08)", alignItems:"center", justifyContent:"center" }}>
+            <Feather name="x" size={18} color="rgba(255,255,255,0.7)" />
+          </TouchableOpacity>
+        </View>
+        <View style={{ flexDirection:"row", alignItems:"center", gap:8,
+          marginHorizontal:16, marginBottom:10, paddingHorizontal:14, paddingVertical:10,
+          borderRadius:10, backgroundColor:"rgba(255,255,255,0.07)",
+          borderWidth:1, borderColor:"rgba(255,255,255,0.1)" }}>
+          <Feather name="search" size={14} color={q ? accentColor : "rgba(255,255,255,0.35)"} />
+          <TextInput
+            value={searchQuery} onChangeText={setSearchQuery}
+            placeholder="Buscar nesta lista..."
+            placeholderTextColor="rgba(255,255,255,0.28)"
+            style={{ flex:1, color:"#fff", fontSize:14 }}
+            returnKeyType="search" autoCorrect={false}
+          />
+          {q ? (
+            <TouchableOpacity onPress={() => setSearchQuery("")}>
+              <Feather name="x-circle" size={14} color={accentColor} />
+            </TouchableOpacity>
+          ) : null}
+        </View>
+        {q && filteredItems.length === 0 ? (
+          <View style={{ flex:1, alignItems:"center", justifyContent:"center", gap:10, paddingBottom:80 }}>
+            <Feather name="search" size={32} color="rgba(255,255,255,0.12)" />
+            <Text style={{ color:"rgba(255,255,255,0.28)", fontSize:14 }}>
+              Nenhum resultado para "{searchQuery}"
+            </Text>
+          </View>
+        ) : (
+          <FlatList
+            data={filteredItems}
+            keyExtractor={(i) => i.id}
+            numColumns={3}
+            columnWrapperStyle={{ gap:8, paddingHorizontal:16 }}
+            contentContainerStyle={{ paddingBottom:120, paddingTop:4 }}
+            showsVerticalScrollIndicator={false}
+            renderItem={renderItem}
+            onEndReached={handleEndReached}
+            onEndReachedThreshold={0.4}
+            initialNumToRender={12}
+            maxToRenderPerBatch={9}
+            windowSize={5}
+            removeClippedSubviews={Platform.OS !== "web"}
+            ListFooterComponent={
+              !q && shown.length < items.length ? (
+                <TouchableOpacity onPress={() => setPage((p) => p + 1)}
+                  style={{ flexDirection:"row", alignItems:"center", justifyContent:"center",
+                    gap:8, paddingVertical:14, marginHorizontal:16, marginTop:8, borderRadius:12,
+                    backgroundColor:`${accentColor}12`, borderWidth:1, borderColor:`${accentColor}25` }}
+                  activeOpacity={0.8}>
+                  <Feather name="chevrons-down" size={14} color={accentColor} />
+                  <Text style={{ color:accentColor, fontSize:13, fontWeight:"600" }}>
+                    Carregar mais ({items.length - shown.length} restantes)
+                  </Text>
+                </TouchableOpacity>
+              ) : null
+            }
+          />
+        )}
+      </Animated.View>
+    </Modal>
+  );
+}
+
 export default function HomeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -1576,6 +1742,17 @@ export default function HomeScreen() {
   const [activeProfile, setActiveProfile] = useState<any>(null);
   const [cacheTs, setCacheTs]             = useState<number | null>(null);
   const [recommendations, setRecommendations] = useState<ContentItem[]>([]);
+
+  // ── modal "ver mais" ───────────────────────────────────────────────────────
+  const [verMaisModal, setVerMaisModal] = useState<{
+    visible: boolean; title: string; items: ContentItem[]; accentColor: string;
+  }>({ visible: false, title: "", items: [], accentColor: PURPLE });
+  const openModal = useCallback((title: string, items: ContentItem[], accentColor = PURPLE) => {
+    setVerMaisModal({ visible: true, title, items, accentColor });
+  }, []);
+  const closeModal = useCallback(() => {
+    setVerMaisModal((p) => ({ ...p, visible: false }));
+  }, []);
   const [timeAgoStr, setTimeAgoStr]       = useState<string | null>(null);
   const [prefetchPhase, setPrefetchPhase] = useState<PrefetchPhase>("idle");
   // Below-fold sections render after interactions complete (avoids mounting all 56 sections at once on Android)
@@ -2071,8 +2248,9 @@ export default function HomeScreen() {
                 <AnimatedSection anim={s[5]}>
                   <View style={styles.section}>
                     <SectionHeader title="Recomendados para Você" icon="zap"
-                      accentColor={PURPLE} />
-                    <PosterRow items={recommendations} onPress={goTo} />
+                      accentColor={PURPLE}
+                      onSeeAll={() => openModal("Recomendados para Você", recommendations, PURPLE)} />
+                    <PosterRow items={recommendations.slice(0, 4)} onPress={goTo} />
                   </View>
                 </AnimatedSection>
               )}
@@ -2099,6 +2277,7 @@ export default function HomeScreen() {
                       badge="DRIVE"
                       accentColor={PURPLE}
                       subtitle={`${r2Movies.length + r2Series.length} títulos exclusivos`}
+                      onSeeAll={() => openModal("Catálogo Drive", [...r2Movies, ...r2Series], PURPLE)}
                     />
                     <PosterRow items={[...r2Movies, ...r2Series].slice(0, 4)} onPress={goTo} showTitle />
                   </View>
@@ -2248,6 +2427,16 @@ export default function HomeScreen() {
 
       {/* ═══ SCROLL TO TOP ═══════════════════════════════════════════════════ */}
       <ScrollTopBtn scrollRef={scrollRef} visible={showScrollTop} />
+
+      {/* ═══ VER MAIS MODAL ══════════════════════════════════════════════════ */}
+      <VerMaisModal
+        visible={verMaisModal.visible}
+        title={verMaisModal.title}
+        items={verMaisModal.items}
+        accentColor={verMaisModal.accentColor}
+        onClose={closeModal}
+        onItemPress={goTo}
+      />
     </View>
   );
 }
