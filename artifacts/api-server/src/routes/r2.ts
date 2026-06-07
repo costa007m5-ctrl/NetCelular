@@ -2741,6 +2741,114 @@ router.get("/flix2/stream-url", async (req, res) => {
   }
 });
 
+// ── GET /flix2/debug-url?streamUrl=<encoded> ──────────────────────────────────
+// Diagnostic endpoint: traces the full chain for any Flix2 stream URL.
+// Returns CDN domain, resolved URL, HTTP status, content type (HLS/MP4),
+// and whether the proxy can serve it — useful for diagnosing failures without
+// needing to rebuild the APK.
+router.get("/flix2/debug-url", async (req, res) => {
+  const streamUrl = String(req.query.streamUrl ?? "");
+  if (!streamUrl) { res.status(400).json({ error: "streamUrl é obrigatório" }); return; }
+
+  const report: Record<string, any> = {
+    input: streamUrl,
+    inputHost: (() => { try { return new URL(streamUrl).hostname; } catch { return "invalid"; } })(),
+    steps: [] as any[],
+  };
+
+  // Step 1: resolve redirect from nixplay.lat
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    let response: Response;
+    try {
+      response = await fetch(streamUrl, {
+        method: "HEAD", redirect: "manual", signal: ctrl.signal,
+        headers: { "User-Agent": "Mozilla/5.0" },
+      });
+    } finally { clearTimeout(timer); }
+
+    const location = response.headers.get("location");
+    const resolvedUrl = location || streamUrl;
+    const cdnHost = (() => { try { return new URL(resolvedUrl).hostname; } catch { return "unknown"; } })();
+    const cdnProtocol = (() => { try { return new URL(resolvedUrl).protocol; } catch { return "unknown"; } })();
+    const cdnPort = (() => { try { return new URL(resolvedUrl).port || (cdnProtocol === "https:" ? "443" : "80"); } catch { return "?"; } })();
+
+    report.steps.push({ step: "redirect_resolve", nixplayStatus: response.status, hasRedirect: !!location, cdnHost, cdnProtocol, cdnPort });
+    report.resolvedUrl = resolvedUrl;
+    report.cdnHost = cdnHost;
+    report.cdnProtocol = cdnProtocol;
+
+    // Step 2: probe CDN URL with browser UA + nixplay Referer
+    const FLIX2_ROOTS = ["72yrci50ppqp71.com", "fontedecanais.me", "cineveo.lat", "nixplay.lat"];
+    const isFlix2 = FLIX2_ROOTS.some(r => cdnHost === r || cdnHost.endsWith(`.${r}`));
+    const probeHeaders: Record<string, string> = {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      "Accept": "*/*",
+      "Referer": isFlix2 ? "https://nixplay.lat/" : "https://animezey16082023.animezey16082023.workers.dev/",
+    };
+    if (isFlix2) probeHeaders["Origin"] = "https://nixplay.lat";
+
+    const ctrl2 = new AbortController();
+    const timer2 = setTimeout(() => ctrl2.abort(), 8000);
+    let probeStatus = 0;
+    let probeContentType = "";
+    let probeSize = "";
+    let probeError = "";
+    try {
+      const probe = await fetch(resolvedUrl, { method: "HEAD", headers: probeHeaders, redirect: "follow", signal: ctrl2.signal });
+      clearTimeout(timer2);
+      probeStatus = probe.status;
+      probeContentType = probe.headers.get("content-type") ?? "";
+      probeSize = probe.headers.get("content-length") ?? "unknown";
+    } catch (e: any) {
+      clearTimeout(timer2);
+      probeError = e.message ?? "error";
+    }
+
+    const isHls = probeContentType.toLowerCase().includes("mpegurl") || resolvedUrl.includes(".m3u8");
+    const isMp4 = probeContentType.toLowerCase().includes("mp4") || probeContentType.toLowerCase().includes("video");
+    const cdnAccessible = probeStatus >= 200 && probeStatus < 300;
+
+    report.steps.push({
+      step: "cdn_probe",
+      status: probeStatus,
+      contentType: probeContentType,
+      contentLength: probeSize,
+      format: isHls ? "HLS" : isMp4 ? "MP4" : "unknown",
+      refererSent: probeHeaders["Referer"],
+      cdnAccessible,
+      error: probeError || undefined,
+    });
+    report.format = isHls ? "HLS" : isMp4 ? "MP4" : "unknown";
+    report.cdnAccessible = cdnAccessible;
+
+    // Step 3: check if host is whitelisted for proxy
+    const ALLOWED_EXACT = ["nixplay.lat", "vod99.cineveo.lat", "cineveo.lat", "drive.usercontent.google.com", "xapiverse.com"];
+    const proxyAllowed = ALLOWED_EXACT.includes(cdnHost) ||
+      isFlix2 ||
+      cdnHost.endsWith(".googleusercontent.com") ||
+      cdnHost.endsWith(".terabox.com") ||
+      cdnHost.endsWith(".baidupcs.com");
+    report.steps.push({ step: "whitelist_check", cdnHost, proxyAllowed });
+    report.proxyAllowed = proxyAllowed;
+
+    report.diagnosis = !proxyAllowed
+      ? `❌ CDN host "${cdnHost}" não está no whitelist do proxy — adicionar ao ALLOWED_UPSTREAM_HOSTS ou FLIX2_CDN_ROOTS`
+      : !cdnAccessible
+      ? `❌ CDN retornou ${probeStatus} — bloqueio por IP do servidor ou Referer incorreto`
+      : probeError
+      ? `❌ Erro ao acessar CDN: ${probeError}`
+      : `✅ OK — proxy pode servir este conteúdo (${report.format}, CDN acessível, host permitido)`;
+
+    res.json(report);
+  } catch (err: any) {
+    report.steps.push({ step: "error", message: err.message });
+    report.diagnosis = `❌ Erro interno: ${err.message}`;
+    res.status(500).json(report);
+  }
+});
+
 // ── Per-series episode cache (30 min TTL) — avoids repeated API calls ─────────
 const EPISODES_CACHE = new Map<string, { episodes: any[]; cachedAt: number }>();
 const EPISODES_CACHE_TTL_MS = 30 * 60 * 1000;
