@@ -1987,10 +1987,10 @@ export default function HomeScreen() {
                 decelerationRate="fast">
                 {MAIN_PLATFORMS.map((platform) => (
                   <StreamingChip key={platform.id} platform={platform}
-                    onPress={() => browseTo("movies", platform.name)} />
+                    onPress={() => router.push({ pathname: "/streaming", params: { id: platform.id } })} />
                 ))}
                 <Pressable style={styles.seeAllChip}
-                  onPress={() => router.push("/buscar")}>
+                  onPress={() => router.push("/streamings-all")}>
                   <View style={styles.seeAllChipInner}>
                     <Feather name="grid" size={14} color="rgba(255,255,255,0.5)" />
                     <Text style={styles.seeAllChipText}>Ver todas</Text>
@@ -2129,6 +2129,21 @@ export default function HomeScreen() {
                   </AnimatedSection>
                 </>
               )}
+
+              {/* ── 14. CINEMA PELO MUNDO ────────────────────────────────────── */}
+              <SectionDivider label="PELO MUNDO" accentColor="#3b82f6" />
+              <View style={styles.section}>
+                <SectionHeader title="Cinema pelo Mundo" icon="globe"
+                  subtitle="Explore por país de origem"
+                  accentColor="#3b82f6" />
+                <FilmNationRow
+                  countries={COUNTRIES}
+                  onPress={(c) => router.push({
+                    pathname: "/country-browse",
+                    params: { id: c.id, label: c.label, flag: c.flag, color: c.color },
+                  })}
+                />
+              </View>
 
               </>
               )}
