@@ -3680,12 +3680,13 @@ function TeraBoxPanel() {
 type FolderBulkTarget = { drive: 0 | 1; path: string; name: string };
 type BulkScanItem = { filePath: string; fileName: string; size?: string; season?: number; episode?: number };
 
-function FolderBulkModal({ target, onClose, onDone }: {
+function FolderBulkModal({ target, onClose, onDone, defaultContentType }: {
   target: FolderBulkTarget;
   onClose: () => void;
   onDone: (count: number) => void;
+  defaultContentType?: "movie" | "series" | null;
 }) {
-  const [contentType, setContentType] = useState<"movie" | "series" | null>(null);
+  const [contentType, setContentType] = useState<"movie" | "series" | null>(defaultContentType ?? null);
   const [scanning, setScanning] = useState(false);
   const [scanItems, setScanItems] = useState<BulkScanItem[]>([]);
   const [scanError, setScanError] = useState<string | null>(null);
@@ -4805,6 +4806,7 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
   const [mgDriveSelectMode, setMgDriveSelectMode] = useState(false);
   const [mgDriveSelected, setMgDriveSelected] = useState<Map<string, FolderBulkTarget>>(new Map());
   const [mgDriveBulkQueue, setMgDriveBulkQueue] = useState<FolderBulkTarget[]>([]);
+  const [mgDriveSelectType, setMgDriveSelectType] = useState<"movie" | "series" | null>(null);
 
   // ── Remap history ────────────────────────────────────────────────────────────
   interface RemapEntry { id: string; doneAt: string; fromIds: number[]; toId: number; toType: string; titles: string[]; updated: number }
@@ -4904,6 +4906,7 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
   const mgDriveExitSelectMode = () => {
     setMgDriveSelectMode(false);
     setMgDriveSelected(new Map());
+    setMgDriveSelectType(null);
   };
 
   const mgNavPush = (drive: 0 | 1, folderPath: string, name: string) => {
@@ -5397,25 +5400,63 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
                 </ScrollView>
               )}
 
-              {/* ── "Usar X selecionadas" — fixed below the scroll, always visible ── */}
+              {/* ── Tipo padrão + confirmação — sempre visível fora do scroll ── */}
               {mgDriveSelectMode && mgDriveSelected.size > 0 && (
-                <Pressable
-                  onPress={() => {
-                    const targets = Array.from(mgDriveSelected.values());
-                    const [first, ...rest] = targets;
-                    mgDriveExitSelectMode();
-                    setMgDriveBulkQueue(rest);
-                    setFolderBulkTarget(first);
-                  }}
-                  style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
-                    margin: 10, marginTop: 6, padding: 14, borderRadius: 10, borderWidth: 2,
-                    borderColor: "#fbbf24", backgroundColor: "rgba(234,179,8,0.18)" }}>
-                  <Feather name="check-circle" size={17} color="#fbbf24" />
-                  <Text style={{ color: "#fef3c7", fontSize: 14, fontWeight: "800" }}>
-                    Usar {mgDriveSelected.size} pasta{mgDriveSelected.size !== 1 ? "s" : ""} selecionada{mgDriveSelected.size !== 1 ? "s" : ""}
-                  </Text>
-                  <Feather name="arrow-right" size={15} color="#fbbf24" />
-                </Pressable>
+                <View style={{ marginHorizontal: 10, marginTop: 6, marginBottom: 10, gap: 7 }}>
+                  {/* Tipo padrão: Série / Filme */}
+                  <View style={{ flexDirection: "row", gap: 6 }}>
+                    <Pressable
+                      onPress={() => setMgDriveSelectType((t) => t === "series" ? null : "series")}
+                      style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
+                        paddingVertical: 9, borderRadius: 8, borderWidth: 1.5,
+                        borderColor: mgDriveSelectType === "series" ? "#818cf8" : "rgba(255,255,255,0.12)",
+                        backgroundColor: mgDriveSelectType === "series" ? "rgba(99,102,241,0.18)" : "rgba(255,255,255,0.04)" }}>
+                      <Feather name="tv" size={14} color={mgDriveSelectType === "series" ? "#a5b4fc" : "rgba(255,255,255,0.4)"} />
+                      <Text style={{ color: mgDriveSelectType === "series" ? "#c7d2fe" : "rgba(255,255,255,0.45)", fontSize: 13, fontWeight: "700" }}>
+                        Série
+                      </Text>
+                      {mgDriveSelectType === "series" && <Feather name="check" size={12} color="#a5b4fc" />}
+                    </Pressable>
+                    <Pressable
+                      onPress={() => setMgDriveSelectType((t) => t === "movie" ? null : "movie")}
+                      style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
+                        paddingVertical: 9, borderRadius: 8, borderWidth: 1.5,
+                        borderColor: mgDriveSelectType === "movie" ? "#f472b6" : "rgba(255,255,255,0.12)",
+                        backgroundColor: mgDriveSelectType === "movie" ? "rgba(236,72,153,0.15)" : "rgba(255,255,255,0.04)" }}>
+                      <Feather name="film" size={14} color={mgDriveSelectType === "movie" ? "#f9a8d4" : "rgba(255,255,255,0.4)"} />
+                      <Text style={{ color: mgDriveSelectType === "movie" ? "#fbcfe8" : "rgba(255,255,255,0.45)", fontSize: 13, fontWeight: "700" }}>
+                        Filme
+                      </Text>
+                      {mgDriveSelectType === "movie" && <Feather name="check" size={12} color="#f9a8d4" />}
+                    </Pressable>
+                  </View>
+                  {mgDriveSelectType == null && (
+                    <Text style={{ color: "rgba(255,255,255,0.28)", fontSize: 10, textAlign: "center" }}>
+                      Selecione o tipo para pré-preencher cada pasta (opcional)
+                    </Text>
+                  )}
+                  {/* Confirm pill */}
+                  <Pressable
+                    onPress={() => {
+                      const targets = Array.from(mgDriveSelected.values());
+                      const [first, ...rest] = targets;
+                      const type = mgDriveSelectType;
+                      mgDriveExitSelectMode();
+                      setMgDriveBulkQueue(rest);
+                      setFolderBulkTarget(first);
+                      setMgDriveSelectType(type); // preserve type for the queue handler
+                    }}
+                    style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+                      padding: 14, borderRadius: 10, borderWidth: 2,
+                      borderColor: "#fbbf24", backgroundColor: "rgba(234,179,8,0.18)" }}>
+                    <Feather name="check-circle" size={17} color="#fbbf24" />
+                    <Text style={{ color: "#fef3c7", fontSize: 14, fontWeight: "800" }}>
+                      Usar {mgDriveSelected.size} pasta{mgDriveSelected.size !== 1 ? "s" : ""} selecionada{mgDriveSelected.size !== 1 ? "s" : ""}
+                      {mgDriveSelectType ? ` · ${mgDriveSelectType === "series" ? "Série" : "Filme"}` : ""}
+                    </Text>
+                    <Feather name="arrow-right" size={15} color="#fbbf24" />
+                  </Pressable>
+                </View>
               )}
             </View>
           )}
@@ -5514,14 +5555,15 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
       {folderBulkTarget && (
         <FolderBulkModal
           target={folderBulkTarget}
+          defaultContentType={mgDriveSelectType}
           onClose={() => {
-            // If there are more folders in the queue, open the next one
             if (mgDriveBulkQueue.length > 0) {
               const [next, ...remaining] = mgDriveBulkQueue;
               setMgDriveBulkQueue(remaining);
               setFolderBulkTarget(next);
             } else {
               setFolderBulkTarget(null);
+              setMgDriveSelectType(null);
             }
           }}
           onDone={(count) => {
@@ -5539,6 +5581,7 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
                     setFolderBulkTarget(next);
                   } else {
                     setFolderBulkTarget(null);
+                    setMgDriveSelectType(null);
                   }
                 }
               }]
