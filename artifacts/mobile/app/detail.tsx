@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Clipboard,
   Dimensions,
   Image,
   KeyboardAvoidingView,
@@ -258,6 +259,9 @@ export default function DetailScreen() {
   const [newEpisodeInfo, setNewEpisodeInfo] = useState<{ season: number; episode: number; episode_title: string | null; expires_at: string } | null>(null);
 
   const userId = user?.id ?? "";
+  const isAdmin = user?.role === "admin" ||
+    (user?.email ? ["admin@netplay.tv", "admin@netplay.com.br"].includes(user.email) : false);
+  const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null);
   const [inList, setInList] = useState(false);
   const [liked, setLiked] = useState<boolean | undefined>(undefined);
   const [watchingCatalog, setWatchingCatalog] = useState(false);
@@ -1768,6 +1772,62 @@ export default function DetailScreen() {
                     <Text style={{ color: colors.mutedForeground }}>Sem descrição disponível.</Text>
                   )}
 
+                  {/* ── ADMIN: links de vídeo ─────────────────────────────── */}
+                  {isAdmin && (() => {
+                    const links: { id: string; label: string; source: string; url: string; color: string }[] = [];
+                    for (const item of r2Items) {
+                      const base = item.label || item.title || "Item";
+                      if (item.flix2Url) links.push({ id: `${item.id}-flix2`, label: base, source: "Flix 2.0", url: item.flix2Url, color: "#8b5cf6" });
+                      if (item.driveUrl) links.push({ id: `${item.id}-drive`, label: base, source: "Drive", url: item.driveUrl, color: "#16a34a" });
+                      if (item.driveDirectUrl && item.driveDirectUrl !== item.driveUrl)
+                        links.push({ id: `${item.id}-direct`, label: base, source: "Drive Direto", url: item.driveDirectUrl, color: "#0ea5e9" });
+                      if (item.teraboxUrl) links.push({ id: `${item.id}-tera`, label: base, source: "TeraBox", url: item.teraboxUrl, color: "#f97316" });
+                    }
+                    const isLoading = r2Loading || flix2Loading;
+                    return (
+                      <View style={styles.adminLinksBox}>
+                        <View style={styles.adminLinksHeader}>
+                          <Feather name="shield" size={13} color="#e50914" />
+                          <Text style={styles.adminLinksTitle}>LINKS · ADMIN</Text>
+                          {isLoading && <ActivityIndicator size={11} color="#e50914" style={{ marginLeft: 6 }} />}
+                        </View>
+                        {links.length === 0 && !isLoading && (
+                          <Text style={styles.adminLinksEmpty}>Nenhum link registrado para este título.</Text>
+                        )}
+                        {links.map((lk) => {
+                          const wasCopied = copiedLinkId === lk.id;
+                          return (
+                            <View key={lk.id} style={styles.adminLinkRow}>
+                              <View style={{ flex: 1 }}>
+                                <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                                  <View style={[styles.adminLinkBadge, { backgroundColor: lk.color + "22", borderColor: lk.color + "44" }]}>
+                                    <Text style={[styles.adminLinkBadgeText, { color: lk.color }]}>{lk.source}</Text>
+                                  </View>
+                                  <Text style={[styles.adminLinkLabel, { color: colors.foreground }]} numberOfLines={1}>{lk.label}</Text>
+                                </View>
+                                <Text style={[styles.adminLinkUrl, { color: colors.mutedForeground }]} numberOfLines={2} selectable>{lk.url}</Text>
+                              </View>
+                              <Pressable
+                                onPress={() => {
+                                  if (Platform.OS === "web") {
+                                    (navigator as any).clipboard?.writeText(lk.url).catch(() => {});
+                                  } else {
+                                    Clipboard.setString(lk.url);
+                                  }
+                                  setCopiedLinkId(lk.id);
+                                  setTimeout(() => setCopiedLinkId(null), 2000);
+                                }}
+                                style={[styles.adminCopyBtn, { borderColor: wasCopied ? "#22c55e55" : colors.border, backgroundColor: wasCopied ? "#22c55e15" : colors.card }]}
+                              >
+                                <Feather name={wasCopied ? "check" : "copy"} size={14} color={wasCopied ? "#22c55e" : colors.mutedForeground} />
+                              </Pressable>
+                            </View>
+                          );
+                        })}
+                      </View>
+                    );
+                  })()}
+
                   {castList.length > 0 && (
                     <View style={{ marginTop: 20 }}>
                       <Text style={[styles.castHeading, { color: colors.foreground }]}>Elenco</Text>
@@ -2364,5 +2424,69 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     padding: 32,
+  },
+  adminLinksBox: {
+    marginTop: 20,
+    borderWidth: 1,
+    borderColor: "#e5091430",
+    borderRadius: 12,
+    backgroundColor: "#e5091408",
+    padding: 14,
+    gap: 10,
+  },
+  adminLinksHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 4,
+  },
+  adminLinksTitle: {
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 1,
+    color: "#e50914",
+  },
+  adminLinksEmpty: {
+    fontSize: 12,
+    color: "#888",
+    fontStyle: "italic",
+  },
+  adminLinkRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: "#e5091420",
+  },
+  adminLinkBadge: {
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  adminLinkBadgeText: {
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+  },
+  adminLinkLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    flex: 1,
+  },
+  adminLinkUrl: {
+    fontSize: 11,
+    lineHeight: 16,
+    fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+  },
+  adminCopyBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 9,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
   },
 });
