@@ -987,11 +987,11 @@ export default function NovidadesScreen() {
   const [allSeries,   setAllSeries]   = useState<ContentItem[]>([]);
   const [allAnimes,   setAllAnimes]   = useState<ContentItem[]>([]);
 
-  // derived slices
-  const trendMovies    = useMemo(() => allMovies.slice(0, 6),  [allMovies]);
-  const nowPlaying     = useMemo(() => allMovies.slice(0, 6),  [allMovies]);
-  const onAir          = useMemo(() => allSeries.slice(0, 6),  [allSeries]);
-  const trendAnimes    = useMemo(() => allAnimes.slice(0, 10), [allAnimes]);
+  // derived slices — each section gets a unique, non-overlapping slice
+  const trendMovies    = useMemo(() => allMovies.slice(0, 6),   [allMovies]);
+  const nowPlaying     = useMemo(() => allMovies.slice(6, 12),  [allMovies]);
+  const onAir          = useMemo(() => allSeries.slice(0, 6),   [allSeries]);
+  const trendAnimes    = useMemo(() => allAnimes.slice(0, 10),  [allAnimes]);
 
   // ── R2 / Drive catalog ────────────────────────────────────────────────────
   const { r2All } = useR2Catalog();
@@ -1079,9 +1079,9 @@ export default function NovidadesScreen() {
     });
   }, [router]);
 
-  // Derived spotlights
-  const spotlight1    = allMovies[0]  ?? null;
-  const countdownItem = allMovies[5]  ?? null;
+  // Derived spotlights — use different positions so they don't repeat carousel items
+  const spotlight1    = allMovies[12] ?? allMovies[0] ?? null;
+  const countdownItem = allMovies[14] ?? allMovies[5] ?? null;
 
   return (
     <View style={[sty.root, { backgroundColor: colors.background }]}>
@@ -1153,10 +1153,17 @@ export default function NovidadesScreen() {
                 <View style={sty.sec}>
                   <SectionHeader title="Explorar por Gênero" icon="grid"
                     accentColor={TEAL} />
-                  <GenreRow onPress={(g) => router.push({
-                    pathname:"/genre-browse",
-                    params:{ source:"flix2", type:"movie", flix2_type:"movies", title: g }
-                  })} />
+                  <GenreRow onPress={(g) => {
+                    const GENRE_ID: Record<string, number> = {
+                      "Ação": 28, "Drama": 18, "Comédia": 35, "Terror": 27,
+                      "Sci-Fi": 878, "Romance": 10749, "Animação": 16,
+                      "Crime": 80, "Doc": 99, "Família": 10751,
+                    };
+                    router.push({
+                      pathname:"/genre-browse",
+                      params:{ genre_id: String(GENRE_ID[g] ?? 0), type:"movie", title: g }
+                    });
+                  }} />
                 </View>
               </AnimatedSection>
 

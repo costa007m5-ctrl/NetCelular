@@ -296,7 +296,10 @@ export default function GenreBrowseScreen() {
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);
-  const [sortOrder, setSortOrder] = useState<SortOrder>("default");
+  const VALID_SORTS: SortOrder[] = ["rating_desc","rating_asc","year_desc","year_asc","az","za"];
+  const [sortOrder, setSortOrder] = useState<SortOrder>(
+    VALID_SORTS.includes(sort_by as SortOrder) ? (sort_by as SortOrder) : "default"
+  );
   const [showSortMenu, setShowSortMenu] = useState(false);
   const searchInputRef = useRef<TextInput>(null);
   const searchAnim = useRef(new Animated.Value(0)).current;

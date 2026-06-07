@@ -1919,10 +1919,10 @@ export default function HomeScreen() {
     "Internacional": 18, "Premiados": 18,
     "Anos 80": 0, "Explorar": 0,
   };
-  const browseTo = useCallback((flix2Type: "movies" | "series" | "animes", title: string) => {
+  const browseTo = useCallback((flix2Type: "movies" | "series" | "animes", title: string, sortBy?: string) => {
     router.push({
       pathname: "/genre-browse",
-      params: { title, source: "flix2", flix2_type: flix2Type },
+      params: { title, source: "flix2", flix2_type: flix2Type, ...(sortBy ? { sort_by: sortBy } : {}) },
     });
   }, [router]);
 
@@ -2095,7 +2095,7 @@ export default function HomeScreen() {
                   <View style={styles.section}>
                     <SectionHeader title="Top 10 Filmes" icon="award"
                       badge="SEMANAL" accentColor={AMBER}
-                      onSeeAll={() => browseTo("movies", "Top 10 Filmes")} />
+                      onSeeAll={() => browseTo("movies", "Top 10 Filmes", "rating_desc")} />
                     <ScrollView horizontal showsHorizontalScrollIndicator={false}
                       removeClippedSubviews={Platform.OS !== "web"}
                       contentContainerStyle={{ paddingHorizontal: 16, gap: 4 }} decelerationRate="fast">
@@ -2130,7 +2130,7 @@ export default function HomeScreen() {
                   <View style={styles.section}>
                     <SectionHeader title="Top 10 Séries" icon="award"
                       badge="SEMANAL" accentColor={AMBER}
-                      onSeeAll={() => browseTo("series", "Top 10 Séries")} />
+                      onSeeAll={() => browseTo("series", "Top 10 Séries", "rating_desc")} />
                     <ScrollView horizontal showsHorizontalScrollIndicator={false}
                       contentContainerStyle={{ paddingHorizontal: 16, gap: 4 }} decelerationRate="fast">
                       {top10Series.map((item, i) => (
