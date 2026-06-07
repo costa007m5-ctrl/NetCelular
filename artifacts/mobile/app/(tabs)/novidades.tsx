@@ -695,6 +695,36 @@ function VerMaisModal({
     }
   }, [fetchMoreFn, loadingMore, noMoreTmdb, tmdbPage]);
 
+  const loadAllPages = useCallback(async () => {
+    if (!fetchMoreFn || loadingMore || noMoreTmdb) return;
+    setLoadingMore(true);
+    try {
+      const startPage = tmdbPage + 1;
+      const pages = Array.from({ length: 10 }, (_, i) => startPage + i);
+      const results = await Promise.allSettled(pages.map((pg) => fetchMoreFn(pg)));
+      const newItems: ContentItem[] = [];
+      let lastPage = tmdbPage;
+      let hitEmpty = false;
+      for (let i = 0; i < results.length; i++) {
+        const r = results[i];
+        if (r.status === "fulfilled" && r.value.length > 0) {
+          newItems.push(...r.value);
+          lastPage = pages[i];
+        } else { hitEmpty = true; break; }
+      }
+      if (newItems.length > 0) {
+        setExtraItems((prev) => [...prev, ...newItems]);
+        setTmdbPage(lastPage);
+        setPage((p) => p + Math.ceil(newItems.length / PAGE));
+      }
+      if (hitEmpty || newItems.length === 0) setNoMoreTmdb(true);
+    } catch {
+      setNoMoreTmdb(true);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [fetchMoreFn, loadingMore, noMoreTmdb, tmdbPage, PAGE]);
+
   const handleEndReached = useCallback(() => {
     if (q) return; // don't paginate while filtering
     if (shown.length < allItems.length) {
@@ -830,18 +860,42 @@ function VerMaisModal({
           updateCellsBatchingPeriod={50}
           ListFooterComponent={
             loadingMore ? (
-              <View style={{ paddingVertical: 20, alignItems: "center" }}>
+              <View style={{ paddingVertical: 20, alignItems: "center", gap: 8 }}>
                 <ActivityIndicator size="small" color={accentColor} />
-              </View>
-            ) : !q && shown.length < allItems.length ? (
-              <TouchableOpacity onPress={() => setPage((p) => p + 1)} style={sty.loadMoreBtn} activeOpacity={0.8}>
-                <LinearGradient colors={[`${accentColor}22`, `${accentColor}10`]} style={StyleSheet.absoluteFill} />
-                <Feather name="chevrons-down" size={14} color={accentColor} />
-                <Text style={[sty.loadMoreText, { color: accentColor }]}>
-                  Carregar mais ({allItems.length - shown.length} restantes)
+                <Text style={{ color: `${accentColor}99`, fontSize: 11, fontWeight: "600" }}>
+                  Carregando mais títulos...
                 </Text>
-              </TouchableOpacity>
-            ) : null
+              </View>
+            ) : (
+              <View style={{ gap: 8, paddingHorizontal: 16, paddingBottom: 120, paddingTop: 4 }}>
+                {!q && shown.length < allItems.length && (
+                  <TouchableOpacity onPress={() => setPage((p) => p + 1)} style={sty.loadMoreBtn} activeOpacity={0.8}>
+                    <LinearGradient colors={[`${accentColor}22`, `${accentColor}10`]} style={StyleSheet.absoluteFill} />
+                    <Feather name="chevrons-down" size={14} color={accentColor} />
+                    <Text style={[sty.loadMoreText, { color: accentColor }]}>
+                      Ver mais ({allItems.length - shown.length} restantes)
+                    </Text>
+                  </TouchableOpacity>
+                )}
+                {!q && fetchMoreFn && !noMoreTmdb && (
+                  <TouchableOpacity onPress={loadAllPages} activeOpacity={0.8}
+                    style={[sty.loadMoreBtn, { borderColor: `${accentColor}60`, backgroundColor: "transparent" }]}>
+                    <LinearGradient colors={[`${accentColor}30`, `${accentColor}15`]} style={StyleSheet.absoluteFill} />
+                    <Feather name="zap" size={14} color={accentColor} />
+                    <Text style={[sty.loadMoreText, { color: accentColor, fontWeight: "800" }]}>
+                      Carregar tudo · próximas ~200 páginas
+                    </Text>
+                  </TouchableOpacity>
+                )}
+                {noMoreTmdb && allItems.length > 0 && (
+                  <View style={{ alignItems: "center", paddingVertical: 12 }}>
+                    <Text style={{ color: "#ffffff30", fontSize: 11 }}>
+                      {allItems.length} títulos carregados · fim do catálogo
+                    </Text>
+                  </View>
+                )}
+              </View>
+            )
           }
         />
         )}
