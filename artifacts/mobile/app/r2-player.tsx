@@ -481,10 +481,12 @@ export default function R2PlayerScreen() {
         if (data.error) throw new Error(data.error);
         url = data.url;
       } else if (isEffectiveDrive) {
-        // Drive: resolve client-side (bypasses server IP block by Cloudflare)
+        // Drive: resolve client-side (bypasses server IP block by Cloudflare).
+        // Then proxy through API server so ExoPlayer sends a browser User-Agent
+        // (Cloudflare workers reject ExoPlayer/Dalvik UAs in production APKs).
         const driveId = effectiveDriveId!;
         const data = await drivePlayDirect(driveId);
-        url = data.url;
+        url = getProxiedStreamUrl(data.url);
       } else {
         if (Platform.OS === "web") {
           // No web: proxy via API server — evita CORS do R2 direto.

@@ -1,10 +1,13 @@
 import { Platform } from "react-native";
 import Constants from "expo-constants";
+// getApiBase from api.ts reads _dynamicDomain (set from Supabase by initApiDomain)
+// which ensures the proxy works in production APKs even without EXPO_PUBLIC_DOMAIN baked in.
+import { getApiBase as getApiBaseLib } from "@/lib/api";
 
 const DRIVE_WORKER = "https://1.animezey23112022.workers.dev";
 const DOWNLOAD_DOMAIN = "https://animezey16082023.animezey16082023.workers.dev";
 
-function getApiBase(): string | null {
+function getLocalApiBase(): string | null {
   if (Platform.OS === "web") return "";
   const domain =
     process.env.EXPO_PUBLIC_DOMAIN ||
@@ -15,22 +18,27 @@ function getApiBase(): string | null {
 
 function getDriveProxyBase(): string {
   if (Platform.OS === "web") return "/api/drive";
-  const base = getApiBase();
+  const base = getLocalApiBase();
   if (base) return `${base}/api/drive`;
   return DRIVE_WORKER;
 }
 
 /**
- * Returns a stream URL that goes through the API server proxy when possible.
- * The proxy correctly handles Range requests and upstream redirects so that
- * expo-av can seek without issues on Android/iOS.
+ * Returns a stream URL routed through the API server proxy.
+ * The proxy:
+ *  - Sends a browser User-Agent (prevents ExoPlayer UA being rejected by Cloudflare workers)
+ *  - Follows redirect chains (Drive Workers → Google CDN)
+ *  - Forwards Range headers so the player can seek
+ *
+ * Falls back to the raw URL only when no API base is configured at all.
  */
 export function getProxiedStreamUrl(rawUrl: string): string {
   if (!rawUrl) return "";
   if (Platform.OS === "web") return rawUrl;
-  const base = getApiBase();
-  if (!base) return rawUrl;
-  return `${base}/api/stream/proxy?url=${encodeURIComponent(rawUrl)}`;
+  // getApiBaseLib() returns "https://domain/api" and reads _dynamicDomain (Supabase-loaded in APK)
+  const base = getApiBaseLib();
+  if (base) return `${base}/stream/proxy?url=${encodeURIComponent(rawUrl)}`;
+  return rawUrl;
 }
 
 export type DriveFile = {
