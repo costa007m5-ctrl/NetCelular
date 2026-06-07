@@ -481,35 +481,39 @@ export default function R2PlayerScreen() {
         const rawUrl = effectiveFlix2Url!;
         const data = await r2Route<{ url: string; error?: string; via?: string }>(`/flix2/stream-url?streamUrl=${encodeURIComponent(rawUrl)}&nocache=1`);
         if (data.error) throw new Error(data.error);
-        if (Platform.OS === "web") {
-          // Web: must go through proxy (no native Range support, CORS needed).
-          url = getProxiedStreamUrl(data.url);
-        } else {
-          // Native (Android/iOS): pass CDN URL directly to expo-av with browser headers.
-          // ExoPlayer/AVPlayer will use these headers for ALL requests including Range,
-          // so seeking and buffering work correctly without going through the Replit proxy
-          // (which strips Range headers at the reverse proxy layer).
+        // HTTPS CDN on native → pass URL directly so ExoPlayer uses Range natively.
+        // HTTP CDN → must proxy through HTTPS: Android 9+ production APKs block cleartext
+        //   HTTP by default (Expo Go allows it in dev mode, standalone APKs do not).
+        //   The proxy also spoofs browser UA for Cloudflare CDN blocks on ExoPlayer.
+        const isHttps = data.url.startsWith("https://");
+        if (Platform.OS !== "web" && isHttps) {
+          // HTTPS CDN: ExoPlayer/AVPlayer make Range requests natively with our browser headers.
           url = data.url;
           setVideoSourceHeaders({
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             "Referer": "https://nixplay.lat/",
             "Origin": "https://nixplay.lat",
           });
+        } else {
+          // HTTP CDN or web: route through HTTPS proxy.
+          // Fixes cleartext block on Android APKs + spoofs browser UA for Cloudflare WAF.
+          url = getProxiedStreamUrl(data.url);
         }
       } else if (isEffectiveDrive) {
         // Drive: resolve client-side (bypasses server IP block by Cloudflare).
         const driveId = effectiveDriveId!;
         const data = await drivePlayDirect(driveId);
-        if (Platform.OS === "web") {
-          // Web: proxy needed for CORS.
-          url = getProxiedStreamUrl(data.url);
-        } else {
-          // Native: pass URL directly with browser headers so ExoPlayer Range requests work.
+        const isHttps = data.url.startsWith("https://");
+        if (Platform.OS !== "web" && isHttps) {
+          // HTTPS Drive CDN: pass directly with browser headers.
           url = data.url;
           setVideoSourceHeaders({
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             "Referer": "https://animezey16082023.animezey16082023.workers.dev/",
           });
+        } else {
+          // HTTP or web: route through HTTPS proxy.
+          url = getProxiedStreamUrl(data.url);
         }
       } else {
         if (Platform.OS === "web") {
