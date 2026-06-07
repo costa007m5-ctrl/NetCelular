@@ -217,6 +217,7 @@ export default function R2PlayerScreen() {
   const [activeFlix2Override, setActiveFlix2Override] = useState<string | null>(null);
   const [fallbackNotice, setFallbackNotice] = useState<string | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [videoSourceHeaders, setVideoSourceHeaders] = useState<Record<string, string> | null>(null);
   const [showCastModal, setShowCastModal] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [positionMs, setPositionMs] = useState(0);
@@ -458,6 +459,7 @@ export default function R2PlayerScreen() {
     phaseRef.current = "loading";
     setPhase("loading");
     setVideoUrl(null);
+    setVideoSourceHeaders(null);
     setIsPlaying(false);
     setIsBuffering(false);
     hasStartedPlayingRef.current = false;
@@ -476,13 +478,29 @@ export default function R2PlayerScreen() {
       if (isEffectiveFlix2) {
         // Flix 2.0: nixplay.lat stream_url redirects 302 → signed CDN URL on fontedecanais/cineveo CDN.
         // We resolve server-side because React Native video players may not follow redirects.
-        // The final CDN URL MUST be proxied through our API server — Cloudflare on the CDN
-        // blocks ExoPlayer/Dalvik User-Agents (same root cause as Drive APK playback).
-        // getProxiedStreamUrl() routes through /api/stream/proxy with a browser UA.
+        //
+        // Android APK strategy: use the raw CDN URL directly with browser UA headers on the
+        // expo-av source. This is critical for HLS streams — the proxy only handles the initial
+        // manifest request but ExoPlayer fetches segments directly; if segments go without browser
+        // headers, Cloudflare blocks them. Setting headers on the source ensures ALL requests
+        // (manifest + every HLS segment) use browser UA. Expo Go works differently because its
+        // UA fingerprint is not caught by the CDN WAF, but signed Codemagic APKs are blocked.
+        //
+        // Web / iOS: use proxy (handles CORS for web; iOS uses AVPlayer which is not blocked).
         const rawUrl = effectiveFlix2Url!;
         const data = await r2Route<{ url: string; error?: string; via?: string }>(`/flix2/stream-url?streamUrl=${encodeURIComponent(rawUrl)}`);
         if (data.error) throw new Error(data.error);
-        url = getProxiedStreamUrl(data.url);
+        if (Platform.OS === "android") {
+          url = data.url;
+          setVideoSourceHeaders({
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Referer": "https://nixplay.lat/",
+            "Origin": "https://nixplay.lat",
+          });
+        } else {
+          url = getProxiedStreamUrl(data.url);
+          setVideoSourceHeaders(null);
+        }
       } else if (isEffectiveDrive) {
         // Drive: resolve client-side (bypasses server IP block by Cloudflare).
         // Then proxy through API server so ExoPlayer sends a browser User-Agent
@@ -1217,7 +1235,7 @@ export default function R2PlayerScreen() {
         {videoUrl && Video && (
           <Video
             ref={videoRef}
-            source={{ uri: videoUrl }}
+            source={videoSourceHeaders ? { uri: videoUrl, headers: videoSourceHeaders } : { uri: videoUrl }}
             style={[StyleSheet.absoluteFill, { opacity: phase === "ready" ? 1 : 0 }]}
             resizeMode={ResizeMode?.CONTAIN ?? "contain"}
             shouldPlay={phase === "ready" && isPlaying}
