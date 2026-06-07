@@ -39,7 +39,7 @@ import { SearchTriggerBar } from "@/components/SearchTriggerBar";
 import { r2Route } from "@/lib/r2-direct";
 import { useR2Catalog } from "@/lib/r2-catalog-hook";
 import { getCached, setCached, getCacheTimestamp } from "@/lib/catalog-cache";
-import { getModalHistory, addToModalHistory, clearModalHistory } from "@/lib/modal-search-history";
+import { getModalHistory, addToModalHistory, clearModalHistory, removeFromModalHistory } from "@/lib/modal-search-history";
 import { checkCatalogWatchAndNotify } from "@/lib/catalog-watch";
 import { useAuth } from "@/lib/auth-context";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
@@ -1800,22 +1800,34 @@ function VerMaisModal({
               contentContainerStyle={{ paddingHorizontal:16, gap:8 }}
               style={{ flexGrow:0 }}>
               {searchHistory.map((h, i) => (
-                <TouchableOpacity key={i}
-                  onPress={() => {
-                    setSearchQuery(h);
-                    setSearchFocused(false);
-                    addToModalHistory(title, h).then(() => getModalHistory(title))
-                      .then(setSearchHistory).catch(() => {});
-                  }}
-                  activeOpacity={0.75}
-                  style={{ flexDirection:"row", alignItems:"center", gap:6,
-                    paddingHorizontal:12, paddingVertical:7, borderRadius:20,
-                    backgroundColor:`${accentColor}15`,
-                    borderWidth:1, borderColor:`${accentColor}35` }}>
-                  <Feather name="clock" size={10} color={`${accentColor}cc`} />
-                  <Text style={{ color:"rgba(255,255,255,0.82)", fontSize:12,
-                    fontWeight:"600", maxWidth:160 }} numberOfLines={1}>{h}</Text>
-                </TouchableOpacity>
+                <View key={i} style={{ flexDirection:"row", alignItems:"center",
+                  borderRadius:20, overflow:"hidden",
+                  backgroundColor:`${accentColor}15`,
+                  borderWidth:1, borderColor:`${accentColor}35` }}>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setSearchQuery(h);
+                      setSearchFocused(false);
+                      addToModalHistory(title, h).then(() => getModalHistory(title))
+                        .then(setSearchHistory).catch(() => {});
+                    }}
+                    activeOpacity={0.75}
+                    style={{ flexDirection:"row", alignItems:"center", gap:6,
+                      paddingLeft:12, paddingRight:6, paddingVertical:7 }}>
+                    <Feather name="clock" size={10} color={`${accentColor}cc`} />
+                    <Text style={{ color:"rgba(255,255,255,0.82)", fontSize:12,
+                      fontWeight:"600", maxWidth:140 }} numberOfLines={1}>{h}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => {
+                      removeFromModalHistory(title, h).then(setSearchHistory).catch(() => {});
+                    }}
+                    hitSlop={{ top:8, bottom:8, left:4, right:10 }}
+                    activeOpacity={0.7}
+                    style={{ paddingRight:10, paddingLeft:2, paddingVertical:7 }}>
+                    <Feather name="x" size={10} color={`${accentColor}99`} />
+                  </TouchableOpacity>
+                </View>
               ))}
             </ScrollView>
           </View>

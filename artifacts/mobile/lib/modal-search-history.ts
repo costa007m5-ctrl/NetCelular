@@ -25,6 +25,15 @@ export async function addToModalHistory(title: string, query: string): Promise<v
   } catch {}
 }
 
+export async function removeFromModalHistory(title: string, query: string): Promise<string[]> {
+  try {
+    const prev = await getModalHistory(title);
+    const next = prev.filter((h) => h !== query);
+    await AsyncStorage.setItem(storageKey(title), JSON.stringify(next));
+    return next;
+  } catch { return []; }
+}
+
 export async function clearModalHistory(title: string): Promise<void> {
   try {
     await AsyncStorage.removeItem(storageKey(title));
