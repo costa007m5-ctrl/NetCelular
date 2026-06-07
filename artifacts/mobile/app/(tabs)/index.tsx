@@ -1720,9 +1720,12 @@ export default function HomeScreen() {
   const applyCatalog = useCallback((
     raw: { movies: any[]; series: any[]; animes: any[] }
   ) => {
-    const m = raw.movies.filter((i: any) => i.tmdb_id > 0 && i.poster).map(flix2ToContent);
-    const s = raw.series.filter((i: any) => i.tmdb_id > 0).map(flix2ToContent);
-    const a = raw.animes.filter((i: any) => i.tmdb_id > 0).map(flix2ToContent);
+    // Accept items with tmdb_id=0 if they have a flix2 item id and title.
+    // tmdb_id=0 means Flix 2.0 doesn't have the TMDB mapping yet — content is still playable.
+    const hasId = (i: any) => i.tmdb_id > 0 || (i.id != null && String(i.id).length > 0);
+    const m = raw.movies.filter((i: any) => hasId(i) && i.poster && i.title).map(flix2ToContent);
+    const s = raw.series.filter((i: any) => hasId(i) && i.title).map(flix2ToContent);
+    const a = raw.animes.filter((i: any) => hasId(i) && i.title).map(flix2ToContent);
 
     if (m.length) {
       setMovies(m);

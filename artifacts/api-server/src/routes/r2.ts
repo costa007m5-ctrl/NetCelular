@@ -2134,12 +2134,21 @@ router.get("/flix2/catalog-full", async (req, res) => {
       }
     }
 
-    // Deduplicate by tmdb_id
-    const seen = new Set<number>();
+    // Deduplicate by tmdb_id (when valid > 0) or by flix2 item id as fallback.
+    // Items with tmdb_id=0/null are kept — they are real content, just without TMDB mapping.
+    const seenTmdb = new Set<number>();
+    const seenFlix2 = new Set<string>();
     const deduped = allItems.filter((item) => {
-      const id = Number(item.tmdb_id);
-      if (!id || seen.has(id)) return false;
-      seen.add(id);
+      const tmdbId = Number(item.tmdb_id);
+      if (tmdbId > 0) {
+        if (seenTmdb.has(tmdbId)) return false;
+        seenTmdb.add(tmdbId);
+        return true;
+      }
+      // No valid TMDB ID — deduplicate by flix2 item id or title to avoid exact duplicates
+      const fallbackKey = item.id != null ? String(item.id) : String(item.title ?? "");
+      if (!fallbackKey || seenFlix2.has(fallbackKey)) return false;
+      seenFlix2.add(fallbackKey);
       return true;
     });
 
@@ -2232,12 +2241,15 @@ router.get("/flix2/search", async (req, res) => {
 router.get("/flix2/lookup", async (req, res) => {
   const { tmdbId, type = "all", title = "" } = req.query as Record<string, string>;
   const id = Number(tmdbId);
-  if (!id) { res.json({ found: false, item: null }); return; }
-
   const normTitle = title ? normalizeTitleForSearch(title) : "";
 
+  // Require at least a valid tmdbId OR a title to search by
+  if (!id && !normTitle) { res.json({ found: false, item: null }); return; }
+
   function matchItem(i: any): boolean {
-    if (Number(i.tmdb_id) === id) return true;
+    // TMDB ID match (only when id > 0)
+    if (id > 0 && Number(i.tmdb_id) === id) return true;
+    // Title match (normalized) — used as fallback or primary when id=0
     if (normTitle) {
       const iNorm = normalizeTitleForSearch(i.title ?? i.name ?? "");
       if (iNorm && iNorm === normTitle) return true;

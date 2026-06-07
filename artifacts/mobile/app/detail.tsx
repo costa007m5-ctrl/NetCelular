@@ -284,7 +284,10 @@ export default function DetailScreen() {
   // ─── Fase 1 (rápida): registry + settings → mostra botões imediatamente
   // ─── Fase 2 (lenta):  flix2/lookup roda em background e acrescenta itens
   useEffect(() => {
-    if (!tmdbId) { setR2Loading(false); setFlix2Loading(false); return; }
+    // Allow items without a TMDB ID (tmdbId=0) to proceed — they can still be found
+    // in Flix 2.0 by title. TMDB-specific calls (details, similar, etc.) have their
+    // own guards and will skip automatically when tmdbId=0.
+    if (!tmdbId && !(params.title ?? "").trim()) { setR2Loading(false); setFlix2Loading(false); return; }
     setFlix2Loading(false);  // reset ao navegar para novo título
     let cancelled = false;
     const loadR2 = async () => {
@@ -525,7 +528,7 @@ export default function DetailScreen() {
 
   // Load details
   useEffect(() => {
-    if (!tmdbId) return;
+    if (!tmdbId) { setLoading(false); return; }
     setLoading(true);
     setLogoUrl(null);
     const TMDB_KEY = "8f0beb08cf016ec8de49e454e09879ec";
