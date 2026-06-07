@@ -28,6 +28,26 @@ import type { ContentItem } from "@/constants/content";
 import { r2Base } from "@/lib/r2-direct";
 import { useR2Catalog } from "@/lib/r2-catalog-hook";
 import { getCached } from "@/lib/catalog-cache";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+const HISTORY_KEY = "buscar_history_v1";
+const MAX_HISTORY  = 8;
+
+async function loadHistory(): Promise<string[]> {
+  try { return JSON.parse((await AsyncStorage.getItem(HISTORY_KEY)) ?? "[]"); }
+  catch { return []; }
+}
+async function saveHistory(history: string[]): Promise<void> {
+  try { await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(history)); }
+  catch {}
+}
+function addToHistory(prev: string[], q: string): string[] {
+  const trimmed = q.trim();
+  if (!trimmed || trimmed.length < 2) return prev;
+  const next = [trimmed, ...prev.filter(h => h.toLowerCase() !== trimmed.toLowerCase())].slice(0, MAX_HISTORY);
+  saveHistory(next);
+  return next;
+}
 
 type Flix2RawItem = { title: string; _type: string; thumbnail?: string | null; tmdb_id?: number };
 
@@ -368,11 +388,14 @@ export default function BuscarScreen() {
   const [activeCategory,setActiveCategory]= useState<string>("trending");
   const [activeGenre,   setActiveGenre]   = useState<string | null>(null);
 
-  const [genreItems, setGenreItems] = useState<ContentItem[]>([]);
-  const [micOn,      setMicOn]      = useState(false);
+  const [genreItems,     setGenreItems]     = useState<ContentItem[]>([]);
+  const [searchHistory,  setSearchHistory]  = useState<string[]>([]);
+  const [micOn,          setMicOn]          = useState(false);
   const micPulse = useRef(new Animated.Value(1)).current;
 
+  // Carrega histórico salvo na primeira abertura
   useEffect(() => {
+    loadHistory().then(setSearchHistory);
     setTimeout(() => inputRef.current?.focus(), 300);
   }, []);
 
@@ -442,6 +465,10 @@ export default function BuscarScreen() {
           .filter((x: any) => x.media_type === "movie" || x.media_type === "tv")
           .map((x: any) => toItem(x));
         setResults(items);
+        // Salva no histórico quando há resultados
+        if (items.length > 0 || cacheHit) {
+          setSearchHistory((prev) => addToHistory(prev, q));
+        }
       }
       setLoading(false);
 
@@ -526,6 +553,40 @@ export default function BuscarScreen() {
           )}
         </LinearGradient>
       </View>
+
+      {/* ── HISTÓRICO DE BUSCAS ─────────────────────────────────────────────── */}
+      {!isSearching && searchHistory.length > 0 && (
+        <View style={styles.historyWrap}>
+          <View style={styles.historyHeader}>
+            <Feather name="clock" size={11} color="rgba(255,255,255,0.35)" />
+            <Text style={styles.historyLabel}>Recentes</Text>
+            <Pressable hitSlop={10} onPress={() => {
+              setSearchHistory([]);
+              saveHistory([]);
+            }}>
+              <Text style={styles.historyClear}>Limpar</Text>
+            </Pressable>
+          </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={{ paddingHorizontal: 16, gap: 8, paddingBottom: 6 }}>
+            {searchHistory.map((term) => (
+              <Pressable key={term} style={styles.historyChip}
+                onPress={() => setQuery(term)}>
+                <Feather name="search" size={10} color="rgba(255,255,255,0.45)" />
+                <Text style={styles.historyChipText} numberOfLines={1}>{term}</Text>
+                <Pressable hitSlop={8} onPress={() => {
+                  const next = searchHistory.filter(h => h !== term);
+                  setSearchHistory(next);
+                  saveHistory(next);
+                }}>
+                  <Feather name="x" size={10} color="rgba(255,255,255,0.3)" />
+                </Pressable>
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
+      )}
 
       {/* ── SOURCE FILTER PILLS (always visible) ────────────────────────────── */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false}
@@ -980,6 +1041,14 @@ const styles = StyleSheet.create({
   micBtn:       { width: 30, height: 30, borderRadius: 15, alignItems:"center", justifyContent:"center", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", backgroundColor: "rgba(255,255,255,0.06)" },
   micBtnActive: { borderColor: RED, backgroundColor: "rgba(229,9,20,0.14)" },
   clearBtn:     { width: 22, height: 22, borderRadius: 11, alignItems:"center", justifyContent:"center", backgroundColor: "rgba(255,255,255,0.2)" },
+
+  /* history */
+  historyWrap:     { marginBottom: 6 },
+  historyHeader:   { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 16, paddingBottom: 6 },
+  historyLabel:    { flex: 1, fontSize: 11, color: "rgba(255,255,255,0.35)", fontWeight: "600", letterSpacing: 0.5 },
+  historyClear:    { fontSize: 11, color: "rgba(229,9,20,0.7)", fontWeight: "700" },
+  historyChip:     { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.07)", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", maxWidth: 160 },
+  historyChipText: { flex: 1, fontSize: 12, color: "rgba(255,255,255,0.75)", fontWeight: "500" },
 
   /* category pills (compact) */
   pillRow:   { paddingHorizontal: 16, gap: 8, marginBottom: 10 },
