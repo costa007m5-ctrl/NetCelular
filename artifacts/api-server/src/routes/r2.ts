@@ -2096,6 +2096,57 @@ router.get("/flix2/catalog", async (req, res) => {
 const FULL_CATALOG_CACHE = new Map<string, { data: any[]; cachedAt: number }>();
 const FULL_CATALOG_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
+// Populates FULL_CATALOG_CACHE for the given type by fetching all pages.
+// Safe to call multiple times — skips if already fresh in cache.
+async function warmCatalogType(type: string): Promise<void> {
+  const cached = FULL_CATALOG_CACHE.get(type);
+  if (cached && Date.now() - cached.cachedAt < FULL_CATALOG_TTL_MS) return;
+
+  try {
+    const first = await flix2FetchPage(type, 1);
+    if (!first.success) return;
+    const totalPages: number = first.pagination?.total_pages ?? 1;
+    const allItems: any[] = [...(first.data ?? [])];
+    const BATCH = 15;
+    for (let start = 2; start <= totalPages; start += BATCH) {
+      const batch = Array.from(
+        { length: Math.min(BATCH, totalPages - start + 1) },
+        (_, i) => flix2FetchPage(type, start + i)
+      );
+      const results = await Promise.allSettled(batch);
+      for (const r of results) {
+        if (r.status === "fulfilled" && r.value.success) allItems.push(...(r.value.data ?? []));
+      }
+    }
+    const seenTmdb = new Set<number>();
+    const seenFlix2 = new Set<string>();
+    const deduped = allItems.filter((item) => {
+      const id = Number(item.tmdb_id);
+      if (id > 0) {
+        if (seenTmdb.has(id)) return false;
+        seenTmdb.add(id);
+        return true;
+      }
+      const key = item.id != null ? String(item.id) : String(item.title ?? "");
+      if (!key || seenFlix2.has(key)) return false;
+      seenFlix2.add(key);
+      return true;
+    });
+    FULL_CATALOG_CACHE.set(type, { data: deduped, cachedAt: Date.now() });
+    console.log(`[flix2] cache warm: type=${type} items=${deduped.length}`);
+  } catch (e: any) {
+    console.warn(`[flix2] cache warm failed for ${type}:`, e?.message ?? e);
+  }
+}
+
+// Exported so index.ts can trigger startup warm-up (non-blocking).
+export async function warmAllCatalogCaches(): Promise<void> {
+  // Warm series and animes first (fewer pages), then movies (821 pages).
+  await warmCatalogType("series");
+  await warmCatalogType("animes");
+  await warmCatalogType("movies");
+}
+
 // ── GET /flix2/catalog-full — fetches ALL pages for a type in parallel batches ─
 // Returns the complete catalog for a type so mobile only makes one request.
 router.get("/flix2/catalog-full", async (req, res) => {

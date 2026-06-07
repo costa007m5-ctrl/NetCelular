@@ -30,3 +30,11 @@ description: How the personalized recommendations row on the home screen works.
 - Section hidden when empty (no user history = no recommendations shown)
 
 **Why:** Users with history get personalized picks; users without history see nothing (no confusing empty row). Background computation doesn't block UI.
+
+## Flix 2.0 search coverage fix
+
+Series: 377 pages | Animes: ~849 | Movies: 821 pages. Old `/flix2/search` scanned ≤120 pages.
+
+Fix: `searchFlix2ByTitle` now checks `FULL_CATALOG_CACHE` first (covers ALL pages, instant). Falls back to live page scan when cache is cold and triggers background warm-up simultaneously.
+
+`warmAllCatalogCaches()` is called in `index.ts` on server startup — warms series → animes → movies in sequence. After ~2-5min, all searches cover the full catalog without page limits.
