@@ -110,6 +110,23 @@ async function fetchCatalog(
   return raw.map(flix2ToContent);
 }
 
+async function fetchOnePage(
+  type: "movies" | "series" | "animes",
+  page: number,
+): Promise<ContentItem[]> {
+  try {
+    const res = await r2Route<{ success: boolean; data: any[] }>(
+      `/flix2/catalog?type=${type}&page=${page}`
+    );
+    if (!res.success) return [];
+    return (res.data ?? [])
+      .filter((i: any) => i.tmdb_id > 0 && i.poster)
+      .map(flix2ToContent);
+  } catch {
+    return [];
+  }
+}
+
 function makeAnims(n: number) {
   return Array.from({ length: n }, () => new Animated.Value(0));
 }
@@ -610,18 +627,19 @@ function AnimatedSection({ anim, children }: { anim: Animated.Value; children: R
 // ─── Ver Mais Modal ───────────────────────────────────────────────────────────
 function VerMaisModal({
   visible, title, items, accentColor = RED, onClose, onItemPress,
-  fetchMoreFn, genres,
+  fetchMoreFn, genres, initTmdbPage = 1,
 }: {
   visible: boolean; title: string; items: ContentItem[];
   accentColor?: string; onClose: () => void; onItemPress: (item: ContentItem) => void;
   fetchMoreFn?: (page: number) => Promise<ContentItem[]>;
   genres?: { id: number; label: string }[];
+  initTmdbPage?: number;
 }) {
   const slideY   = useRef(new Animated.Value(H)).current;
   const backdrop = useRef(new Animated.Value(0)).current;
   const [page,          setPage]          = useState(1);
   const [extraItems,    setExtraItems]    = useState<ContentItem[]>([]);
-  const [tmdbPage,      setTmdbPage]      = useState(1);
+  const [tmdbPage,      setTmdbPage]      = useState(initTmdbPage);
   const [loadingMore,   setLoadingMore]   = useState(false);
   const [noMoreTmdb,    setNoMoreTmdb]    = useState(false);
   const [searchQuery,   setSearchQuery]   = useState("");
@@ -641,7 +659,7 @@ function VerMaisModal({
     if (visible) {
       setPage(1);
       setExtraItems([]);
-      setTmdbPage(1);
+      setTmdbPage(initTmdbPage ?? 1);
       setNoMoreTmdb(false);
       setSearchQuery("");
       setSelectedGenre(null);
@@ -796,8 +814,9 @@ function VerMaisModal({
         ) : (
         <FlatList
           data={filteredItems}
-          keyExtractor={(i) => i.id}
+          keyExtractor={(i, idx) => `${i.id}_${idx}`}
           numColumns={3}
+          style={{ flex: 1 }}
           columnWrapperStyle={{ gap: 8, paddingHorizontal: 16 }}
           contentContainerStyle={{ paddingBottom: 120, paddingTop: 4 }}
           showsVerticalScrollIndicator={false}
@@ -1018,13 +1037,15 @@ export default function NovidadesScreen() {
     visible: boolean; title: string; items: ContentItem[]; accent: string;
     fetchMoreFn?: (page: number) => Promise<ContentItem[]>;
     genres?: { id: number; label: string }[];
+    initTmdbPage?: number;
   }>({ visible: false, title: "", items: [], accent: RED });
 
   const openModal = (
     title: string, items: ContentItem[], accent = RED,
     fetchMoreFn?: (page: number) => Promise<ContentItem[]>,
-    genres?: { id: number; label: string }[]
-  ) => setModal({ visible: true, title, items, accent, fetchMoreFn, genres });
+    genres?: { id: number; label: string }[],
+    initTmdbPage = 1,
+  ) => setModal({ visible: true, title, items, accent, fetchMoreFn, genres, initTmdbPage });
   const closeModal = () => setModal((m) => ({ ...m, visible: false }));
 
   // ── apply fetched items to state ─────────────────────────────────────────
@@ -1040,9 +1061,9 @@ export default function NovidadesScreen() {
   // ── Fetch all data — cache-first + background revalidation ────────────────
   const loadAll = useCallback(async () => {
     const [movRes, serRes, aniRes] = await Promise.allSettled([
-      fetchCatalog("movies", 1, (fresh) => setAllMovies(fresh)),
-      fetchCatalog("series", 1, (fresh) => setAllSeries(fresh)),
-      fetchCatalog("animes", 1, (fresh) => setAllAnimes(fresh)),
+      fetchCatalog("movies", 3, (fresh) => setAllMovies(fresh)),
+      fetchCatalog("series", 3, (fresh) => setAllSeries(fresh)),
+      fetchCatalog("animes", 3, (fresh) => setAllAnimes(fresh)),
     ]);
 
     const movies = movRes.status === "fulfilled" ? movRes.value : [];
@@ -1205,7 +1226,7 @@ export default function NovidadesScreen() {
                       badge={allMovies.length > 0 ? String(allMovies.length) : "AO VIVO"} accentColor={RED}
                       subtitle="O que o mundo está assistindo agora"
                       onSeeAll={() => openModal("Tendência Hoje", allMovies, RED,
-                          undefined,
+                          (pg) => fetchOnePage("movies", pg),
                           [
                             { id: 28,    label: "Ação" },
                             { id: 12,    label: "Aventura" },
@@ -1218,7 +1239,8 @@ export default function NovidadesScreen() {
                             { id: 27,    label: "Terror" },
                             { id: 53,    label: "Suspense" },
                             { id: 10749, label: "Romance" },
-                          ]
+                          ],
+                          3,
                         )} />
                     <WideRow items={trendMovies} onPress={goTo}
                       badgeFn={(i) => i.rating >= 8 ? "DESTAQUE" : undefined} />
@@ -1246,7 +1268,7 @@ export default function NovidadesScreen() {
                       badge={allMovies.length > 0 ? String(allMovies.length) : "NOVO"} accentColor={BLUE}
                       subtitle="Chegando aos cinemas esta semana"
                       onSeeAll={() => openModal("Estreando Agora", allMovies, BLUE,
-                          undefined,
+                          (pg) => fetchOnePage("movies", pg),
                           [
                             { id: 28,    label: "Ação" },
                             { id: 12,    label: "Aventura" },
@@ -1258,7 +1280,8 @@ export default function NovidadesScreen() {
                             { id: 878,   label: "Ficção Científica" },
                             { id: 27,    label: "Terror" },
                             { id: 53,    label: "Suspense" },
-                          ]
+                          ],
+                          3,
                         )} />
                     <FeaturedRow items={nowPlaying} onPress={goTo} accentColor={BLUE} />
                   </View>
@@ -1273,7 +1296,7 @@ export default function NovidadesScreen() {
                       badge={allSeries.length + r2Series.length > 0 ? String(allSeries.length + r2Series.length) : "AO AR"} accentColor={GREEN}
                       subtitle="Episódios novos toda semana"
                       onSeeAll={() => openModal("Séries no Ar", [...r2Series, ...allSeries], GREEN,
-                          undefined,
+                          (pg) => fetchOnePage("series", pg),
                           [
                             { id: 10759, label: "Ação" },
                             { id: 16,    label: "Animação" },
@@ -1285,7 +1308,8 @@ export default function NovidadesScreen() {
                             { id: 9648,  label: "Mistério" },
                             { id: 10765, label: "Sci-Fi" },
                             { id: 53,    label: "Suspense" },
-                          ]
+                          ],
+                          3,
                         )} />
                     <MoodRow items={mergedOnAir} onPress={goTo}
                       labels={["NOVO EP.","HOJE","NOVO EP.","AMANHÃ","NOVO EP.","HOJE"]}
@@ -1304,7 +1328,7 @@ export default function NovidadesScreen() {
                         badge={allAnimes.length > 0 ? String(allAnimes.length) : "ANIME"} accentColor={ORANGE}
                         subtitle="Os mais assistidos agora"
                         onSeeAll={() => openModal("Animes em Alta", allAnimes, ORANGE,
-                          (pg) => fetchCatalog("animes", pg),
+                          (pg) => fetchOnePage("animes", pg),
                           [
                             { id: 28,    label: "Ação" },
                             { id: 12,    label: "Aventura" },
@@ -1316,7 +1340,8 @@ export default function NovidadesScreen() {
                             { id: 27,    label: "Terror" },
                             { id: 53,    label: "Thriller" },
                             { id: 16,    label: "Animação" },
-                          ]
+                          ],
+                          3,
                         )} />
                       <MoodRow items={trendAnimes.slice(0, 6)} onPress={goTo}
                         labels={["NOVO","EM ALTA","NOVO","POPULAR","NOVO","EM ALTA"]}
@@ -1349,6 +1374,7 @@ export default function NovidadesScreen() {
         onItemPress={goTo}
         fetchMoreFn={modal.fetchMoreFn}
         genres={modal.genres}
+        initTmdbPage={modal.initTmdbPage ?? 1}
       />
 
       {/* ═══ SCROLL TOP FAB ══════════════════════════════════════════════════ */}

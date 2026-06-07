@@ -1776,8 +1776,9 @@ function VerMaisModal({
         ) : (
           <FlatList
             data={filteredItems}
-            keyExtractor={(i) => i.id}
+            keyExtractor={(i, idx) => `${i.id}_${idx}`}
             numColumns={3}
+            style={{ flex: 1 }}
             columnWrapperStyle={{ gap:8, paddingHorizontal:16 }}
             contentContainerStyle={{ paddingBottom:120, paddingTop:4 }}
             showsVerticalScrollIndicator={false}
@@ -2117,7 +2118,7 @@ export default function HomeScreen() {
     const allContent = [...movies, ...series, ...animes];
     if (allContent.length === 0) return;
     const userId = user?.id ?? "";
-    computeRecommendations(allContent, userId, 15)
+    computeRecommendations(allContent, userId, 100)
       .then(setRecommendations)
       .catch(() => {});
   }, [movies, series, animes, user?.id]);
