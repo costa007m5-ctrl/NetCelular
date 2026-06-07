@@ -2161,11 +2161,52 @@ router.get("/flix2/catalog-full", async (req, res) => {
   }
 });
 
-// ── GET /flix2/search — parallel page scan with title filter ──────────────────
-// nixplay.lat has no server-side search; this endpoint fetches pages in parallel
-// batches, filters by title match, and returns up to `limit` results.
+// ── GET /flix2/search — cache-first title search with live page scan fallback ──
+// 1st path: if FULL_CATALOG_CACHE is warm, filter instantly from the in-memory
+//           full catalog (covers ALL pages, no page limit).
+// 2nd path: live parallel page scan up to maxPages (slower, limited coverage).
 // Supports type=all to search movies, series and animes simultaneously.
 async function searchFlix2ByTitle(type: string, query: string, limit: number, maxPages: number): Promise<any[]> {
+  // ── Fast path: use in-memory full catalog cache if available ─────────────
+  const cached = FULL_CATALOG_CACHE.get(type);
+  if (cached && Date.now() - cached.cachedAt < FULL_CATALOG_TTL_MS) {
+    return cached.data
+      .filter((i: any) => i.title?.toLowerCase().includes(query))
+      .slice(0, limit);
+  }
+
+  // Cache is cold — trigger background warm-up so next search is instant.
+  // This runs asynchronously and does NOT block the current search response.
+  (async () => {
+    try {
+      if (FULL_CATALOG_CACHE.has(type)) return; // already being populated
+      const first = await flix2FetchPage(type, 1);
+      if (!first.success) return;
+      const totalPages: number = first.pagination?.total_pages ?? 1;
+      const allItems: any[] = [...(first.data ?? [])];
+      const BATCH = 15;
+      for (let start = 2; start <= totalPages; start += BATCH) {
+        const batch = Array.from(
+          { length: Math.min(BATCH, totalPages - start + 1) },
+          (_, i) => flix2FetchPage(type, start + i)
+        );
+        const results = await Promise.allSettled(batch);
+        for (const r of results) {
+          if (r.status === "fulfilled" && r.value.success) allItems.push(...(r.value.data ?? []));
+        }
+      }
+      const seenTmdb = new Set<number>(); const seenFlix2 = new Set<string>();
+      const deduped = allItems.filter((item) => {
+        const id = Number(item.tmdb_id);
+        if (id > 0) { if (seenTmdb.has(id)) return false; seenTmdb.add(id); return true; }
+        const key = item.id != null ? String(item.id) : String(item.title ?? "");
+        if (!key || seenFlix2.has(key)) return false; seenFlix2.add(key); return true;
+      });
+      FULL_CATALOG_CACHE.set(type, { data: deduped, cachedAt: Date.now() });
+    } catch {}
+  })();
+
+  // ── Slow path: live parallel page scan (limited coverage) ───────────────
   const first = await flix2FetchPage(type, 1);
   if (!first.success) return [];
 
@@ -2262,17 +2303,22 @@ router.get("/flix2/lookup", async (req, res) => {
   const bucket = getBucket();
 
   for (const t of typesToCheck) {
-    // Fast path: check pre-built index (movies only — series/animes need slow path for episodes)
+    // Fast path: check pre-built index
+    // Index keys: numeric tmdb_id (as string) for items with TMDB ID,
+    //             "title:<normalized>" for items without TMDB ID.
     try {
       const resp = await client.send(new GetObjectCommand({ Bucket: bucket, Key: `__flix2-index-${t}.json` }));
       const raw = await resp.Body?.transformToString();
       if (raw) {
         const index: Record<string, string> = JSON.parse(raw);
-        const entry = index[id];
-        // Only shortcut for movies (real stream URLs). "flix2id:X" entries are series/animes —
-        // fall through to slow path so the full item (with episodes[]) is returned.
+        // Check by tmdb_id key first (when id > 0)
+        const byId = id > 0 ? index[String(id)] : undefined;
+        // Check by title key as fallback (or primary when id=0)
+        const byTitle = normTitle ? index[`title:${normTitle}`] : undefined;
+        const entry = byId ?? byTitle;
+        // Only shortcut for movies with direct stream URLs. "flix2id:X" entries need slow path.
         if (entry && !entry.startsWith("flix2id:")) {
-          res.json({ found: true, item: { tmdb_id: id, stream_url: entry, type: t } });
+          res.json({ found: true, item: { tmdb_id: id, stream_url: entry, type: t, title: title || undefined } });
           return;
         }
       }
@@ -2527,20 +2573,30 @@ router.post("/flix2/build-index", async (req, res) => {
       job.currentType = t;
       job.pagesScanned = 0;
       job.totalPages = 0;
-      const index: Record<number, string> = {};
+      // Record<string, string>: tmdb_id (as string number) for normal items,
+      // "title:<normalized>" for items that have no valid TMDB ID.
+      const index: Record<string, string> = {};
 
       try {
         const first = await flix2FetchPage(t, 1);
         if (!first.success) { job.summary[t] = -1; job.typesDone.push(t); continue; }
 
         const indexItem = (item: any) => {
-          if (!item?.tmdb_id) return;
-          // Movies: store tmdb_id → stream_url for direct playback
-          // Series/animes: store tmdb_id → "flix2id:<item.id>" so index count is accurate
-          if (item.stream_url) {
-            index[Number(item.tmdb_id)] = item.stream_url;
-          } else if (item.id) {
-            index[Number(item.tmdb_id)] = `flix2id:${item.id}`;
+          const tmdbId = Number(item?.tmdb_id);
+          if (tmdbId > 0) {
+            // Items with valid TMDB ID — key = tmdb_id
+            if (item.stream_url) {
+              index[String(tmdbId)] = item.stream_url;
+            } else if (item.id) {
+              index[String(tmdbId)] = `flix2id:${item.id}`;
+            }
+          } else if (item?.title) {
+            // Items without TMDB ID — key = "title:<normalized>" for searchability
+            const titleKey = `title:${normalizeTitleForSearch(item.title)}`;
+            if (titleKey !== "title:" && !index[titleKey]) {
+              const val = item.stream_url || (item.id ? `flix2id:${item.id}` : "");
+              if (val) index[titleKey] = val;
+            }
           }
         };
 

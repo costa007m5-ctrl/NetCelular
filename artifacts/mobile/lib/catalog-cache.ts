@@ -12,7 +12,7 @@ interface CacheEntry {
 }
 
 function key(type: string) {
-  return `flix2_catalog_v1_${type}`;
+  return `flix2_catalog_v2_${type}`;
 }
 
 export async function getCached(type: string): Promise<any[] | null> {
