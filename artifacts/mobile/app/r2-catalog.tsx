@@ -5392,29 +5392,30 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
                         </Pressable>
                       )}
 
-                      {/* ── "Usar X selecionadas" confirmation pill ── */}
-                      {mgDriveSelectMode && mgDriveSelected.size > 0 && (
-                        <Pressable
-                          onPress={() => {
-                            const targets = Array.from(mgDriveSelected.values());
-                            const [first, ...rest] = targets;
-                            mgDriveExitSelectMode();
-                            setMgDriveBulkQueue(rest);
-                            setFolderBulkTarget(first);
-                          }}
-                          style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
-                            marginTop: 12, padding: 13, borderRadius: 10, borderWidth: 1.5,
-                            borderColor: "#fbbf24", backgroundColor: "rgba(234,179,8,0.14)" }}>
-                          <Feather name="check-circle" size={16} color="#fbbf24" />
-                          <Text style={{ color: "#fef3c7", fontSize: 13, fontWeight: "800" }}>
-                            Usar {mgDriveSelected.size} pasta{mgDriveSelected.size !== 1 ? "s" : ""} selecionada{mgDriveSelected.size !== 1 ? "s" : ""}
-                          </Text>
-                          <Feather name="arrow-right" size={14} color="#fbbf24" />
-                        </Pressable>
-                      )}
                     </>
                   )}
                 </ScrollView>
+              )}
+
+              {/* ── "Usar X selecionadas" — fixed below the scroll, always visible ── */}
+              {mgDriveSelectMode && mgDriveSelected.size > 0 && (
+                <Pressable
+                  onPress={() => {
+                    const targets = Array.from(mgDriveSelected.values());
+                    const [first, ...rest] = targets;
+                    mgDriveExitSelectMode();
+                    setMgDriveBulkQueue(rest);
+                    setFolderBulkTarget(first);
+                  }}
+                  style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+                    margin: 10, marginTop: 6, padding: 14, borderRadius: 10, borderWidth: 2,
+                    borderColor: "#fbbf24", backgroundColor: "rgba(234,179,8,0.18)" }}>
+                  <Feather name="check-circle" size={17} color="#fbbf24" />
+                  <Text style={{ color: "#fef3c7", fontSize: 14, fontWeight: "800" }}>
+                    Usar {mgDriveSelected.size} pasta{mgDriveSelected.size !== 1 ? "s" : ""} selecionada{mgDriveSelected.size !== 1 ? "s" : ""}
+                  </Text>
+                  <Feather name="arrow-right" size={15} color="#fbbf24" />
+                </Pressable>
               )}
             </View>
           )}
