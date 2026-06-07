@@ -30,6 +30,14 @@ Mount `<Video>` as soon as `videoUrl` is set (not gated on `phase === "ready"`).
 
 The loading screen JSX comes AFTER the Video in render order, so it overlays the hidden video — pointer events are handled by the loading screen correctly.
 
+## getProxiedStreamUrl web bug (proxyAvailable always false on web)
+
+`getProxiedStreamUrl` in `gdrive-index.ts` had `if (Platform.OS === "web") return rawUrl;` — returning the raw URL unchanged on web. This made `proxiedUrl === resolvedUrl`, so `proxyAvailable = false` for every web request, always throwing the fontedecanais proxy error in Chrome.
+
+Fix: `const base = Platform.OS === "web" ? "/api" : getApiBaseLib();` — web uses `/api` (relative to current domain) as the proxy base.
+
+Similarly, old APK builds where `getApiBase()` returned null (stale/missing domain) would also get `proxyAvailable = false`. Fixed by hardcoding `PRODUCTION_DOMAIN` as the final fallback in `getApiBase()` so it never returns null.
+
 ## cineveo vs fontedecanais proxy rule
 
 Also fixed the proxy guard:

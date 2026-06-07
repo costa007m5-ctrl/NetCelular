@@ -34,9 +34,9 @@ function getDriveProxyBase(): string {
  */
 export function getProxiedStreamUrl(rawUrl: string): string {
   if (!rawUrl) return "";
-  if (Platform.OS === "web") return rawUrl;
-  // getApiBaseLib() returns "https://domain/api" and reads _dynamicDomain (Supabase-loaded in APK)
-  const base = getApiBaseLib();
+  // Web: usa /api (relativo ao domínio atual) para proxy server-side — evita CORS e IP-binding.
+  // APK: usa getApiBaseLib() que lê _dynamicDomain → nunca retorna null (PRODUCTION_DOMAIN hardcoded).
+  const base = Platform.OS === "web" ? "/api" : getApiBaseLib();
   if (base) return `${base}/stream/proxy?url=${encodeURIComponent(rawUrl)}`;
   return rawUrl;
 }
