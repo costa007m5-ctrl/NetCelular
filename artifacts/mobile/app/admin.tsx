@@ -304,6 +304,8 @@ export default function AdminScreen() {
   const [serverDomainInput, setServerDomainInput] = useState(() => getApiDomainDisplay().replace(/^\(.*\)$/, ""));
   const [serverSaving, setServerSaving] = useState(false);
   const [serverSaved, setServerSaved] = useState(false);
+  const [serverTestStatus, setServerTestStatus] = useState<"idle" | "testing" | "ok" | "error">("idle");
+  const [serverTestMsg, setServerTestMsg] = useState("");
 
   const [fcmStats, setFcmStats] = useState<{ total: number; expo: number; native: number; fcmV1Active?: boolean } | null>(null);
   const [fcmStatsLoading, setFcmStatsLoading] = useState(false);
@@ -877,25 +879,61 @@ export default function AdminScreen() {
             {/* ── Servidor API ── */}
             <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginTop: 8 }]}>SERVIDOR API</Text>
             <View style={[{ backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1, borderRadius: 16, padding: 16, marginBottom: 8 }]}>
-              <Text style={[{ fontSize: 12, color: colors.mutedForeground, marginBottom: 6 }]}>
-                Domínio atual: <Text style={{ color: colors.foreground, fontWeight: "600" }}>{getApiDomainDisplay()}</Text>
+
+              {/* Status atual */}
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                <Feather name="server" size={14} color={colors.mutedForeground} />
+                <Text style={{ fontSize: 12, color: colors.mutedForeground, flex: 1 }}>
+                  Ativo agora:{" "}
+                  <Text style={{ color: colors.foreground, fontWeight: "700" }}>
+                    {getApiDomainDisplay()}
+                  </Text>
+                </Text>
+              </View>
+
+              <Text style={{ fontSize: 11, color: colors.mutedForeground, marginBottom: 12, lineHeight: 16 }}>
+                Configure aqui e{" "}
+                <Text style={{ color: "#4caf50", fontWeight: "700" }}>todos os usuários recebem automaticamente</Text>
+                {" "}— sem rebuild do APK.
               </Text>
-              <Text style={[{ fontSize: 11, color: colors.mutedForeground, marginBottom: 10, lineHeight: 16 }]}>
-                Configure uma vez — salva no Supabase e <Text style={{ color: "#4caf50", fontWeight: "700" }}>todos os usuários recebem automaticamente</Text> na próxima abertura do app. Sem rebuild, sem variáveis de ambiente.
-              </Text>
+
+              {/* Botão para preencher domínio atual do Replit */}
+              {!!process.env.EXPO_PUBLIC_DOMAIN && (
+                <TouchableOpacity
+                  style={{
+                    flexDirection: "row", alignItems: "center", gap: 6,
+                    backgroundColor: "#6366f115", borderWidth: 1, borderColor: "#6366f140",
+                    borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7, marginBottom: 10, alignSelf: "flex-start",
+                  }}
+                  onPress={() => {
+                    const d = (process.env.EXPO_PUBLIC_DOMAIN ?? "").replace(/^https?:\/\//, "").replace(/\/+$/, "");
+                    setServerDomainInput(d);
+                    setServerSaved(false);
+                    setServerTestStatus("idle");
+                  }}
+                >
+                  <Feather name="zap" size={12} color="#6366f1" />
+                  <Text style={{ fontSize: 11, color: "#6366f1", fontWeight: "600" }}>
+                    Usar URL atual do Replit
+                  </Text>
+                </TouchableOpacity>
+              )}
+
+              {/* Input + botão salvar */}
               <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
                 <TextInput
                   value={serverDomainInput}
-                  onChangeText={(t) => { setServerDomainInput(t); setServerSaved(false); }}
-                  placeholder="ex: meu-replit.replit.dev"
+                  onChangeText={(t) => { setServerDomainInput(t); setServerSaved(false); setServerTestStatus("idle"); }}
+                  placeholder="ex: seuapp.replit.app"
                   placeholderTextColor={colors.border}
                   autoCapitalize="none"
                   autoCorrect={false}
                   keyboardType="url"
-                  style={[{
+                  style={{
                     flex: 1, borderWidth: 1, borderRadius: 10,
                     paddingHorizontal: 12, paddingVertical: 10, fontSize: 13,
-                  }, { borderColor: colors.border, color: colors.foreground, backgroundColor: colors.background }]}
+                    borderColor: colors.border, color: colors.foreground, backgroundColor: colors.background,
+                  }}
                 />
                 <TouchableOpacity
                   style={{
@@ -904,15 +942,16 @@ export default function AdminScreen() {
                     opacity: serverSaving ? 0.7 : 1,
                     minWidth: 72, alignItems: "center",
                   }}
-                  disabled={serverSaving}
+                  disabled={serverSaving || !serverDomainInput.trim()}
                   onPress={async () => {
                     setServerSaving(true);
                     try {
                       await setApiDomain(serverDomainInput);
                       setServerSaved(true);
+                      setServerTestStatus("idle");
                       Alert.alert(
-                        "✅ Servidor salvo!",
-                        `Domínio "${serverDomainInput.trim()}" configurado. Feche e reabra o app para aplicar em todas as telas.`
+                        "✅ Domínio salvo!",
+                        `"${serverDomainInput.trim()}" aplicado agora mesmo — e salvo no Supabase para todos os usuários.`
                       );
                     } catch {
                       Alert.alert("Erro", "Não foi possível salvar o domínio.");
@@ -920,34 +959,111 @@ export default function AdminScreen() {
                   }}
                 >
                   <Text style={{ color: "#fff", fontSize: 13, fontWeight: "700" }}>
-                    {serverSaving ? "..." : serverSaved ? "Salvo" : "Salvar"}
+                    {serverSaving ? "..." : serverSaved ? "✓ Salvo" : "Salvar"}
                   </Text>
                 </TouchableOpacity>
               </View>
+
+              {/* Botões de teste */}
               {serverDomainInput.trim() !== "" && (
-                <TouchableOpacity
-                  style={{ marginTop: 10, alignSelf: "flex-start" }}
-                  onPress={async () => {
-                    setServerSaving(true);
-                    try {
-                      const base = `https://${serverDomainInput.trim().replace(/^https?:\/\//, "").replace(/\/+$/, "")}/api`;
-                      const ctrl = new AbortController();
-                      setTimeout(() => ctrl.abort(), 5000);
-                      const res = await fetch(`${base}/healthz`, { signal: ctrl.signal });
-                      if (res.ok) {
-                        Alert.alert("✅ Servidor online!", `${base} respondeu com status ${res.status}.`);
-                      } else {
-                        Alert.alert("⚠️ Aviso", `Servidor respondeu com status ${res.status}.`);
+                <View style={{ flexDirection: "row", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+                  {/* Testar API geral */}
+                  <TouchableOpacity
+                    style={{
+                      flexDirection: "row", alignItems: "center", gap: 5,
+                      paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8,
+                      backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border,
+                    }}
+                    onPress={async () => {
+                      setServerTestStatus("testing");
+                      setServerTestMsg("");
+                      try {
+                        const base = `https://${serverDomainInput.trim().replace(/^https?:\/\//, "").replace(/\/+$/, "")}/api`;
+                        const ctrl = new AbortController();
+                        setTimeout(() => ctrl.abort(), 6000);
+                        const t0 = Date.now();
+                        const res = await fetch(`${base}/healthz`, { signal: ctrl.signal });
+                        const ms = Date.now() - t0;
+                        if (res.ok) {
+                          setServerTestStatus("ok");
+                          setServerTestMsg(`API online — ${ms}ms`);
+                        } else {
+                          setServerTestStatus("error");
+                          setServerTestMsg(`Status ${res.status}`);
+                        }
+                      } catch (e: any) {
+                        setServerTestStatus("error");
+                        setServerTestMsg(e?.message ?? "Inacessível");
                       }
-                    } catch (e: any) {
-                      Alert.alert("❌ Inacessível", `Não foi possível alcançar o servidor.\n${e?.message ?? ""}`);
-                    } finally { setServerSaving(false); }
-                  }}
-                >
-                  <Text style={{ color: colors.mutedForeground, fontSize: 12, textDecorationLine: "underline" }}>
-                    Testar conexão
+                    }}
+                  >
+                    <Feather name="activity" size={12} color={colors.mutedForeground} />
+                    <Text style={{ fontSize: 12, color: colors.mutedForeground }}>Testar API</Text>
+                  </TouchableOpacity>
+
+                  {/* Testar Flix 2.0 */}
+                  <TouchableOpacity
+                    style={{
+                      flexDirection: "row", alignItems: "center", gap: 5,
+                      paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8,
+                      backgroundColor: "#e5091410", borderWidth: 1, borderColor: "#e5091430",
+                    }}
+                    onPress={async () => {
+                      setServerTestStatus("testing");
+                      setServerTestMsg("");
+                      try {
+                        const base = `https://${serverDomainInput.trim().replace(/^https?:\/\//, "").replace(/\/+$/, "")}/api`;
+                        const ctrl = new AbortController();
+                        setTimeout(() => ctrl.abort(), 10000);
+                        const t0 = Date.now();
+                        const res = await fetch(`${base}/flix2/catalog?type=movies&page=1`, { signal: ctrl.signal });
+                        const ms = Date.now() - t0;
+                        if (res.ok) {
+                          const data = await res.json().catch(() => ({}));
+                          const total = data?.total ?? data?.results?.length ?? "?";
+                          setServerTestStatus("ok");
+                          setServerTestMsg(`Flix 2.0 OK — ${total} filmes — ${ms}ms`);
+                        } else {
+                          setServerTestStatus("error");
+                          setServerTestMsg(`Flix 2.0 status ${res.status}`);
+                        }
+                      } catch (e: any) {
+                        setServerTestStatus("error");
+                        setServerTestMsg(`Flix 2.0: ${e?.message ?? "Erro"}`);
+                      }
+                    }}
+                  >
+                    <Feather name="play-circle" size={12} color={RED} />
+                    <Text style={{ fontSize: 12, color: RED, fontWeight: "600" }}>Testar Flix 2.0</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {/* Resultado do teste */}
+              {serverTestStatus !== "idle" && (
+                <View style={{
+                  flexDirection: "row", alignItems: "center", gap: 6, marginTop: 10,
+                  padding: 10, borderRadius: 8,
+                  backgroundColor: serverTestStatus === "ok" ? "#4caf5015" : serverTestStatus === "error" ? "#e5091415" : "#ff980015",
+                  borderWidth: 1,
+                  borderColor: serverTestStatus === "ok" ? "#4caf5040" : serverTestStatus === "error" ? "#e5091440" : "#ff980040",
+                }}>
+                  {serverTestStatus === "testing" ? (
+                    <ActivityIndicator size="small" color="#ff9800" />
+                  ) : (
+                    <Feather
+                      name={serverTestStatus === "ok" ? "check-circle" : "x-circle"}
+                      size={14}
+                      color={serverTestStatus === "ok" ? "#4caf50" : RED}
+                    />
+                  )}
+                  <Text style={{
+                    fontSize: 12, fontWeight: "600",
+                    color: serverTestStatus === "ok" ? "#4caf50" : serverTestStatus === "error" ? RED : "#ff9800",
+                  }}>
+                    {serverTestStatus === "testing" ? "Testando..." : serverTestMsg}
                   </Text>
-                </TouchableOpacity>
+                </View>
               )}
             </View>
 
@@ -956,7 +1072,7 @@ export default function AdminScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={[styles.infoBoxTitle, { color: "#6366f1" }]}>Como funciona</Text>
                 <Text style={[styles.infoBoxText, { color: colors.mutedForeground, lineHeight: 17 }]}>
-                  {`• Admin salva o domínio aqui → vai pro Supabase\n• Todos os usuários buscam do Supabase ao abrir o app\n• Se mudar de conta Replit, atualiza uma vez aqui e todos recebem\n• Funciona sem rebuild do APK`}
+                  {`• Admin salva o domínio aqui → vai pro Supabase\n• Todos os usuários buscam do Supabase ao abrir o app\n• Se mudar de conta Replit, atualiza uma vez aqui e todos recebem\n• Funciona sem rebuild do APK\n• Use sempre o domínio deployed (*.replit.app), não o de dev`}
                 </Text>
               </View>
             </View>
