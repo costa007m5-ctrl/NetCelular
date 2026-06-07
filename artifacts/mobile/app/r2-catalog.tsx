@@ -5673,6 +5673,15 @@ function Flix2Panel() {
   } | null>(null);
   const warmPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // ── Cache performance stats ───────────────────────────────────────────────
+  type CacheStatEntry = { hits: number; misses: number; entries?: number; totalItems?: number; hitRate: number };
+  const [cacheStats, setCacheStats] = useState<{
+    ok: boolean;
+    uptime: number;
+    serverStartedAt: number;
+    caches: Record<string, CacheStatEntry>;
+  } | null>(null);
+
   const loadIndexStatus = async () => {
     setStatusLoading(true);
     try {
@@ -5693,6 +5702,13 @@ function Flix2Panel() {
         anyRunning: boolean;
       }>("/flix2/warm-status");
       if (data.ok) setWarmStatus(data);
+    } catch {}
+  };
+
+  const fetchCacheStats = async () => {
+    try {
+      const d = await apiFetch<any>("/flix2/stats");
+      if (d.ok) setCacheStats(d);
     } catch {}
   };
 
@@ -5725,6 +5741,11 @@ function Flix2Panel() {
   }, []);
 
   useEffect(() => { loadIndexStatus(); }, []);
+  useEffect(() => {
+    fetchCacheStats();
+    const id = setInterval(fetchCacheStats, 10_000);
+    return () => clearInterval(id);
+  }, []);
 
   const startBuild = async () => {
     setBuildProgress(null);
@@ -5925,6 +5946,77 @@ function Flix2Panel() {
                     {info.status === "running" && total > 0 && (
                       <View style={{ height: 2, borderRadius: 1, backgroundColor: "rgba(255,255,255,0.06)", marginLeft: 14 }}>
                         <View style={{ height: 2, borderRadius: 1, width: `${pct}%`, backgroundColor: "#f59e0b" }} />
+                      </View>
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+          );
+        })()}
+
+        {/* ── Cache Performance Panel ── */}
+        {cacheStats && (() => {
+          const CACHE_LABELS: Record<string, string> = {
+            page: "Páginas", full: "Catálogo", episodes: "Episódios",
+            streamUrl: "Stream URL", lookup: "Busca",
+          };
+          const cacheKeys = ["page", "full", "episodes", "streamUrl", "lookup"];
+          const allHits  = cacheKeys.reduce((s, k) => s + (cacheStats.caches[k]?.hits  ?? 0), 0);
+          const allTotal = cacheKeys.reduce((s, k) => s + ((cacheStats.caches[k]?.hits ?? 0) + (cacheStats.caches[k]?.misses ?? 0)), 0);
+          const overallRate = allTotal > 0 ? Math.round((allHits / allTotal) * 1000) / 10 : 0;
+          const rateColor = (r: number) => r >= 90 ? "#22c55e" : r >= 70 ? "#f59e0b" : r > 0 ? "#f87171" : "rgba(255,255,255,0.2)";
+          const uptimeMin = Math.round(cacheStats.uptime / 60000);
+
+          return (
+            <View style={{ marginBottom: 6, borderRadius: 12, borderWidth: 1,
+              borderColor: "rgba(255,255,255,0.07)", backgroundColor: "rgba(255,255,255,0.02)", overflow: "hidden" }}>
+              {/* Header */}
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+                paddingHorizontal: 10, paddingTop: 8, paddingBottom: 4 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <Feather name="zap" size={11} color="rgba(255,255,255,0.35)" />
+                  <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 10, fontWeight: "700" }}>
+                    Performance do Cache
+                  </Text>
+                  {overallRate > 0 && (
+                    <View style={{ backgroundColor: rateColor(overallRate) + "33", borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1 }}>
+                      <Text style={{ color: rateColor(overallRate), fontSize: 9, fontWeight: "700" }}>{overallRate}% hits</Text>
+                    </View>
+                  )}
+                </View>
+                <Pressable onPress={fetchCacheStats} style={{ padding: 4 }}>
+                  <Feather name="refresh-cw" size={10} color="rgba(255,255,255,0.25)" />
+                </Pressable>
+              </View>
+              {/* Uptime / totals */}
+              <Text style={{ color: "rgba(255,255,255,0.2)", fontSize: 8, paddingHorizontal: 10, paddingBottom: 5 }}>
+                uptime {uptimeMin < 60 ? `${uptimeMin}min` : `${Math.round(uptimeMin / 60)}h`}
+                {" · "}{allTotal.toLocaleString()} reqs
+              </Text>
+              {/* Per-cache rows */}
+              {cacheKeys.map((k) => {
+                const c = cacheStats.caches[k];
+                if (!c) return null;
+                const total = c.hits + c.misses;
+                const color = rateColor(c.hitRate);
+                return (
+                  <View key={k} style={{ paddingHorizontal: 10, paddingBottom: 7 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                      <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 9, fontWeight: "600", width: 62 }}>
+                        {CACHE_LABELS[k]}
+                      </Text>
+                      <Text style={{ color: "rgba(255,255,255,0.25)", fontSize: 8, flex: 1 }}>
+                        {c.hits.toLocaleString()} hits · {c.misses.toLocaleString()} miss
+                        {c.entries != null ? ` · ${c.entries} ent.` : ""}
+                      </Text>
+                      <Text style={{ color: color, fontSize: 9, fontWeight: "700", width: 36, textAlign: "right" }}>
+                        {total > 0 ? `${c.hitRate}%` : "--"}
+                      </Text>
+                    </View>
+                    {total > 0 && (
+                      <View style={{ height: 2, borderRadius: 1, backgroundColor: "rgba(255,255,255,0.06)" }}>
+                        <View style={{ height: 2, borderRadius: 1, width: `${Math.max(1, c.hitRate)}%`, backgroundColor: color }} />
                       </View>
                     )}
                   </View>

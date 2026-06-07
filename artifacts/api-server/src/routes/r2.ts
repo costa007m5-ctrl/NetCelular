@@ -2071,10 +2071,21 @@ const FLIX2_PASS = encodeURIComponent("Reis12@@");
 const PAGE_CACHE = new Map<string, { data: any; cachedAt: number }>();
 const PAGE_CACHE_TTL_MS = 10 * 60 * 1000;
 
+// ── Cache hit/miss statistics (reset on server restart) ────────────────────
+const SERVER_STARTED_AT = Date.now();
+const CACHE_STATS = {
+  page:      { hits: 0, misses: 0 },
+  full:      { hits: 0, misses: 0 },
+  episodes:  { hits: 0, misses: 0 },
+  streamUrl: { hits: 0, misses: 0 },
+  lookup:    { hits: 0, misses: 0 },
+};
+
 async function flix2FetchPage(type: string, page: number): Promise<{ success: boolean; pagination: any; data: any[] }> {
   const cacheKey = `${type}:${page}`;
   const hit = PAGE_CACHE.get(cacheKey);
-  if (hit && Date.now() - hit.cachedAt < PAGE_CACHE_TTL_MS) return hit.data;
+  if (hit && Date.now() - hit.cachedAt < PAGE_CACHE_TTL_MS) { CACHE_STATS.page.hits++; return hit.data; }
+  CACHE_STATS.page.misses++;
 
   const url = `https://nixplay.lat/api/catalog.php?username=${FLIX2_USER}&password=${FLIX2_PASS}&type=${type}&page=${page}`;
   const ctrl = new AbortController();
@@ -2245,6 +2256,30 @@ router.get("/flix2/warm-status", (_req, res) => {
   res.json({ ok: true, types, allWarm, anyRunning });
 });
 
+// ── GET /flix2/stats — real-time cache hit/miss metrics ────────────────────────
+router.get("/flix2/stats", (_req, res) => {
+  function rate(h: number, m: number): number {
+    const total = h + m;
+    return total > 0 ? Math.round((h / total) * 1000) / 10 : 0;
+  }
+  const fullTotalItems = FLIX2_TYPES.reduce((s, t) => {
+    const c = FULL_CATALOG_CACHE.get(t);
+    return s + (c ? c.data.length : 0);
+  }, 0);
+  res.json({
+    ok: true,
+    uptime: Date.now() - SERVER_STARTED_AT,
+    serverStartedAt: SERVER_STARTED_AT,
+    caches: {
+      page:      { ...CACHE_STATS.page,      entries: PAGE_CACHE.size,      hitRate: rate(CACHE_STATS.page.hits,      CACHE_STATS.page.misses) },
+      full:      { ...CACHE_STATS.full,      entries: FULL_CATALOG_CACHE.size, totalItems: fullTotalItems, hitRate: rate(CACHE_STATS.full.hits, CACHE_STATS.full.misses) },
+      episodes:  { ...CACHE_STATS.episodes,  entries: EPISODES_CACHE.size,  hitRate: rate(CACHE_STATS.episodes.hits,  CACHE_STATS.episodes.misses) },
+      streamUrl: { ...CACHE_STATS.streamUrl, entries: STREAM_URL_CACHE.size, hitRate: rate(CACHE_STATS.streamUrl.hits, CACHE_STATS.streamUrl.misses) },
+      lookup:    { ...CACHE_STATS.lookup,    hitRate: rate(CACHE_STATS.lookup.hits,    CACHE_STATS.lookup.misses) },
+    },
+  });
+});
+
 // ── GET /flix2/catalog-full — fetches ALL pages for a type in parallel batches ─
 // Returns the complete catalog for a type so mobile only makes one request.
 router.get("/flix2/catalog-full", async (req, res) => {
@@ -2254,9 +2289,11 @@ router.get("/flix2/catalog-full", async (req, res) => {
     // Serve from cache if fresh
     const cached = FULL_CATALOG_CACHE.get(type);
     if (cached && Date.now() - cached.cachedAt < FULL_CATALOG_TTL_MS) {
+      CACHE_STATS.full.hits++;
       res.json({ success: true, type, total: cached.data.length, data: cached.data, fromCache: true });
       return;
     }
+    CACHE_STATS.full.misses++;
 
     // Fetch page 1 to discover total_pages
     const first = await flix2FetchPage(type, 1);
@@ -2464,6 +2501,7 @@ router.get("/flix2/lookup", async (req, res) => {
         const byTitle = normTitle ? index[`title:${normTitle}`] : undefined;
         const entry = byId ?? byTitle;
         if (entry && !entry.startsWith("flix2id:")) {
+          CACHE_STATS.lookup.hits++;
           res.json({ found: true, item: { tmdb_id: id, stream_url: entry, type: t, title: title || undefined } });
           return;
         }
@@ -2474,7 +2512,7 @@ router.get("/flix2/lookup", async (req, res) => {
     const warm = FULL_CATALOG_CACHE.get(t);
     if (warm && Date.now() - warm.cachedAt < FULL_CATALOG_TTL_MS) {
       const hit = warm.data.find((i: any) => matchItem(i));
-      if (hit) { res.json({ found: true, item: hit }); return; }
+      if (hit) { CACHE_STATS.lookup.hits++; res.json({ found: true, item: hit }); return; }
       // Full cache is done and item not found — skip slow path.
       continue;
     }
@@ -2484,7 +2522,7 @@ router.get("/flix2/lookup", async (req, res) => {
     const partial = WARM_PARTIAL_CACHE.get(t);
     if (partial && partial.length > 0) {
       const hit = partial.find((i: any) => matchItem(i));
-      if (hit) { res.json({ found: true, item: hit }); return; }
+      if (hit) { CACHE_STATS.lookup.hits++; res.json({ found: true, item: hit }); return; }
       // Partial cache scanned but item not yet loaded — fall through to slow scan
       // to check pages not yet in partial cache.
     }
@@ -2495,7 +2533,7 @@ router.get("/flix2/lookup", async (req, res) => {
       const first = await flix2FetchPage(t, 1);
       if (!first.success) continue;
       const found = first.data.find((i: any) => matchItem(i));
-      if (found) { res.json({ found: true, item: found }); return; }
+      if (found) { CACHE_STATS.lookup.hits++; res.json({ found: true, item: found }); return; }
 
       const totalPages = Math.min(first.pagination?.total_pages ?? 1, t === "movies" ? 50 : 200);
       const BATCH = 10;
@@ -2508,13 +2546,14 @@ router.get("/flix2/lookup", async (req, res) => {
         for (const p of pages) {
           if (p.status === "fulfilled" && p.value.success) {
             const item = p.value.data.find((i: any) => matchItem(i));
-            if (item) { res.json({ found: true, item }); return; }
+            if (item) { CACHE_STATS.lookup.hits++; res.json({ found: true, item }); return; }
           }
         }
       }
     } catch {}
   }
 
+  CACHE_STATS.lookup.misses++;
   res.json({ found: false, item: null });
 });
 
@@ -2569,9 +2608,11 @@ router.get("/flix2/stream-url", async (req, res) => {
   // Fast path: return cached resolved URL
   const cached = STREAM_URL_CACHE.get(streamUrl);
   if (cached && Date.now() - cached.cachedAt < STREAM_URL_TTL_MS) {
+    CACHE_STATS.streamUrl.hits++;
     res.json({ ...cached.result, fromCache: true });
     return;
   }
+  CACHE_STATS.streamUrl.misses++;
 
   try {
     // Step 1: if the raw URL is already TeraBox, resolve directly
@@ -2633,6 +2674,7 @@ router.get("/flix2/series-episodes", async (req, res) => {
   // ── Path A: serve from episodes cache (instant) ──────────────────────────
   const epCached = EPISODES_CACHE.get(seriesId);
   if (epCached && Date.now() - epCached.cachedAt < EPISODES_CACHE_TTL_MS) {
+    CACHE_STATS.episodes.hits++;
     res.json({ found: epCached.episodes.length > 0, episodes: epCached.episodes, info: null, fromCache: true });
     return;
   }
@@ -2658,6 +2700,7 @@ router.get("/flix2/series-episodes", async (req, res) => {
     }
     eps.sort((a, b) => a.season - b.season || a.episode - b.episode);
     EPISODES_CACHE.set(seriesId, { episodes: eps, cachedAt: Date.now() });
+    CACHE_STATS.episodes.hits++;
     res.json({ found: eps.length > 0, episodes: eps, info: null, fromCache: true });
     return;
   }
@@ -2682,6 +2725,7 @@ router.get("/flix2/series-episodes", async (req, res) => {
     eps.sort((a, b) => a.season - b.season || a.episode - b.episode);
     if (eps.length > 0) {
       EPISODES_CACHE.set(seriesId, { episodes: eps, cachedAt: Date.now() });
+      CACHE_STATS.episodes.hits++;
       res.json({ found: true, episodes: eps, info: null, fromCache: true });
       return;
     }
@@ -2724,8 +2768,10 @@ router.get("/flix2/series-episodes", async (req, res) => {
     if (allEpisodes.length > 0) {
       EPISODES_CACHE.set(seriesId, { episodes: allEpisodes, cachedAt: Date.now() });
     }
+    CACHE_STATS.episodes.misses++;
     res.json({ found: allEpisodes.length > 0, episodes: allEpisodes, info: data?.info ?? null });
   } catch (err: any) {
+    CACHE_STATS.episodes.misses++;
     res.status(502).json({ error: err?.message ?? "proxy error" });
   }
 });
