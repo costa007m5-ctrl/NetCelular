@@ -2,28 +2,33 @@ workflows:
 
   # ─────────────────────────────────────────────────────────────
   # ANDROID — gera APK (debug) e AAB (release para Play Store)
+  #
+  # Variáveis obrigatórias (Codemagic > Environment variables):
+  #
+  #   API_DOMAIN          → URL estável do servidor (ex: seuapp.replit.app)
+  #                         NÃO use a URL de dev do Replit (*.janeway.replit.dev) —
+  #                         ela muda a cada sessão e quebra o Flix 2.0 no APK.
+  #                         Use a URL do deploy permanente: publique o app no Replit
+  #                         e use o domínio *.replit.app gerado.
+  #
+  #   SUPABASE_URL        → URL do projeto Supabase
+  #   SUPABASE_ANON_KEY   → Anon/public key do Supabase
+  #
+  #   TMDB_API_KEY        → Chave da API TMDB (themoviedb.org)
+  #
+  #   R2_ACCOUNT_ID       → Account ID do Cloudflare R2
+  #   R2_ACCESS_KEY_ID    → Access Key ID do R2
+  #   R2_SECRET_ACCESS_KEY → Secret Access Key do R2
+  #   R2_BUCKET_NAME      → Nome do bucket R2 (ex: netplay-media-storage)
+  #
+  #   CM_KEYSTORE         → Keystore em base64
+  #   CM_KEYSTORE_PASSWORD, CM_KEY_ALIAS, CM_KEY_PASSWORD
   # ─────────────────────────────────────────────────────────────
   android-release:
     name: NETPLAY — Android Release
     max_build_duration: 60
     environment:
       node: 20.18.0
-      vars:
-        # ── Supabase — supabase.com → seu projeto → Project Settings → API ──────────────────
-        SUPABASE_URL: "COLE_AQUI"       # ex: https://abcxyzabc.supabase.co
-        SUPABASE_ANON_KEY: "COLE_AQUI"  # ex: eyJhbGciOiJIUzI1NiIsInR5c...
-
-        # ── API do servidor (use sempre o domínio .replit.app do deploy) ─────────────────────
-        API_DOMAIN: "net-celular--cleverndeer169.replit.app"
-
-        # ── TMDB ──────────────────────────────────────────────────────────────────────────────
-        TMDB_API_KEY: "8f0beb08cf016ec8de49e454e09879ec"
-
-        # ── Cloudflare R2 ─────────────────────────────────────────────────────────────────────
-        R2_ACCOUNT_ID: "9827b92a6b3a621e8c6f50274e68f37b"
-        R2_ACCESS_KEY_ID: "c28d6543c66dbdaf10a80d6089141e1c"
-        R2_SECRET_ACCESS_KEY: "9f468a159ab070abda78cef82582b288483c5a8b684f156ec8508a2931de6afa"
-        R2_BUCKET_NAME: "netplay-media-storage"
 
     scripts:
       - name: Instalar pnpm
@@ -49,58 +54,6 @@ workflows:
           echo "EXPO_PUBLIC_R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID}" >> .env
           echo "EXPO_PUBLIC_R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY}" >> .env
           echo "EXPO_PUBLIC_R2_BUCKET_NAME=${R2_BUCKET_NAME}" >> .env
-
-      - name: Versionar build e gerar changelog
-        script: |
-          cd artifacts/mobile
-          BUILD_NUM=${CM_BUILD_NUMBER:-1}
-
-          # ── Tag semver mais recente ────────────────────────────────────────
-          GIT_TAG=$(git describe --tags --match "v[0-9]*.[0-9]*.[0-9]*" --abbrev=0 2>/dev/null || echo "")
-          SEMVER="${GIT_TAG#v}"
-
-          # ── Changelog: commits desde a última tag ──────────────────────────
-          if [ -n "$GIT_TAG" ]; then
-            RAW_LOG=$(git log "${GIT_TAG}..HEAD" --oneline --no-merges --pretty=format:"• %s" 2>/dev/null || echo "")
-          else
-            RAW_LOG=$(git log --oneline --no-merges --pretty=format:"• %s" -20 2>/dev/null || echo "")
-          fi
-
-          # Trunca em 490 chars (limite do Google Play = 500)
-          CHANGELOG=$(echo "$RAW_LOG" | head -c 490)
-          if [ -z "$CHANGELOG" ]; then
-            CHANGELOG="• Melhorias de desempenho e correções gerais"
-          fi
-
-          # release_notes/ → Codemagic envia automaticamente para o Google Play
-          mkdir -p release_notes
-          echo "$CHANGELOG" > release_notes/pt-BR.txt
-          cp release_notes/pt-BR.txt release_notes/en-US.txt
-          echo "--- Changelog ---"
-          cat release_notes/pt-BR.txt
-          echo "-----------------"
-
-          node -e "
-            const fs = require('fs');
-            const cfg = JSON.parse(fs.readFileSync('app.json', 'utf8'));
-
-            const semver = '${SEMVER}';
-            if (semver && /^\d+\.\d+\.\d+\$/.test(semver)) {
-              console.log('version:', cfg.expo.version, '→', semver, '(tag ${GIT_TAG})');
-              cfg.expo.version = semver;
-            } else {
-              console.log('version: mantido em', cfg.expo.version);
-            }
-
-            cfg.expo.android = cfg.expo.android || {};
-            cfg.expo.ios     = cfg.expo.ios     || {};
-            const prevCode = cfg.expo.android.versionCode ?? 0;
-            cfg.expo.android.versionCode = ${BUILD_NUM};
-            cfg.expo.ios.buildNumber     = String(${BUILD_NUM});
-            console.log('versionCode/buildNumber:', prevCode, '→', ${BUILD_NUM});
-
-            fs.writeFileSync('app.json', JSON.stringify(cfg, null, 2));
-          "
 
       - name: Expo Prebuild (gera pasta android/)
         script: |
@@ -137,18 +90,6 @@ workflows:
       - artifacts/mobile/android/app/build/outputs/apk/release/*.apk
 
     publishing:
-      # ── Google Play Store ─────────────────────────────────────────────────────
-      # Pré-requisito: adicionar em Codemagic > Environment variables (grupo "google"):
-      #   GCLOUD_SERVICE_ACCOUNT_CREDENTIALS  → JSON da conta de serviço do Google Cloud
-      #     (Google Play Console → Configurações → Acesso à API → Criar conta de serviço)
-      #
-      # A faixa "internal" envia para Teste Interno — você aprova manualmente antes
-      # de promover para alpha/beta/produção no Play Console.
-      google_play:
-        credentials: $GCLOUD_SERVICE_ACCOUNT_CREDENTIALS
-        track: internal          # Teste Interno → promova para alpha/beta/produção pelo Play Console
-        submit_as_draft: false
-        changes_not_sent_for_review: false
       email:
         recipients:
           - your@email.com
@@ -158,6 +99,27 @@ workflows:
 
   # ─────────────────────────────────────────────────────────────
   # iOS — gera IPA para App Store / TestFlight
+  #
+  # Variáveis obrigatórias (Codemagic > Environment variables):
+  #
+  #   API_DOMAIN          → URL estável do servidor (ex: seuapp.replit.app)
+  #                         NÃO use a URL de dev do Replit (*.janeway.replit.dev) —
+  #                         ela muda a cada sessão e quebra o Flix 2.0 no IPA.
+  #                         Use a URL do deploy permanente: publique o app no Replit
+  #                         e use o domínio *.replit.app gerado.
+  #
+  #   SUPABASE_URL        → URL do projeto Supabase
+  #   SUPABASE_ANON_KEY   → Anon/public key do Supabase
+  #
+  #   TMDB_API_KEY        → Chave da API TMDB (themoviedb.org)
+  #
+  #   R2_ACCOUNT_ID       → Account ID do Cloudflare R2
+  #   R2_ACCESS_KEY_ID    → Access Key ID do R2
+  #   R2_SECRET_ACCESS_KEY → Secret Access Key do R2
+  #   R2_BUCKET_NAME      → Nome do bucket R2 (ex: netplay-media-storage)
+  #
+  #   APP_STORE_CONNECT_KEY_IDENTIFIER, APP_STORE_CONNECT_ISSUER_ID
+  #   APP_STORE_CONNECT_PRIVATE_KEY, CERTIFICATE_PRIVATE_KEY
   # ─────────────────────────────────────────────────────────────
   ios-release:
     name: NETPLAY — iOS Release
@@ -169,22 +131,6 @@ workflows:
       cocoapods: default
       vars:
         BUNDLE_ID: com.netplay.app
-
-        # ── Supabase — supabase.com → seu projeto → Project Settings → API ──────────────────
-        SUPABASE_URL: "COLE_AQUI"       # ex: https://abcxyzabc.supabase.co
-        SUPABASE_ANON_KEY: "COLE_AQUI"  # ex: eyJhbGciOiJIUzI1NiIsInR5c...
-
-        # ── API do servidor ────────────────────────────────────────────────────────────────────
-        API_DOMAIN: "net-celular--cleverndeer169.replit.app"
-
-        # ── TMDB ──────────────────────────────────────────────────────────────────────────────
-        TMDB_API_KEY: "8f0beb08cf016ec8de49e454e09879ec"
-
-        # ── Cloudflare R2 ─────────────────────────────────────────────────────────────────────
-        R2_ACCOUNT_ID: "9827b92a6b3a621e8c6f50274e68f37b"
-        R2_ACCESS_KEY_ID: "c28d6543c66dbdaf10a80d6089141e1c"
-        R2_SECRET_ACCESS_KEY: "9f468a159ab070abda78cef82582b288483c5a8b684f156ec8508a2931de6afa"
-        R2_BUCKET_NAME: "netplay-media-storage"
 
     scripts:
       - name: Instalar pnpm
@@ -210,48 +156,6 @@ workflows:
           echo "EXPO_PUBLIC_R2_ACCESS_KEY_ID=${R2_ACCESS_KEY_ID}" >> .env
           echo "EXPO_PUBLIC_R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY}" >> .env
           echo "EXPO_PUBLIC_R2_BUCKET_NAME=${R2_BUCKET_NAME}" >> .env
-
-      - name: Versionar build e gerar changelog
-        script: |
-          cd artifacts/mobile
-          BUILD_NUM=${CM_BUILD_NUMBER:-1}
-
-          GIT_TAG=$(git describe --tags --match "v[0-9]*.[0-9]*.[0-9]*" --abbrev=0 2>/dev/null || echo "")
-          SEMVER="${GIT_TAG#v}"
-
-          if [ -n "$GIT_TAG" ]; then
-            RAW_LOG=$(git log "${GIT_TAG}..HEAD" --oneline --no-merges --pretty=format:"• %s" 2>/dev/null || echo "")
-          else
-            RAW_LOG=$(git log --oneline --no-merges --pretty=format:"• %s" -20 2>/dev/null || echo "")
-          fi
-
-          CHANGELOG=$(echo "$RAW_LOG" | head -c 490)
-          if [ -z "$CHANGELOG" ]; then
-            CHANGELOG="• Melhorias de desempenho e correções gerais"
-          fi
-          mkdir -p release_notes
-          echo "$CHANGELOG" > release_notes/pt-BR.txt
-          cp release_notes/pt-BR.txt release_notes/en-US.txt
-          echo "--- Changelog ---" && cat release_notes/pt-BR.txt && echo "-----------------"
-
-          node -e "
-            const fs = require('fs');
-            const cfg = JSON.parse(fs.readFileSync('app.json', 'utf8'));
-            const semver = '${SEMVER}';
-            if (semver && /^\d+\.\d+\.\d+\$/.test(semver)) {
-              console.log('version:', cfg.expo.version, '→', semver);
-              cfg.expo.version = semver;
-            } else {
-              console.log('version: mantido em', cfg.expo.version);
-            }
-            cfg.expo.android = cfg.expo.android || {};
-            cfg.expo.ios     = cfg.expo.ios     || {};
-            const prevBuild = cfg.expo.ios.buildNumber ?? '0';
-            cfg.expo.android.versionCode = ${BUILD_NUM};
-            cfg.expo.ios.buildNumber     = String(${BUILD_NUM});
-            console.log('buildNumber:', prevBuild, '→', ${BUILD_NUM});
-            fs.writeFileSync('app.json', JSON.stringify(cfg, null, 2));
-          "
 
       - name: Expo Prebuild (gera pasta ios/)
         script: |
@@ -284,20 +188,6 @@ workflows:
       - /tmp/xcodebuild_logs/*.log
 
     publishing:
-      # ── TestFlight / App Store ─────────────────────────────────────────────────
-      # Pré-requisito: adicionar em Codemagic > Environment variables (grupo "appstore"):
-      #   APP_STORE_CONNECT_KEY_IDENTIFIER  → Key ID (ex: ABC123DEFG)
-      #   APP_STORE_CONNECT_ISSUER_ID       → Issuer ID (UUID)
-      #   APP_STORE_CONNECT_PRIVATE_KEY     → Conteúdo do arquivo .p8 (App Store Connect API)
-      #   CERTIFICATE_PRIVATE_KEY           → Chave privada do certificado de distribuição
-      #
-      # O build vai para TestFlight automaticamente. Aprovação manual para App Store.
-      app_store_connect:
-        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
-        key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
-        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
-        submit_to_testflight: true   # envia para TestFlight automaticamente
-        submit_to_app_store: false   # submissão para App Store é manual
       email:
         recipients:
           - your@email.com
@@ -309,6 +199,8 @@ workflows:
   # EAS BUILD — alternativa usando Expo Application Services
   # Variáveis necessárias (cadastrar em Codemagic > Environment variables):
   #   EXPO_TOKEN, SUPABASE_URL, SUPABASE_ANON_KEY
+  #   API_DOMAIN, TMDB_API_KEY
+  #   R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME
   # ─────────────────────────────────────────────────────────────
   eas-build:
     name: NETPLAY — EAS Build
@@ -317,22 +209,6 @@ workflows:
       node: 20.18.0
       vars:
         EAS_PROJECT_ID: aa86cc57-e8c0-4ce7-806c-0d1e5e345991
-
-        # ── Supabase — supabase.com → seu projeto → Project Settings → API ──────────────────
-        SUPABASE_URL: "COLE_AQUI"       # ex: https://abcxyzabc.supabase.co
-        SUPABASE_ANON_KEY: "COLE_AQUI"  # ex: eyJhbGciOiJIUzI1NiIsInR5c...
-
-        # ── API do servidor ────────────────────────────────────────────────────────────────────
-        API_DOMAIN: "net-celular--cleverndeer169.replit.app"
-
-        # ── TMDB ──────────────────────────────────────────────────────────────────────────────
-        TMDB_API_KEY: "8f0beb08cf016ec8de49e454e09879ec"
-
-        # ── Cloudflare R2 ─────────────────────────────────────────────────────────────────────
-        R2_ACCOUNT_ID: "9827b92a6b3a621e8c6f50274e68f37b"
-        R2_ACCESS_KEY_ID: "c28d6543c66dbdaf10a80d6089141e1c"
-        R2_SECRET_ACCESS_KEY: "9f468a159ab070abda78cef82582b288483c5a8b684f156ec8508a2931de6afa"
-        R2_BUCKET_NAME: "netplay-media-storage"
 
     scripts:
       - name: Instalar pnpm
