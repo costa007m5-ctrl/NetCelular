@@ -44,6 +44,7 @@ import type { StreamingPlatform } from "@/constants/streamings";
 import { subscribePrefetch, forceRefreshCatalog, type PrefetchPhase } from "@/lib/flix2-prefetch";
 import { getCacheItemCount } from "@/lib/catalog-cache";
 import { preloadImages, clearPreloadQueue } from "@/lib/image-preloader";
+import { computeRecommendations } from "@/lib/recommendations";
 
 const TAB_BAR_CLEARANCE = 120;
 const RED = "#e50914";
@@ -1574,6 +1575,7 @@ export default function HomeScreen() {
   const [continueItems, setContinueItems] = useState<ContinueItem[]>([]);
   const [activeProfile, setActiveProfile] = useState<any>(null);
   const [cacheTs, setCacheTs]             = useState<number | null>(null);
+  const [recommendations, setRecommendations] = useState<ContentItem[]>([]);
   const [timeAgoStr, setTimeAgoStr]       = useState<string | null>(null);
   const [prefetchPhase, setPrefetchPhase] = useState<PrefetchPhase>("idle");
   // Below-fold sections render after interactions complete (avoids mounting all 56 sections at once on Android)
@@ -1840,6 +1842,17 @@ export default function HomeScreen() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  // ── Recomendações personalizadas ──────────────────────────────────────────
+  // Roda em background depois que o catálogo carrega; não bloqueia a UI.
+  useEffect(() => {
+    const allContent = [...movies, ...series, ...animes];
+    if (allContent.length === 0) return;
+    const userId = user?.id ?? "";
+    computeRecommendations(allContent, userId, 15)
+      .then(setRecommendations)
+      .catch(() => {});
+  }, [movies, series, animes, user?.id]);
+
   // ── Prefetch em segundo plano ─────────────────────────────────────────────
   // Quando o catálogo completo termina de baixar, recarrega a home com mais itens
   useEffect(() => {
@@ -2050,6 +2063,17 @@ export default function HomeScreen() {
                       />
                     ))}
                   </ScrollView>
+                </AnimatedSection>
+              )}
+
+              {/* ── 6.5 RECOMENDADOS PARA VOCÊ ───────────────────────────────── */}
+              {recommendations.length > 0 && (
+                <AnimatedSection anim={s[5]}>
+                  <View style={styles.section}>
+                    <SectionHeader title="Recomendados para Você" icon="zap"
+                      accentColor={PURPLE} />
+                    <PosterRow items={recommendations} onPress={goTo} />
+                  </View>
                 </AnimatedSection>
               )}
 
