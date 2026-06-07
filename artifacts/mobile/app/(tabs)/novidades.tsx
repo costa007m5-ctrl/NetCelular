@@ -610,29 +610,32 @@ function AnimatedSection({ anim, children }: { anim: Animated.Value; children: R
 // ─── Ver Mais Modal ───────────────────────────────────────────────────────────
 function VerMaisModal({
   visible, title, items, accentColor = RED, onClose, onItemPress,
-  fetchMoreFn,
+  fetchMoreFn, genres,
 }: {
   visible: boolean; title: string; items: ContentItem[];
   accentColor?: string; onClose: () => void; onItemPress: (item: ContentItem) => void;
   fetchMoreFn?: (page: number) => Promise<ContentItem[]>;
+  genres?: { id: number; label: string }[];
 }) {
   const slideY   = useRef(new Animated.Value(H)).current;
   const backdrop = useRef(new Animated.Value(0)).current;
-  const [page,        setPage]        = useState(1);
-  const [extraItems,  setExtraItems]  = useState<ContentItem[]>([]);
-  const [tmdbPage,    setTmdbPage]    = useState(1);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [noMoreTmdb,  setNoMoreTmdb]  = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [page,          setPage]          = useState(1);
+  const [extraItems,    setExtraItems]    = useState<ContentItem[]>([]);
+  const [tmdbPage,      setTmdbPage]      = useState(1);
+  const [loadingMore,   setLoadingMore]   = useState(false);
+  const [noMoreTmdb,    setNoMoreTmdb]    = useState(false);
+  const [searchQuery,   setSearchQuery]   = useState("");
+  const [selectedGenre, setSelectedGenre] = useState<number | null>(null);
   const PAGE = 20;
 
   const allItems     = useMemo(() => [...items, ...extraItems], [items, extraItems]);
   const shown        = useMemo(() => allItems.slice(0, page * PAGE), [allItems, page]);
   const q            = searchQuery.trim().toLowerCase();
-  const filteredItems = useMemo(
-    () => q ? allItems.filter((i) => i.title.toLowerCase().includes(q)) : shown,
-    [q, allItems, shown]
-  );
+  const filteredItems = useMemo(() => {
+    let base = q ? allItems.filter((i) => i.title.toLowerCase().includes(q)) : shown;
+    if (selectedGenre !== null) base = base.filter((i) => (i.genres ?? []).includes(selectedGenre));
+    return base;
+  }, [q, allItems, shown, selectedGenre]);
 
   useEffect(() => {
     if (visible) {
@@ -641,6 +644,7 @@ function VerMaisModal({
       setTmdbPage(1);
       setNoMoreTmdb(false);
       setSearchQuery("");
+      setSelectedGenre(null);
       Animated.parallel([
         Animated.timing(slideY,   { toValue: 0, duration: 340, useNativeDriver: true }),
         Animated.timing(backdrop, { toValue: 1, duration: 280, useNativeDriver: true }),
@@ -752,6 +756,34 @@ function VerMaisModal({
             </TouchableOpacity>
           ) : null}
         </View>
+
+        {/* ── Genre filter pills (only for animes) ───────────────────── */}
+        {genres && genres.length > 0 && (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 8, gap: 8 }}
+            style={{ flexGrow: 0 }}>
+            <TouchableOpacity
+              onPress={() => setSelectedGenre(null)}
+              style={{ paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20,
+                backgroundColor: selectedGenre === null ? accentColor : "rgba(255,255,255,0.08)",
+                borderWidth: 1, borderColor: selectedGenre === null ? accentColor : "rgba(255,255,255,0.12)" }}>
+              <Text style={{ color: selectedGenre === null ? "#fff" : "rgba(255,255,255,0.55)", fontSize: 12, fontWeight: "700" }}>
+                Todos
+              </Text>
+            </TouchableOpacity>
+            {genres.map((g) => (
+              <TouchableOpacity key={g.id}
+                onPress={() => setSelectedGenre(selectedGenre === g.id ? null : g.id)}
+                style={{ paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20,
+                  backgroundColor: selectedGenre === g.id ? accentColor : "rgba(255,255,255,0.08)",
+                  borderWidth: 1, borderColor: selectedGenre === g.id ? accentColor : "rgba(255,255,255,0.12)" }}>
+                <Text style={{ color: selectedGenre === g.id ? "#fff" : "rgba(255,255,255,0.55)", fontSize: 12, fontWeight: "700" }}>
+                  {g.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        )}
 
         {/* Empty state when search returns nothing */}
         {q && filteredItems.length === 0 ? (
@@ -977,12 +1009,14 @@ export default function NovidadesScreen() {
   const [modal, setModal] = useState<{
     visible: boolean; title: string; items: ContentItem[]; accent: string;
     fetchMoreFn?: (page: number) => Promise<ContentItem[]>;
+    genres?: { id: number; label: string }[];
   }>({ visible: false, title: "", items: [], accent: RED });
 
   const openModal = (
     title: string, items: ContentItem[], accent = RED,
-    fetchMoreFn?: (page: number) => Promise<ContentItem[]>
-  ) => setModal({ visible: true, title, items, accent, fetchMoreFn });
+    fetchMoreFn?: (page: number) => Promise<ContentItem[]>,
+    genres?: { id: number; label: string }[]
+  ) => setModal({ visible: true, title, items, accent, fetchMoreFn, genres });
   const closeModal = () => setModal((m) => ({ ...m, visible: false }));
 
   // ── apply fetched items to state ─────────────────────────────────────────
@@ -1190,7 +1224,19 @@ export default function NovidadesScreen() {
                         badge="ANIME" accentColor={ORANGE}
                         subtitle="Os mais assistidos agora"
                         onSeeAll={() => openModal("Animes em Alta", trendAnimes, ORANGE,
-                          (pg) => fetchCatalog("animes", pg)
+                          (pg) => fetchCatalog("animes", pg),
+                          [
+                            { id: 28,    label: "Ação" },
+                            { id: 12,    label: "Aventura" },
+                            { id: 35,    label: "Comédia" },
+                            { id: 18,    label: "Drama" },
+                            { id: 14,    label: "Fantasia" },
+                            { id: 878,   label: "Ficção Científica" },
+                            { id: 10749, label: "Romance" },
+                            { id: 27,    label: "Terror" },
+                            { id: 53,    label: "Thriller" },
+                            { id: 16,    label: "Animação" },
+                          ]
                         )} />
                       <MoodRow items={trendAnimes.slice(0, 6)} onPress={goTo}
                         labels={["NOVO","EM ALTA","NOVO","POPULAR","NOVO","EM ALTA"]}
@@ -1222,6 +1268,7 @@ export default function NovidadesScreen() {
         onClose={closeModal}
         onItemPress={goTo}
         fetchMoreFn={modal.fetchMoreFn}
+        genres={modal.genres}
       />
 
       {/* ═══ SCROLL TOP FAB ══════════════════════════════════════════════════ */}
