@@ -2096,6 +2096,10 @@ router.get("/flix2/catalog", async (req, res) => {
 const FULL_CATALOG_CACHE = new Map<string, { data: any[]; cachedAt: number }>();
 const FULL_CATALOG_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
+// Accumulates raw (non-deduped) items during warm-up so lookup can search
+// even before warm-up finishes. Cleared once FULL_CATALOG_CACHE is set.
+const WARM_PARTIAL_CACHE = new Map<string, any[]>();
+
 // ── Warm-up progress tracking ───────────────────────────────────────────────
 type WarmStatus = "idle" | "running" | "done" | "error";
 interface WarmTypeState {
@@ -2158,6 +2162,8 @@ async function warmCatalogType(type: string): Promise<void> {
       }
       const prev = getWarmState(type);
       WARM_PROGRESS.set(type, { ...prev, pagesLoaded: prev.pagesLoaded + batchLoaded });
+      // Snapshot for partial-cache lookups — allows lookup to find items mid-warm-up
+      WARM_PARTIAL_CACHE.set(type, allItems);
     }
 
     const seenTmdb = new Set<number>();
@@ -2175,6 +2181,7 @@ async function warmCatalogType(type: string): Promise<void> {
       return true;
     });
     FULL_CATALOG_CACHE.set(type, { data: deduped, cachedAt: Date.now() });
+    WARM_PARTIAL_CACHE.delete(type); // full cache is set, partial no longer needed
     WARM_PROGRESS.set(type, {
       status: "done", pagesLoaded: totalPages, totalPages,
       itemCount: deduped.length, startedAt: getWarmState(type).startedAt, completedAt: Date.now(),
@@ -2413,25 +2420,22 @@ router.get("/flix2/lookup", async (req, res) => {
     return false;
   }
 
-  const typesToCheck = type === "all" ? ["movies", "series", "animes"] : [type];
+  // For "all" type: check series first (most TV content), then animes, then movies.
+  // This matters because series cache is warm earlier than movies (377 vs 821 pages).
+  const typesToCheck = type === "all" ? ["series", "animes", "movies"] : [type];
   const client = getClient();
   const bucket = getBucket();
 
   for (const t of typesToCheck) {
-    // Fast path: check pre-built index
-    // Index keys: numeric tmdb_id (as string) for items with TMDB ID,
-    //             "title:<normalized>" for items without TMDB ID.
+    // ── Path 1: pre-built R2 index (fastest — stream_url stored directly) ────
     try {
       const resp = await client.send(new GetObjectCommand({ Bucket: bucket, Key: `__flix2-index-${t}.json` }));
       const raw = await resp.Body?.transformToString();
       if (raw) {
         const index: Record<string, string> = JSON.parse(raw);
-        // Check by tmdb_id key first (when id > 0)
         const byId = id > 0 ? index[String(id)] : undefined;
-        // Check by title key as fallback (or primary when id=0)
         const byTitle = normTitle ? index[`title:${normTitle}`] : undefined;
         const entry = byId ?? byTitle;
-        // Only shortcut for movies with direct stream URLs. "flix2id:X" entries need slow path.
         if (entry && !entry.startsWith("flix2id:")) {
           res.json({ found: true, item: { tmdb_id: id, stream_url: entry, type: t, title: title || undefined } });
           return;
@@ -2439,8 +2443,27 @@ router.get("/flix2/lookup", async (req, res) => {
       }
     } catch {}
 
-    // Slow path: live page scan (up to 200 pages for series/animes, 50 for movies)
-    // Matches by TMDB ID or by normalized title as fallback.
+    // ── Path 2a: full FULL_CATALOG_CACHE (warm-up complete, instant, all pages) ──
+    const warm = FULL_CATALOG_CACHE.get(t);
+    if (warm && Date.now() - warm.cachedAt < FULL_CATALOG_TTL_MS) {
+      const hit = warm.data.find((i: any) => matchItem(i));
+      if (hit) { res.json({ found: true, item: hit }); return; }
+      // Full cache is done and item not found — skip slow path.
+      continue;
+    }
+
+    // ── Path 2b: partial cache (warm-up in progress, grows page-by-page) ─────
+    // Populated every 15-page batch during warm-up so items mid-warm-up are findable.
+    const partial = WARM_PARTIAL_CACHE.get(t);
+    if (partial && partial.length > 0) {
+      const hit = partial.find((i: any) => matchItem(i));
+      if (hit) { res.json({ found: true, item: hit }); return; }
+      // Partial cache scanned but item not yet loaded — fall through to slow scan
+      // to check pages not yet in partial cache.
+    }
+
+    // ── Path 3: live page scan fallback (cache idle or partial not enough) ────
+    // Limited scan — full coverage only available once cache warms up (~2-5min post-startup).
     try {
       const first = await flix2FetchPage(t, 1);
       if (!first.success) continue;
