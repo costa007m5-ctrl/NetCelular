@@ -2694,19 +2694,26 @@ router.get("/flix2/stream-url", async (req, res) => {
       res.json({ url: streamUrl, via: "terabox-fallback", error: "Link expirado no TeraBox. Tente outro episódio." }); return;
     }
 
-    // Step 2: follow the redirect chain from nixplay
+    // Step 2: extract redirect location from nixplay WITHOUT following it.
+    // Using redirect:"follow" times out because vod99.cineveo.lat (Cloudflare CDN)
+    // blocks server IPs on HEAD requests — same root cause as the Drive Worker block.
+    // redirect:"manual" returns the 302 response immediately, and we read the Location
+    // header to get the CDN URL. The actual streaming is then handled by the proxy
+    // (/api/stream/proxy) which the APK calls next, and which sends a browser UA.
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8000);
     let response: Response;
     try {
       response = await fetch(streamUrl, {
         method: "HEAD",
-        redirect: "follow",
+        redirect: "manual",
         signal: controller.signal,
         headers: { "User-Agent": "Mozilla/5.0" },
       });
     } finally { clearTimeout(timer); }
-    const finalUrl = response!.url || streamUrl;
+    // For redirect:manual, a 3xx response gives us the Location header directly.
+    // Fall back to the original streamUrl if no Location header (e.g., 200 direct URL).
+    const finalUrl = response!.headers.get("location") || streamUrl;
 
     // Step 3: if the redirect landed on TeraBox, resolve via xAPIverse
     if (isTeraboxUrl(finalUrl)) {
