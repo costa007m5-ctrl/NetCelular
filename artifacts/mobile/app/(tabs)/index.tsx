@@ -49,6 +49,7 @@ import { subscribePrefetch, forceRefreshCatalog, type PrefetchPhase } from "@/li
 import { getCacheItemCount } from "@/lib/catalog-cache";
 import { preloadImages, clearPreloadQueue } from "@/lib/image-preloader";
 import { computeRecommendations } from "@/lib/recommendations";
+import { bulkGetStarRatings, setStarRating } from "@/lib/star-ratings";
 
 const TAB_BAR_CLEARANCE = 120;
 const { width: W, height: H } = Dimensions.get("window");
@@ -1558,16 +1559,22 @@ const CATEGORIES = [
 
 // ── VerMaisModal ──────────────────────────────────────────────────────────────
 function VerMaisModal({
-  visible, title, items, accentColor = PURPLE, onClose, onItemPress,
+  visible, title, items, accentColor = PURPLE, userId = "", onClose, onItemPress,
 }: {
   visible: boolean; title: string; items: ContentItem[];
-  accentColor?: string; onClose: () => void; onItemPress: (item: ContentItem) => void;
+  accentColor?: string; userId?: string;
+  onClose: () => void; onItemPress: (item: ContentItem) => void;
 }) {
   const slideY   = useRef(new Animated.Value(H)).current;
   const backdrop = useRef(new Animated.Value(0)).current;
   const [page,        setPage]        = useState(1);
   const [searchQuery, setSearchQuery] = useState("");
+  const [starRatings, setStarRatings] = useState<Map<string, number>>(new Map());
+  const [pickerFor,   setPickerFor]   = useState<string | null>(null);
   const PAGE = 20;
+
+  const ratingKey = (item: ContentItem) =>
+    `${item.type}:${item.tmdbId ?? item.id}`;
 
   const q            = searchQuery.trim().toLowerCase();
   const shown        = useMemo(() => items.slice(0, page * PAGE), [items, page]);
@@ -1578,12 +1585,16 @@ function VerMaisModal({
 
   useEffect(() => {
     if (visible) {
-      setPage(1); setSearchQuery("");
+      setPage(1); setSearchQuery(""); setPickerFor(null);
       Animated.parallel([
         Animated.timing(slideY,   { toValue: 0, duration: 340, useNativeDriver: true }),
         Animated.timing(backdrop, { toValue: 1, duration: 280, useNativeDriver: true }),
       ]).start();
+      if (userId && items.length > 0) {
+        bulkGetStarRatings(userId, items).then(setStarRatings).catch(() => {});
+      }
     } else {
+      setPickerFor(null);
       Animated.parallel([
         Animated.timing(slideY,   { toValue: H, duration: 300, useNativeDriver: true }),
         Animated.timing(backdrop, { toValue: 0, duration: 240, useNativeDriver: true }),
@@ -1591,34 +1602,115 @@ function VerMaisModal({
     }
   }, [visible]);
 
+  const handleRate = useCallback((item: ContentItem, stars: number) => {
+    const k = ratingKey(item);
+    setStarRatings((prev) => {
+      const next = new Map(prev);
+      if (stars === 0) next.delete(k); else next.set(k, stars);
+      return next;
+    });
+    setPickerFor(null);
+    if (userId && item.tmdbId) {
+      setStarRating(userId, item.tmdbId, item.type, stars).catch(() => {});
+    }
+  }, [userId]);
+
   const CARD_W = (W - 48) / 3;
   const CARD_H = CARD_W * 1.5;
 
-  const renderItem = useCallback(({ item }: { item: ContentItem }) => (
-    <Pressable onPress={() => { onItemPress(item); onClose(); }}
-      style={{ width: CARD_W, marginBottom: 8 }}>
-      <View style={{ width: CARD_W, height: CARD_H, borderRadius: 10, overflow: "hidden", backgroundColor: "#111" }}>
-        {item.posterPath ? (
-          <Image source={{ uri: item.posterPath }} style={StyleSheet.absoluteFill}
-            contentFit="cover" cachePolicy="memory-disk" />
-        ) : (
-          <LinearGradient colors={["#1a0a14","#08060e"]} style={StyleSheet.absoluteFill} />
-        )}
-        <LinearGradient colors={["transparent","rgba(0,0,0,0.88)"]} locations={[0.5,1]}
-          style={StyleSheet.absoluteFill} />
-        <View style={{ position:"absolute", bottom:0, left:0, right:0, padding:7 }}>
-          <Text style={{ color:"#fff", fontSize:10, fontWeight:"700", lineHeight:14 }}
-            numberOfLines={2}>{item.title}</Text>
-          {item.rating > 0 && (
-            <View style={{ flexDirection:"row", alignItems:"center", gap:3, marginTop:2 }}>
-              <Feather name="star" size={7} color={AMBER} />
-              <Text style={{ color:AMBER, fontSize:8, fontWeight:"700" }}>{item.rating.toFixed(1)}</Text>
+  const renderItem = useCallback(({ item }: { item: ContentItem }) => {
+    const k         = ratingKey(item);
+    const myStars   = starRatings.get(k) ?? 0;
+    const isPickerOpen = pickerFor === k;
+
+    const starColor = (n: number) => n <= myStars
+      ? (myStars >= 4 ? "#f59e0b" : myStars >= 3 ? "#a3e635" : "#f87171")
+      : "rgba(255,255,255,0.25)";
+
+    return (
+      <Pressable
+        onPress={() => {
+          if (isPickerOpen) { setPickerFor(null); return; }
+          onItemPress(item); onClose();
+        }}
+        style={{ width: CARD_W, marginBottom: 8 }}>
+        <View style={{ width: CARD_W, height: CARD_H, borderRadius: 10, overflow: "hidden", backgroundColor: "#111" }}>
+          {item.posterPath ? (
+            <Image source={{ uri: item.posterPath }} style={StyleSheet.absoluteFill}
+              contentFit="cover" cachePolicy="memory-disk" />
+          ) : (
+            <LinearGradient colors={["#1a0a14","#08060e"]} style={StyleSheet.absoluteFill} />
+          )}
+          <LinearGradient colors={["transparent","rgba(0,0,0,0.88)"]} locations={[0.5,1]}
+            style={StyleSheet.absoluteFill} />
+
+          {/* ── star badge (top-right) ── */}
+          <TouchableOpacity
+            onPress={() => setPickerFor(isPickerOpen ? null : k)}
+            activeOpacity={0.8}
+            style={{
+              position:"absolute", top:6, right:6,
+              flexDirection:"row", alignItems:"center", gap:2,
+              paddingHorizontal: myStars > 0 ? 6 : 5,
+              paddingVertical: myStars > 0 ? 3 : 5,
+              borderRadius:20,
+              backgroundColor: myStars > 0 ? `${starColor(myStars)}22` : "rgba(0,0,0,0.45)",
+              borderWidth:1,
+              borderColor: myStars > 0 ? `${starColor(myStars)}80` : "rgba(255,255,255,0.18)",
+            }}>
+            <Feather name="star" size={9}
+              color={myStars > 0 ? starColor(myStars) : "rgba(255,255,255,0.55)"} />
+            {myStars > 0 && (
+              <Text style={{ color: starColor(myStars), fontSize: 9, fontWeight: "800", lineHeight:12 }}>
+                {myStars}
+              </Text>
+            )}
+          </TouchableOpacity>
+
+          {/* ── star picker overlay ── */}
+          {isPickerOpen && (
+            <View style={{
+              position:"absolute", bottom:0, left:0, right:0,
+              backgroundColor:"rgba(0,0,0,0.88)",
+              paddingVertical:10, paddingHorizontal:4,
+              alignItems:"center", gap:6,
+            }}>
+              <Text style={{ color:"rgba(255,255,255,0.5)", fontSize:8, fontWeight:"600",
+                letterSpacing:0.5, textTransform:"uppercase" }}>Sua nota</Text>
+              <View style={{ flexDirection:"row", gap:4 }}>
+                {[1,2,3,4,5].map((n) => (
+                  <TouchableOpacity key={n} onPress={() => handleRate(item, n === myStars ? 0 : n)}
+                    activeOpacity={0.7} style={{ padding:3 }}>
+                    <Feather name={n <= myStars ? "star" : "star"} size={18}
+                      color={n <= myStars ? starColor(n) : "rgba(255,255,255,0.25)"} />
+                  </TouchableOpacity>
+                ))}
+              </View>
+              {myStars > 0 && (
+                <TouchableOpacity onPress={() => handleRate(item, 0)} activeOpacity={0.7}>
+                  <Text style={{ color:"rgba(255,255,255,0.35)", fontSize:8 }}>remover nota</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
+
+          {/* ── title + TMDB rating ── */}
+          {!isPickerOpen && (
+            <View style={{ position:"absolute", bottom:0, left:0, right:0, padding:7 }}>
+              <Text style={{ color:"#fff", fontSize:10, fontWeight:"700", lineHeight:14 }}
+                numberOfLines={2}>{item.title}</Text>
+              {item.rating > 0 && (
+                <View style={{ flexDirection:"row", alignItems:"center", gap:3, marginTop:2 }}>
+                  <Feather name="star" size={7} color={AMBER} />
+                  <Text style={{ color:AMBER, fontSize:8, fontWeight:"700" }}>{item.rating.toFixed(1)}</Text>
+                </View>
+              )}
             </View>
           )}
         </View>
-      </View>
-    </Pressable>
-  ), [onItemPress, onClose, CARD_W, CARD_H]);
+      </Pressable>
+    );
+  }, [onItemPress, onClose, CARD_W, CARD_H, starRatings, pickerFor, handleRate]);
 
   const handleEndReached = useCallback(() => {
     if (q) return;
@@ -2434,6 +2526,7 @@ export default function HomeScreen() {
         title={verMaisModal.title}
         items={verMaisModal.items}
         accentColor={verMaisModal.accentColor}
+        userId={user?.id ?? ""}
         onClose={closeModal}
         onItemPress={goTo}
       />
