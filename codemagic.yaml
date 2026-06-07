@@ -72,9 +72,10 @@ workflows:
             CHANGELOG="• Melhorias de desempenho e correções gerais"
           fi
 
-          # release_notes/pt-BR.txt → Codemagic envia automaticamente para o Google Play
+          # release_notes/ → Codemagic envia automaticamente para o Google Play
           mkdir -p release_notes
           echo "$CHANGELOG" > release_notes/pt-BR.txt
+          cp release_notes/pt-BR.txt release_notes/en-US.txt
           echo "--- Changelog ---"
           cat release_notes/pt-BR.txt
           echo "-----------------"
@@ -230,6 +231,7 @@ workflows:
           fi
           mkdir -p release_notes
           echo "$CHANGELOG" > release_notes/pt-BR.txt
+          cp release_notes/pt-BR.txt release_notes/en-US.txt
           echo "--- Changelog ---" && cat release_notes/pt-BR.txt && echo "-----------------"
 
           node -e "
