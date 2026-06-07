@@ -5568,15 +5568,27 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
                       {mgDriveLabelHistory
                         .filter((h) => h !== mgDriveSelectLabel)
                         .map((h) => (
-                          <Pressable key={h}
-                            onPress={() => setMgDriveSelectLabel(h)}
-                            style={{ flexDirection: "row", alignItems: "center", gap: 4,
-                              paddingHorizontal: 9, paddingVertical: 4, borderRadius: 20,
-                              backgroundColor: "rgba(255,255,255,0.05)", borderWidth: 1,
-                              borderColor: "rgba(255,255,255,0.1)" }}>
-                            <Feather name="clock" size={9} color="rgba(255,255,255,0.3)" />
-                            <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 11 }}>{h}</Text>
-                          </Pressable>
+                          <View key={h} style={{ flexDirection: "row", alignItems: "center", borderRadius: 20,
+                            backgroundColor: "rgba(255,255,255,0.05)", borderWidth: 1,
+                            borderColor: "rgba(255,255,255,0.1)", overflow: "hidden" }}>
+                            <Pressable
+                              onPress={() => setMgDriveSelectLabel(h)}
+                              style={{ flexDirection: "row", alignItems: "center", gap: 4,
+                                paddingLeft: 9, paddingRight: 6, paddingVertical: 4 }}>
+                              <Feather name="clock" size={9} color="rgba(255,255,255,0.3)" />
+                              <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 11 }}>{h}</Text>
+                            </Pressable>
+                            <Pressable
+                              onPress={() => {
+                                const next = mgDriveLabelHistory.filter((x) => x !== h);
+                                setMgDriveLabelHistory(next);
+                                AsyncStorage.setItem(LABEL_HISTORY_KEY, JSON.stringify(next)).catch(() => {});
+                              }}
+                              hitSlop={6}
+                              style={{ paddingRight: 7, paddingLeft: 2, paddingVertical: 4 }}>
+                              <Feather name="x" size={10} color="rgba(255,255,255,0.25)" />
+                            </Pressable>
+                          </View>
                         ))}
                     </View>
                   )}
