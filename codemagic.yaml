@@ -81,6 +81,18 @@ workflows:
       - artifacts/mobile/android/app/build/outputs/apk/release/*.apk
 
     publishing:
+      # ── Google Play Store ─────────────────────────────────────────────────────
+      # Pré-requisito: adicionar em Codemagic > Environment variables (grupo "google"):
+      #   GCLOUD_SERVICE_ACCOUNT_CREDENTIALS  → JSON da conta de serviço do Google Cloud
+      #     (Google Play Console → Configurações → Acesso à API → Criar conta de serviço)
+      #
+      # A faixa "internal" envia para Teste Interno — você aprova manualmente antes
+      # de promover para alpha/beta/produção no Play Console.
+      google_play:
+        credentials: $GCLOUD_SERVICE_ACCOUNT_CREDENTIALS
+        track: internal          # Teste Interno → promova para alpha/beta/produção pelo Play Console
+        submit_as_draft: false   # já disponibiliza para os testadores internos
+        changes_not_sent_for_review: false
       email:
         recipients:
           - your@email.com
@@ -170,6 +182,20 @@ workflows:
       - /tmp/xcodebuild_logs/*.log
 
     publishing:
+      # ── TestFlight / App Store ─────────────────────────────────────────────────
+      # Pré-requisito: adicionar em Codemagic > Environment variables (grupo "appstore"):
+      #   APP_STORE_CONNECT_KEY_IDENTIFIER  → Key ID (ex: ABC123DEFG)
+      #   APP_STORE_CONNECT_ISSUER_ID       → Issuer ID (UUID)
+      #   APP_STORE_CONNECT_PRIVATE_KEY     → Conteúdo do arquivo .p8 (App Store Connect API)
+      #   CERTIFICATE_PRIVATE_KEY           → Chave privada do certificado de distribuição
+      #
+      # O build vai para TestFlight automaticamente. Aprovação manual para App Store.
+      app_store_connect:
+        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
+        key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
+        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
+        submit_to_testflight: true   # envia para TestFlight automaticamente
+        submit_to_app_store: false   # submissão para App Store é manual
       email:
         recipients:
           - your@email.com
