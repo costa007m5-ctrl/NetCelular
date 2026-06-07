@@ -701,7 +701,7 @@ export async function apiCatalog(forceRefresh = false) {
   const topPrefixes = await listPrefixesOnly("");
   const entries = await buildEntriesFromPrefixes(topPrefixes, catalogMeta, 0);
 
-  // Also add TeraBox-only registry items (teraboxUrl set, not already in catalog)
+  // Also add registry-only items (TeraBox / Drive / Flix 2.0) not already in catalog
   try {
     const regRaw = await getRaw("__registry.json");
     const registry = JSON.parse(regRaw);
@@ -712,16 +712,16 @@ export async function apiCatalog(forceRefresh = false) {
       entries.map((e) => e.tmdb?.id).filter((id): id is number => typeof id === "number")
     );
 
-    // Group TeraBox-only items by tmdbId
-    const tbGroups = new Map<number, { tmdbType: "movie" | "tv"; title: string }>();
+    // Group ALL registry items by tmdbId (TeraBox, Drive, Flix 2.0)
+    const regGroups = new Map<number, { tmdbType: "movie" | "tv"; title: string }>();
     for (const item of regItems) {
-      if (item.teraboxUrl && item.tmdbId && !seenTmdbIds.has(item.tmdbId)) {
-        tbGroups.set(item.tmdbId, { tmdbType: item.tmdbType ?? "movie", title: item.title ?? "" });
+      if (item.tmdbId && !seenTmdbIds.has(item.tmdbId)) {
+        regGroups.set(item.tmdbId, { tmdbType: item.tmdbType ?? "movie", title: item.title ?? "" });
       }
     }
 
     // For each unique tmdbId, fetch TMDB data and add a catalog entry
-    for (const [tmdbId, info] of tbGroups) {
+    for (const [tmdbId, info] of regGroups) {
       try {
         const endpoint = info.tmdbType === "tv"
           ? `${TMDB_BASE}/tv/${tmdbId}?api_key=${TMDB_KEY}&language=${TMDB_LANG}`
