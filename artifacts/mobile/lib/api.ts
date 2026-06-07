@@ -62,19 +62,36 @@ async function _saveDomainToSupabase(domain: string): Promise<void> {
   clearTimeout(tid);
 }
 
+async function _checkDomainAlive(domain: string): Promise<boolean> {
+  try {
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 3000);
+    const res = await fetch(`https://${domain}/api/healthz`, { signal: ctrl.signal });
+    clearTimeout(tid);
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export async function initApiDomain(): Promise<void> {
   if (Platform.OS === "web") return;
   try {
     const AsyncStorage = require("@react-native-async-storage/async-storage").default;
 
-    // 1. EXPO_PUBLIC_DOMAIN (baked in at build time) always wins — it's the freshest value
+    // 1. EXPO_PUBLIC_DOMAIN baked in at build time — but verify it's reachable first.
+    // Dev domains (e.g. *.janeway.replit.dev) change every session; production .replit.app domains
+    // are stable. If the baked domain is dead (stale dev domain), fall through to Supabase.
     const fromEnv = process.env.EXPO_PUBLIC_DOMAIN?.trim();
     if (fromEnv) {
-      _dynamicDomain = fromEnv;
-      // Push the current working domain to Supabase so other devices pick it up
-      await AsyncStorage.setItem(STORAGE_KEY, fromEnv);
-      _saveDomainToSupabase(fromEnv).catch(() => {});
-      return;
+      const alive = await _checkDomainAlive(fromEnv);
+      if (alive) {
+        _dynamicDomain = fromEnv;
+        await AsyncStorage.setItem(STORAGE_KEY, fromEnv);
+        _saveDomainToSupabase(fromEnv).catch(() => {});
+        return;
+      }
+      // Domain baked in is unreachable (stale dev domain) — fall through to Supabase
     }
 
     // 2. Fallback: try Supabase (centrally stored) then local AsyncStorage
