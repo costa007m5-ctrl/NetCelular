@@ -10,15 +10,15 @@ workflows:
       node: 20.18.0
       vars:
         # ── API do servidor (use sempre o domínio .replit.app do deploy, NUNCA a URL de dev) ──
-        API_DOMAIN: seuapp.replit.app        # ← SUBSTITUA pelo seu domínio deployed
+        API_DOMAIN: "net-celular--cleverndeer169.replit.app"
 
         # ── TMDB ──────────────────────────────────────────────────────────────────────────────
         TMDB_API_KEY: "8f0beb08cf016ec8de49e454e09879ec"
 
         # ── Cloudflare R2 ─────────────────────────────────────────────────────────────────────
         R2_ACCOUNT_ID: "9827b92a6b3a621e8c6f50274e68f37b"
-        R2_ACCESS_KEY_ID: "9e96806804e8815dfd9580ec062fa0c5"
-        R2_SECRET_ACCESS_KEY: "COLE_AQUI_A_SECRET_KEY_COMPLETA"  # ← chave secreta do R2
+        R2_ACCESS_KEY_ID: "c28d6543c66dbdaf10a80d6089141e1c"
+        R2_SECRET_ACCESS_KEY: "9f468a159ab070abda78cef82582b288483c5a8b684f156ec8508a2931de6afa"
         R2_BUCKET_NAME: "netplay-media-storage"
 
     scripts:
@@ -46,30 +46,46 @@ workflows:
           echo "EXPO_PUBLIC_R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY}" >> .env
           echo "EXPO_PUBLIC_R2_BUCKET_NAME=${R2_BUCKET_NAME}" >> .env
 
-      - name: Versionar build automaticamente
+      - name: Versionar build e gerar changelog
         script: |
           cd artifacts/mobile
           BUILD_NUM=${CM_BUILD_NUMBER:-1}
 
-          # Lê a última tag semver (formato vX.Y.Z) do git
+          # ── Tag semver mais recente ────────────────────────────────────────
           GIT_TAG=$(git describe --tags --match "v[0-9]*.[0-9]*.[0-9]*" --abbrev=0 2>/dev/null || echo "")
-          SEMVER="${GIT_TAG#v}"   # remove o 'v' do início (v1.2.3 → 1.2.3)
+          SEMVER="${GIT_TAG#v}"
+
+          # ── Changelog: commits desde a última tag ──────────────────────────
+          if [ -n "$GIT_TAG" ]; then
+            RAW_LOG=$(git log "${GIT_TAG}..HEAD" --oneline --no-merges --pretty=format:"• %s" 2>/dev/null || echo "")
+          else
+            RAW_LOG=$(git log --oneline --no-merges --pretty=format:"• %s" -20 2>/dev/null || echo "")
+          fi
+
+          # Trunca em 490 chars (limite do Google Play = 500)
+          CHANGELOG=$(echo "$RAW_LOG" | head -c 490)
+          if [ -z "$CHANGELOG" ]; then
+            CHANGELOG="• Melhorias de desempenho e correções gerais"
+          fi
+
+          # Salva para uso no passo de publishing
+          echo "$CHANGELOG" > /tmp/changelog.txt
+          echo "--- Changelog ---"
+          cat /tmp/changelog.txt
+          echo "-----------------"
 
           node -e "
             const fs = require('fs');
             const cfg = JSON.parse(fs.readFileSync('app.json', 'utf8'));
 
-            // ── version (semver da tag git) ──────────────────────────────────
             const semver = '${SEMVER}';
-            const tagSrc = '${GIT_TAG}';
-            if (semver && /^\d+\.\d+\.\d+$/.test(semver)) {
-              console.log('version:', cfg.expo.version, '→', semver, '(tag ' + tagSrc + ')');
+            if (semver && /^\d+\.\d+\.\d+\$/.test(semver)) {
+              console.log('version:', cfg.expo.version, '→', semver, '(tag ${GIT_TAG})');
               cfg.expo.version = semver;
             } else {
-              console.log('version: mantido em', cfg.expo.version, '(nenhuma tag semver encontrada)');
+              console.log('version: mantido em', cfg.expo.version);
             }
 
-            // ── versionCode / buildNumber (auto-incremental) ─────────────────
             cfg.expo.android = cfg.expo.android || {};
             cfg.expo.ios     = cfg.expo.ios     || {};
             const prevCode = cfg.expo.android.versionCode ?? 0;
@@ -125,8 +141,11 @@ workflows:
       google_play:
         credentials: $GCLOUD_SERVICE_ACCOUNT_CREDENTIALS
         track: internal          # Teste Interno → promova para alpha/beta/produção pelo Play Console
-        submit_as_draft: false   # já disponibiliza para os testadores internos
+        submit_as_draft: false
         changes_not_sent_for_review: false
+        release_notes:
+          - language: pt-BR
+            description: $(cat /tmp/changelog.txt 2>/dev/null || echo "Melhorias de desempenho e correções gerais")
       email:
         recipients:
           - your@email.com
@@ -149,15 +168,15 @@ workflows:
         BUNDLE_ID: com.netplay.app
 
         # ── API do servidor ────────────────────────────────────────────────────────────────────
-        API_DOMAIN: seuapp.replit.app        # ← SUBSTITUA pelo seu domínio deployed
+        API_DOMAIN: "net-celular--cleverndeer169.replit.app"
 
         # ── TMDB ──────────────────────────────────────────────────────────────────────────────
         TMDB_API_KEY: "8f0beb08cf016ec8de49e454e09879ec"
 
         # ── Cloudflare R2 ─────────────────────────────────────────────────────────────────────
         R2_ACCOUNT_ID: "9827b92a6b3a621e8c6f50274e68f37b"
-        R2_ACCESS_KEY_ID: "9e96806804e8815dfd9580ec062fa0c5"
-        R2_SECRET_ACCESS_KEY: "COLE_AQUI_A_SECRET_KEY_COMPLETA"  # ← chave secreta do R2
+        R2_ACCESS_KEY_ID: "c28d6543c66dbdaf10a80d6089141e1c"
+        R2_SECRET_ACCESS_KEY: "9f468a159ab070abda78cef82582b288483c5a8b684f156ec8508a2931de6afa"
         R2_BUCKET_NAME: "netplay-media-storage"
 
     scripts:
@@ -185,37 +204,43 @@ workflows:
           echo "EXPO_PUBLIC_R2_SECRET_ACCESS_KEY=${R2_SECRET_ACCESS_KEY}" >> .env
           echo "EXPO_PUBLIC_R2_BUCKET_NAME=${R2_BUCKET_NAME}" >> .env
 
-      - name: Versionar build automaticamente
+      - name: Versionar build e gerar changelog
         script: |
           cd artifacts/mobile
           BUILD_NUM=${CM_BUILD_NUMBER:-1}
 
-          # Lê a última tag semver (formato vX.Y.Z) do git
           GIT_TAG=$(git describe --tags --match "v[0-9]*.[0-9]*.[0-9]*" --abbrev=0 2>/dev/null || echo "")
-          SEMVER="${GIT_TAG#v}"   # remove o 'v' do início (v1.2.3 → 1.2.3)
+          SEMVER="${GIT_TAG#v}"
+
+          if [ -n "$GIT_TAG" ]; then
+            RAW_LOG=$(git log "${GIT_TAG}..HEAD" --oneline --no-merges --pretty=format:"• %s" 2>/dev/null || echo "")
+          else
+            RAW_LOG=$(git log --oneline --no-merges --pretty=format:"• %s" -20 2>/dev/null || echo "")
+          fi
+
+          CHANGELOG=$(echo "$RAW_LOG" | head -c 490)
+          if [ -z "$CHANGELOG" ]; then
+            CHANGELOG="• Melhorias de desempenho e correções gerais"
+          fi
+          echo "$CHANGELOG" > /tmp/changelog.txt
+          echo "--- Changelog ---" && cat /tmp/changelog.txt && echo "-----------------"
 
           node -e "
             const fs = require('fs');
             const cfg = JSON.parse(fs.readFileSync('app.json', 'utf8'));
-
-            // ── version (semver da tag git) ──────────────────────────────────
             const semver = '${SEMVER}';
-            const tagSrc = '${GIT_TAG}';
-            if (semver && /^\d+\.\d+\.\d+$/.test(semver)) {
-              console.log('version:', cfg.expo.version, '→', semver, '(tag ' + tagSrc + ')');
+            if (semver && /^\d+\.\d+\.\d+\$/.test(semver)) {
+              console.log('version:', cfg.expo.version, '→', semver);
               cfg.expo.version = semver;
             } else {
-              console.log('version: mantido em', cfg.expo.version, '(nenhuma tag semver encontrada)');
+              console.log('version: mantido em', cfg.expo.version);
             }
-
-            // ── versionCode / buildNumber (auto-incremental) ─────────────────
             cfg.expo.android = cfg.expo.android || {};
             cfg.expo.ios     = cfg.expo.ios     || {};
             const prevBuild = cfg.expo.ios.buildNumber ?? '0';
             cfg.expo.android.versionCode = ${BUILD_NUM};
             cfg.expo.ios.buildNumber     = String(${BUILD_NUM});
             console.log('buildNumber:', prevBuild, '→', ${BUILD_NUM});
-
             fs.writeFileSync('app.json', JSON.stringify(cfg, null, 2));
           "
 
@@ -285,15 +310,15 @@ workflows:
         EAS_PROJECT_ID: aa86cc57-e8c0-4ce7-806c-0d1e5e345991
 
         # ── API do servidor ────────────────────────────────────────────────────────────────────
-        API_DOMAIN: seuapp.replit.app        # ← SUBSTITUA pelo seu domínio deployed
+        API_DOMAIN: "net-celular--cleverndeer169.replit.app"
 
         # ── TMDB ──────────────────────────────────────────────────────────────────────────────
         TMDB_API_KEY: "8f0beb08cf016ec8de49e454e09879ec"
 
         # ── Cloudflare R2 ─────────────────────────────────────────────────────────────────────
         R2_ACCOUNT_ID: "9827b92a6b3a621e8c6f50274e68f37b"
-        R2_ACCESS_KEY_ID: "9e96806804e8815dfd9580ec062fa0c5"
-        R2_SECRET_ACCESS_KEY: "COLE_AQUI_A_SECRET_KEY_COMPLETA"  # ← chave secreta do R2
+        R2_ACCESS_KEY_ID: "c28d6543c66dbdaf10a80d6089141e1c"
+        R2_SECRET_ACCESS_KEY: "9f468a159ab070abda78cef82582b288483c5a8b684f156ec8508a2931de6afa"
         R2_BUCKET_NAME: "netplay-media-storage"
 
     scripts:
