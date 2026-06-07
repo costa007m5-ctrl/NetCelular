@@ -474,12 +474,15 @@ export default function R2PlayerScreen() {
     try {
       let url: string;
       if (isEffectiveFlix2) {
-        // Flix 2.0: nixplay.lat stream_url redirects 302 → signed CDN URL on vod99.cineveo.lat.
+        // Flix 2.0: nixplay.lat stream_url redirects 302 → signed CDN URL on fontedecanais/cineveo CDN.
         // We resolve server-side because React Native video players may not follow redirects.
+        // The final CDN URL MUST be proxied through our API server — Cloudflare on the CDN
+        // blocks ExoPlayer/Dalvik User-Agents (same root cause as Drive APK playback).
+        // getProxiedStreamUrl() routes through /api/stream/proxy with a browser UA.
         const rawUrl = effectiveFlix2Url!;
         const data = await r2Route<{ url: string; error?: string; via?: string }>(`/flix2/stream-url?streamUrl=${encodeURIComponent(rawUrl)}`);
         if (data.error) throw new Error(data.error);
-        url = data.url;
+        url = getProxiedStreamUrl(data.url);
       } else if (isEffectiveDrive) {
         // Drive: resolve client-side (bypasses server IP block by Cloudflare).
         // Then proxy through API server so ExoPlayer sends a browser User-Agent

@@ -22,6 +22,18 @@ const ALLOWED_UPSTREAM_HOSTS = [
   "teraboxapp.com",
   "1024terabox.com",
   "1024tera.com",
+  // Flix 2.0 / nixplay.lat CDN domains
+  "nixplay.lat",
+  "vod99.cineveo.lat",
+  "cineveo.lat",
+];
+
+// Flix 2.0 CDN root domains (subdomains/dynamic hostnames allowed)
+const FLIX2_CDN_ROOTS = [
+  "72yrci50ppqp71.com",   // www-fontedecanais-me.72yrci50ppqp71.com
+  "fontedecanais.me",
+  "cineveo.lat",
+  "nixplay.lat",
 ];
 
 function isAllowedHost(urlStr: string): boolean {
@@ -38,6 +50,10 @@ function isAllowedHost(urlStr: string): boolean {
     if (host.endsWith(".terabox.com") || host.endsWith(".teraboxapp.com")) return true;
     // Allow any d*.baidupcs.com or d*.bdstatic.com (TeraBox/Baidu CDN)
     if (host.endsWith(".baidupcs.com") || host.endsWith(".bdstatic.com")) return true;
+    // Allow Flix 2.0 CDN roots (including dynamic subdomain hostnames like www-fontedecanais-me.72yrci50ppqp71.com)
+    for (const root of FLIX2_CDN_ROOTS) {
+      if (host === root || host.endsWith(`.${root}`)) return true;
+    }
     return ALLOWED_UPSTREAM_HOSTS.includes(host);
   } catch {
     return false;
