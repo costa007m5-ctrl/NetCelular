@@ -1,67 +1,50 @@
 ---
 name: Flix2 CDN proxy fix
-description: Flix 2.0 CDN blocks ExoPlayer UA in signed APKs; proxy rewrites HLS manifests so ALL segment requests also use browser UA; server uses redirect:manual + nocache=1 per request.
+description: Flix 2.0 CDNs have different Referer requirements; fontedecanais (72yrci50ppqp71.com) strictly validates Referer and blocks anything that isn't nixplay.lat; proxy must send correct Referer per CDN domain.
 ---
+
+## Root Cause (diagnosed July 2026)
+
+Flix2 content comes from multiple CDN providers with different Referer validation strictness:
+
+| CDN | Domain | Referer validation | Example content |
+|---|---|---|---|
+| cineveo.lat | `vod99.cineveo.lat` | Lenient (any Referer) | Mestres do Universo |
+| fontedecanais | `www-fontedecanais-me.72yrci50ppqp71.com:80` | Strict (must be nixplay.lat) | O Rei Leão |
+
+**Why Expo Go worked but APK failed**: Expo Go opens the stream URL in a browser-like context with the correct Referer from the link origin. The proxy was sending `Referer: animezey...` for all domains — fontedecanais CDN blocked this. cineveo.lat was lenient so some content worked.
+
+**Why some content worked in APK with raw URL + expo-av headers**: expo-av headers set `Referer: nixplay.lat` directly on the request. If expo-av propagated them properly, it worked. If not (or HLS), it failed. Unreliable approach.
 
 ## Architecture (all platforms — Android, iOS, Web)
 
-All platforms route through the API proxy (`getProxiedStreamUrl(data.url)`). Never use raw CDN URL + expo-av headers for Android — it only covers the manifest, not segments.
+All platforms route through the API proxy (`getProxiedStreamUrl(data.url)`). The proxy handles Referer correctly per CDN domain.
 
-### Why proxy-only works now
-The proxy (`/api/stream/proxy`) now includes **HLS manifest rewriting**:
-1. Detects if upstream response is an m3u8 (Content-Type or URL extension)
-2. Rewrites ALL segment URIs (`.ts/.aac/.mp4`) and init-section URIs to go through the same proxy
-3. Returns the rewritten manifest to the player
-
-ExoPlayer then fetches every segment via the proxy → proxy uses browser UA → Cloudflare CDN doesn't block.
-
-### WRONG approach (DO NOT use)
+### CRITICAL — Proxy Referer per domain (stream.ts)
 ```typescript
-// WRONG — custom headers on expo-av only cover manifest, NOT segment requests
-// in some ExoPlayer versions/configurations:
-if (Platform.OS === "android") {
-  url = data.url; // raw CDN
-  setVideoSourceHeaders({ "User-Agent": "...", "Referer": "..." });
-}
+// isFlix2Host() checks if URL hostname matches FLIX2_CDN_ROOTS
+"Referer": isFlix2Host(decodedUrl) ? "https://nixplay.lat/" : "https://animezey16082023.animezey16082023.workers.dev/",
+// Also add Origin for Flix2:
+if (isFlix2Host(decodedUrl)) upstreamHeaders["Origin"] = "https://nixplay.lat";
 ```
+**Why:** fontedecanais CDN (72yrci50ppqp71.com) validates Referer strictly. Sending the wrong Referer returns 403/block. cineveo.lat is lenient. Both need browser UA.
 
-### CORRECT approach
-```typescript
-// ALL platforms: proxy handles UA headers + HLS manifest rewriting
-url = getProxiedStreamUrl(data.url);
-```
+## FLIX2_CDN_ROOTS (fontedecanais + cineveo domains)
+- `72yrci50ppqp71.com` — fontedecanais CDN; HTTP port 80; uses username+token auth
+- `fontedecanais.me`
+- `cineveo.lat` — covers vod99.cineveo.lat; HTTPS; uses exp+sig tokens
+- `nixplay.lat`
+
+**Note on URL formats:**
+- cineveo.lat: `https://vod99.cineveo.lat/m/Title.mp4?exp=...&sig=...` (time-based sig, any IP)
+- fontedecanais: `http://www-fontedecanais-me.72yrci50ppqp71.com:80/movies/.../xxx.mp4?username=...&token=...` (IP-bound token, HTTP port 80)
+
+`usesCleartextTraffic: true` is set in app.json so HTTP port 80 is allowed in APK.
 
 ## Server — /flix2/stream-url (r2.ts)
+redirect:manual on nixplay.lat → reads Location header → returns CDN URL.
+nocache=1 always passed from client to bypass 20s cache (CDN signed URLs can expire).
 
-### redirect:manual (critical)
-```typescript
-response = await fetch(streamUrl, { method: "HEAD", redirect: "manual", ... });
-const finalUrl = response.headers.get("location") || streamUrl;
-```
-**Why:** vod99.cineveo.lat CDN blocks server IPs on HEAD with redirect:follow (times out 8s). redirect:manual only hits nixplay.lat (fast, 302ms), reads Location header.
-
-### nocache=1 (always pass from client)
-Cache TTL is 20s. Client always passes `&nocache=1` so every call to loadVideoUrl() gets a fresh signed CDN URL. CDN signed URLs can expire in ~30-60s; stale cache causes retries to fail with expired URL.
-
-## Server — /api/stream/proxy (stream.ts)
-
-### Referer by domain
-- Flix2 CDN domains (`FLIX2_CDN_ROOTS`): `Referer: https://nixplay.lat/`, `Origin: https://nixplay.lat`
-- Drive/animezey domains: `Referer: https://animezey16082023.animezey16082023.workers.dev/`
-
-### HLS Manifest Rewriting
-`rewriteHlsManifest(body, manifestUrl, proxyBase)` handles:
-- Segment URI lines (non-comment, non-tag)
-- `EXT-X-KEY URI="..."` (encryption keys)
-- `EXT-X-MAP URI="..."` (init segments)
-- `EXT-X-MEDIA URI="..."` (alternate renditions)
-- Relative URIs resolved to absolute before rewriting
-- Only allowed hosts are rewritten (whitelist check)
-
-`getProxyBase(req)` derives the public URL from `x-forwarded-host` / `x-forwarded-proto` headers — works in both Replit dev and deployed .replit.app.
-
-## stream.ts FLIX2_CDN_ROOTS whitelist
-- `72yrci50ppqp71.com` — fontedecanais CDN (dynamic subdomains)
-- `fontedecanais.me`
-- `cineveo.lat` — covers vod99.cineveo.lat and any subdomain
-- `nixplay.lat`
+## HLS manifest rewriting (stream.ts)
+Proxy also rewrites HLS m3u8 segment URLs to go through proxy. Handles future HLS content.
+Most current Flix2 content appears to be MP4 (not HLS), but the rewriting is in place as a safety net.
