@@ -21,6 +21,10 @@ const SUPABASE_URL = "https://pjzfsbdcjyhcoptbrlhh.supabase.co";
 const SUPABASE_ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBqemZzYmRjanloY29wdGJybGhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAwOTA4MjUsImV4cCI6MjA5NTY2NjgyNX0.SB-NiDEKp4RtVr9MSv255IPWoU2rp7td7b5ejccBG8Q";
 
+// Domínio de produção permanente — sempre usado como fallback final se nenhum outro funcionar.
+// Este domínio é estável (não muda entre sessões Replit como os domínios dev).
+const PRODUCTION_DOMAIN = "net-celular--cleverbdeer769.replit.app";
+
 let _dynamicDomain: string | null = null;
 
 async function _fetchDomainFromSupabase(): Promise<string | null> {
@@ -105,6 +109,11 @@ export async function initApiDomain(): Promise<void> {
       await AsyncStorage.setItem(STORAGE_KEY, fromSupabase);
     } else if (fromStorage?.trim()) {
       _dynamicDomain = fromStorage.trim();
+    } else {
+      // 3. Último recurso: domínio de produção fixo baked no código.
+      // Garante que APKs já instalados nunca ficam sem API mesmo se Supabase falhar.
+      _dynamicDomain = PRODUCTION_DOMAIN;
+      await AsyncStorage.setItem(STORAGE_KEY, PRODUCTION_DOMAIN);
     }
   } catch {}
 }
@@ -139,9 +148,8 @@ export function getApiBase(): string {
     _dynamicDomain ||
     process.env.EXPO_PUBLIC_DOMAIN ||
     (Constants.expoConfig?.extra as any)?.apiDomain ||
-    null;
-  if (domain) return `https://${domain}/api`;
-  return null as any;
+    PRODUCTION_DOMAIN;
+  return `https://${domain}/api`;
 }
 
 // ─── TMDB ────────────────────────────────────────────────────────────────────
