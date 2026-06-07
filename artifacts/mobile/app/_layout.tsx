@@ -25,6 +25,7 @@ import { requestPermissionsAndSetup, scheduleNewContentNotification, saveNotific
 import { checkAndPromptUpdate } from "@/lib/app-updater";
 import { supabase } from "@/lib/supabase";
 import { initApiDomain } from "@/lib/api";
+import { startBackgroundPrefetch } from "@/lib/flix2-prefetch";
 
 SystemUI.setBackgroundColorAsync("#000000");
 SplashScreen.preventAutoHideAsync();
@@ -148,6 +149,29 @@ function WatchlistNotificationChecker() {
   return null;
 }
 
+/**
+ * Inicia o download em segundo plano de todo o catálogo Flix 2.0.
+ * Aguarda 5s após o app estar pronto para não atrasar a tela inicial.
+ */
+function CatalogPrefetcher() {
+  const { loading: authLoading } = useAuth();
+  const startedRef = React.useRef(false);
+
+  useEffect(() => {
+    if (authLoading) return;              // aguarda auth resolver
+    if (startedRef.current) return;
+    startedRef.current = true;
+
+    const t = setTimeout(() => {
+      startBackgroundPrefetch().catch(() => {});
+    }, 5000);
+
+    return () => clearTimeout(t);
+  }, [authLoading]);
+
+  return null;
+}
+
 function RootNavigator() {
   const { loading } = useAuth();
 
@@ -157,6 +181,7 @@ function RootNavigator() {
     <>
       <NotificationHandler />
       <WatchlistNotificationChecker />
+      <CatalogPrefetcher />
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#000" } }}>
         <Stack.Screen name="welcome" options={{ headerShown: false }} />
         <Stack.Screen name="login" options={{ headerShown: false }} />

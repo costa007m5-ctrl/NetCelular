@@ -41,6 +41,8 @@ import { db, isSupabaseConfigured } from "@/lib/supabase";
 import type { ContentItem } from "@/constants/content";
 import { MAIN_PLATFORMS } from "@/constants/streamings";
 import type { StreamingPlatform } from "@/constants/streamings";
+import { subscribePrefetch, forceRefreshCatalog, type PrefetchPhase } from "@/lib/flix2-prefetch";
+import { getCacheItemCount } from "@/lib/catalog-cache";
 import { preloadImages, clearPreloadQueue } from "@/lib/image-preloader";
 
 const TAB_BAR_CLEARANCE = 120;
@@ -1573,6 +1575,7 @@ export default function HomeScreen() {
   const [activeProfile, setActiveProfile] = useState<any>(null);
   const [cacheTs, setCacheTs]             = useState<number | null>(null);
   const [timeAgoStr, setTimeAgoStr]       = useState<string | null>(null);
+  const [prefetchPhase, setPrefetchPhase] = useState<PrefetchPhase>("idle");
   // Below-fold sections render after interactions complete (avoids mounting all 56 sections at once on Android)
   const [belowFoldReady, setBelowFoldReady] = useState(Platform.OS === "web");
 
@@ -1779,9 +1782,16 @@ export default function HomeScreen() {
       fetchPages("animes", 1),
     ]);
 
-    if (movRaw.length) setCached("movies", movRaw);
-    if (serRaw.length) setCached("series", serRaw);
-    if (aniRaw.length) setCached("animes", aniRaw);
+    // Só sobrescreve se o novo fetch tem >= items que o cache atual
+    // (evita que 1 página sobreescreva o catálogo completo do prefetch)
+    const [existM, existS, existA] = await Promise.all([
+      getCacheItemCount("movies"),
+      getCacheItemCount("series"),
+      getCacheItemCount("animes"),
+    ]);
+    if (movRaw.length && movRaw.length >= existM) setCached("movies", movRaw);
+    if (serRaw.length && serRaw.length >= existS) setCached("series", serRaw);
+    if (aniRaw.length && aniRaw.length >= existA) setCached("animes", aniRaw);
 
     return { movies: movRaw, series: serRaw, animes: aniRaw };
   }, []);
@@ -1827,10 +1837,33 @@ export default function HomeScreen() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  // ── Prefetch em segundo plano ─────────────────────────────────────────────
+  // Quando o catálogo completo termina de baixar, recarrega a home com mais itens
+  useEffect(() => {
+    const unsub = subscribePrefetch(async (s) => {
+      setPrefetchPhase(s.phase);
+      if (s.phase === "done") {
+        // Recarrega do cache — agora tem o catálogo completo
+        const [m, ser, ani] = await Promise.all([
+          getCached("movies"),
+          getCached("series"),
+          getCached("animes"),
+        ]);
+        if (m?.length || ser?.length) {
+          applyCatalog({ movies: m ?? [], series: ser ?? [], animes: ani ?? [] });
+        }
+        getCacheTimestamp("movies").then((ts) => { if (ts) setCacheTs(ts); }).catch(() => {});
+      }
+    });
+    return unsub;
+  }, [applyCatalog]);
+
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     sectionAnims.forEach((a) => a.setValue(0));
     loadData();
+    // Força novo sync completo do catálogo ao puxar para atualizar
+    forceRefreshCatalog().catch(() => {});
   }, [loadData]);
 
   // ── navigation ────────────────────────────────────────────────────────────
@@ -2117,9 +2150,18 @@ export default function HomeScreen() {
                 <Text style={[styles.logo, { color: RED }]}>NET</Text>
                 <Text style={[styles.logoWhite]}>PLAY</Text>
               </View>
-              {!!timeAgoStr && (
+              {(prefetchPhase !== "idle" && prefetchPhase !== "done" && prefetchPhase !== "checking") ? (
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2 }}>
+                  <ActivityIndicator size="small" color="rgba(229,9,20,0.75)" style={{ transform: [{ scale: 0.6 }] }} />
+                  <Text style={styles.syncLabel}>
+                    {prefetchPhase === "movies" ? "Baixando filmes..." :
+                     prefetchPhase === "series" ? "Baixando séries..." :
+                     "Baixando animes..."}
+                  </Text>
+                </View>
+              ) : !!timeAgoStr ? (
                 <Text style={styles.cacheLabel}>{timeAgoStr}</Text>
-              )}
+              ) : null}
             </View>
           </View>
           <View style={styles.headerActions}>
@@ -2169,6 +2211,7 @@ const styles = StyleSheet.create({
   },
   headerLeft:    { flexDirection: "row", alignItems: "flex-start" },
   cacheLabel:    { fontSize: 9, color: "rgba(255,255,255,0.35)", letterSpacing: 0.3, marginTop: 1 },
+  syncLabel:     { fontSize: 9, color: "rgba(229,9,20,0.75)",   letterSpacing: 0.3 },
   logo:          { fontSize: 23, fontWeight: "900", letterSpacing: 1.5 },
   logoWhite:     { fontSize: 23, fontWeight: "900", letterSpacing: 1.5, color: "#fff" },
   headerActions: { flexDirection: "row", gap: 4, alignItems: "center" },
