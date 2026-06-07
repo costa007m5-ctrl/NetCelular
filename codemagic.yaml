@@ -9,7 +9,11 @@ workflows:
     environment:
       node: 20.18.0
       vars:
-        # ── API do servidor (use sempre o domínio .replit.app do deploy, NUNCA a URL de dev) ──
+        # ── Supabase — supabase.com → seu projeto → Project Settings → API ──────────────────
+        SUPABASE_URL: "COLE_AQUI"       # ex: https://abcxyzabc.supabase.co
+        SUPABASE_ANON_KEY: "COLE_AQUI"  # ex: eyJhbGciOiJIUzI1NiIsInR5c...
+
+        # ── API do servidor (use sempre o domínio .replit.app do deploy) ─────────────────────
         API_DOMAIN: "net-celular--cleverndeer169.replit.app"
 
         # ── TMDB ──────────────────────────────────────────────────────────────────────────────
@@ -167,6 +171,10 @@ workflows:
       vars:
         BUNDLE_ID: com.netplay.app
 
+        # ── Supabase — supabase.com → seu projeto → Project Settings → API ──────────────────
+        SUPABASE_URL: "COLE_AQUI"       # ex: https://abcxyzabc.supabase.co
+        SUPABASE_ANON_KEY: "COLE_AQUI"  # ex: eyJhbGciOiJIUzI1NiIsInR5c...
+
         # ── API do servidor ────────────────────────────────────────────────────────────────────
         API_DOMAIN: "net-celular--cleverndeer169.replit.app"
 
@@ -308,6 +316,10 @@ workflows:
       node: 20.18.0
       vars:
         EAS_PROJECT_ID: aa86cc57-e8c0-4ce7-806c-0d1e5e345991
+
+        # ── Supabase — supabase.com → seu projeto → Project Settings → API ──────────────────
+        SUPABASE_URL: "COLE_AQUI"       # ex: https://abcxyzabc.supabase.co
+        SUPABASE_ANON_KEY: "COLE_AQUI"  # ex: eyJhbGciOiJIUzI1NiIsInR5c...
 
         # ── API do servidor ────────────────────────────────────────────────────────────────────
         API_DOMAIN: "net-celular--cleverndeer169.replit.app"
