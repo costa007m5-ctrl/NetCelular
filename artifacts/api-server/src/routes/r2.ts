@@ -2597,9 +2597,9 @@ async function resolveTeraboxDirect(shareUrl: string): Promise<string | null> {
   } catch { clearTimeout(tid); return null; }
 }
 
-// ── Stream URL redirect cache (15 min TTL) — avoids repeated HEAD requests ────
+// ── Stream URL redirect cache (90s TTL) — CDN signed URLs expire quickly ────
 const STREAM_URL_CACHE = new Map<string, { result: any; cachedAt: number }>();
-const STREAM_URL_TTL_MS = 15 * 60 * 1000;
+const STREAM_URL_TTL_MS = 90 * 1000;
 
 router.get("/flix2/stream-url", async (req, res) => {
   const streamUrl = String(req.query.streamUrl ?? "");

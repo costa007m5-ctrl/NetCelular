@@ -584,6 +584,23 @@ export default function R2PlayerScreen() {
         setActiveDriveOverride(null);
         setRetryCount(0);
         setTimeout(() => setFallbackNotice(null), 4000);
+      } else if (isCurrentlyFlix2 && tmdbId) {
+        // No fallback source — auto-switch to embed WebView player (always available)
+        setFallbackNotice("Flix 2.0 indisponível. Abrindo player alternativo…");
+        setTimeout(() => {
+          router.replace({
+            pathname: "/player",
+            params: {
+              type: contentType,
+              id: String(tmdbId),
+              season: season != null ? String(season) : "",
+              episode: episode != null ? String(episode) : "",
+              title: title ?? "",
+              posterPath: posterPath ?? "",
+              backdropPath: backdropPath ?? "",
+            },
+          });
+        }, 2000);
       }
     } else if (phase !== "error") {
       if (autoRetryTimerRef.current) { clearInterval(autoRetryTimerRef.current); autoRetryTimerRef.current = null; }
@@ -1251,14 +1268,36 @@ export default function R2PlayerScreen() {
                     </Pressable>
                   </View>
                 ) : (
-                  <View style={{ flexDirection: "row", gap: 12, marginTop: 20 }}>
-                    <Pressable style={styles.retryBtn} onPress={() => { setRetryCount((c) => c + 1); loadVideoUrl(); }}>
-                      <Feather name="refresh-cw" size={14} color="#fff" />
-                      <Text style={styles.retryText}>Tentar Novamente</Text>
-                    </Pressable>
-                    <Pressable style={styles.retryBtnSecondary} onPress={() => router.back()}>
-                      <Text style={styles.retryText}>Voltar</Text>
-                    </Pressable>
+                  <View style={{ gap: 10, marginTop: 20, alignItems: "center" }}>
+                    <View style={{ flexDirection: "row", gap: 12 }}>
+                      <Pressable style={styles.retryBtn} onPress={() => { setRetryCount((c) => c + 1); loadVideoUrl(); }}>
+                        <Feather name="refresh-cw" size={14} color="#fff" />
+                        <Text style={styles.retryText}>Tentar Novamente</Text>
+                      </Pressable>
+                      <Pressable style={styles.retryBtnSecondary} onPress={() => router.back()}>
+                        <Text style={styles.retryText}>Voltar</Text>
+                      </Pressable>
+                    </View>
+                    {isFlix2 && tmdbId ? (
+                      <Pressable
+                        style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 20, paddingVertical: 11, borderRadius: 10, backgroundColor: "rgba(139,92,246,0.18)", borderWidth: 1, borderColor: "rgba(139,92,246,0.35)" }}
+                        onPress={() => router.replace({
+                          pathname: "/player",
+                          params: {
+                            type: contentType,
+                            id: String(tmdbId),
+                            season: season != null ? String(season) : "",
+                            episode: episode != null ? String(episode) : "",
+                            title: title ?? "",
+                            posterPath: posterPath ?? "",
+                            backdropPath: backdropPath ?? "",
+                          },
+                        })}
+                      >
+                        <Feather name="monitor" size={14} color="#a78bfa" />
+                        <Text style={{ color: "#a78bfa", fontSize: 13, fontWeight: "600" }}>Player Alternativo</Text>
+                      </Pressable>
+                    ) : null}
                   </View>
                 )}
               </View>
