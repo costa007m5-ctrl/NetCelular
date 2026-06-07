@@ -1763,6 +1763,15 @@ function VerMaisModal({
             placeholderTextColor="rgba(255,255,255,0.28)"
             style={{ flex:1, color:"#fff", fontSize:14 }}
             returnKeyType="search" autoCorrect={false}
+            onFocus={() => setSearchFocused(true)}
+            onBlur={() => setSearchFocused(false)}
+            onSubmitEditing={() => {
+              const t = searchQuery.trim();
+              if (t) addToModalHistory(title, t)
+                .then(() => getModalHistory(title))
+                .then(setSearchHistory)
+                .catch(() => {});
+            }}
           />
           {q ? (
             <TouchableOpacity onPress={() => setSearchQuery("")}>
@@ -1770,6 +1779,48 @@ function VerMaisModal({
             </TouchableOpacity>
           ) : null}
         </View>
+
+        {/* ── Search history ─────────────────────────────────────────── */}
+        {searchFocused && !q && searchHistory.length > 0 && (
+          <View style={{ marginBottom: 6 }}>
+            <View style={{ flexDirection:"row", alignItems:"center",
+              justifyContent:"space-between", paddingHorizontal:16, marginBottom:6 }}>
+              <Text style={{ color:"rgba(255,255,255,0.38)", fontSize:11,
+                fontWeight:"700", letterSpacing:0.5, textTransform:"uppercase" }}>
+                Buscas recentes
+              </Text>
+              <TouchableOpacity onPress={() => {
+                clearModalHistory(title).then(() => setSearchHistory([])).catch(() => {});
+              }} hitSlop={{ top:8, bottom:8, left:8, right:8 }}>
+                <Text style={{ color:`${accentColor}99`, fontSize:11, fontWeight:"600" }}>Limpar</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}
+              keyboardShouldPersistTaps="always"
+              contentContainerStyle={{ paddingHorizontal:16, gap:8 }}
+              style={{ flexGrow:0 }}>
+              {searchHistory.map((h, i) => (
+                <TouchableOpacity key={i}
+                  onPress={() => {
+                    setSearchQuery(h);
+                    setSearchFocused(false);
+                    addToModalHistory(title, h).then(() => getModalHistory(title))
+                      .then(setSearchHistory).catch(() => {});
+                  }}
+                  activeOpacity={0.75}
+                  style={{ flexDirection:"row", alignItems:"center", gap:6,
+                    paddingHorizontal:12, paddingVertical:7, borderRadius:20,
+                    backgroundColor:`${accentColor}15`,
+                    borderWidth:1, borderColor:`${accentColor}35` }}>
+                  <Feather name="clock" size={10} color={`${accentColor}cc`} />
+                  <Text style={{ color:"rgba(255,255,255,0.82)", fontSize:12,
+                    fontWeight:"600", maxWidth:160 }} numberOfLines={1}>{h}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        )}
+
         {q && filteredItems.length === 0 ? (
           <View style={{ flex:1, alignItems:"center", justifyContent:"center", gap:10, paddingBottom:80 }}>
             <Feather name="search" size={32} color="rgba(255,255,255,0.12)" />
