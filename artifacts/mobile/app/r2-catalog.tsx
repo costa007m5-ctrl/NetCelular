@@ -5564,6 +5564,21 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
 
                   {/* Label history chips */}
                   {mgDriveLabelHistory.filter((h) => h !== mgDriveSelectLabel).length > 0 && (
+                    <View style={{ gap: 5 }}>
+                    {mgDriveLabelHistory.filter((h) => h !== mgDriveSelectLabel).length >= 2 && (
+                      <Pressable
+                        onPress={() => {
+                          setMgDriveLabelHistory([]);
+                          AsyncStorage.setItem(LABEL_HISTORY_KEY, JSON.stringify([])).catch(() => {});
+                        }}
+                        style={{ alignSelf: "flex-end", flexDirection: "row", alignItems: "center", gap: 3,
+                          paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10,
+                          backgroundColor: "rgba(239,68,68,0.08)", borderWidth: 1,
+                          borderColor: "rgba(239,68,68,0.2)" }}>
+                        <Feather name="trash-2" size={9} color="rgba(239,68,68,0.6)" />
+                        <Text style={{ color: "rgba(239,68,68,0.6)", fontSize: 10, fontWeight: "700" }}>Limpar tudo</Text>
+                      </Pressable>
+                    )}
                     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 5 }}>
                       {mgDriveLabelHistory
                         .filter((h) => h !== mgDriveSelectLabel)
@@ -5590,6 +5605,7 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
                             </Pressable>
                           </View>
                         ))}
+                    </View>
                     </View>
                   )}
 
