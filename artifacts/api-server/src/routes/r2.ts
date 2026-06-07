@@ -2096,17 +2096,52 @@ router.get("/flix2/catalog", async (req, res) => {
 const FULL_CATALOG_CACHE = new Map<string, { data: any[]; cachedAt: number }>();
 const FULL_CATALOG_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
+// ── Warm-up progress tracking ───────────────────────────────────────────────
+type WarmStatus = "idle" | "running" | "done" | "error";
+interface WarmTypeState {
+  status: WarmStatus;
+  pagesLoaded: number;
+  totalPages: number;
+  itemCount: number;
+  startedAt: number | null;
+  completedAt: number | null;
+  errorMsg?: string;
+}
+const WARM_PROGRESS = new Map<string, WarmTypeState>();
+const FLIX2_TYPES = ["series", "animes", "movies"];
+
+function getWarmState(type: string): WarmTypeState {
+  return WARM_PROGRESS.get(type) ?? {
+    status: "idle", pagesLoaded: 0, totalPages: 0, itemCount: 0,
+    startedAt: null, completedAt: null,
+  };
+}
+
 // Populates FULL_CATALOG_CACHE for the given type by fetching all pages.
 // Safe to call multiple times — skips if already fresh in cache.
 async function warmCatalogType(type: string): Promise<void> {
   const cached = FULL_CATALOG_CACHE.get(type);
-  if (cached && Date.now() - cached.cachedAt < FULL_CATALOG_TTL_MS) return;
+  if (cached && Date.now() - cached.cachedAt < FULL_CATALOG_TTL_MS) {
+    WARM_PROGRESS.set(type, {
+      status: "done", pagesLoaded: 0, totalPages: 0,
+      itemCount: cached.data.length,
+      startedAt: null, completedAt: cached.cachedAt,
+    });
+    return;
+  }
+
+  WARM_PROGRESS.set(type, { status: "running", pagesLoaded: 0, totalPages: 0, itemCount: 0, startedAt: Date.now(), completedAt: null });
 
   try {
     const first = await flix2FetchPage(type, 1);
-    if (!first.success) return;
+    if (!first.success) {
+      WARM_PROGRESS.set(type, { ...getWarmState(type), status: "error", errorMsg: "catalog unavailable" });
+      return;
+    }
     const totalPages: number = first.pagination?.total_pages ?? 1;
     const allItems: any[] = [...(first.data ?? [])];
+    WARM_PROGRESS.set(type, { ...getWarmState(type), pagesLoaded: 1, totalPages });
+
     const BATCH = 15;
     for (let start = 2; start <= totalPages; start += BATCH) {
       const batch = Array.from(
@@ -2114,10 +2149,17 @@ async function warmCatalogType(type: string): Promise<void> {
         (_, i) => flix2FetchPage(type, start + i)
       );
       const results = await Promise.allSettled(batch);
+      let batchLoaded = 0;
       for (const r of results) {
-        if (r.status === "fulfilled" && r.value.success) allItems.push(...(r.value.data ?? []));
+        if (r.status === "fulfilled" && r.value.success) {
+          allItems.push(...(r.value.data ?? []));
+          batchLoaded++;
+        }
       }
+      const prev = getWarmState(type);
+      WARM_PROGRESS.set(type, { ...prev, pagesLoaded: prev.pagesLoaded + batchLoaded });
     }
+
     const seenTmdb = new Set<number>();
     const seenFlix2 = new Set<string>();
     const deduped = allItems.filter((item) => {
@@ -2133,9 +2175,15 @@ async function warmCatalogType(type: string): Promise<void> {
       return true;
     });
     FULL_CATALOG_CACHE.set(type, { data: deduped, cachedAt: Date.now() });
+    WARM_PROGRESS.set(type, {
+      status: "done", pagesLoaded: totalPages, totalPages,
+      itemCount: deduped.length, startedAt: getWarmState(type).startedAt, completedAt: Date.now(),
+    });
     console.log(`[flix2] cache warm: type=${type} items=${deduped.length}`);
   } catch (e: any) {
-    console.warn(`[flix2] cache warm failed for ${type}:`, e?.message ?? e);
+    const msg = e?.message ?? String(e);
+    console.warn(`[flix2] cache warm failed for ${type}:`, msg);
+    WARM_PROGRESS.set(type, { ...getWarmState(type), status: "error", errorMsg: msg });
   }
 }
 
@@ -2146,6 +2194,22 @@ export async function warmAllCatalogCaches(): Promise<void> {
   await warmCatalogType("animes");
   await warmCatalogType("movies");
 }
+
+// ── GET /flix2/warm-status — real-time warm-up progress for admin UI ─────────
+router.get("/flix2/warm-status", (_req, res) => {
+  const types: Record<string, WarmTypeState & { cachedAt: number | null }> = {};
+  for (const type of FLIX2_TYPES) {
+    const state = getWarmState(type);
+    const cached = FULL_CATALOG_CACHE.get(type);
+    types[type] = { ...state, cachedAt: cached ? cached.cachedAt : null };
+  }
+  const allWarm = FLIX2_TYPES.every((t) => {
+    const c = FULL_CATALOG_CACHE.get(t);
+    return c && Date.now() - c.cachedAt < FULL_CATALOG_TTL_MS;
+  });
+  const anyRunning = FLIX2_TYPES.some((t) => getWarmState(t).status === "running");
+  res.json({ ok: true, types, allWarm, anyRunning });
+});
 
 // ── GET /flix2/catalog-full — fetches ALL pages for a type in parallel batches ─
 // Returns the complete catalog for a type so mobile only makes one request.

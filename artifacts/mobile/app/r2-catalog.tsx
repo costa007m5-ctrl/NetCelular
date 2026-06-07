@@ -5657,6 +5657,22 @@ function Flix2Panel() {
   const [statusLoading, setStatusLoading] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // ── Cache warm-up status ──────────────────────────────────────────────────
+  type WarmTypeInfo = {
+    status: "idle" | "running" | "done" | "error";
+    pagesLoaded: number;
+    totalPages: number;
+    itemCount: number;
+    cachedAt: number | null;
+    errorMsg?: string;
+  };
+  const [warmStatus, setWarmStatus] = useState<{
+    types: Record<string, WarmTypeInfo>;
+    allWarm: boolean;
+    anyRunning: boolean;
+  } | null>(null);
+  const warmPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const loadIndexStatus = async () => {
     setStatusLoading(true);
     try {
@@ -5667,6 +5683,46 @@ function Flix2Panel() {
     } catch {}
     finally { setStatusLoading(false); }
   };
+
+  const fetchWarmStatus = async () => {
+    try {
+      const data = await apiFetch<{
+        ok: boolean;
+        types: Record<string, WarmTypeInfo>;
+        allWarm: boolean;
+        anyRunning: boolean;
+      }>("/flix2/warm-status");
+      if (data.ok) setWarmStatus(data);
+    } catch {}
+  };
+
+  // Poll warm status on mount; keep polling while warm-up is in progress
+  useEffect(() => {
+    fetchWarmStatus();
+    warmPollRef.current = setInterval(async () => {
+      try {
+        const data = await apiFetch<{
+          ok: boolean;
+          types: Record<string, WarmTypeInfo>;
+          allWarm: boolean;
+          anyRunning: boolean;
+        }>("/flix2/warm-status");
+        if (data.ok) {
+          setWarmStatus(data);
+          if (!data.anyRunning && warmPollRef.current) {
+            clearInterval(warmPollRef.current);
+            warmPollRef.current = setInterval(async () => {
+              try {
+                const d = await apiFetch<any>("/flix2/warm-status");
+                if (d.ok) setWarmStatus(d);
+              } catch {}
+            }, 60000); // slow poll when idle
+          }
+        }
+      } catch {}
+    }, 3000);
+    return () => { if (warmPollRef.current) clearInterval(warmPollRef.current); };
+  }, []);
 
   useEffect(() => { loadIndexStatus(); }, []);
 
@@ -5801,6 +5857,83 @@ function Flix2Panel() {
             </Pressable>
           ))}
         </View>
+        {/* ── Cache Warm-up Status Panel ── */}
+        {(() => {
+          if (!warmStatus) return null;
+          const WARM_LABELS: Record<string, string> = { movies: "Filmes", series: "Séries", animes: "Animes" };
+          const WARM_PAGES: Record<string, number> = { movies: 821, series: 377, animes: 849 };
+          const types = ["series", "animes", "movies"];
+
+          const dot = (status: string) => {
+            if (status === "done") return <View style={{ width: 7, height: 7, borderRadius: 3.5, backgroundColor: "#22c55e" }} />;
+            if (status === "running") return <ActivityIndicator size="small" color="#f59e0b" style={{ width: 7, height: 7 }} />;
+            if (status === "error") return <View style={{ width: 7, height: 7, borderRadius: 3.5, backgroundColor: "#f87171" }} />;
+            return <View style={{ width: 7, height: 7, borderRadius: 3.5, backgroundColor: "rgba(255,255,255,0.2)" }} />;
+          };
+
+          const borderColor = warmStatus.allWarm
+            ? "rgba(34,197,94,0.2)"
+            : warmStatus.anyRunning
+              ? "rgba(245,158,11,0.3)"
+              : "rgba(255,255,255,0.07)";
+
+          return (
+            <View style={{ marginBottom: 6, borderRadius: 12, borderWidth: 1, borderColor,
+              backgroundColor: "rgba(255,255,255,0.02)", overflow: "hidden" }}>
+              {/* Header */}
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+                paddingHorizontal: 10, paddingTop: 8, paddingBottom: 6 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <Feather name="database" size={11} color={warmStatus.allWarm ? "#22c55e" : warmStatus.anyRunning ? "#f59e0b" : "rgba(255,255,255,0.3)"} />
+                  <Text style={{ color: warmStatus.allWarm ? "#22c55e" : warmStatus.anyRunning ? "#f59e0b" : "rgba(255,255,255,0.4)", fontSize: 10, fontWeight: "700" }}>
+                    {warmStatus.allWarm ? "Cache Quente — busca cobre todo o catálogo" : warmStatus.anyRunning ? "Aquecendo cache…" : "Cache de Busca"}
+                  </Text>
+                </View>
+                <Pressable onPress={fetchWarmStatus} style={{ padding: 4 }}>
+                  <Feather name="refresh-cw" size={10} color="rgba(255,255,255,0.25)" />
+                </Pressable>
+              </View>
+
+              {/* Per-type rows */}
+              {types.map((t) => {
+                const info: WarmTypeInfo = warmStatus.types[t] ?? { status: "idle", pagesLoaded: 0, totalPages: 0, itemCount: 0, cachedAt: null };
+                const total = info.totalPages > 0 ? info.totalPages : WARM_PAGES[t] ?? 0;
+                const pct = total > 0 ? Math.min(100, Math.round((info.pagesLoaded / total) * 100)) : 0;
+                const ageMin = info.cachedAt ? Math.round((Date.now() - info.cachedAt) / 60000) : null;
+                return (
+                  <View key={t} style={{ paddingHorizontal: 10, paddingBottom: 8 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 7, marginBottom: info.status === "running" ? 4 : 0 }}>
+                      {dot(info.status)}
+                      <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 10, fontWeight: "600", width: 44 }}>
+                        {WARM_LABELS[t]}
+                      </Text>
+                      {info.status === "done" ? (
+                        <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 9, flex: 1 }}>
+                          {info.itemCount.toLocaleString()} títulos
+                          {ageMin !== null && ageMin < 60 ? ` · há ${ageMin}min` : ageMin !== null ? ` · há ${Math.round(ageMin / 60)}h` : ""}
+                        </Text>
+                      ) : info.status === "running" ? (
+                        <Text style={{ color: "#f59e0b", fontSize: 9, flex: 1 }}>
+                          {info.pagesLoaded.toLocaleString()} / {total.toLocaleString()} pág · {pct}%
+                        </Text>
+                      ) : info.status === "error" ? (
+                        <Text style={{ color: "#f87171", fontSize: 9, flex: 1 }}>Erro · {info.errorMsg ?? "falha"}</Text>
+                      ) : (
+                        <Text style={{ color: "rgba(255,255,255,0.2)", fontSize: 9, flex: 1 }}>Aguardando…</Text>
+                      )}
+                    </View>
+                    {info.status === "running" && total > 0 && (
+                      <View style={{ height: 2, borderRadius: 1, backgroundColor: "rgba(255,255,255,0.06)", marginLeft: 14 }}>
+                        <View style={{ height: 2, borderRadius: 1, width: `${pct}%`, backgroundColor: "#f59e0b" }} />
+                      </View>
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+          );
+        })()}
+
         {/* ── Auto-Sync panel ── */}
         {(() => {
           const isRunning = !!buildJobId || buildProgress?.status === "running";
