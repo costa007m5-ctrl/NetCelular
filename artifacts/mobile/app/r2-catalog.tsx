@@ -3680,12 +3680,13 @@ function TeraBoxPanel() {
 type FolderBulkTarget = { drive: 0 | 1; path: string; name: string };
 type BulkScanItem = { filePath: string; fileName: string; size?: string; season?: number; episode?: number };
 
-function FolderBulkModal({ target, onClose, onDone, defaultContentType, defaultQuality }: {
+function FolderBulkModal({ target, onClose, onDone, defaultContentType, defaultQuality, defaultAudio }: {
   target: FolderBulkTarget;
   onClose: () => void;
   onDone: (count: number) => void;
   defaultContentType?: "movie" | "series" | null;
   defaultQuality?: "4K" | "1080p" | "720p" | null;
+  defaultAudio?: "Dublado" | "Legendado" | null;
 }) {
   const [contentType, setContentType] = useState<"movie" | "series" | null>(defaultContentType ?? null);
   const [scanning, setScanning] = useState(false);
@@ -3713,7 +3714,7 @@ function FolderBulkModal({ target, onClose, onDone, defaultContentType, defaultQ
   const [selectedTmdb, setSelectedTmdb] = useState<TmdbSearchResult | null>(null);
   const [tmdbIdInputBulk, setTmdbIdInputBulk] = useState("");
   const [searchingByIdBulk, setSearchingByIdBulk] = useState(false);
-  const [label, setLabel] = useState(defaultQuality ? `Dublado ${defaultQuality}` : "Dublado 1080p");
+  const [label, setLabel] = useState(`${defaultAudio ?? "Dublado"} ${defaultQuality ?? "1080p"}`);
 
   // Per-unit TMDB links: filePath → TmdbSearchResult
   const [unitLinks, setUnitLinks] = useState<Map<string, TmdbSearchResult>>(new Map());
@@ -4809,6 +4810,7 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
   const [mgDriveBulkQueue, setMgDriveBulkQueue] = useState<FolderBulkTarget[]>([]);
   const [mgDriveSelectType, setMgDriveSelectType] = useState<"movie" | "series" | null>(null);
   const [mgDriveSelectQuality, setMgDriveSelectQuality] = useState<"4K" | "1080p" | "720p" | null>(null);
+  const [mgDriveSelectAudio, setMgDriveSelectAudio] = useState<"Dublado" | "Legendado" | null>(null);
 
   // ── Remap history ────────────────────────────────────────────────────────────
   interface RemapEntry { id: string; doneAt: string; fromIds: number[]; toId: number; toType: string; titles: string[]; updated: number }
@@ -4910,6 +4912,7 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
     setMgDriveSelected(new Map());
     setMgDriveSelectType(null);
     setMgDriveSelectQuality(null);
+    setMgDriveSelectAudio(null);
   };
 
   const mgNavPush = (drive: 0 | 1, folderPath: string, name: string) => {
@@ -5428,7 +5431,29 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
                     })}
                   </View>
 
-                  {/* Row 2: Qualidade — 4K / 1080p / 720p */}
+                  {/* Row 2: Áudio — Dublado / Legendado */}
+                  <View style={{ flexDirection: "row", gap: 5 }}>
+                    {([
+                      { val: "Dublado"  as const, icon: "volume-2" as const, color: "#34d399", bg: "rgba(52,211,153,0.13)" },
+                      { val: "Legendado" as const, icon: "align-left" as const, color: "#fb923c", bg: "rgba(251,146,60,0.13)" },
+                    ]).map(({ val, icon, color, bg }) => {
+                      const on = mgDriveSelectAudio === val;
+                      return (
+                        <Pressable key={val}
+                          onPress={() => setMgDriveSelectAudio((prev) => prev === val ? null : val)}
+                          style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5,
+                            paddingVertical: 8, borderRadius: 8, borderWidth: 1.5,
+                            borderColor: on ? color : "rgba(255,255,255,0.1)",
+                            backgroundColor: on ? bg : "rgba(255,255,255,0.03)" }}>
+                          <Feather name={icon} size={12} color={on ? color : "rgba(255,255,255,0.35)"} />
+                          <Text style={{ color: on ? color : "rgba(255,255,255,0.4)", fontSize: 12, fontWeight: "800" }}>{val}</Text>
+                          {on && <Feather name="check" size={11} color={color} />}
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+
+                  {/* Row 3: Qualidade — 4K / 1080p / 720p */}
                   <View style={{ flexDirection: "row", gap: 5 }}>
                     {(["4K", "1080p", "720p"] as const).map((q) => {
                       const on = mgDriveSelectQuality === q;
@@ -5446,29 +5471,33 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
                     })}
                   </View>
 
-                  {(mgDriveSelectType == null || mgDriveSelectQuality == null) && (
-                    <Text style={{ color: "rgba(255,255,255,0.25)", fontSize: 10, textAlign: "center" }}>
-                      {mgDriveSelectType == null && mgDriveSelectQuality == null
-                        ? "Tipo e qualidade são opcionais — pré-preenchem cada pasta"
-                        : mgDriveSelectType == null
-                          ? "Tipo não definido — cada pasta pedirá Série ou Filme"
-                          : "Qualidade não definida — label ficará como \"Dublado 1080p\""}
+                  {/* Preview do label que será gerado */}
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5,
+                    paddingVertical: 5, paddingHorizontal: 10, borderRadius: 6,
+                    backgroundColor: "rgba(255,255,255,0.04)", borderWidth: 1, borderColor: "rgba(255,255,255,0.08)" }}>
+                    <Feather name="tag" size={10} color="rgba(255,255,255,0.3)" />
+                    <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 10 }}>
+                      Label: <Text style={{ color: "rgba(255,255,255,0.6)", fontWeight: "700" }}>
+                        {`${mgDriveSelectAudio ?? "Dublado"} ${mgDriveSelectQuality ?? "1080p"}`}
+                      </Text>
                     </Text>
-                  )}
+                  </View>
 
                   {/* Confirm pill */}
                   <Pressable
                     onPress={() => {
                       const targets = Array.from(mgDriveSelected.values());
                       const [first, ...rest] = targets;
-                      const savedType = mgDriveSelectType;
+                      const savedType    = mgDriveSelectType;
                       const savedQuality = mgDriveSelectQuality;
+                      const savedAudio   = mgDriveSelectAudio;
                       mgDriveExitSelectMode();
                       setMgDriveBulkQueue(rest);
                       setFolderBulkTarget(first);
-                      // Preserve type + quality for the queue handler (exit clears them)
+                      // Preserve all three for the queue (exit clears them)
                       setMgDriveSelectType(savedType);
                       setMgDriveSelectQuality(savedQuality);
+                      setMgDriveSelectAudio(savedAudio);
                     }}
                     style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
                       padding: 14, borderRadius: 10, borderWidth: 2,
@@ -5477,7 +5506,7 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
                     <Text style={{ color: "#fef3c7", fontSize: 13, fontWeight: "800" }}>
                       Usar {mgDriveSelected.size} pasta{mgDriveSelected.size !== 1 ? "s" : ""}
                       {mgDriveSelectType ? ` · ${mgDriveSelectType === "series" ? "Série" : "Filme"}` : ""}
-                      {mgDriveSelectQuality ? ` · ${mgDriveSelectQuality}` : ""}
+                      {` · ${mgDriveSelectAudio ?? "Dublado"} ${mgDriveSelectQuality ?? "1080p"}`}
                     </Text>
                     <Feather name="arrow-right" size={15} color="#fbbf24" />
                   </Pressable>
@@ -5582,6 +5611,7 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
           target={folderBulkTarget}
           defaultContentType={mgDriveSelectType}
           defaultQuality={mgDriveSelectQuality}
+          defaultAudio={mgDriveSelectAudio}
           onClose={() => {
             if (mgDriveBulkQueue.length > 0) {
               const [next, ...remaining] = mgDriveBulkQueue;
@@ -5591,6 +5621,7 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
               setFolderBulkTarget(null);
               setMgDriveSelectType(null);
               setMgDriveSelectQuality(null);
+              setMgDriveSelectAudio(null);
             }
           }}
           onDone={(count) => {
@@ -5610,6 +5641,7 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
                     setFolderBulkTarget(null);
                     setMgDriveSelectType(null);
                     setMgDriveSelectQuality(null);
+                    setMgDriveSelectAudio(null);
                   }
                 }
               }]
