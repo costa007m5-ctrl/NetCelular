@@ -890,7 +890,7 @@ function CompactRow({ items, onPress }: { items:ContentItem[]; onPress:(i:Conten
   );
 }
 
-function Top10Row({ items, onPress }: { items:ContentItem[]; onPress:(i:ContentItem)=>void }) {
+function _Top10Row_unused({ items, onPress }: { items:ContentItem[]; onPress:(i:ContentItem)=>void }) {
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false}
       contentContainerStyle={{ paddingHorizontal:16, gap:4 }} decelerationRate="fast">
@@ -957,8 +957,6 @@ export default function NovidadesScreen() {
 
   // derived slices
   const trendMovies    = useMemo(() => allMovies.slice(0, 6),  [allMovies]);
-  const top10Movies    = useMemo(() => allMovies.slice(0, 10), [allMovies]);
-  const top10Series    = useMemo(() => allSeries.slice(0, 10), [allSeries]);
   const nowPlaying     = useMemo(() => allMovies.slice(0, 6),  [allMovies]);
   const onAir          = useMemo(() => allSeries.slice(0, 6),  [allSeries]);
 
@@ -1151,18 +1149,6 @@ export default function NovidadesScreen() {
                 </AnimatedSection>
               )}
 
-              {/* ── 5. TOP 10 FILMES ────────────────────────────────────── */}
-              {top10Movies.length > 0 && (
-                <AnimatedSection anim={s[3]}>
-                  <View style={sty.sec}>
-                    <SectionHeader title="Top 10 Filmes" icon="award"
-                      badge="TOP 10" accentColor={AMBER}
-                      onSeeAll={() => openModal("Top 10 Filmes", top10Movies, AMBER)} />
-                    <Top10Row items={top10Movies} onPress={goTo} />
-                  </View>
-                </AnimatedSection>
-              )}
-
               <SectionDivider label="LANÇAMENTOS" accentColor={BLUE} />
 
               {/* ── 6. LANÇAMENTOS DA SEMANA ────────────────────────────── */}
@@ -1189,18 +1175,6 @@ export default function NovidadesScreen() {
                     <MoodRow items={onAir} onPress={goTo}
                       labels={["NOVO EP.","HOJE","NOVO EP.","AMANHÃ","NOVO EP.","HOJE"]}
                       accentColor={GREEN} />
-                  </View>
-                </AnimatedSection>
-              )}
-
-              {/* ── 9. TOP 10 SÉRIES ────────────────────────────────────── */}
-              {top10Series.length > 0 && (
-                <AnimatedSection anim={s[7]}>
-                  <View style={sty.sec}>
-                    <SectionHeader title="Top 10 Séries" icon="award"
-                      badge="TOP 10" accentColor={PURPLE}
-                      onSeeAll={() => openModal("Top 10 Séries", top10Series, PURPLE)} />
-                    <Top10Row items={top10Series} onPress={goTo} />
                   </View>
                 </AnimatedSection>
               )}

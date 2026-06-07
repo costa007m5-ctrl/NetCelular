@@ -464,12 +464,15 @@ function CatalogGrid({ onSelect, onRegister, onEdit, initialSearch }: {
         {search.length > 0 && <Pressable onPress={() => setSearch("")}><Feather name="x" size={15} color="rgba(255,255,255,0.4)" /></Pressable>}
         <Pressable
           onPress={() => { if (!forceRefreshing) { setForceRefreshing(true); load(true); } }}
-          style={{ marginLeft: 6, padding: 6, borderRadius: 8, backgroundColor: forceRefreshing ? "rgba(229,9,20,0.15)" : "rgba(255,255,255,0.06)" }}
+          style={{ marginLeft: 6, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: forceRefreshing ? "rgba(229,9,20,0.15)" : "rgba(255,255,255,0.06)", flexDirection: "row", alignItems: "center", gap: 5 }}
           hitSlop={8}
         >
           {forceRefreshing
             ? <ActivityIndicator size={14} color={RED} />
-            : <Feather name="refresh-cw" size={15} color={entries.length === 0 ? RED : "rgba(255,255,255,0.45)"} />}
+            : <Feather name="refresh-cw" size={14} color={entries.length === 0 ? RED : "rgba(255,255,255,0.45)"} />}
+          {!forceRefreshing && entries.length > 0 && (
+            <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 12, fontWeight: "600" }}>{entries.length}</Text>
+          )}
         </Pressable>
       </View>
       {error ? (
