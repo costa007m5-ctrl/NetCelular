@@ -37,6 +37,7 @@ import type { ContentItem } from "@/constants/content";
 import { r2Route } from "@/lib/r2-direct";
 import { useR2Catalog } from "@/lib/r2-catalog-hook";
 import { getCached, setCached } from "@/lib/catalog-cache";
+import { getModalHistory, addToModalHistory, clearModalHistory } from "@/lib/modal-search-history";
 
 const { width: W, height: H } = Dimensions.get("window");
 const STATUS_H = RNStatusBar.currentHeight ?? 0;
@@ -643,6 +644,8 @@ function VerMaisModal({
   const [loadingMore,   setLoadingMore]   = useState(false);
   const [noMoreTmdb,    setNoMoreTmdb]    = useState(false);
   const [searchQuery,   setSearchQuery]   = useState("");
+  const [searchFocused, setSearchFocused] = useState(false);
+  const [searchHistory, setSearchHistory] = useState<string[]>([]);
   const [selectedGenre, setSelectedGenre] = useState<number | null>(null);
   const PAGE = 20;
 
@@ -662,7 +665,9 @@ function VerMaisModal({
       setTmdbPage(initTmdbPage ?? 1);
       setNoMoreTmdb(false);
       setSearchQuery("");
+      setSearchFocused(false);
       setSelectedGenre(null);
+      getModalHistory(title).then(setSearchHistory).catch(() => {});
       Animated.parallel([
         Animated.timing(slideY,   { toValue: 0, duration: 340, useNativeDriver: true }),
         Animated.timing(backdrop, { toValue: 1, duration: 280, useNativeDriver: true }),

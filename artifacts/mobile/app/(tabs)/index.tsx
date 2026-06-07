@@ -39,6 +39,7 @@ import { SearchTriggerBar } from "@/components/SearchTriggerBar";
 import { r2Route } from "@/lib/r2-direct";
 import { useR2Catalog } from "@/lib/r2-catalog-hook";
 import { getCached, setCached, getCacheTimestamp } from "@/lib/catalog-cache";
+import { getModalHistory, addToModalHistory, clearModalHistory } from "@/lib/modal-search-history";
 import { checkCatalogWatchAndNotify } from "@/lib/catalog-watch";
 import { useAuth } from "@/lib/auth-context";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
@@ -1567,10 +1568,12 @@ function VerMaisModal({
 }) {
   const slideY   = useRef(new Animated.Value(H)).current;
   const backdrop = useRef(new Animated.Value(0)).current;
-  const [page,        setPage]        = useState(1);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [starRatings, setStarRatings] = useState<Map<string, number>>(new Map());
-  const [pickerFor,   setPickerFor]   = useState<string | null>(null);
+  const [page,          setPage]          = useState(1);
+  const [searchQuery,   setSearchQuery]   = useState("");
+  const [searchFocused, setSearchFocused] = useState(false);
+  const [searchHistory, setSearchHistory] = useState<string[]>([]);
+  const [starRatings,   setStarRatings]   = useState<Map<string, number>>(new Map());
+  const [pickerFor,     setPickerFor]     = useState<string | null>(null);
   const PAGE = 20;
 
   const ratingKey = (item: ContentItem) =>
@@ -1585,7 +1588,8 @@ function VerMaisModal({
 
   useEffect(() => {
     if (visible) {
-      setPage(1); setSearchQuery(""); setPickerFor(null);
+      setPage(1); setSearchQuery(""); setSearchFocused(false); setPickerFor(null);
+      getModalHistory(title).then(setSearchHistory).catch(() => {});
       Animated.parallel([
         Animated.timing(slideY,   { toValue: 0, duration: 340, useNativeDriver: true }),
         Animated.timing(backdrop, { toValue: 1, duration: 280, useNativeDriver: true }),
