@@ -2717,7 +2717,10 @@ router.get("/flix2/stream-url", async (req, res) => {
     } finally { clearTimeout(timer); }
     // For redirect:manual, a 3xx response gives us the Location header directly.
     // Fall back to the original streamUrl if no Location header (e.g., 200 direct URL).
-    const finalUrl = response!.headers.get("location") || streamUrl;
+    const location = response!.headers.get("location");
+    const finalUrl = location || streamUrl;
+    const finalHost = (() => { try { return new URL(finalUrl).hostname; } catch { return "unknown"; } })();
+    console.log(`[flix2/stream-url] status=${response!.status} location=${location ? finalHost : "none (direct)"} finalUrl="${finalUrl.slice(0, 120)}"`);
 
     // Step 3: if the redirect landed on TeraBox, resolve via xAPIverse
     if (isTeraboxUrl(finalUrl)) {

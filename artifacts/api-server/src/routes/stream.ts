@@ -203,7 +203,10 @@ router.get("/proxy", async (req: Request, res: Response) => {
   }
 
   if (!isAllowedHost(decodedUrl)) {
-    res.status(403).json({ error: "Host not allowed" });
+    let host = "unknown";
+    try { host = new URL(decodedUrl).hostname; } catch {}
+    console.log(`[proxy] BLOCKED host="${host}" url="${decodedUrl.slice(0, 120)}"`);
+    res.status(403).json({ error: "Host not allowed", host });
     return;
   }
 
@@ -241,8 +244,13 @@ router.get("/proxy", async (req: Request, res: Response) => {
     });
     clearTimeout(timeout);
 
+    let host = "unknown";
+    try { host = new URL(decodedUrl).hostname; } catch {}
+    console.log(`[proxy] ${upstream.status} host="${host}" range=${!!rangeHeader} ct="${upstream.headers.get("content-type") ?? ""}" url="${decodedUrl.slice(0, 100)}"`);
+
     if (!upstream.ok && upstream.status !== 206) {
-      res.status(upstream.status).json({ error: `Upstream returned ${upstream.status}` });
+      console.log(`[proxy] upstream error ${upstream.status} for host="${host}"`);
+      res.status(upstream.status).json({ error: `Upstream returned ${upstream.status}`, host, status: upstream.status });
       return;
     }
 
