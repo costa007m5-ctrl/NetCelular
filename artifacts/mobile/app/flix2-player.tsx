@@ -350,15 +350,20 @@ export default function Flix2PlayerScreen() {
       const isCineveo = resolvedUrl.includes("cineveo.lat");
       setResolvedCdnType(isFontedecanais ? "fontedecanais" : isCineveo ? "cineveo" : "flix2");
 
-      // Step 3: ALWAYS proxy — no direct CDN access from device.
-      // - fontedecanais: token IP-bound to Replit server → proxy uses same IP → CDN accepts
-      // - cineveo: time-based sig → works from any IP, but proxy adds correct Referer
+      // Step 3: Route through proxy.
+      // - fontedecanais: token IP-bound to Replit server → MUST proxy (device IP ≠ token IP)
+      // - cineveo: time-based sig → any IP works, proxy preferred (adds Referer); direct fallback OK
       // - Web: proxy handles CORS
-      const url = getProxiedStreamUrl(resolvedUrl);
-      if (!url || url === resolvedUrl) {
-        // Proxy URL not built (API base not loaded yet) — wait and retry
+      const proxiedUrl = getProxiedStreamUrl(resolvedUrl);
+      const proxyAvailable = !!(proxiedUrl && proxiedUrl !== resolvedUrl);
+
+      if (!proxyAvailable && isFontedecanais) {
+        // fontedecanais REQUIRES proxy — can't play direct in APK
         throw new Error("Servidor de proxy não disponível. Aguarde e tente novamente.");
       }
+
+      // Use proxy when available; fall back to direct for cineveo only
+      const url = proxyAvailable ? proxiedUrl : resolvedUrl;
 
       setVideoUrl(url);
     } catch (e: any) {
@@ -758,13 +763,17 @@ export default function Flix2PlayerScreen() {
       </Modal>
 
       {/* ── Video player ────────────────────────────────────────────────────── */}
-      {phase === "ready" && videoUrl && Video ? (
+      {/* IMPORTANT: mount as soon as videoUrl is set (not only when ready).
+          Mounting only on "ready" creates a deadlock: onLoad/onPlaybackStatusUpdate
+          never fire → transitionToReady never called → stuck at 80% forever.
+          We hide the video visually during loading; it becomes visible once ready. */}
+      {videoUrl && Video ? (
         <Video
           ref={videoRef}
           source={{ uri: videoUrl }}
-          style={StyleSheet.absoluteFill}
+          style={[StyleSheet.absoluteFill, phase !== "ready" && { opacity: 0 }]}
           resizeMode={ResizeMode?.CONTAIN ?? "contain"}
-          shouldPlay
+          shouldPlay={phase === "ready"}
           isLooping={false}
           onLoad={onVideoLoad}
           onPlaybackStatusUpdate={onPlaybackStatusUpdate}
