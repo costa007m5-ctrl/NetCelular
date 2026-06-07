@@ -3687,10 +3687,10 @@ function FolderBulkModal({ target, onClose, onDone, defaultContentType, defaultQ
   defaultContentType?: "movie" | "series" | null;
   defaultQuality?: "4K" | "1080p" | "720p" | null;
   defaultAudio?: "Dublado" | "Legendado" | null;
-  defaultLanguage?: "pt-BR" | "en-US" | "ja-JP" | null;
+  defaultLanguage?: "pt-BR" | "en-US" | "ja-JP" | "es-MX" | null;
 }) {
   const [contentType, setContentType] = useState<"movie" | "series" | null>(defaultContentType ?? null);
-  const [tmdbLang, setTmdbLang] = useState<"pt-BR" | "en-US" | "ja-JP">(defaultLanguage ?? "pt-BR");
+  const [tmdbLang, setTmdbLang] = useState<"pt-BR" | "en-US" | "ja-JP" | "es-MX">(defaultLanguage ?? "pt-BR");
   const [scanning, setScanning] = useState(false);
   const [scanItems, setScanItems] = useState<BulkScanItem[]>([]);
   const [scanError, setScanError] = useState<string | null>(null);
@@ -4272,6 +4272,7 @@ function FolderBulkModal({ target, onClose, onDone, defaultContentType, defaultQ
                             {([
                               { code: "pt-BR" as const, flag: "🇧🇷", label: "PT" },
                               { code: "en-US" as const, flag: "🇺🇸", label: "EN" },
+                              { code: "es-MX" as const, flag: "🇪🇸", label: "ES" },
                               { code: "ja-JP" as const, flag: "🇯🇵", label: "JA" },
                             ]).map(({ code, flag, label }) => {
                               const on = tmdbLang === code;
@@ -4834,7 +4835,7 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
   const [mgDriveSelectType, setMgDriveSelectType] = useState<"movie" | "series" | null>(null);
   const [mgDriveSelectQuality, setMgDriveSelectQuality] = useState<"4K" | "1080p" | "720p" | null>(null);
   const [mgDriveSelectAudio, setMgDriveSelectAudio] = useState<"Dublado" | "Legendado" | null>(null);
-  const [mgDriveSelectLang, setMgDriveSelectLang] = useState<"pt-BR" | "en-US" | "ja-JP" | null>(null);
+  const [mgDriveSelectLang, setMgDriveSelectLang] = useState<"pt-BR" | "en-US" | "ja-JP" | "es-MX" | null>(null);
 
   // ── Remap history ────────────────────────────────────────────────────────────
   interface RemapEntry { id: string; doneAt: string; fromIds: number[]; toId: number; toType: string; titles: string[]; updated: number }
@@ -5496,24 +5497,25 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
                     })}
                   </View>
 
-                  {/* Row 4: Idioma TMDB — PT / EN / JA */}
+                  {/* Row 4: Idioma TMDB — PT / EN / ES / JA */}
                   <View style={{ flexDirection: "row", gap: 5 }}>
                     {([
-                      { code: "pt-BR" as const, flag: "🇧🇷", label: "PT-BR" },
-                      { code: "en-US" as const, flag: "🇺🇸", label: "EN-US" },
-                      { code: "ja-JP" as const, flag: "🇯🇵", label: "JA-JP" },
+                      { code: "pt-BR" as const, flag: "🇧🇷", label: "PT" },
+                      { code: "en-US" as const, flag: "🇺🇸", label: "EN" },
+                      { code: "es-MX" as const, flag: "🇪🇸", label: "ES" },
+                      { code: "ja-JP" as const, flag: "🇯🇵", label: "JA" },
                     ]).map(({ code, flag, label }) => {
                       const on = mgDriveSelectLang === code;
                       return (
                         <Pressable key={code}
                           onPress={() => setMgDriveSelectLang((prev) => prev === code ? null : code)}
-                          style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4,
+                          style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 3,
                             paddingVertical: 8, borderRadius: 8, borderWidth: 1.5,
                             borderColor: on ? "#818cf8" : "rgba(255,255,255,0.1)",
                             backgroundColor: on ? "rgba(99,102,241,0.18)" : "rgba(255,255,255,0.03)" }}>
-                          <Text style={{ fontSize: 13 }}>{flag}</Text>
+                          <Text style={{ fontSize: 12 }}>{flag}</Text>
                           <Text style={{ color: on ? "#c7d2fe" : "rgba(255,255,255,0.4)", fontSize: 11, fontWeight: "800" }}>{label}</Text>
-                          {on && <Feather name="check" size={10} color="#818cf8" />}
+                          {on && <Feather name="check" size={9} color="#818cf8" />}
                         </Pressable>
                       );
                     })}
@@ -5557,7 +5559,7 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
                       Usar {mgDriveSelected.size} pasta{mgDriveSelected.size !== 1 ? "s" : ""}
                       {mgDriveSelectType ? ` · ${mgDriveSelectType === "series" ? "Série" : "Filme"}` : ""}
                       {` · ${mgDriveSelectAudio ?? "Dublado"} ${mgDriveSelectQuality ?? "1080p"}`}
-                      {mgDriveSelectLang ? ` · ${mgDriveSelectLang === "pt-BR" ? "🇧🇷" : mgDriveSelectLang === "en-US" ? "🇺🇸" : "🇯🇵"}` : ""}
+                      {mgDriveSelectLang ? ` · ${{ "pt-BR": "🇧🇷", "en-US": "🇺🇸", "es-MX": "🇪🇸", "ja-JP": "🇯🇵" }[mgDriveSelectLang]}` : ""}
                     </Text>
                     <Feather name="arrow-right" size={15} color="#fbbf24" />
                   </Pressable>
