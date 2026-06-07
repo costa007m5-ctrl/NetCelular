@@ -4801,6 +4801,10 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
   const [folderBulkTarget, setFolderBulkTarget] = useState<FolderBulkTarget | null>(null);
   const [mgDriveFilter, setMgDriveFilter] = useState("");
   const [mgDriveUrlInput, setMgDriveUrlInput] = useState("");
+  // Multi-select ("colecionador de pastas")
+  const [mgDriveSelectMode, setMgDriveSelectMode] = useState(false);
+  const [mgDriveSelected, setMgDriveSelected] = useState<Map<string, FolderBulkTarget>>(new Map());
+  const [mgDriveBulkQueue, setMgDriveBulkQueue] = useState<FolderBulkTarget[]>([]);
 
   // ── Remap history ────────────────────────────────────────────────────────────
   interface RemapEntry { id: string; doneAt: string; fromIds: number[]; toId: number; toType: string; titles: string[]; updated: number }
@@ -4889,8 +4893,23 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
     finally { setMgDriveLoading(false); }
   };
 
+  const mgDriveToggleSelect = (folderPath: string, target: FolderBulkTarget) => {
+    setMgDriveSelected((prev) => {
+      const next = new Map(prev);
+      if (next.has(folderPath)) { next.delete(folderPath); } else { next.set(folderPath, target); }
+      return next;
+    });
+  };
+
+  const mgDriveExitSelectMode = () => {
+    setMgDriveSelectMode(false);
+    setMgDriveSelected(new Map());
+  };
+
   const mgNavPush = (drive: 0 | 1, folderPath: string, name: string) => {
     setMgDriveFilter("");
+    setMgDriveSelected(new Map());
+    setMgDriveSelectMode(false);
     setMgDriveNav((prev) => [...prev, { drive, path: folderPath, name }]);
     loadMgFolder(drive, folderPath);
   };
@@ -5141,28 +5160,44 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
 
               <View style={{ height: 1, backgroundColor: "rgba(34,197,94,0.12)", marginHorizontal: 12, marginBottom: 6 }} />
 
-              {/* Search filter bar — shows inside a folder */}
+              {/* Search filter bar + multi-select toggle — shows inside a folder */}
               {mgDriveNav.length > 0 && (
-                <View style={{ flexDirection:"row", alignItems:"center", gap:6,
-                  marginHorizontal:12, marginBottom:8,
-                  backgroundColor:"rgba(255,255,255,0.05)", borderRadius:8,
-                  borderWidth:1, borderColor:"rgba(255,255,255,0.09)", paddingHorizontal:10, paddingVertical:6 }}>
-                  <Feather name="search" size={13} color="rgba(255,255,255,0.3)" />
-                  <TextInput
-                    value={mgDriveFilter}
-                    onChangeText={setMgDriveFilter}
-                    placeholder="Filtrar pastas…"
-                    placeholderTextColor="rgba(255,255,255,0.2)"
-                    style={{ flex:1, color:"#fff", fontSize:12, padding:0 }}
-                    returnKeyType="search"
-                    autoCorrect={false}
-                    autoCapitalize="none"
-                  />
-                  {mgDriveFilter.length > 0 && (
-                    <Pressable onPress={() => setMgDriveFilter("")} hitSlop={8}>
-                      <Feather name="x" size={13} color="rgba(255,255,255,0.35)" />
-                    </Pressable>
-                  )}
+                <View style={{ marginHorizontal:12, marginBottom:8, gap:6 }}>
+                  {/* Filter input */}
+                  <View style={{ flexDirection:"row", alignItems:"center", gap:6,
+                    backgroundColor:"rgba(255,255,255,0.05)", borderRadius:8,
+                    borderWidth:1, borderColor:"rgba(255,255,255,0.09)", paddingHorizontal:10, paddingVertical:6 }}>
+                    <Feather name="search" size={13} color="rgba(255,255,255,0.3)" />
+                    <TextInput
+                      value={mgDriveFilter}
+                      onChangeText={setMgDriveFilter}
+                      placeholder="Filtrar pastas…"
+                      placeholderTextColor="rgba(255,255,255,0.2)"
+                      style={{ flex:1, color:"#fff", fontSize:12, padding:0 }}
+                      returnKeyType="search"
+                      autoCorrect={false}
+                      autoCapitalize="none"
+                    />
+                    {mgDriveFilter.length > 0 && (
+                      <Pressable onPress={() => setMgDriveFilter("")} hitSlop={8}>
+                        <Feather name="x" size={13} color="rgba(255,255,255,0.35)" />
+                      </Pressable>
+                    )}
+                  </View>
+                  {/* Multi-select toggle */}
+                  <Pressable
+                    onPress={() => { if (mgDriveSelectMode) { mgDriveExitSelectMode(); } else { setMgDriveSelectMode(true); } }}
+                    style={{ flexDirection:"row", alignItems:"center", justifyContent:"center", gap:6, paddingVertical:7, borderRadius:8,
+                      backgroundColor: mgDriveSelectMode ? "rgba(234,179,8,0.12)" : "rgba(255,255,255,0.04)",
+                      borderWidth:1, borderColor: mgDriveSelectMode ? "rgba(234,179,8,0.4)" : "rgba(255,255,255,0.09)" }}>
+                    <Feather name={mgDriveSelectMode ? "x-circle" : "check-square"} size={13}
+                      color={mgDriveSelectMode ? "#fbbf24" : "rgba(255,255,255,0.45)"} />
+                    <Text style={{ color: mgDriveSelectMode ? "#fbbf24" : "rgba(255,255,255,0.45)", fontSize:12, fontWeight:"700" }}>
+                      {mgDriveSelectMode
+                        ? `Cancelar seleção${mgDriveSelected.size > 0 ? ` (${mgDriveSelected.size})` : ""}`
+                        : "☑ Selecionar várias pastas"}
+                    </Text>
+                  </Pressable>
                 </View>
               )}
 
@@ -5275,25 +5310,46 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
                         const folderPath = mgCurrent ? `${mgCurrent.path}/${item.name}` : item.name;
 
                         if (isDir) {
+                          const bulkTarget: FolderBulkTarget = { drive: mgCurrent!.drive, path: folderPath, name: item.name };
+                          const isChecked = mgDriveSelected.has(folderPath);
                           return (
                             <View key={item.id} style={{ flexDirection: "row", alignItems: "center", gap: 5, marginBottom: 3 }}>
+                              {/* In select mode: checkbox tap area */}
+                              {mgDriveSelectMode && (
+                                <Pressable
+                                  onPress={() => mgDriveToggleSelect(folderPath, bulkTarget)}
+                                  hitSlop={6}
+                                  style={{ width: 28, height: 28, alignItems: "center", justifyContent: "center", borderRadius: 6,
+                                    backgroundColor: isChecked ? "rgba(234,179,8,0.18)" : "rgba(255,255,255,0.05)",
+                                    borderWidth: 1.5, borderColor: isChecked ? "#fbbf24" : "rgba(255,255,255,0.2)" }}>
+                                  {isChecked && <Feather name="check" size={14} color="#fbbf24" />}
+                                </Pressable>
+                              )}
                               <Pressable
-                                onPress={() => mgNavPush(mgCurrent!.drive, folderPath, item.name)}
+                                onPress={() => mgDriveSelectMode
+                                  ? mgDriveToggleSelect(folderPath, bulkTarget)
+                                  : mgNavPush(mgCurrent!.drive, folderPath, item.name)}
                                 style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 10,
                                   paddingVertical: 9, paddingHorizontal: 10, borderRadius: 8,
-                                  backgroundColor: "rgba(255,255,255,0.03)", borderWidth: 1, borderColor: "rgba(255,255,255,0.07)" }}>
-                                <Feather name="folder" size={16} color="#f59e0b" />
-                                <Text style={{ flex: 1, color: "rgba(255,255,255,0.75)", fontSize: 12, fontWeight: "600" }} numberOfLines={1}>
+                                  backgroundColor: isChecked ? "rgba(234,179,8,0.07)" : "rgba(255,255,255,0.03)",
+                                  borderWidth: 1, borderColor: isChecked ? "rgba(234,179,8,0.3)" : "rgba(255,255,255,0.07)" }}>
+                                <Feather name="folder" size={16} color={isChecked ? "#fbbf24" : "#f59e0b"} />
+                                <Text style={{ flex: 1, color: isChecked ? "#fef3c7" : "rgba(255,255,255,0.75)", fontSize: 12, fontWeight: "600" }} numberOfLines={1}>
                                   {item.name}
                                 </Text>
-                                <Feather name="chevron-right" size={13} color="rgba(255,255,255,0.25)" />
+                                {mgDriveSelectMode
+                                  ? null
+                                  : <Feather name="chevron-right" size={13} color="rgba(255,255,255,0.25)" />}
                               </Pressable>
-                              <Pressable
-                                onPress={() => setFolderBulkTarget({ drive: mgCurrent!.drive, path: folderPath, name: item.name })}
-                                style={{ paddingHorizontal: 10, paddingVertical: 9, borderRadius: 8,
-                                  backgroundColor: "rgba(34,197,94,0.07)", borderWidth: 1, borderColor: "rgba(34,197,94,0.25)" }}>
-                                <Text style={{ color: "#4ade80", fontSize: 11, fontWeight: "700" }}>📂 Usar</Text>
-                              </Pressable>
+                              {/* "📂 Usar" only in normal mode */}
+                              {!mgDriveSelectMode && (
+                                <Pressable
+                                  onPress={() => setFolderBulkTarget(bulkTarget)}
+                                  style={{ paddingHorizontal: 10, paddingVertical: 9, borderRadius: 8,
+                                    backgroundColor: "rgba(34,197,94,0.07)", borderWidth: 1, borderColor: "rgba(34,197,94,0.25)" }}>
+                                  <Text style={{ color: "#4ade80", fontSize: 11, fontWeight: "700" }}>📂 Usar</Text>
+                                </Pressable>
+                              )}
                             </View>
                           );
                         }
@@ -5333,6 +5389,27 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
                             marginTop: 8, padding: 10, borderRadius: 8, borderWidth: 1, borderColor: "rgba(34,197,94,0.2)" }}>
                           <Feather name="more-horizontal" size={14} color="#22c55e" />
                           <Text style={{ color: "#22c55e", fontSize: 12, fontWeight: "600" }}>Carregar mais</Text>
+                        </Pressable>
+                      )}
+
+                      {/* ── "Usar X selecionadas" confirmation pill ── */}
+                      {mgDriveSelectMode && mgDriveSelected.size > 0 && (
+                        <Pressable
+                          onPress={() => {
+                            const targets = Array.from(mgDriveSelected.values());
+                            const [first, ...rest] = targets;
+                            mgDriveExitSelectMode();
+                            setMgDriveBulkQueue(rest);
+                            setFolderBulkTarget(first);
+                          }}
+                          style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+                            marginTop: 12, padding: 13, borderRadius: 10, borderWidth: 1.5,
+                            borderColor: "#fbbf24", backgroundColor: "rgba(234,179,8,0.14)" }}>
+                          <Feather name="check-circle" size={16} color="#fbbf24" />
+                          <Text style={{ color: "#fef3c7", fontSize: 13, fontWeight: "800" }}>
+                            Usar {mgDriveSelected.size} pasta{mgDriveSelected.size !== 1 ? "s" : ""} selecionada{mgDriveSelected.size !== 1 ? "s" : ""}
+                          </Text>
+                          <Feather name="arrow-right" size={14} color="#fbbf24" />
                         </Pressable>
                       )}
                     </>
@@ -5436,10 +5513,35 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
       {folderBulkTarget && (
         <FolderBulkModal
           target={folderBulkTarget}
-          onClose={() => setFolderBulkTarget(null)}
+          onClose={() => {
+            // If there are more folders in the queue, open the next one
+            if (mgDriveBulkQueue.length > 0) {
+              const [next, ...remaining] = mgDriveBulkQueue;
+              setMgDriveBulkQueue(remaining);
+              setFolderBulkTarget(next);
+            } else {
+              setFolderBulkTarget(null);
+            }
+          }}
           onDone={(count) => {
-            setFolderBulkTarget(null);
-            Alert.alert("✅ Pasta registrada!", `${count} arquivo${count !== 1 ? "s" : ""} adicionado${count !== 1 ? "s" : ""} ao Drive Registry.`);
+            Alert.alert(
+              mgDriveBulkQueue.length > 0
+                ? `✅ Pasta registrada! (${mgDriveBulkQueue.length} restante${mgDriveBulkQueue.length !== 1 ? "s" : ""})`
+                : "✅ Pasta registrada!",
+              `${count} arquivo${count !== 1 ? "s" : ""} adicionado${count !== 1 ? "s" : ""} ao Drive Registry.`,
+              [{
+                text: mgDriveBulkQueue.length > 0 ? "Próxima →" : "OK",
+                onPress: () => {
+                  if (mgDriveBulkQueue.length > 0) {
+                    const [next, ...remaining] = mgDriveBulkQueue;
+                    setMgDriveBulkQueue(remaining);
+                    setFolderBulkTarget(next);
+                  } else {
+                    setFolderBulkTarget(null);
+                  }
+                }
+              }]
+            );
           }}
         />
       )}
