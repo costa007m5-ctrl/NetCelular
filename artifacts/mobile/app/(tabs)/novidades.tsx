@@ -1182,13 +1182,13 @@ export default function NovidadesScreen() {
                     <SectionHeader
                       title="Exclusivos Drive"
                       icon="hard-drive"
-                      badge="DRIVE"
+                      badge={String(r2Movies.length + r2Series.length)}
                       accentColor={PURPLE}
                       subtitle={`${r2Movies.length + r2Series.length} títulos no catálogo`}
                       onSeeAll={() => openModal("Exclusivos Drive", [...r2Movies, ...r2Series], PURPLE)}
                     />
                     <PosterRow
-                      items={[...r2Movies, ...r2Series].slice(0, 6)}
+                      items={[...r2Movies, ...r2Series].slice(0, 4)}
                       onPress={goTo}
                       showTitle
                       isNew
@@ -1202,9 +1202,9 @@ export default function NovidadesScreen() {
                 <AnimatedSection anim={s[1]}>
                   <View style={sty.sec}>
                     <SectionHeader title="Tendência Hoje" icon="trending-up"
-                      badge="AO VIVO" accentColor={RED}
+                      badge={allMovies.length > 0 ? String(allMovies.length) : "AO VIVO"} accentColor={RED}
                       subtitle="O que o mundo está assistindo agora"
-                      onSeeAll={() => openModal("Tendência Hoje", trendMovies, RED,
+                      onSeeAll={() => openModal("Tendência Hoje", allMovies, RED,
                           undefined,
                           [
                             { id: 28,    label: "Ação" },
@@ -1243,9 +1243,9 @@ export default function NovidadesScreen() {
                 <AnimatedSection anim={s[4]}>
                   <View style={sty.sec}>
                     <SectionHeader title="Estreando Agora" icon="zap"
-                      badge="NOVO" accentColor={BLUE}
+                      badge={allMovies.length > 0 ? String(allMovies.length) : "NOVO"} accentColor={BLUE}
                       subtitle="Chegando aos cinemas esta semana"
-                      onSeeAll={() => openModal("Estreando Agora", nowPlaying, BLUE,
+                      onSeeAll={() => openModal("Estreando Agora", allMovies, BLUE,
                           undefined,
                           [
                             { id: 28,    label: "Ação" },
@@ -1270,9 +1270,9 @@ export default function NovidadesScreen() {
                 <AnimatedSection anim={s[5]}>
                   <View style={sty.sec}>
                     <SectionHeader title="Séries no Ar" icon="tv"
-                      badge="AO AR" accentColor={GREEN}
+                      badge={allSeries.length + r2Series.length > 0 ? String(allSeries.length + r2Series.length) : "AO AR"} accentColor={GREEN}
                       subtitle="Episódios novos toda semana"
-                      onSeeAll={() => openModal("Séries no Ar", mergedOnAir, GREEN,
+                      onSeeAll={() => openModal("Séries no Ar", [...r2Series, ...allSeries], GREEN,
                           undefined,
                           [
                             { id: 10759, label: "Ação" },
@@ -1301,9 +1301,9 @@ export default function NovidadesScreen() {
                   <AnimatedSection anim={s[6]}>
                     <View style={sty.sec}>
                       <SectionHeader title="Animes em Alta" icon="star"
-                        badge="ANIME" accentColor={ORANGE}
+                        badge={allAnimes.length > 0 ? String(allAnimes.length) : "ANIME"} accentColor={ORANGE}
                         subtitle="Os mais assistidos agora"
-                        onSeeAll={() => openModal("Animes em Alta", trendAnimes, ORANGE,
+                        onSeeAll={() => openModal("Animes em Alta", allAnimes, ORANGE,
                           (pg) => fetchCatalog("animes", pg),
                           [
                             { id: 28,    label: "Ação" },
