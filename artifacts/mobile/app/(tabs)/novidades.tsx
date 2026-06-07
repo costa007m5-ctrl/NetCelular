@@ -658,6 +658,14 @@ function VerMaisModal({
     return base;
   }, [q, allItems, shown, selectedGenre]);
 
+  const suggestions = useMemo(() => {
+    if (!searchQuery.trim() || searchQuery.trim().length < 1) return [];
+    const lq = searchQuery.trim().toLowerCase();
+    return allItems
+      .filter((i) => i.title.toLowerCase().includes(lq))
+      .slice(0, 6);
+  }, [searchQuery, allItems]);
+
   useEffect(() => {
     if (visible) {
       setPage(1);
@@ -869,6 +877,34 @@ function VerMaisModal({
                 </View>
               ))}
             </ScrollView>
+          </View>
+        )}
+
+        {/* ── Autocomplete suggestions ────────────────────────────────── */}
+        {searchFocused && searchQuery.trim().length >= 1 && suggestions.length > 0 && (
+          <View style={{ marginHorizontal:16, marginBottom:8, borderRadius:12,
+            backgroundColor:"rgba(255,255,255,0.06)",
+            borderWidth:1, borderColor:"rgba(255,255,255,0.09)", overflow:"hidden" }}>
+            {suggestions.map((s, i) => (
+              <TouchableOpacity key={`sug_${s.id}_${i}`}
+                onPress={() => {
+                  setSearchQuery(s.title);
+                  setSearchFocused(false);
+                  addToModalHistory(title, s.title)
+                    .then(() => getModalHistory(title))
+                    .then(setSearchHistory)
+                    .catch(() => {});
+                }}
+                activeOpacity={0.75}
+                style={[{ flexDirection:"row", alignItems:"center",
+                  paddingHorizontal:14, paddingVertical:11, gap:10 },
+                  i > 0 && { borderTopWidth:1, borderTopColor:"rgba(255,255,255,0.06)" }]}>
+                <Feather name="search" size={12} color={`${accentColor}99`} />
+                <Text style={{ flex:1, color:"#fff", fontSize:13, fontWeight:"600" }}
+                  numberOfLines={1}>{s.title}</Text>
+                <Feather name="corner-down-left" size={11} color="rgba(255,255,255,0.25)" />
+              </TouchableOpacity>
+            ))}
           </View>
         )}
 

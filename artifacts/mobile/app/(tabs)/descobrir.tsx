@@ -518,6 +518,12 @@ export default function LiveTvScreen() {
   const featured = searchQ.length < 2 ? filtered[0] : undefined;
   const rest     = searchQ.length < 2 ? filtered.slice(1) : filtered;
 
+  const channelSuggestions = useMemo(() => {
+    if (searchQ.trim().length < 1) return [];
+    const lq = searchQ.toLowerCase();
+    return channels.filter((ch) => ch.name.toLowerCase().includes(lq)).slice(0, 6);
+  }, [searchQ, channels]);
+
   const isSearching = searchQ.length >= 2;
 
   const activeCategoryIds = new Set(channels.flatMap((ch) => ch.categories ?? []));
@@ -683,6 +689,34 @@ export default function LiveTvScreen() {
                       </View>
                     ))}
                   </ScrollView>
+                </View>
+              )}
+
+              {/* Autocomplete suggestions */}
+              {searchFocused && searchQ.trim().length >= 1 && channelSuggestions.length > 0 && (
+                <View style={{ marginHorizontal:16, marginBottom:12, borderRadius:12,
+                  backgroundColor:"rgba(255,255,255,0.06)",
+                  borderWidth:1, borderColor:"rgba(255,255,255,0.09)", overflow:"hidden" }}>
+                  {channelSuggestions.map((ch, i) => (
+                    <TouchableOpacity key={ch.id}
+                      onPress={() => {
+                        setSearchQ(ch.name);
+                        setSearchFocused(false);
+                        addToModalHistory("Ao Vivo", ch.name)
+                          .then(() => getModalHistory("Ao Vivo"))
+                          .then(setSearchHistory)
+                          .catch(() => {});
+                      }}
+                      activeOpacity={0.75}
+                      style={[{ flexDirection:"row", alignItems:"center",
+                        paddingHorizontal:14, paddingVertical:11, gap:10 },
+                        i > 0 && { borderTopWidth:1, borderTopColor:"rgba(255,255,255,0.06)" }]}>
+                      <Feather name="tv" size={12} color={`${RED}99`} />
+                      <Text style={{ flex:1, color:"#fff", fontSize:13, fontWeight:"600" }}
+                        numberOfLines={1}>{ch.name}</Text>
+                      <Feather name="corner-down-left" size={11} color="rgba(255,255,255,0.25)" />
+                    </TouchableOpacity>
+                  ))}
                 </View>
               )}
 
