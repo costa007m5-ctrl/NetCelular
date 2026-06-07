@@ -27,8 +27,9 @@ import { StatusBar } from "expo-status-bar";
 import type { ContentItem } from "@/constants/content";
 import { r2Base } from "@/lib/r2-direct";
 import { useR2Catalog } from "@/lib/r2-catalog-hook";
+import { getCached } from "@/lib/catalog-cache";
 
-type Flix2RawItem = { title: string; _type: string; thumbnail?: string | null };
+type Flix2RawItem = { title: string; _type: string; thumbnail?: string | null; tmdb_id?: number };
 
 async function fetchFlix2Catalog(type: string): Promise<Flix2RawItem[]> {
   try {
@@ -36,14 +37,18 @@ async function fetchFlix2Catalog(type: string): Promise<Flix2RawItem[]> {
     const url = base
       ? `${base}/flix2/catalog-full?type=${type}`
       : `/api/r2/flix2/catalog-full?type=${type}`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(120_000) });
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 120_000);
+    const res = await fetch(url, { signal: ctrl.signal });
+    clearTimeout(tid);
     if (!res.ok) return [];
     const data = await res.json();
     const kindMap: Record<string, string> = { movies: "movie", series: "series", animes: "anime" };
     return (data.data ?? []).map((item: any) => ({
       title: item.title ?? item.name ?? "",
       _type: kindMap[type] ?? "movie",
-      thumbnail: item.thumbnail ?? null,
+      thumbnail: item.poster ?? item.thumbnail ?? null,
+      tmdb_id: item.tmdb_id ?? 0,
     })).filter((i: Flix2RawItem) => i.title);
   } catch {
     return [];
@@ -56,9 +61,12 @@ async function flix2Search(q: string): Promise<Flix2SearchResult> {
   try {
     const base = r2Base();
     const url = base
-      ? `${base}/flix2/search?q=${encodeURIComponent(q)}&type=all&limit=40&maxPages=60`
-      : `/api/r2/flix2/search?q=${encodeURIComponent(q)}&type=all&limit=40&maxPages=60`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(30000) });
+      ? `${base}/flix2/search?q=${encodeURIComponent(q)}&type=all&limit=40&maxPages=20`
+      : `/api/r2/flix2/search?q=${encodeURIComponent(q)}&type=all&limit=40&maxPages=20`;
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 15000);
+    const res = await fetch(url, { signal: ctrl.signal });
+    clearTimeout(tid);
     if (!res.ok) return { titles: new Set(), raw: [] };
     const data = await res.json();
     const titles = new Set<string>();
@@ -66,13 +74,41 @@ async function flix2Search(q: string): Promise<Flix2SearchResult> {
     for (const item of (data.results ?? [])) {
       if (item.title) {
         titles.add(item.title.toLowerCase().trim());
-        raw.push({ title: item.title, _type: item._type ?? "movie", thumbnail: item.thumbnail ?? null });
+        raw.push({ title: item.title, _type: item._type ?? "movie", thumbnail: item.poster ?? item.thumbnail ?? null, tmdb_id: item.tmdb_id ?? 0 });
       }
     }
     return { titles, raw };
   } catch {
     return { titles: new Set(), raw: [] };
   }
+}
+
+/** Busca instantânea no cache prefetchado — sem chamada de rede */
+async function searchFromCache(q: string): Promise<Flix2SearchResult> {
+  const qLow = q.toLowerCase();
+  const [movies, series, animes] = await Promise.all([
+    getCached("movies"),
+    getCached("series"),
+    getCached("animes"),
+  ]);
+  const titles = new Set<string>();
+  const raw: Flix2RawItem[] = [];
+  const pushItems = (items: any[] | null, type: string) => {
+    if (!items) return;
+    for (const item of items) {
+      if (item.title?.toLowerCase().includes(qLow)) {
+        const t = item.title.toLowerCase().trim();
+        if (!titles.has(t)) {
+          titles.add(t);
+          raw.push({ title: item.title, _type: type, thumbnail: item.poster ?? item.thumbnail ?? null, tmdb_id: item.tmdb_id ?? 0 });
+        }
+      }
+    }
+  };
+  pushItems(movies, "movie");
+  pushItems(series, "series");
+  pushItems(animes, "anime");
+  return { titles, raw: raw.slice(0, 60) };
 }
 
 const { width: W } = Dimensions.get("window");
@@ -376,17 +412,31 @@ export default function BuscarScreen() {
     setLoading(true);
     setFlix2Loading(true);
 
-    // R2/Drive search is instant (in-memory filter)
-    const r2Matches = r2All.filter(item =>
-      item.title.toLowerCase().includes(q.toLowerCase())
-    );
-    setR2SearchResults(r2Matches);
+    // R2/Drive: instant in-memory filter
+    setR2SearchResults(r2All.filter(i => i.title.toLowerCase().includes(q.toLowerCase())));
 
+    // Flix 2.0: busca instantânea no cache prefetchado (sem rede)
+    let cacheHit = false;
+    const cacheSearch = searchFromCache(q).then((cached) => {
+      cacheHit = cached.raw.length > 0;
+      if (cacheHit) {
+        setFlix2Titles(cached.titles);
+        setFlix2RawResults(cached.raw);
+        setFlix2Loading(false);
+      }
+    });
+
+    // TMDB: debounce 300ms + Flix 2.0 API fallback se cache vazio
     const timer = setTimeout(async () => {
-      const [tmdbResult, flix2Result] = await Promise.allSettled([
+      await cacheSearch; // aguarda cache resolver (< 50ms normalmente)
+
+      const tasks: Promise<any>[] = [
         tfetch("/search/multi", { query: q, include_adult: "false", page: "1" }),
-        flix2Search(q),
-      ]);
+      ];
+      if (!cacheHit) tasks.push(flix2Search(q));
+
+      const [tmdbResult, flix2Result] = await Promise.allSettled(tasks);
+
       if (tmdbResult.status === "fulfilled") {
         const items: ContentItem[] = (tmdbResult.value.results ?? [])
           .filter((x: any) => x.media_type === "movie" || x.media_type === "tv")
@@ -394,12 +444,13 @@ export default function BuscarScreen() {
         setResults(items);
       }
       setLoading(false);
-      if (flix2Result.status === "fulfilled") {
+
+      if (!cacheHit && flix2Result && flix2Result.status === "fulfilled") {
         setFlix2Titles(flix2Result.value.titles);
         setFlix2RawResults(flix2Result.value.raw);
+        setFlix2Loading(false);
       }
-      setFlix2Loading(false);
-    }, 380);
+    }, 300);
     return () => clearTimeout(timer);
   }, [query, r2All]);
 
