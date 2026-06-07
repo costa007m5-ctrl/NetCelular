@@ -21,7 +21,7 @@ import {
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-import { apiList, apiSignedUrl, r2Route } from "@/lib/r2-direct";
+import { apiList, apiSignedUrl, r2Route, drivePlayDirect } from "@/lib/r2-direct";
 import { getProxiedStreamUrl } from "@/lib/gdrive-index";
 import { useAuth } from "@/lib/auth-context";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
@@ -446,9 +446,9 @@ export default function R2PlayerScreen() {
         if (data.error) throw new Error(data.error);
         url = data.url;
       } else if (isDrive) {
-        // Drive: resolve via server (/drive/play)
+        // Drive: resolve client-side (bypasses server IP block by Cloudflare)
         const driveId = params.driveItemId!;
-        const data = await r2Route<{ url: string; cached: boolean; via?: string }>(`/drive/play?id=${driveId}`);
+        const data = await drivePlayDirect(driveId);
         url = data.url;
       } else {
         if (Platform.OS === "web") {
@@ -489,7 +489,7 @@ export default function R2PlayerScreen() {
       setErrorMsg(e.message ?? "Erro ao carregar vídeo");
       fakeAnim.current?.stop();
     }
-  }, [params.flix2ItemUrl, isFlix2, episode, r2Items]);
+  }, [params.flix2ItemUrl, params.driveItemId, isFlix2, isDrive, episode, r2Items]);
 
   const switchQuality = useCallback((item: RegistryItem) => {
     activeKeyRef.current = item.r2Key;
@@ -505,7 +505,7 @@ export default function R2PlayerScreen() {
     setAutoRetryCountdown(null);
     if (autoRetryTimerRef.current) { clearInterval(autoRetryTimerRef.current); autoRetryTimerRef.current = null; }
     loadVideoUrl();
-  }, [params.key, params.registryItemId, params.flix2ItemUrl]);
+  }, [params.key, params.registryItemId, params.flix2ItemUrl, params.driveItemId]);
 
   // ── Auto-retry on first error: countdown 5s then retry automatically ────────
   useEffect(() => {
@@ -645,7 +645,17 @@ export default function R2PlayerScreen() {
     if (status?.isLoaded === false && status?.error) {
       if (phaseRef.current === "loading" || phaseRef.current === "ready") {
         setPhase("error");
-        setErrorMsg("Erro ao reproduzir vídeo");
+        const err = String(status.error ?? "");
+        const isFmtErr = err.includes("NOPLAYABLE") || err.includes("cannot play") ||
+          err.includes("format") || err.includes("unsupported") || err.includes("AVFoundation") ||
+          err.includes("error -11800") || err.includes("error -11828");
+        setErrorMsg(
+          isFmtErr
+            ? Platform.OS === "ios"
+              ? "Formato MKV não suportado no iOS. Use Android para assistir."
+              : "Formato de vídeo não suportado neste dispositivo."
+            : "Erro ao reproduzir vídeo"
+        );
       }
       return;
     }

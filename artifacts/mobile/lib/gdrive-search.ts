@@ -27,11 +27,13 @@ function similarity(a: string, b: string): number {
   const nb = normalize(b);
   if (na === nb) return 1;
   if (na.includes(nb) || nb.includes(na)) return 0.85;
-  const wordsA = na.split(/\s+/);
-  const wordsB = nb.split(/\s+/);
+  const wordsA = na.split(/\s+/).filter((w) => w.length > 1);
+  const wordsB = nb.split(/\s+/).filter((w) => w.length > 1);
+  // Count significant words (length > 2) that appear in both
   const common = wordsA.filter((w) => wordsB.includes(w) && w.length > 2);
   if (common.length === 0) return 0;
-  return common.length / Math.max(wordsA.length, wordsB.length);
+  // Score against the SHORTER side (folder name is usually shorter)
+  return common.length / Math.min(wordsA.length, wordsB.length);
 }
 
 export async function searchDriveByTitle(title: string): Promise<DriveMatch[]> {
