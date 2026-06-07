@@ -2558,15 +2558,30 @@ async function resolveTeraboxDirect(shareUrl: string): Promise<string | null> {
   } catch { clearTimeout(tid); return null; }
 }
 
+// ── Stream URL redirect cache (15 min TTL) — avoids repeated HEAD requests ────
+const STREAM_URL_CACHE = new Map<string, { result: any; cachedAt: number }>();
+const STREAM_URL_TTL_MS = 15 * 60 * 1000;
+
 router.get("/flix2/stream-url", async (req, res) => {
   const streamUrl = String(req.query.streamUrl ?? "");
   if (!streamUrl) { res.status(400).json({ error: "streamUrl é obrigatório" }); return; }
+
+  // Fast path: return cached resolved URL
+  const cached = STREAM_URL_CACHE.get(streamUrl);
+  if (cached && Date.now() - cached.cachedAt < STREAM_URL_TTL_MS) {
+    res.json({ ...cached.result, fromCache: true });
+    return;
+  }
+
   try {
     // Step 1: if the raw URL is already TeraBox, resolve directly
     if (isTeraboxUrl(streamUrl)) {
       const direct = await resolveTeraboxDirect(streamUrl);
-      if (direct) { res.json({ url: direct, via: "terabox" }); return; }
-      // xAPIverse failed — link is dead/expired
+      if (direct) {
+        const result = { url: direct, via: "terabox" };
+        STREAM_URL_CACHE.set(streamUrl, { result, cachedAt: Date.now() });
+        res.json(result); return;
+      }
       res.json({ url: streamUrl, via: "terabox-fallback", error: "Link expirado no TeraBox. Tente outro episódio." }); return;
     }
 
@@ -2587,25 +2602,92 @@ router.get("/flix2/stream-url", async (req, res) => {
     // Step 3: if the redirect landed on TeraBox, resolve via xAPIverse
     if (isTeraboxUrl(finalUrl)) {
       const direct = await resolveTeraboxDirect(finalUrl);
-      if (direct) { res.json({ url: direct, via: "terabox" }); return; }
-      // xAPIverse failed — link is dead/expired
+      if (direct) {
+        const result = { url: direct, via: "terabox" };
+        STREAM_URL_CACHE.set(streamUrl, { result, cachedAt: Date.now() });
+        res.json(result); return;
+      }
       res.json({ url: finalUrl, via: "terabox-fallback", error: "Link expirado no TeraBox. Tente outro episódio." }); return;
     }
 
-    res.json({ url: finalUrl });
+    const result = { url: finalUrl };
+    STREAM_URL_CACHE.set(streamUrl, { result, cachedAt: Date.now() });
+    res.json(result);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
+// ── Per-series episode cache (30 min TTL) — avoids repeated API calls ─────────
+const EPISODES_CACHE = new Map<string, { episodes: any[]; cachedAt: number }>();
+const EPISODES_CACHE_TTL_MS = 30 * 60 * 1000;
+
 // ── GET /flix2/series-episodes?seriesId=<id> ──────────────────────────────────
 // Fetches per-episode stream URLs for a series from nixplay.lat.
-// Uses the Xtream Codes compatible endpoint: get_series_info.php?series_id=<id>
-// Episode stream URL format: https://nixplay.lat/series/<user>/<pass>/<episode_id>.<ext>
+// Fast path: if FULL_CATALOG_CACHE is warm, finds episodes inline (0ms).
+// Fallback: Xtream Codes get_series_info.php endpoint.
 router.get("/flix2/series-episodes", async (req, res) => {
   const { seriesId } = req.query as Record<string, string>;
   if (!seriesId) { res.status(400).json({ error: "seriesId obrigatório" }); return; }
 
+  // ── Path A: serve from episodes cache (instant) ──────────────────────────
+  const epCached = EPISODES_CACHE.get(seriesId);
+  if (epCached && Date.now() - epCached.cachedAt < EPISODES_CACHE_TTL_MS) {
+    res.json({ found: epCached.episodes.length > 0, episodes: epCached.episodes, info: null, fromCache: true });
+    return;
+  }
+
+  // ── Path B: look up in FULL_CATALOG_CACHE (inline episodes, instant) ─────
+  for (const cType of ["series", "animes"]) {
+    const full = FULL_CATALOG_CACHE.get(cType);
+    if (!full || Date.now() - full.cachedAt >= FULL_CATALOG_TTL_MS) continue;
+    const item = full.data.find((i: any) => String(i.id) === seriesId);
+    if (!item) continue;
+
+    const eps: Array<{ season: number; episode: number; stream_url: string; title?: string }> = [];
+    if (Array.isArray(item.episodes)) {
+      for (const ep of item.episodes) {
+        if (!ep?.stream_url) continue;
+        eps.push({
+          season:   Number(ep.season  ?? 1),
+          episode:  Number(ep.episode ?? ep.episode_number ?? 1),
+          stream_url: ep.stream_url,
+          title:    ep.title ?? ep.name ?? undefined,
+        });
+      }
+    }
+    eps.sort((a, b) => a.season - b.season || a.episode - b.episode);
+    EPISODES_CACHE.set(seriesId, { episodes: eps, cachedAt: Date.now() });
+    res.json({ found: eps.length > 0, episodes: eps, info: null, fromCache: true });
+    return;
+  }
+
+  // ── Path C: WARM_PARTIAL_CACHE (mid-warm-up) ─────────────────────────────
+  for (const cType of ["series", "animes"]) {
+    const partial = WARM_PARTIAL_CACHE.get(cType);
+    if (!partial || partial.length === 0) continue;
+    const item = partial.find((i: any) => String(i.id) === seriesId);
+    if (!item || !Array.isArray(item.episodes)) continue;
+
+    const eps: Array<{ season: number; episode: number; stream_url: string; title?: string }> = [];
+    for (const ep of item.episodes) {
+      if (!ep?.stream_url) continue;
+      eps.push({
+        season:   Number(ep.season  ?? 1),
+        episode:  Number(ep.episode ?? ep.episode_number ?? 1),
+        stream_url: ep.stream_url,
+        title:    ep.title ?? ep.name ?? undefined,
+      });
+    }
+    eps.sort((a, b) => a.season - b.season || a.episode - b.episode);
+    if (eps.length > 0) {
+      EPISODES_CACHE.set(seriesId, { episodes: eps, cachedAt: Date.now() });
+      res.json({ found: true, episodes: eps, info: null, fromCache: true });
+      return;
+    }
+  }
+
+  // ── Path D: live API fallback (Xtream Codes get_series_info.php) ─────────
   try {
     const pass = decodeURIComponent(FLIX2_PASS);
     const url = `https://nixplay.lat/api/get_series_info.php?username=${FLIX2_USER}&password=${encodeURIComponent(pass)}&series_id=${seriesId}`;
@@ -2618,7 +2700,6 @@ router.get("/flix2/series-episodes", async (req, res) => {
 
     const data = await r.json() as any;
 
-    // Xtream episodes response: { info: {...}, episodes: { "1": [ {id, title, season, episode_num, container_extension} ] } }
     const allEpisodes: Array<{ season: number; episode: number; stream_url: string; title?: string }> = [];
 
     if (data?.episodes && typeof data.episodes === "object") {
@@ -2639,9 +2720,10 @@ router.get("/flix2/series-episodes", async (req, res) => {
       }
     }
 
-    // Sort by season then episode
     allEpisodes.sort((a, b) => a.season - b.season || a.episode - b.episode);
-
+    if (allEpisodes.length > 0) {
+      EPISODES_CACHE.set(seriesId, { episodes: allEpisodes, cachedAt: Date.now() });
+    }
     res.json({ found: allEpisodes.length > 0, episodes: allEpisodes, info: data?.info ?? null });
   } catch (err: any) {
     res.status(502).json({ error: err?.message ?? "proxy error" });
