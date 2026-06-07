@@ -1,50 +1,68 @@
 ---
-name: Flix2 CDN proxy fix
-description: Flix 2.0 CDNs have different Referer requirements; fontedecanais (72yrci50ppqp71.com) strictly validates Referer and blocks anything that isn't nixplay.lat; proxy must send correct Referer per CDN domain.
+name: Flix2 CDN routing and playback architecture
+description: How cineveo.lat and fontedecanais streams are resolved and played in native APK vs web.
 ---
 
-## Root Cause (diagnosed July 2026)
+## Architecture (June 2026 — on-device resolution)
 
-Flix2 content comes from multiple CDN providers with different Referer validation strictness:
+### Native (Android/iOS APK) — PRIMARY PATH
 
-| CDN | Domain | Referer validation | Example content |
-|---|---|---|---|
-| cineveo.lat | `vod99.cineveo.lat` | Lenient (any Referer) | Mestres do Universo |
-| fontedecanais | `www-fontedecanais-me.72yrci50ppqp71.com:80` | Strict (must be nixplay.lat) | O Rei Leão |
+For native, `flix2-player.tsx` resolves the nixplay.lat redirect **on the device itself** (not via the server).
+This binds any IP-based CDN token to the **device's IP**, not the server's IP.
 
-**Why Expo Go worked but APK failed**: Expo Go opens the stream URL in a browser-like context with the correct Referer from the link origin. The proxy was sending `Referer: animezey...` for all domains — fontedecanais CDN blocked this. cineveo.lat was lenient so some content worked.
-
-**Why some content worked in APK with raw URL + expo-av headers**: expo-av headers set `Referer: nixplay.lat` directly on the request. If expo-av propagated them properly, it worked. If not (or HLS), it failed. Unreliable approach.
-
-## Architecture (all platforms — Android, iOS, Web)
-
-All platforms route through the API proxy (`getProxiedStreamUrl(data.url)`). The proxy handles Referer correctly per CDN domain.
-
-### CRITICAL — Proxy Referer per domain (stream.ts)
-```typescript
-// isFlix2Host() checks if URL hostname matches FLIX2_CDN_ROOTS
-"Referer": isFlix2Host(decodedUrl) ? "https://nixplay.lat/" : "https://animezey16082023.animezey16082023.workers.dev/",
-// Also add Origin for Flix2:
-if (isFlix2Host(decodedUrl)) upstreamHeaders["Origin"] = "https://nixplay.lat";
 ```
-**Why:** fontedecanais CDN (72yrci50ppqp71.com) validates Referer strictly. Sending the wrong Referer returns 403/block. cineveo.lat is lenient. Both need browser UA.
+rawFlix2Url (nixplay.lat)
+  → device GET with FLIX2_HEADERS (browser UA + Referer)
+  → redirect:follow → resp.url = final CDN URL (device-IP-bound token)
+  → expo-av plays finalUrl with FLIX2_HEADERS
+```
 
-## FLIX2_CDN_ROOTS (fontedecanais + cineveo domains)
-- `72yrci50ppqp71.com` — fontedecanais CDN; HTTP port 80; uses username+token auth
-- `fontedecanais.me`
-- `cineveo.lat` — covers vod99.cineveo.lat; HTTPS; uses exp+sig tokens
-- `nixplay.lat`
+- `ctrl.abort()` immediately after `resp.url` read — cancels body download
+- If device fetch fails/times out (12s) → falls through to server+proxy path
+- TeraBox URLs → always fall through to server (needs xapiverse API)
 
-**Note on URL formats:**
+### Web — always proxy (CORS)
+```
+rawFlix2Url → /flix2/stream-url (server) → CDN URL → /api/stream/proxy → web player
+```
+
+### Native FALLBACK (device fetch failed / TeraBox)
+```
+rawFlix2Url → /flix2/stream-url (server) → CDN URL
+  cineveo: play direct with FLIX2_HEADERS
+  fontedecanais / TeraBox: proxy via /api/stream/proxy
+```
+
+## FLIX2_HEADERS (used for all direct CDN requests)
+```javascript
+{
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36...",
+  "Referer": "https://nixplay.lat/",
+  "Origin": "https://nixplay.lat",
+}
+```
+**Why:** fontedecanais CDN (72yrci50ppqp71.com) validates Referer strictly (must be nixplay.lat).
+cineveo.lat is lenient but also benefits from browser UA (Cloudflare WAF).
+
+## CDN host helpers (flix2-player.tsx)
+```javascript
+const isFonteUrl = (u) => ["72yrci50ppqp71.com", "fontedecanais.me"].some(r => u.includes(r));
+const isCineveoUrl = (u) => u.includes("cineveo.lat");
+const isTeraboxUrl = (u) => ["terabox.com", "1024terabox.com", ...].some(h => u.includes(h));
+```
+
+## Stream proxy (stream.ts) — for web and fallback
+- Proxy rewrites FLIX2_HEADERS per domain (Referer: nixplay.lat for Flix2 hosts)
+- `Accept-Ranges: bytes` always advertised so ExoPlayer can seek in MP4
+- HLS m3u8 manifest rewriting: segment URIs → proxy URLs (so ExoPlayer fetches with browser UA)
+
+## CDN URL formats
 - cineveo.lat: `https://vod99.cineveo.lat/m/Title.mp4?exp=...&sig=...` (time-based sig, any IP)
-- fontedecanais: `http://www-fontedecanais-me.72yrci50ppqp71.com:80/movies/.../xxx.mp4?username=...&token=...` (IP-bound token, HTTP port 80)
+- fontedecanais: `http://www-fontedecanais-me.72yrci50ppqp71.com:80/movies/.../xxx.mp4?username=...&token=...` (token may be IP-bound, HTTP port 80)
 
-`usesCleartextTraffic: true` is set in app.json so HTTP port 80 is allowed in APK.
+`usesCleartextTraffic: true` is set in app.json — allows HTTP port 80 (fontedecanais) in APK.
 
-## Server — /flix2/stream-url (r2.ts)
-redirect:manual on nixplay.lat → reads Location header → returns CDN URL.
-nocache=1 always passed from client to bypass 20s cache (CDN signed URLs can expire).
-
-## HLS manifest rewriting (stream.ts)
-Proxy also rewrites HLS m3u8 segment URLs to go through proxy. Handles future HLS content.
-Most current Flix2 content appears to be MP4 (not HLS), but the rewriting is in place as a safety net.
+## /flix2/stream-url (api-server r2.ts)
+- Uses `redirect:manual` + HEAD to nixplay.lat — reads Location header without downloading body
+- Server IPs may be blocked by Cloudflare CDN on HEAD follow (hence manual mode)
+- nocache=1 always passed from client to bypass 20s cache

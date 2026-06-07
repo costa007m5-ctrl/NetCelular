@@ -341,56 +341,83 @@ export default function Flix2PlayerScreen() {
     fakeAnim.current = Animated.timing(loadProgress, { toValue: 80, duration: 6000, useNativeDriver: false });
     fakeAnim.current.start();
 
+    // Browser UA + Referer used for all direct CDN requests
+    const BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+    const FLIX2_HEADERS = {
+      "User-Agent": BROWSER_UA,
+      "Referer": "https://nixplay.lat/",
+      "Origin": "https://nixplay.lat",
+    };
+    const TERABOX_HOSTS = ["terabox.com", "1024terabox.com", "teraboxapp.com", "1024tera.com", "4funbox.com"];
+    const isTeraboxUrl = (u: string) => TERABOX_HOSTS.some((h) => u.includes(h));
+    const isFonteUrl = (u: string) => ["72yrci50ppqp71.com", "fontedecanais.me"].some((r) => u.includes(r));
+    const isCineveoUrl = (u: string) => u.includes("cineveo.lat");
+
     try {
-      // Step 1: Resolve nixplay.lat redirect → get final CDN URL
-      // nocache=1 ensures fresh token (fontedecanais tokens expire)
-      const data = await r2Route<{ url: string; error?: string }>(`/flix2/stream-url?streamUrl=${encodeURIComponent(rawFlix2Url)}&nocache=1`);
+      // ── NATIVE: resolve redirect on-device ─────────────────────────────────
+      // Fetching the nixplay.lat URL from the device means the CDN token in the
+      // redirect response gets bound to the DEVICE's IP — not the server's IP.
+      // This makes both cineveo (time+sig token) and fontedecanais (IP-bound token)
+      // work via direct play with browser headers, giving ExoPlayer full Range
+      // request support for seeking in large MP4 files without any proxy.
+      //
+      // TeraBox is the only exception: it needs server-side resolution via xapiverse.
+      // If device-side fetch fails for any reason, we fall back to server+proxy.
+      if (Platform.OS !== "web") {
+        try {
+          const ctrl = new AbortController();
+          const tid = setTimeout(() => ctrl.abort(), 12000);
+          const resp = await fetch(rawFlix2Url, {
+            method: "GET",
+            redirect: "follow",
+            signal: ctrl.signal,
+            headers: FLIX2_HEADERS,
+          });
+          clearTimeout(tid);
+          // resp.url is the final URL after following all redirects
+          const finalUrl = resp.url || rawFlix2Url;
+          // Abort body download — we only needed the final URL; expo-av streams separately
+          ctrl.abort();
+
+          if (finalUrl && !isTeraboxUrl(finalUrl)) {
+            const isFd = isFonteUrl(finalUrl);
+            const isCv = isCineveoUrl(finalUrl);
+            setResolvedCdnType(isFd ? "fontedecanais" : isCv ? "cineveo" : "flix2");
+            setVideoSourceHeaders(FLIX2_HEADERS);
+            setVideoUrl(finalUrl);
+            return;
+          }
+          // TeraBox or empty → fall through to server-side resolution
+        } catch {
+          // Device-side fetch failed (network error, timeout) → fall through to server+proxy
+        }
+      }
+
+      // ── SERVER-SIDE resolution (web / TeraBox / device-fetch fallback) ─────
+      const data = await r2Route<{ url: string; error?: string }>(
+        `/flix2/stream-url?streamUrl=${encodeURIComponent(rawFlix2Url)}&nocache=1`
+      );
       if (data.error) throw new Error(data.error);
 
       const resolvedUrl = data.url;
+      const isFd = isFonteUrl(resolvedUrl);
+      const isCv = isCineveoUrl(resolvedUrl);
+      setResolvedCdnType(isFd ? "fontedecanais" : isCv ? "cineveo" : "flix2");
 
-      // Step 2: Detect CDN type for logging/badge display
-      const isFontedecanais = ["72yrci50ppqp71.com", "fontedecanais.me"].some(
-        (root) => resolvedUrl.includes(root)
-      );
-      const isCineveo = resolvedUrl.includes("cineveo.lat");
-      setResolvedCdnType(isFontedecanais ? "fontedecanais" : isCineveo ? "cineveo" : "flix2");
-
-      // Step 3: Decide how to play based on CDN type.
-      //
-      // cineveo.lat — token is time+signature based (exp + sig), NOT IP-bound.
-      //   Any device with the URL can play it before expiry. Play DIRECTLY on the
-      //   device with browser headers (User-Agent + Referer) so ExoPlayer gets full
-      //   Range support for seeking in large MP4 files. Bypassing the proxy also
-      //   removes the Replit server as a bandwidth bottleneck.
-      //
-      // fontedecanais / 72yrci50ppqp71.com — token IS IP-bound to the Replit server
-      //   that resolved the URL. Device IP ≠ server IP → MUST proxy.
-      //
-      // Web — always proxy (CORS) regardless of CDN type.
-      const BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
-
-      if (isCineveo && Platform.OS !== "web") {
-        // Direct play with browser headers — no proxy needed
-        setVideoSourceHeaders({
-          "User-Agent": BROWSER_UA,
-          "Referer": "https://nixplay.lat/",
-          "Origin": "https://nixplay.lat",
-        });
+      // cineveo on native: play direct (time-based token, any IP)
+      if (isCv && Platform.OS !== "web") {
+        setVideoSourceHeaders(FLIX2_HEADERS);
         setVideoUrl(resolvedUrl);
         return;
       }
 
-      // fontedecanais (IP-bound) or web: route through server proxy
+      // Web / fontedecanais fallback / TeraBox → proxy
       const proxiedUrl = getProxiedStreamUrl(resolvedUrl);
       const proxyAvailable = !!(proxiedUrl && proxiedUrl !== resolvedUrl);
-
-      if (!proxyAvailable && isFontedecanais) {
+      if (!proxyAvailable && isFd) {
         throw new Error("Servidor de proxy não disponível. Aguarde e tente novamente.");
       }
-
-      const url = proxyAvailable ? proxiedUrl : resolvedUrl;
-      setVideoUrl(url);
+      setVideoUrl(proxyAvailable ? proxiedUrl : resolvedUrl);
     } catch (e: any) {
       fakeAnim.current?.stop();
       setPhase("error");
