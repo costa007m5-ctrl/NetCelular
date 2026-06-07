@@ -3688,6 +3688,7 @@ function FolderBulkModal({ target, onClose, onDone, defaultContentType, defaultQ
   defaultQuality?: "4K" | "1080p" | "720p" | null;
   defaultAudio?: "Dublado" | "Legendado" | null;
   defaultLanguage?: "pt-BR" | "en-US" | "ja-JP" | "es-MX" | null;
+  defaultLabel?: string | null;
 }) {
   const [contentType, setContentType] = useState<"movie" | "series" | null>(defaultContentType ?? null);
   const [tmdbLang, setTmdbLang] = useState<"pt-BR" | "en-US" | "ja-JP" | "es-MX">(defaultLanguage ?? "pt-BR");
@@ -3716,7 +3717,7 @@ function FolderBulkModal({ target, onClose, onDone, defaultContentType, defaultQ
   const [selectedTmdb, setSelectedTmdb] = useState<TmdbSearchResult | null>(null);
   const [tmdbIdInputBulk, setTmdbIdInputBulk] = useState("");
   const [searchingByIdBulk, setSearchingByIdBulk] = useState(false);
-  const [label, setLabel] = useState(`${defaultAudio ?? "Dublado"} ${defaultQuality ?? "1080p"}`);
+  const [label, setLabel] = useState(defaultLabel || `${defaultAudio ?? "Dublado"} ${defaultQuality ?? "1080p"}`);
 
   // Per-unit TMDB links: filePath → TmdbSearchResult
   const [unitLinks, setUnitLinks] = useState<Map<string, TmdbSearchResult>>(new Map());
@@ -4836,6 +4837,7 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
   const [mgDriveSelectQuality, setMgDriveSelectQuality] = useState<"4K" | "1080p" | "720p" | null>(null);
   const [mgDriveSelectAudio, setMgDriveSelectAudio] = useState<"Dublado" | "Legendado" | null>(null);
   const [mgDriveSelectLang, setMgDriveSelectLang] = useState<"pt-BR" | "en-US" | "ja-JP" | "es-MX" | null>(null);
+  const [mgDriveSelectLabel, setMgDriveSelectLabel] = useState<string>("");
 
   // ── Remap history ────────────────────────────────────────────────────────────
   interface RemapEntry { id: string; doneAt: string; fromIds: number[]; toId: number; toType: string; titles: string[]; updated: number }
@@ -4939,6 +4941,7 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
     setMgDriveSelectQuality(null);
     setMgDriveSelectAudio(null);
     setMgDriveSelectLang(null);
+    setMgDriveSelectLabel("");
   };
 
   const mgNavPush = (drive: 0 | 1, folderPath: string, name: string) => {
@@ -5521,16 +5524,25 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
                     })}
                   </View>
 
-                  {/* Preview do label que será gerado */}
-                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5,
-                    paddingVertical: 5, paddingHorizontal: 10, borderRadius: 6,
-                    backgroundColor: "rgba(255,255,255,0.04)", borderWidth: 1, borderColor: "rgba(255,255,255,0.08)" }}>
-                    <Feather name="tag" size={10} color="rgba(255,255,255,0.3)" />
-                    <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 10 }}>
-                      Label: <Text style={{ color: "rgba(255,255,255,0.6)", fontWeight: "700" }}>
-                        {`${mgDriveSelectAudio ?? "Dublado"} ${mgDriveSelectQuality ?? "1080p"}`}
-                      </Text>
-                    </Text>
+                  {/* Label personalizado (ou gerado automaticamente) */}
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6,
+                    borderRadius: 8, borderWidth: 1,
+                    borderColor: mgDriveSelectLabel ? "rgba(99,102,241,0.5)" : "rgba(255,255,255,0.08)",
+                    backgroundColor: mgDriveSelectLabel ? "rgba(99,102,241,0.07)" : "rgba(255,255,255,0.03)",
+                    paddingHorizontal: 10, paddingVertical: 4 }}>
+                    <Feather name="tag" size={11} color={mgDriveSelectLabel ? "#818cf8" : "rgba(255,255,255,0.25)"} />
+                    <TextInput
+                      style={{ flex: 1, color: mgDriveSelectLabel ? "#c7d2fe" : "rgba(255,255,255,0.5)", fontSize: 12, paddingVertical: 5 }}
+                      value={mgDriveSelectLabel}
+                      onChangeText={setMgDriveSelectLabel}
+                      placeholder={`${mgDriveSelectAudio ?? "Dublado"} ${mgDriveSelectQuality ?? "1080p"} (label padrão)`}
+                      placeholderTextColor="rgba(255,255,255,0.22)"
+                    />
+                    {!!mgDriveSelectLabel && (
+                      <Pressable onPress={() => setMgDriveSelectLabel("")} hitSlop={8}>
+                        <Feather name="x" size={12} color="rgba(255,255,255,0.3)" />
+                      </Pressable>
+                    )}
                   </View>
 
                   {/* Confirm pill */}
@@ -5542,14 +5554,16 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
                       const savedQuality = mgDriveSelectQuality;
                       const savedAudio   = mgDriveSelectAudio;
                       const savedLang    = mgDriveSelectLang;
+                      const savedLabel   = mgDriveSelectLabel;
                       mgDriveExitSelectMode();
                       setMgDriveBulkQueue(rest);
                       setFolderBulkTarget(first);
-                      // Preserve all four for the queue (exit clears them)
+                      // Preserve all five for the queue (exit clears them)
                       setMgDriveSelectType(savedType);
                       setMgDriveSelectQuality(savedQuality);
                       setMgDriveSelectAudio(savedAudio);
                       setMgDriveSelectLang(savedLang);
+                      setMgDriveSelectLabel(savedLabel);
                     }}
                     style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
                       padding: 14, borderRadius: 10, borderWidth: 2,
@@ -5558,7 +5572,7 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
                     <Text style={{ color: "#fef3c7", fontSize: 13, fontWeight: "800" }}>
                       Usar {mgDriveSelected.size} pasta{mgDriveSelected.size !== 1 ? "s" : ""}
                       {mgDriveSelectType ? ` · ${mgDriveSelectType === "series" ? "Série" : "Filme"}` : ""}
-                      {` · ${mgDriveSelectAudio ?? "Dublado"} ${mgDriveSelectQuality ?? "1080p"}`}
+                      {` · ${mgDriveSelectLabel || `${mgDriveSelectAudio ?? "Dublado"} ${mgDriveSelectQuality ?? "1080p"}`}`}
                       {mgDriveSelectLang ? ` · ${{ "pt-BR": "🇧🇷", "en-US": "🇺🇸", "es-MX": "🇪🇸", "ja-JP": "🇯🇵" }[mgDriveSelectLang]}` : ""}
                     </Text>
                     <Feather name="arrow-right" size={15} color="#fbbf24" />
@@ -5666,6 +5680,7 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
           defaultQuality={mgDriveSelectQuality}
           defaultAudio={mgDriveSelectAudio}
           defaultLanguage={mgDriveSelectLang}
+          defaultLabel={mgDriveSelectLabel || null}
           onClose={() => {
             if (mgDriveBulkQueue.length > 0) {
               const [next, ...remaining] = mgDriveBulkQueue;
@@ -5677,6 +5692,7 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
               setMgDriveSelectQuality(null);
               setMgDriveSelectAudio(null);
               setMgDriveSelectLang(null);
+              setMgDriveSelectLabel("");
             }
           }}
           onDone={(count) => {
@@ -5698,6 +5714,7 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
                     setMgDriveSelectQuality(null);
                     setMgDriveSelectAudio(null);
                     setMgDriveSelectLang(null);
+                    setMgDriveSelectLabel("");
                   }
                 }
               }]
