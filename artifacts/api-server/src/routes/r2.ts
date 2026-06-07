@@ -2067,14 +2067,24 @@ function normalizeTitleForSearch(t: string): string {
 const FLIX2_USER = "Reis007-vods";
 const FLIX2_PASS = encodeURIComponent("Reis12@@");
 
+// ── Per-page cache (10 min TTL) — populated during warm-up, serves admin + mobile instantly ──
+const PAGE_CACHE = new Map<string, { data: any; cachedAt: number }>();
+const PAGE_CACHE_TTL_MS = 10 * 60 * 1000;
+
 async function flix2FetchPage(type: string, page: number): Promise<{ success: boolean; pagination: any; data: any[] }> {
+  const cacheKey = `${type}:${page}`;
+  const hit = PAGE_CACHE.get(cacheKey);
+  if (hit && Date.now() - hit.cachedAt < PAGE_CACHE_TTL_MS) return hit.data;
+
   const url = `https://nixplay.lat/api/catalog.php?username=${FLIX2_USER}&password=${FLIX2_PASS}&type=${type}&page=${page}`;
   const ctrl = new AbortController();
   const tid = setTimeout(() => ctrl.abort(), 20000);
   try {
     const r = await fetch(url, { signal: ctrl.signal });
     clearTimeout(tid);
-    return await r.json();
+    const data = await r.json();
+    if (data?.success) PAGE_CACHE.set(cacheKey, { data, cachedAt: Date.now() });
+    return data;
   } catch (e) {
     clearTimeout(tid);
     throw e;
@@ -2085,6 +2095,23 @@ async function flix2FetchPage(type: string, page: number): Promise<{ success: bo
 router.get("/flix2/catalog", async (req, res) => {
   try {
     const { type = "movies", page = "1" } = req.query as Record<string, string>;
+
+    // Fast path: serve from FULL_CATALOG_CACHE if warm (admin page browser)
+    const full = FULL_CATALOG_CACHE.get(type);
+    if (full && Date.now() - full.cachedAt < FULL_CATALOG_TTL_MS) {
+      const pageNum = Number(page);
+      const PAGE_SIZE = 20;
+      const start = (pageNum - 1) * PAGE_SIZE;
+      const slice = full.data.slice(start, start + PAGE_SIZE);
+      const totalPages = Math.ceil(full.data.length / PAGE_SIZE);
+      res.json({
+        success: true, fromCache: true,
+        pagination: { current_page: pageNum, total_pages: totalPages, per_page: PAGE_SIZE, total: full.data.length },
+        data: slice,
+      });
+      return;
+    }
+
     const data = await flix2FetchPage(type, Number(page));
     res.json(data);
   } catch (err: any) {
