@@ -255,42 +255,6 @@ function Flix2OnlyCard({ item }: { item: Flix2RawItem }) {
   );
 }
 
-function BackdropCard({ item, onPress, rank }: { item: ContentItem; onPress: () => void; rank?: number }) {
-  return (
-    <Pressable style={styles.backdropCard} onPress={onPress}>
-      <View style={styles.backdropImg}>
-        {item.backdropPath ? (
-          <Image source={{ uri: item.backdropPath }} style={StyleSheet.absoluteFill} contentFit="cover" />
-        ) : item.posterPath ? (
-          <Image source={{ uri: item.posterPath }} style={StyleSheet.absoluteFill} contentFit="cover" />
-        ) : (
-          <LinearGradient colors={["#2a1020","#0e0810"]} style={StyleSheet.absoluteFill} />
-        )}
-        <LinearGradient colors={["transparent", "rgba(0,0,0,0.85)"]} style={styles.backdropGrad} />
-        {rank !== undefined && (
-          <Text style={styles.backdropRank}>#{rank + 1}</Text>
-        )}
-        <View style={styles.backdropInfo}>
-          <Text style={styles.backdropTitle} numberOfLines={2}>{item.title}</Text>
-          <View style={{ flexDirection:"row", alignItems:"center", gap:8, marginTop:3 }}>
-            <Text style={styles.backdropYear}>{item.year}</Text>
-            {item.rating >= 6 && (
-              <View style={styles.ratingBadge}>
-                <Text style={styles.ratingText}>★ {item.rating.toFixed(1)}</Text>
-              </View>
-            )}
-            <View style={[styles.typeBadge, item.mediaType === "tv" ? {} : { backgroundColor:"rgba(229,9,20,0.8)" }]}>
-              <Text style={styles.typeBadgeText}>{item.mediaType === "tv" ? "SÉRIE" : "FILME"}</Text>
-            </View>
-          </View>
-          {item.description ? (
-            <Text style={styles.backdropDesc} numberOfLines={2}>{item.description}</Text>
-          ) : null}
-        </View>
-      </View>
-    </Pressable>
-  );
-}
 
 function SectionRow({ title, badge, accentColor = RED, onSeeAll, children }: {
   title: string; badge?: string; accentColor?: string; onSeeAll?: () => void; children: React.ReactNode;
@@ -368,61 +332,12 @@ export default function BuscarScreen() {
   const [activeCategory,setActiveCategory]= useState<string>("trending");
   const [activeGenre,   setActiveGenre]   = useState<string | null>(null);
 
-  // ── Content rows ────────────────────────────────────────────────────────────
-  const [trending,   setTrending]   = useState<ContentItem[]>([]);
-  const [topMovies,  setTopMovies]  = useState<ContentItem[]>([]);
-  const [topSeries,  setTopSeries]  = useState<ContentItem[]>([]);
-  const [newContent, setNewContent] = useState<ContentItem[]>([]);
-  const [popular,    setPopular]    = useState<ContentItem[]>([]);
-  const [acclaimed,  setAcclaimed]  = useState<ContentItem[]>([]);
-  const [nowPlaying, setNowPlaying] = useState<ContentItem[]>([]);
-  const [onAir,      setOnAir]      = useState<ContentItem[]>([]);
-  const [action,     setAction]     = useState<ContentItem[]>([]);
-  const [horror,     setHorror]     = useState<ContentItem[]>([]);
-  const [anime,      setAnime]      = useState<ContentItem[]>([]);
-  const [kdrama,     setKdrama]     = useState<ContentItem[]>([]);
   const [genreItems, setGenreItems] = useState<ContentItem[]>([]);
-  const [dataLoaded, setDataLoaded] = useState(false);
   const [micOn,      setMicOn]      = useState(false);
   const micPulse = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     setTimeout(() => inputRef.current?.focus(), 300);
-    loadAllContent();
-  }, []);
-
-  const loadAllContent = useCallback(async () => {
-    try {
-      const [
-        r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11
-      ] = await Promise.all([
-        tfetch("/trending/all/week"),
-        tfetch("/movie/top_rated"),
-        tfetch("/tv/top_rated"),
-        tfetch("/movie/upcoming"),
-        tfetch("/movie/popular"),
-        tfetch("/movie/top_rated", { page: "2" }),
-        tfetch("/movie/now_playing"),
-        tfetch("/tv/on_the_air"),
-        tfetch("/discover/movie", { with_genres: "28,12", sort_by: "popularity.desc" }),
-        tfetch("/discover/movie", { with_genres: "27", sort_by: "popularity.desc" }),
-        tfetch("/discover/tv",    { with_genres: "16", with_origin_country: "JP" }),
-        tfetch("/discover/tv",    { with_origin_country: "KR", sort_by: "popularity.desc" }),
-      ]);
-      setTrending(  (r0.results ?? []).slice(0,20).map((x: any) => toItem(x)));
-      setTopMovies( (r1.results ?? []).slice(0,20).map((x: any) => toItem(x, "movie")));
-      setTopSeries( (r2.results ?? []).slice(0,20).map((x: any) => toItem(x, "tv")));
-      setNewContent((r3.results ?? []).slice(0,20).map((x: any) => toItem(x, "movie")));
-      setPopular(   (r4.results ?? []).slice(0,20).map((x: any) => toItem(x, "movie")));
-      setAcclaimed( (r5.results ?? []).slice(0,20).map((x: any) => toItem(x, "movie")));
-      setNowPlaying((r6.results ?? []).slice(0,20).map((x: any) => toItem(x, "movie")));
-      setOnAir(     (r7.results ?? []).slice(0,20).map((x: any) => toItem(x, "tv")));
-      setAction(    (r8.results ?? []).slice(0,20).map((x: any) => toItem(x, "movie")));
-      setHorror(    (r9.results ?? []).slice(0,20).map((x: any) => toItem(x, "movie")));
-      setAnime(     (r10.results ?? []).slice(0,20).map((x: any) => toItem(x, "tv")));
-      setKdrama(    (r11.results ?? []).slice(0,20).map((x: any) => toItem(x, "tv")));
-      setDataLoaded(true);
-    } catch {}
   }, []);
 
   const loadGenre = useCallback(async (genreId: string) => {
@@ -509,29 +424,6 @@ export default function BuscarScreen() {
 
   const isSearching = query.trim().length >= 2;
 
-  // ── Helper: horizontal scroll of poster cards ─────────────────────────────
-  const HRow = ({ items, accentColor = RED }: { items: ContentItem[]; accentColor?: string }) => (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false}
-      nestedScrollEnabled
-      directionalLockEnabled
-      contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}>
-      {items.map((item) => (
-        <PosterCard key={item.id} item={item} onPress={() => goTo(item)} width={100} />
-      ))}
-    </ScrollView>
-  );
-
-  // ── Helper: backdrop cards row ─────────────────────────────────────────────
-  const BRow = ({ items, ranked }: { items: ContentItem[]; ranked?: boolean }) => (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false}
-      nestedScrollEnabled
-      directionalLockEnabled
-      contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}>
-      {items.slice(0, 10).map((item, i) => (
-        <BackdropCard key={item.id} item={item} onPress={() => goTo(item)} rank={ranked ? i : undefined} />
-      ))}
-    </ScrollView>
-  );
 
   return (
     <View style={[styles.root, { paddingTop: topPad }]}>
@@ -1013,93 +905,6 @@ export default function BuscarScreen() {
             </View>
           </View>
 
-          {!dataLoaded ? (
-            <View style={styles.centered}>
-              <ActivityIndicator color={RED} />
-              <Text style={styles.loadingText}>Carregando conteúdo...</Text>
-            </View>
-          ) : (
-            <>
-              {/* ── 1. EM ALTA AGORA (backdrop cards, ranked) ─────────────── */}
-              <SectionRow title="Em Alta Agora" badge="TOP 10" accentColor={RED}
-                onSeeAll={() => {}}>
-                <BRow items={trending} ranked />
-              </SectionRow>
-
-              {/* ── 2. TOP FILMES (poster row) ─────────────────────────────── */}
-              <SectionRow title="Top Filmes" badge="AVALIADOS" accentColor={AMBER}
-                onSeeAll={() => setQuery("filmes mais bem avaliados")}>
-                <HRow items={topMovies} accentColor={AMBER} />
-              </SectionRow>
-
-              {/* ── 3. EM CARTAZ AGORA ────────────────────────────────────── */}
-              <SectionRow title="Em Cartaz Agora" accentColor={GREEN}
-                onSeeAll={() => setQuery("filmes em cartaz")}>
-                <BRow items={nowPlaying} />
-              </SectionRow>
-
-              {/* ── 4. TOP SÉRIES ─────────────────────────────────────────── */}
-              <SectionRow title="Séries Mais Bem Avaliadas" badge="TOP" accentColor={PURPLE}
-                onSeeAll={() => setQuery("melhores séries")}>
-                <HRow items={topSeries} accentColor={PURPLE} />
-              </SectionRow>
-
-              {/* ── 5. LANÇAMENTOS ────────────────────────────────────────── */}
-              <SectionRow title="Lançamentos em Breve" accentColor={TEAL}
-                onSeeAll={() => setQuery("lançamentos")}>
-                <BRow items={newContent} />
-              </SectionRow>
-
-              {/* ── 6. SÉRIES NO AR AGORA ─────────────────────────────────── */}
-              <SectionRow title="Séries no Ar Agora" badge="AO VIVO" accentColor={PINK}
-                onSeeAll={() => setQuery("séries em andamento")}>
-                <HRow items={onAir} accentColor={PINK} />
-              </SectionRow>
-
-              {/* ── 7. FILMES POPULARES ────────────────────────────────────── */}
-              <SectionRow title="Filmes Populares" accentColor={AMBER}
-                onSeeAll={() => setQuery("filmes populares")}>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}
-                  nestedScrollEnabled directionalLockEnabled
-                  contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}>
-                  {popular.slice(0,10).map((item) => (
-                    <BackdropCard key={item.id} item={item} onPress={() => goTo(item)} />
-                  ))}
-                </ScrollView>
-              </SectionRow>
-
-              {/* ── 8. AÇÃO & AVENTURA ────────────────────────────────────── */}
-              <SectionRow title="Ação & Aventura" accentColor="#ef4444"
-                onSeeAll={() => setQuery("ação aventura")}>
-                <HRow items={action} accentColor="#ef4444" />
-              </SectionRow>
-
-              {/* ── 9. TERROR & SUSPENSE ──────────────────────────────────── */}
-              <SectionRow title="Terror & Suspense" accentColor="#1d4ed8"
-                onSeeAll={() => setQuery("terror suspense")}>
-                <BRow items={horror} />
-              </SectionRow>
-
-              {/* ── 10. ANIME ────────────────────────────────────────────── */}
-              <SectionRow title="Anime" badge="JAPÃO" accentColor="#ea580c"
-                onSeeAll={() => setQuery("anime")}>
-                <HRow items={anime} accentColor="#ea580c" />
-              </SectionRow>
-
-              {/* ── 11. K-DRAMA ──────────────────────────────────────────── */}
-              <SectionRow title="K-Drama" badge="CORÉIA" accentColor="#7c3aed"
-                onSeeAll={() => setQuery("k-drama coreia")}>
-                <BRow items={kdrama} />
-              </SectionRow>
-
-              {/* ── 12. CLÁSSICOS ACLAMADOS ──────────────────────────────── */}
-              <SectionRow title="Clássicos Aclamados" accentColor={AMBER}
-                onSeeAll={() => setQuery("clássicos cinema")}>
-                <HRow items={acclaimed} accentColor={AMBER} />
-              </SectionRow>
-
-            </>
-          )}
         </ScrollView>
       )}
     </View>
