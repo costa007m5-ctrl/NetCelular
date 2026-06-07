@@ -1582,7 +1582,7 @@ export default function HomeScreen() {
   const [belowFoldReady, setBelowFoldReady] = useState(Platform.OS === "web");
 
   // ── R2 / Drive catalog ────────────────────────────────────────────────────
-  const { r2All } = useR2Catalog();
+  const { r2Movies, r2Series, r2All } = useR2Catalog();
 
   // Mix R2 items into hero banner (max 2 slots at front)
   const mergedHeroItems = useMemo(() => {
@@ -2085,6 +2085,22 @@ export default function HomeScreen() {
                       badge="AO VIVO" accentColor={RED}
                       onSeeAll={() => browseTo("movies", "Em Alta")} />
                     <PosterRow items={emAltaMovies} onPress={goTo} />
+                  </View>
+                </AnimatedSection>
+              )}
+
+              {/* ── 8.5. CATÁLOGO DRIVE ──────────────────────────────────────── */}
+              {(r2Movies.length > 0 || r2Series.length > 0) && (
+                <AnimatedSection anim={s[6]}>
+                  <View style={styles.section}>
+                    <SectionHeader
+                      title="Catálogo Drive"
+                      icon="hard-drive"
+                      badge="DRIVE"
+                      accentColor={PURPLE}
+                      subtitle={`${r2Movies.length + r2Series.length} títulos exclusivos`}
+                    />
+                    <PosterRow items={[...r2Movies, ...r2Series].slice(0, 6)} onPress={goTo} showTitle />
                   </View>
                 </AnimatedSection>
               )}

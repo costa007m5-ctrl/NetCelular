@@ -994,7 +994,15 @@ export default function NovidadesScreen() {
   const trendAnimes    = useMemo(() => allAnimes.slice(0, 10),  [allAnimes]);
 
   // ── R2 / Drive catalog ────────────────────────────────────────────────────
-  const { r2All } = useR2Catalog();
+  const { r2Movies, r2Series, r2All } = useR2Catalog();
+
+  // Drive series merged into "Séries no Ar" — Drive comes first so freshly-added shows appear at front
+  const mergedOnAir = useMemo(() => {
+    if (!r2Series.length) return onAir;
+    const all = [...r2Series, ...onAir];
+    const seen = new Set<string>();
+    return all.filter((i) => { if (seen.has(i.id)) return false; seen.add(i.id); return true; });
+  }, [r2Series, onAir]);
 
   // Mix R2 items into the hero banner (max 2 r2 slots at front)
   const mergedHeroItems = useMemo(() => {
@@ -1167,6 +1175,28 @@ export default function NovidadesScreen() {
                 </View>
               </AnimatedSection>
 
+              {/* ── 2.5. EXCLUSIVOS DRIVE ───────────────────────────────── */}
+              {(r2Movies.length > 0 || r2Series.length > 0) && (
+                <AnimatedSection anim={s[3]}>
+                  <View style={sty.sec}>
+                    <SectionHeader
+                      title="Exclusivos Drive"
+                      icon="hard-drive"
+                      badge="DRIVE"
+                      accentColor={PURPLE}
+                      subtitle={`${r2Movies.length + r2Series.length} títulos no catálogo`}
+                      onSeeAll={() => openModal("Exclusivos Drive", [...r2Movies, ...r2Series], PURPLE)}
+                    />
+                    <PosterRow
+                      items={[...r2Movies, ...r2Series].slice(0, 6)}
+                      onPress={goTo}
+                      showTitle
+                      isNew
+                    />
+                  </View>
+                </AnimatedSection>
+              )}
+
               {/* ── 3. TRENDING HOJE ────────────────────────────────────── */}
               {trendMovies.length > 0 && (
                 <AnimatedSection anim={s[1]}>
@@ -1236,13 +1266,13 @@ export default function NovidadesScreen() {
               )}
 
               {/* ── 7. SÉRIES EM EXIBIÇÃO ───────────────────────────────── */}
-              {onAir.length > 0 && (
+              {mergedOnAir.length > 0 && (
                 <AnimatedSection anim={s[5]}>
                   <View style={sty.sec}>
                     <SectionHeader title="Séries no Ar" icon="tv"
                       badge="AO AR" accentColor={GREEN}
                       subtitle="Episódios novos toda semana"
-                      onSeeAll={() => openModal("Séries no Ar", onAir, GREEN,
+                      onSeeAll={() => openModal("Séries no Ar", mergedOnAir, GREEN,
                           undefined,
                           [
                             { id: 10759, label: "Ação" },
@@ -1257,7 +1287,7 @@ export default function NovidadesScreen() {
                             { id: 53,    label: "Suspense" },
                           ]
                         )} />
-                    <MoodRow items={onAir} onPress={goTo}
+                    <MoodRow items={mergedOnAir} onPress={goTo}
                       labels={["NOVO EP.","HOJE","NOVO EP.","AMANHÃ","NOVO EP.","HOJE"]}
                       accentColor={GREEN} />
                   </View>
