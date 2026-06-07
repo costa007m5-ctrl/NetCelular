@@ -279,15 +279,11 @@ router.get("/proxy", async (req: Request, res: Response) => {
 
     // ── Regular proxy (non-HLS or range request) ──────────────────────────────
     // Forward key response headers.
-    // IMPORTANT: Replit's reverse proxy strips Range headers before they reach Express,
-    // so we can't reliably support Range requests. We advertise Accept-Ranges: none
-    // so video players (ExoPlayer/AVPlayer) use progressive download instead of
-    // Range-based seeking. This avoids a confusing loop where the player sends Range,
-    // gets a full 200 back (instead of 206 partial), and errors out.
-    // Exception: if we actually received a Range header, the CDN returned 206, and we
-    // should forward that correctly (rare — only if Replit forwards Range on some paths).
+    // Always advertise Accept-Ranges: bytes so ExoPlayer/AVPlayer can use Range
+    // requests for seeking inside MP4 files. The CDN supports Range; we forward
+    // the Range header from the client to the upstream (see upstreamHeaders above).
     const forwardHeaders: Record<string, string> = {
-      "Accept-Ranges": rangeHeader ? (upstream.headers.get("accept-ranges") ?? "bytes") : "none",
+      "Accept-Ranges": upstream.headers.get("accept-ranges") ?? "bytes",
       "Access-Control-Allow-Origin": "*",
       "Cache-Control": "no-store",
     };

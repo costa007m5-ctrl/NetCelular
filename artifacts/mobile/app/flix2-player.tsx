@@ -2,14 +2,18 @@
  * flix2-player.tsx
  * Dedicated player for Flix2 / fontedecanais CDN content.
  *
- * KEY DESIGN: ALL streams route through the API proxy — no direct CDN access from device.
- * This ensures IP-bound tokens (fontedecanais / 72yrci50ppqp71.com) work in Codemagic APKs,
- * because the proxy runs on the same Replit server IP that resolved the token.
+ * KEY DESIGN:
+ *  - cineveo.lat (vod99.cineveo.lat): token is time+sig based, NOT IP-bound.
+ *    → Play DIRECTLY on device with browser User-Agent + Referer headers.
+ *    → Full Range request support → ExoPlayer can seek in large MP4s.
+ *  - fontedecanais (72yrci50ppqp71.com): token IS IP-bound to Replit server.
+ *    → Route through API proxy so server IP matches token IP.
+ *  - Web: always proxy (CORS).
  *
  * Flow:
  *  1. Receive flix2Url (nixplay.lat redirect URL or direct CDN URL)
  *  2. Call /flix2/stream-url to resolve 302 redirect → get final CDN URL
- *  3. Wrap with getProxiedStreamUrl() — ALWAYS (no fallback to direct play)
+ *  3. cineveo → play direct with headers; fontedecanais → proxy
  *  4. Play via expo-av with full controls
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -149,6 +153,7 @@ export default function Flix2PlayerScreen() {
   const [autoRetryCountdown, setAutoRetryCountdown] = useState<number | null>(null);
   const autoRetryTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [videoSourceHeaders, setVideoSourceHeaders] = useState<Record<string, string> | undefined>(undefined);
   const [isPlaying, setIsPlaying] = useState(false);
   const [positionMs, setPositionMs] = useState(0);
   const [durationMs, setDurationMs] = useState(0);
@@ -321,6 +326,7 @@ export default function Flix2PlayerScreen() {
     phaseRef.current = "loading";
     setPhase("loading");
     setVideoUrl(null);
+    setVideoSourceHeaders(undefined);
     setIsPlaying(false);
     setIsBuffering(false);
     hasStartedPlayingRef.current = false;
@@ -350,21 +356,40 @@ export default function Flix2PlayerScreen() {
       const isCineveo = resolvedUrl.includes("cineveo.lat");
       setResolvedCdnType(isFontedecanais ? "fontedecanais" : isCineveo ? "cineveo" : "flix2");
 
-      // Step 3: Route through proxy.
-      // - fontedecanais: token IP-bound to Replit server → MUST proxy (device IP ≠ token IP)
-      // - cineveo: time-based sig → any IP works, proxy preferred (adds Referer); direct fallback OK
-      // - Web: proxy handles CORS
+      // Step 3: Decide how to play based on CDN type.
+      //
+      // cineveo.lat — token is time+signature based (exp + sig), NOT IP-bound.
+      //   Any device with the URL can play it before expiry. Play DIRECTLY on the
+      //   device with browser headers (User-Agent + Referer) so ExoPlayer gets full
+      //   Range support for seeking in large MP4 files. Bypassing the proxy also
+      //   removes the Replit server as a bandwidth bottleneck.
+      //
+      // fontedecanais / 72yrci50ppqp71.com — token IS IP-bound to the Replit server
+      //   that resolved the URL. Device IP ≠ server IP → MUST proxy.
+      //
+      // Web — always proxy (CORS) regardless of CDN type.
+      const BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+
+      if (isCineveo && Platform.OS !== "web") {
+        // Direct play with browser headers — no proxy needed
+        setVideoSourceHeaders({
+          "User-Agent": BROWSER_UA,
+          "Referer": "https://nixplay.lat/",
+          "Origin": "https://nixplay.lat",
+        });
+        setVideoUrl(resolvedUrl);
+        return;
+      }
+
+      // fontedecanais (IP-bound) or web: route through server proxy
       const proxiedUrl = getProxiedStreamUrl(resolvedUrl);
       const proxyAvailable = !!(proxiedUrl && proxiedUrl !== resolvedUrl);
 
       if (!proxyAvailable && isFontedecanais) {
-        // fontedecanais REQUIRES proxy — can't play direct in APK
         throw new Error("Servidor de proxy não disponível. Aguarde e tente novamente.");
       }
 
-      // Use proxy when available; fall back to direct for cineveo only
       const url = proxyAvailable ? proxiedUrl : resolvedUrl;
-
       setVideoUrl(url);
     } catch (e: any) {
       fakeAnim.current?.stop();
@@ -770,7 +795,7 @@ export default function Flix2PlayerScreen() {
       {videoUrl && Video ? (
         <Video
           ref={videoRef}
-          source={{ uri: videoUrl }}
+          source={{ uri: videoUrl, ...(videoSourceHeaders ? { headers: videoSourceHeaders } : {}) }}
           style={[StyleSheet.absoluteFill, phase !== "ready" && { opacity: 0 }]}
           resizeMode={ResizeMode?.CONTAIN ?? "contain"}
           shouldPlay={phase === "ready"}
