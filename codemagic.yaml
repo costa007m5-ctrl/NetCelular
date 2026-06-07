@@ -49,19 +49,35 @@ workflows:
       - name: Versionar build automaticamente
         script: |
           cd artifacts/mobile
-          # CM_BUILD_NUMBER é auto-incrementado pelo Codemagic a cada build
           BUILD_NUM=${CM_BUILD_NUMBER:-1}
+
+          # Lê a última tag semver (formato vX.Y.Z) do git
+          GIT_TAG=$(git describe --tags --match "v[0-9]*.[0-9]*.[0-9]*" --abbrev=0 2>/dev/null || echo "")
+          SEMVER="${GIT_TAG#v}"   # remove o 'v' do início (v1.2.3 → 1.2.3)
+
           node -e "
             const fs = require('fs');
             const cfg = JSON.parse(fs.readFileSync('app.json', 'utf8'));
-            const prev = cfg.expo?.android?.versionCode ?? 0;
+
+            // ── version (semver da tag git) ──────────────────────────────────
+            const semver = '${SEMVER}';
+            const tagSrc = '${GIT_TAG}';
+            if (semver && /^\d+\.\d+\.\d+$/.test(semver)) {
+              console.log('version:', cfg.expo.version, '→', semver, '(tag ' + tagSrc + ')');
+              cfg.expo.version = semver;
+            } else {
+              console.log('version: mantido em', cfg.expo.version, '(nenhuma tag semver encontrada)');
+            }
+
+            // ── versionCode / buildNumber (auto-incremental) ─────────────────
             cfg.expo.android = cfg.expo.android || {};
+            cfg.expo.ios     = cfg.expo.ios     || {};
+            const prevCode = cfg.expo.android.versionCode ?? 0;
             cfg.expo.android.versionCode = ${BUILD_NUM};
-            // CFBundleVersion do iOS também
-            cfg.expo.ios = cfg.expo.ios || {};
-            cfg.expo.ios.buildNumber = String(${BUILD_NUM});
+            cfg.expo.ios.buildNumber     = String(${BUILD_NUM});
+            console.log('versionCode/buildNumber:', prevCode, '→', ${BUILD_NUM});
+
             fs.writeFileSync('app.json', JSON.stringify(cfg, null, 2));
-            console.log('versionCode/buildNumber →', ${BUILD_NUM}, '(anterior:', prev + ')');
           "
 
       - name: Expo Prebuild (gera pasta android/)
@@ -173,16 +189,34 @@ workflows:
         script: |
           cd artifacts/mobile
           BUILD_NUM=${CM_BUILD_NUMBER:-1}
+
+          # Lê a última tag semver (formato vX.Y.Z) do git
+          GIT_TAG=$(git describe --tags --match "v[0-9]*.[0-9]*.[0-9]*" --abbrev=0 2>/dev/null || echo "")
+          SEMVER="${GIT_TAG#v}"   # remove o 'v' do início (v1.2.3 → 1.2.3)
+
           node -e "
             const fs = require('fs');
             const cfg = JSON.parse(fs.readFileSync('app.json', 'utf8'));
-            const prev = cfg.expo?.ios?.buildNumber ?? '0';
+
+            // ── version (semver da tag git) ──────────────────────────────────
+            const semver = '${SEMVER}';
+            const tagSrc = '${GIT_TAG}';
+            if (semver && /^\d+\.\d+\.\d+$/.test(semver)) {
+              console.log('version:', cfg.expo.version, '→', semver, '(tag ' + tagSrc + ')');
+              cfg.expo.version = semver;
+            } else {
+              console.log('version: mantido em', cfg.expo.version, '(nenhuma tag semver encontrada)');
+            }
+
+            // ── versionCode / buildNumber (auto-incremental) ─────────────────
             cfg.expo.android = cfg.expo.android || {};
+            cfg.expo.ios     = cfg.expo.ios     || {};
+            const prevBuild = cfg.expo.ios.buildNumber ?? '0';
             cfg.expo.android.versionCode = ${BUILD_NUM};
-            cfg.expo.ios = cfg.expo.ios || {};
-            cfg.expo.ios.buildNumber = String(${BUILD_NUM});
+            cfg.expo.ios.buildNumber     = String(${BUILD_NUM});
+            console.log('buildNumber:', prevBuild, '→', ${BUILD_NUM});
+
             fs.writeFileSync('app.json', JSON.stringify(cfg, null, 2));
-            console.log('buildNumber →', ${BUILD_NUM}, '(anterior:', prev + ')');
           "
 
       - name: Expo Prebuild (gera pasta ios/)
