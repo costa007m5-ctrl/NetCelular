@@ -305,6 +305,9 @@ export default function AdminScreen() {
   const [serverSaving, setServerSaving] = useState(false);
   const [serverSaved, setServerSaved] = useState(false);
 
+  const [serverIp, setServerIp] = useState<string | null>(null);
+  const [serverIpLoading, setServerIpLoading] = useState(false);
+
   const [fcmStats, setFcmStats] = useState<{ total: number; expo: number; native: number; fcmV1Active?: boolean } | null>(null);
   const [fcmStatsLoading, setFcmStatsLoading] = useState(false);
   const [fcmTestTitle, setFcmTestTitle] = useState("🔔 Teste FCM - NETPLAY");
@@ -704,6 +707,23 @@ export default function AdminScreen() {
 
   useEffect(() => { checkApis(); }, []);
 
+  const fetchServerIp = useCallback(async () => {
+    setServerIpLoading(true);
+    try {
+      const base = getApiBase();
+      const ctrl = new AbortController();
+      setTimeout(() => ctrl.abort(), 8000);
+      const r = await fetch(`${base}/server-info`, { signal: ctrl.signal });
+      if (r.ok) {
+        const d = await r.json();
+        setServerIp(d.ip ?? null);
+      }
+    } catch { setServerIp(null); }
+    finally { setServerIpLoading(false); }
+  }, []);
+
+  useEffect(() => { fetchServerIp(); }, [fetchServerIp]);
+
   const loadDriveInfo = useCallback(async () => {
     setDriveLoading(true);
     const status = await checkDriveApi();
@@ -980,6 +1000,67 @@ export default function AdminScreen() {
                   </Text>
                   <Text style={{ color: "#f5a623", fontSize: 11, marginTop: 6, fontWeight: "600" }}>📋 Toque para copiar SQL completo</Text>
                 </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* ── IP do Proxy CDN ── */}
+            <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginTop: 4 }]}>PROXY CDN — IP DO SERVIDOR</Text>
+            <View style={[{ backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1, borderRadius: 16, padding: 16, marginBottom: 8 }]}>
+              <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 10, gap: 8 }}>
+                <Feather name="server" size={16} color="#3b82f6" />
+                <Text style={{ fontSize: 13, color: colors.foreground, fontWeight: "700" }}>IP Público do Servidor Replit</Text>
+                <TouchableOpacity
+                  onPress={fetchServerIp}
+                  disabled={serverIpLoading}
+                  style={{ marginLeft: "auto" as any, padding: 4 }}
+                >
+                  <Feather name="refresh-cw" size={14} color={serverIpLoading ? colors.border : RED} />
+                </TouchableOpacity>
+              </View>
+
+              {serverIpLoading ? (
+                <Text style={{ fontSize: 12, color: colors.mutedForeground }}>Buscando IP...</Text>
+              ) : serverIp ? (
+                <TouchableOpacity
+                  onPress={() => {
+                    Clipboard.setString(serverIp);
+                    Alert.alert("✅ Copiado!", `IP "${serverIp}" copiado para a área de transferência.`);
+                  }}
+                  style={{ backgroundColor: "#3b82f615", borderRadius: 10, padding: 12, borderWidth: 1, borderColor: "#3b82f630", marginBottom: 10 }}
+                >
+                  <Text style={{ fontFamily: "monospace", fontSize: 16, color: "#3b82f6", fontWeight: "700", textAlign: "center" }}>
+                    {serverIp}
+                  </Text>
+                  <Text style={{ fontSize: 11, color: colors.mutedForeground, textAlign: "center", marginTop: 4 }}>
+                    📋 Toque para copiar
+                  </Text>
+                </TouchableOpacity>
+              ) : (
+                <Text style={{ fontSize: 12, color: "#ef4444", marginBottom: 10 }}>⚠️ Não foi possível obter o IP. Verifique a conexão com o servidor.</Text>
+              )}
+
+              <View style={{ gap: 6 }}>
+                <Text style={{ fontSize: 12, color: colors.mutedForeground, lineHeight: 18 }}>
+                  <Text style={{ color: colors.foreground, fontWeight: "600" }}>O que fazer com este IP:</Text>
+                </Text>
+                <Text style={{ fontSize: 12, color: colors.mutedForeground, lineHeight: 18 }}>
+                  {"1. Acesse o painel do seu provedor IPTV (Xtream Codes / Panel)\n2. Vá em Configurações → IPs Permitidos / Whitelist\n3. Adicione o IP acima para que os tokens de streaming funcionem\n4. Salve e teste o player"}
+                </Text>
+                <View style={{ marginTop: 6, backgroundColor: "#f5a62310", borderRadius: 8, padding: 10, borderWidth: 1, borderColor: "#f5a62330" }}>
+                  <Text style={{ fontSize: 11, color: "#f5a623", lineHeight: 16 }}>
+                    ⚠️ O IP pode mudar quando o servidor Replit reiniciar. Se os vídeos pararem de funcionar, reabra esta tela, copie o novo IP e atualize no painel IPTV.
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={[styles.infoBox, { backgroundColor: "#10b98110", borderColor: "#10b98130", marginBottom: 16 }]}>
+              <Feather name="info" size={15} color="#10b981" />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.infoBoxTitle, { color: "#10b981" }]}>Como o proxy funciona</Text>
+                <Text style={[styles.infoBoxText, { color: colors.mutedForeground, lineHeight: 17 }]}>
+                  {`• Vídeos fontedecanais usam tokens IP-bound\n• O servidor proxy (Replit) busca o stream com seu IP\n• O APK reproduz através do servidor — sem bloqueio\n• O IP acima é o que o provedor IPTV vê nas requisições`}
+                </Text>
               </View>
             </View>
           </>

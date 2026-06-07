@@ -380,21 +380,23 @@ export default function Flix2PlayerScreen() {
           ctrl.abort();
 
           if (resp.ok && finalUrl && !isTeraboxUrl(finalUrl)) {
-            const isFd = isFonteUrl(finalUrl);
             const isCv = isCineveoUrl(finalUrl);
-            // Only play direct if the URL actually redirected to a real CDN.
-            // If still on nixplay.lat (direct stream, no CDN redirect), fall through to proxy:
-            //   nixplay.lat is whitelisted in stream/proxy, so the server can relay it
-            //   with browser UA — avoiding Cloudflare WAF blocking ExoPlayer on native.
-            if (isFd || isCv) {
-              setResolvedCdnType(isFd ? "fontedecanais" : "cineveo");
+            // cineveo.lat: time-based signature token, any IP → safe to play directly.
+            // fontedecanais: token is IP-bound to Replit SERVER IP (not device IP).
+            //   Even if the device resolved the redirect and got a device-IP token,
+            //   ExoPlayer can't play HTTP (port 80) cleartext in Expo Go, and Cloudflare
+            //   WAF on fontedecanais blocks ExoPlayer even with browser UA headers.
+            //   Always fall through to server+proxy for fontedecanais.
+            // nixplay.lat direct stream (no CDN redirect): also always proxy.
+            if (isCv) {
+              setResolvedCdnType("cineveo");
               setVideoSourceHeaders(FLIX2_HEADERS);
               setVideoUrl(finalUrl);
               return;
             }
-            // nixplay.lat direct stream or unknown host → fall through to proxy
+            // fontedecanais / nixplay direct / unknown → fall through to server+proxy
           }
-          // Non-2xx (e.g. 403 token mismatch), TeraBox, or no CDN redirect → fall through
+          // Non-2xx (403 token mismatch), TeraBox, or non-cineveo CDN → fall through
         } catch {
           // Device-side fetch failed (network error, timeout) → fall through to server+proxy
         }
