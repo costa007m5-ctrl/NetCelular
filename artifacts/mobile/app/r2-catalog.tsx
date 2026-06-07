@@ -30,6 +30,7 @@ import { getApiDomainDisplay, getApiBase } from "@/lib/api";
 import { listFolder, isFolder as driveIsFolder, isVideo as driveIsVideo, getStreamUrl, formatSize as driveFormatSize, DRIVE_ROOTS, DriveItem, parseEpisodeInfo } from "@/lib/gdrive-index";
 
 const UPLOADED_URLS_KEY = "r2_uploaded_urls_v1";
+const LABEL_HISTORY_KEY = "drive_label_history_v1";
 
 const RED = "#e50914";
 const { width: W } = Dimensions.get("window");
@@ -4838,6 +4839,22 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
   const [mgDriveSelectAudio, setMgDriveSelectAudio] = useState<"Dublado" | "Legendado" | null>(null);
   const [mgDriveSelectLang, setMgDriveSelectLang] = useState<"pt-BR" | "en-US" | "ja-JP" | "es-MX" | null>(null);
   const [mgDriveSelectLabel, setMgDriveSelectLabel] = useState<string>("");
+  const [mgDriveLabelHistory, setMgDriveLabelHistory] = useState<string[]>([]);
+
+  // Load label history from AsyncStorage whenever select mode is activated
+  useEffect(() => {
+    if (!mgDriveSelectMode) return;
+    AsyncStorage.getItem(LABEL_HISTORY_KEY).then((raw) => {
+      try { setMgDriveLabelHistory(raw ? JSON.parse(raw) : []); } catch { setMgDriveLabelHistory([]); }
+    }).catch(() => {});
+  }, [mgDriveSelectMode]);
+
+  const saveLabelToHistory = async (lbl: string) => {
+    if (!lbl.trim()) return;
+    const next = [lbl, ...mgDriveLabelHistory.filter((h) => h !== lbl)].slice(0, 5);
+    setMgDriveLabelHistory(next);
+    await AsyncStorage.setItem(LABEL_HISTORY_KEY, JSON.stringify(next)).catch(() => {});
+  };
 
   // ── Remap history ────────────────────────────────────────────────────────────
   interface RemapEntry { id: string; doneAt: string; fromIds: number[]; toId: number; toType: string; titles: string[]; updated: number }
@@ -5545,6 +5562,25 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
                     )}
                   </View>
 
+                  {/* Label history chips */}
+                  {mgDriveLabelHistory.filter((h) => h !== mgDriveSelectLabel).length > 0 && (
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 5 }}>
+                      {mgDriveLabelHistory
+                        .filter((h) => h !== mgDriveSelectLabel)
+                        .map((h) => (
+                          <Pressable key={h}
+                            onPress={() => setMgDriveSelectLabel(h)}
+                            style={{ flexDirection: "row", alignItems: "center", gap: 4,
+                              paddingHorizontal: 9, paddingVertical: 4, borderRadius: 20,
+                              backgroundColor: "rgba(255,255,255,0.05)", borderWidth: 1,
+                              borderColor: "rgba(255,255,255,0.1)" }}>
+                            <Feather name="clock" size={9} color="rgba(255,255,255,0.3)" />
+                            <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 11 }}>{h}</Text>
+                          </Pressable>
+                        ))}
+                    </View>
+                  )}
+
                   {/* Confirm pill */}
                   <Pressable
                     onPress={() => {
@@ -5555,6 +5591,7 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
                       const savedAudio   = mgDriveSelectAudio;
                       const savedLang    = mgDriveSelectLang;
                       const savedLabel   = mgDriveSelectLabel;
+                      if (savedLabel.trim()) saveLabelToHistory(savedLabel);
                       mgDriveExitSelectMode();
                       setMgDriveBulkQueue(rest);
                       setFolderBulkTarget(first);
