@@ -3680,15 +3680,17 @@ function TeraBoxPanel() {
 type FolderBulkTarget = { drive: 0 | 1; path: string; name: string };
 type BulkScanItem = { filePath: string; fileName: string; size?: string; season?: number; episode?: number };
 
-function FolderBulkModal({ target, onClose, onDone, defaultContentType, defaultQuality, defaultAudio }: {
+function FolderBulkModal({ target, onClose, onDone, defaultContentType, defaultQuality, defaultAudio, defaultLanguage }: {
   target: FolderBulkTarget;
   onClose: () => void;
   onDone: (count: number) => void;
   defaultContentType?: "movie" | "series" | null;
   defaultQuality?: "4K" | "1080p" | "720p" | null;
   defaultAudio?: "Dublado" | "Legendado" | null;
+  defaultLanguage?: "pt-BR" | "en-US" | "ja-JP" | null;
 }) {
   const [contentType, setContentType] = useState<"movie" | "series" | null>(defaultContentType ?? null);
+  const [tmdbLang, setTmdbLang] = useState<"pt-BR" | "en-US" | "ja-JP">(defaultLanguage ?? "pt-BR");
   const [scanning, setScanning] = useState(false);
   const [scanItems, setScanItems] = useState<BulkScanItem[]>([]);
   const [scanError, setScanError] = useState<string | null>(null);
@@ -3790,7 +3792,7 @@ function FolderBulkModal({ target, onClose, onDone, defaultContentType, defaultQ
       const { title: cleanQ } = extractTitleAndYear(q);
       const searchQ = cleanQ || q;
       const data = await apiFetch<{ results: TmdbSearchResult[] }>(
-        `/tmdb-search?q=${encodeURIComponent(searchQ)}&type=${mediaType}`
+        `/tmdb-search?q=${encodeURIComponent(searchQ)}&type=${mediaType}&lang=${tmdbLang}`
       );
       setTmdbResults(data.results);
     } catch (e: any) {
@@ -3825,7 +3827,7 @@ function FolderBulkModal({ target, onClose, onDone, defaultContentType, defaultQ
       const { title: cleanQ } = extractTitleAndYear(qText);
       const searchQ = cleanQ || qText;
       const data = await apiFetch<{ results: TmdbSearchResult[] }>(
-        `/tmdb-search?q=${encodeURIComponent(searchQ)}&type=movie`
+        `/tmdb-search?q=${encodeURIComponent(searchQ)}&type=movie&lang=${tmdbLang}`
       );
       setUnitResults(data.results);
     } catch {
@@ -4265,6 +4267,27 @@ function FolderBulkModal({ target, onClose, onDone, defaultContentType, defaultQ
 
                       {!selectedTmdb ? (
                         <>
+                          {/* Language toggle — affects TMDB search results locale */}
+                          <View style={{ flexDirection: "row", gap: 5, marginBottom: 8 }}>
+                            {([
+                              { code: "pt-BR" as const, flag: "🇧🇷", label: "PT" },
+                              { code: "en-US" as const, flag: "🇺🇸", label: "EN" },
+                              { code: "ja-JP" as const, flag: "🇯🇵", label: "JA" },
+                            ]).map(({ code, flag, label }) => {
+                              const on = tmdbLang === code;
+                              return (
+                                <Pressable key={code}
+                                  onPress={() => setTmdbLang(code)}
+                                  style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4,
+                                    paddingVertical: 6, borderRadius: 7, borderWidth: 1.5,
+                                    borderColor: on ? "#818cf8" : "rgba(255,255,255,0.1)",
+                                    backgroundColor: on ? "rgba(99,102,241,0.18)" : "rgba(255,255,255,0.03)" }}>
+                                  <Text style={{ fontSize: 13 }}>{flag}</Text>
+                                  <Text style={{ color: on ? "#c7d2fe" : "rgba(255,255,255,0.4)", fontSize: 11, fontWeight: "700" }}>{label}</Text>
+                                </Pressable>
+                              );
+                            })}
+                          </View>
                           <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
                             <TextInput
                               style={{ flex: 1, backgroundColor: "#111", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
@@ -4811,6 +4834,7 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
   const [mgDriveSelectType, setMgDriveSelectType] = useState<"movie" | "series" | null>(null);
   const [mgDriveSelectQuality, setMgDriveSelectQuality] = useState<"4K" | "1080p" | "720p" | null>(null);
   const [mgDriveSelectAudio, setMgDriveSelectAudio] = useState<"Dublado" | "Legendado" | null>(null);
+  const [mgDriveSelectLang, setMgDriveSelectLang] = useState<"pt-BR" | "en-US" | "ja-JP" | null>(null);
 
   // ── Remap history ────────────────────────────────────────────────────────────
   interface RemapEntry { id: string; doneAt: string; fromIds: number[]; toId: number; toType: string; titles: string[]; updated: number }
@@ -4913,6 +4937,7 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
     setMgDriveSelectType(null);
     setMgDriveSelectQuality(null);
     setMgDriveSelectAudio(null);
+    setMgDriveSelectLang(null);
   };
 
   const mgNavPush = (drive: 0 | 1, folderPath: string, name: string) => {
@@ -5471,6 +5496,29 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
                     })}
                   </View>
 
+                  {/* Row 4: Idioma TMDB — PT / EN / JA */}
+                  <View style={{ flexDirection: "row", gap: 5 }}>
+                    {([
+                      { code: "pt-BR" as const, flag: "🇧🇷", label: "PT-BR" },
+                      { code: "en-US" as const, flag: "🇺🇸", label: "EN-US" },
+                      { code: "ja-JP" as const, flag: "🇯🇵", label: "JA-JP" },
+                    ]).map(({ code, flag, label }) => {
+                      const on = mgDriveSelectLang === code;
+                      return (
+                        <Pressable key={code}
+                          onPress={() => setMgDriveSelectLang((prev) => prev === code ? null : code)}
+                          style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4,
+                            paddingVertical: 8, borderRadius: 8, borderWidth: 1.5,
+                            borderColor: on ? "#818cf8" : "rgba(255,255,255,0.1)",
+                            backgroundColor: on ? "rgba(99,102,241,0.18)" : "rgba(255,255,255,0.03)" }}>
+                          <Text style={{ fontSize: 13 }}>{flag}</Text>
+                          <Text style={{ color: on ? "#c7d2fe" : "rgba(255,255,255,0.4)", fontSize: 11, fontWeight: "800" }}>{label}</Text>
+                          {on && <Feather name="check" size={10} color="#818cf8" />}
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+
                   {/* Preview do label que será gerado */}
                   <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5,
                     paddingVertical: 5, paddingHorizontal: 10, borderRadius: 6,
@@ -5491,13 +5539,15 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
                       const savedType    = mgDriveSelectType;
                       const savedQuality = mgDriveSelectQuality;
                       const savedAudio   = mgDriveSelectAudio;
+                      const savedLang    = mgDriveSelectLang;
                       mgDriveExitSelectMode();
                       setMgDriveBulkQueue(rest);
                       setFolderBulkTarget(first);
-                      // Preserve all three for the queue (exit clears them)
+                      // Preserve all four for the queue (exit clears them)
                       setMgDriveSelectType(savedType);
                       setMgDriveSelectQuality(savedQuality);
                       setMgDriveSelectAudio(savedAudio);
+                      setMgDriveSelectLang(savedLang);
                     }}
                     style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
                       padding: 14, borderRadius: 10, borderWidth: 2,
@@ -5507,6 +5557,7 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
                       Usar {mgDriveSelected.size} pasta{mgDriveSelected.size !== 1 ? "s" : ""}
                       {mgDriveSelectType ? ` · ${mgDriveSelectType === "series" ? "Série" : "Filme"}` : ""}
                       {` · ${mgDriveSelectAudio ?? "Dublado"} ${mgDriveSelectQuality ?? "1080p"}`}
+                      {mgDriveSelectLang ? ` · ${mgDriveSelectLang === "pt-BR" ? "🇧🇷" : mgDriveSelectLang === "en-US" ? "🇺🇸" : "🇯🇵"}` : ""}
                     </Text>
                     <Feather name="arrow-right" size={15} color="#fbbf24" />
                   </Pressable>
@@ -5612,6 +5663,7 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
           defaultContentType={mgDriveSelectType}
           defaultQuality={mgDriveSelectQuality}
           defaultAudio={mgDriveSelectAudio}
+          defaultLanguage={mgDriveSelectLang}
           onClose={() => {
             if (mgDriveBulkQueue.length > 0) {
               const [next, ...remaining] = mgDriveBulkQueue;
@@ -5622,6 +5674,7 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
               setMgDriveSelectType(null);
               setMgDriveSelectQuality(null);
               setMgDriveSelectAudio(null);
+              setMgDriveSelectLang(null);
             }
           }}
           onDone={(count) => {
@@ -5642,6 +5695,7 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
                     setMgDriveSelectType(null);
                     setMgDriveSelectQuality(null);
                     setMgDriveSelectAudio(null);
+                    setMgDriveSelectLang(null);
                   }
                 }
               }]

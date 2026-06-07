@@ -1444,7 +1444,7 @@ function cleanTmdbQuery(raw: string): string {
 }
 
 // ── NEW: TMDB search proxy ─────────────────────────────────────────────────────
-// GET /tmdb-search?q=...&type=multi|movie|tv
+// GET /tmdb-search?q=...&type=multi|movie|tv&lang=pt-BR
 router.get("/tmdb-search", async (req, res) => {
   try {
     const rawQ = (req.query["q"] as string ?? "").trim();
@@ -1456,7 +1456,8 @@ router.get("/tmdb-search", async (req, res) => {
 
     const TMDB_KEY = process.env.TMDB_API_KEY ?? "8f0beb08cf016ec8de49e454e09879ec";
     const TMDB_BASE = "https://api.themoviedb.org/3";
-    const TMDB_LANG = "pt-BR";
+    // Optional lang override — caller passes "pt-BR", "en-US", "ja-JP", etc.
+    const TMDB_LANG = (req.query["lang"] as string | undefined)?.trim() || "pt-BR";
 
     async function tmdbFetch(endpoint: string): Promise<any> {
       const params = new URLSearchParams({ api_key: TMDB_KEY, language: TMDB_LANG, query: q, page: "1" });
