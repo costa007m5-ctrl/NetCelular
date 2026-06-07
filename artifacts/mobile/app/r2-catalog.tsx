@@ -4800,6 +4800,7 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
   const [mgDriveRegisterCtx, setMgDriveRegisterCtx] = useState<{ driveNum: number; filePath: string } | null>(null);
   const [folderBulkTarget, setFolderBulkTarget] = useState<FolderBulkTarget | null>(null);
   const [mgDriveFilter, setMgDriveFilter] = useState("");
+  const [mgDriveUrlInput, setMgDriveUrlInput] = useState("");
 
   // ── Remap history ────────────────────────────────────────────────────────────
   interface RemapEntry { id: string; doneAt: string; fromIds: number[]; toId: number; toType: string; titles: string[]; updated: number }
@@ -4855,14 +4856,34 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
 
   // ── Drive browser helpers ────────────────────────────────────────────────────
 
+  const parseDriveUrl = (url: string): { drive: 0 | 1; path: string; name: string } | null => {
+    try {
+      const m = url.match(/\/(\d+):\/(.+)/);
+      if (!m) return null;
+      const driveNum = parseInt(m[1], 10);
+      if (driveNum !== 0 && driveNum !== 1) return null;
+      const rawPath = m[2].replace(/\/$/, "");
+      const path = rawPath.split("/").map(decodeURIComponent).join("/");
+      const name = path.split("/").pop() || path;
+      return { drive: driveNum as 0 | 1, path, name };
+    } catch { return null; }
+  };
+
   const loadMgFolder = async (drive: 0 | 1, folderPath: string, pageToken = "") => {
     if (!pageToken) { setMgDriveLoading(true); setMgDriveItems([]); }
     setMgDriveError(null);
     try {
       const result = await listFolder(drive, folderPath, pageToken);
       if (!result) { setMgDriveError("Não foi possível carregar a pasta"); return; }
-      if (pageToken) setMgDriveItems((prev) => [...prev, ...result.data.files]);
-      else setMgDriveItems(result.data.files);
+      if (pageToken) {
+        setMgDriveItems((prev) => {
+          const seenIds = new Set(prev.map((i) => i.id));
+          const newItems = result.data.files.filter((i) => !seenIds.has(i.id));
+          return [...prev, ...newItems];
+        });
+      } else {
+        setMgDriveItems(result.data.files);
+      }
       setMgDrivePageToken(result.nextPageToken);
     } catch { setMgDriveError("Erro ao carregar pasta"); }
     finally { setMgDriveLoading(false); }
@@ -4872,6 +4893,24 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
     setMgDriveFilter("");
     setMgDriveNav((prev) => [...prev, { drive, path: folderPath, name }]);
     loadMgFolder(drive, folderPath);
+  };
+
+  const mgNavPushFromUrl = () => {
+    const parsed = parseDriveUrl(mgDriveUrlInput.trim());
+    if (!parsed) {
+      Alert.alert("URL inválida", "Cole uma URL do Drive Worker, ex:\nhttps://1.animezey23112022.workers.dev/0:/Desenhos/");
+      return;
+    }
+    setMgDriveUrlInput("");
+    setMgDriveFilter("");
+    const segments = parsed.path.split("/").filter(Boolean);
+    const entries: MgNavEntry[] = segments.map((seg, i) => ({
+      drive: parsed.drive,
+      path: segments.slice(0, i + 1).join("/"),
+      name: seg,
+    }));
+    setMgDriveNav(entries);
+    loadMgFolder(parsed.drive, parsed.path);
   };
 
   const mgNavPop = () => {
@@ -5134,8 +5173,52 @@ function ManagePanel({ onRegister }: { onRegister: (key: string) => void }) {
                   contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: 16 }}
                   showsVerticalScrollIndicator={true}
                   nestedScrollEnabled>
+
+                  {/* URL input section */}
+                  <View style={{ marginBottom: 14, padding: 10, borderRadius: 10, borderWidth: 1,
+                    borderColor: "rgba(99,102,241,0.3)", backgroundColor: "rgba(99,102,241,0.06)" }}>
+                    <Text style={{ color: "#a5b4fc", fontSize: 10, fontWeight: "700", letterSpacing: 0.8,
+                      textTransform: "uppercase", marginBottom: 8 }}>
+                      🔗 Por Link do Drive
+                    </Text>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                      <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 6,
+                        backgroundColor: "rgba(255,255,255,0.05)", borderRadius: 8,
+                        borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", paddingHorizontal: 10, paddingVertical: 7 }}>
+                        <Feather name="link" size={12} color="rgba(255,255,255,0.3)" />
+                        <TextInput
+                          value={mgDriveUrlInput}
+                          onChangeText={setMgDriveUrlInput}
+                          placeholder="https://1.animezey23112022.workers.dev/0:/Pasta/"
+                          placeholderTextColor="rgba(255,255,255,0.18)"
+                          style={{ flex: 1, color: "#fff", fontSize: 11, padding: 0 }}
+                          returnKeyType="go"
+                          onSubmitEditing={mgNavPushFromUrl}
+                          autoCorrect={false}
+                          autoCapitalize="none"
+                        />
+                        {mgDriveUrlInput.length > 0 && (
+                          <Pressable onPress={() => setMgDriveUrlInput("")} hitSlop={8}>
+                            <Feather name="x" size={12} color="rgba(255,255,255,0.35)" />
+                          </Pressable>
+                        )}
+                      </View>
+                      <Pressable
+                        onPress={mgNavPushFromUrl}
+                        disabled={!mgDriveUrlInput.trim()}
+                        style={{ paddingHorizontal: 12, paddingVertical: 9, borderRadius: 8,
+                          backgroundColor: mgDriveUrlInput.trim() ? "rgba(99,102,241,0.25)" : "rgba(255,255,255,0.04)",
+                          borderWidth: 1, borderColor: mgDriveUrlInput.trim() ? "rgba(99,102,241,0.5)" : "rgba(255,255,255,0.08)" }}>
+                        <Text style={{ color: mgDriveUrlInput.trim() ? "#a5b4fc" : "rgba(255,255,255,0.2)", fontSize: 12, fontWeight: "700" }}>Ir →</Text>
+                      </Pressable>
+                    </View>
+                    <Text style={{ color: "rgba(255,255,255,0.25)", fontSize: 10, marginTop: 6 }}>
+                      Cole a URL de uma pasta do Worker para navegar diretamente
+                    </Text>
+                  </View>
+
                   <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 11, marginBottom: 10 }}>
-                    Selecione uma pasta raiz para navegar e registrar conteúdos no Drive
+                    Ou selecione uma pasta raiz abaixo:
                   </Text>
                   {DRIVE_ROOTS.map((root) => (
                     <View key={root.drive} style={{ marginBottom: 12 }}>

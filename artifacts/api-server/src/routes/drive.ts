@@ -20,12 +20,19 @@ router.post("/folder", async (req, res) => {
   const url = `${DRIVE_WORKER}/${drive}:/${encoded}/`;
 
   try {
-    const upstream = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pageToken }),
-      signal: AbortSignal.timeout(15000),
-    });
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 15000);
+    let upstream: Response;
+    try {
+      upstream = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pageToken }),
+        signal: ctrl.signal,
+      });
+    } finally {
+      clearTimeout(tid);
+    }
 
     if (!upstream.ok) {
       res.status(upstream.status).json({ error: "upstream error" });
