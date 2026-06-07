@@ -30,6 +30,7 @@ import { InlineSearchBar } from "@/components/InlineSearchBar";
 import { HeroBanner } from "@/components/HeroBanner";
 import type { ContentItem } from "@/constants/content";
 import { r2Route } from "@/lib/r2-direct";
+import { getModalHistory, addToModalHistory, removeFromModalHistory, clearModalHistory } from "@/lib/modal-search-history";
 import {
   liveTvApi,
   calcProgress,
@@ -386,10 +387,16 @@ export default function LiveTvScreen() {
   const [epgs,       setEpgs]       = useState<EpgEntry[]>([]);
   const [jogos,      setJogos]      = useState<JogoEntry[]>([]);
   const [heroItems,  setHeroItems]  = useState<ContentItem[]>([]);
-  const [activeCat,  setActiveCat]  = useState<number>(0);
-  const [searchQ,    setSearchQ]    = useState("");
-  const [loading,    setLoading]    = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const [activeCat,     setActiveCat]     = useState<number>(0);
+  const [searchQ,       setSearchQ]       = useState("");
+  const [searchFocused, setSearchFocused] = useState(false);
+  const [searchHistory, setSearchHistory] = useState<string[]>([]);
+  const [loading,       setLoading]       = useState(true);
+  const [refreshing,    setRefreshing]    = useState(false);
+
+  useEffect(() => {
+    getModalHistory("Ao Vivo").then(setSearchHistory).catch(() => {});
+  }, []);
 
   useEffect(() => {
     const loop = Animated.loop(Animated.sequence([
@@ -620,8 +627,64 @@ export default function LiveTvScreen() {
                 value={searchQ}
                 onChangeText={setSearchQ}
                 placeholder="Buscar canal ao vivo..."
-                style={{ marginTop: 0, marginBottom: 12 }}
+                style={{ marginTop: 0, marginBottom: searchFocused && !searchQ && searchHistory.length > 0 ? 8 : 12 }}
+                onFocus={() => setSearchFocused(true)}
+                onBlur={() => setSearchFocused(false)}
+                onSubmitEditing={() => {
+                  const t = searchQ.trim();
+                  if (t) addToModalHistory("Ao Vivo", t)
+                    .then(() => getModalHistory("Ao Vivo"))
+                    .then(setSearchHistory)
+                    .catch(() => {});
+                }}
               />
+
+              {/* Search history pills */}
+              {searchFocused && !searchQ && searchHistory.length > 0 && (
+                <View style={{ marginBottom: 12 }}>
+                  <View style={{ flexDirection:"row", alignItems:"center",
+                    justifyContent:"space-between", paddingHorizontal:16, marginBottom:8 }}>
+                    <Text style={{ color:"rgba(255,255,255,0.38)", fontSize:11,
+                      fontWeight:"700", letterSpacing:0.5, textTransform:"uppercase" }}>
+                      Buscas recentes
+                    </Text>
+                    <TouchableOpacity
+                      onPress={() => { clearModalHistory("Ao Vivo").then(() => setSearchHistory([])).catch(() => {}); }}
+                      hitSlop={{ top:8, bottom:8, left:8, right:8 }}>
+                      <Text style={{ color:`${RED}99`, fontSize:11, fontWeight:"600" }}>Limpar</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}
+                    keyboardShouldPersistTaps="always"
+                    contentContainerStyle={{ paddingHorizontal:16, gap:8 }}
+                    style={{ flexGrow:0 }}>
+                    {searchHistory.map((h, i) => (
+                      <View key={i} style={{ flexDirection:"row", alignItems:"center",
+                        borderRadius:20, overflow:"hidden",
+                        backgroundColor:`${RED}15`, borderWidth:1, borderColor:`${RED}35` }}>
+                        <TouchableOpacity
+                          onPress={() => { setSearchQ(h); setSearchFocused(false);
+                            addToModalHistory("Ao Vivo", h).then(() => getModalHistory("Ao Vivo"))
+                              .then(setSearchHistory).catch(() => {}); }}
+                          activeOpacity={0.75}
+                          style={{ flexDirection:"row", alignItems:"center", gap:6,
+                            paddingLeft:12, paddingRight:6, paddingVertical:7 }}>
+                          <Feather name="clock" size={10} color={`${RED}cc`} />
+                          <Text style={{ color:"rgba(255,255,255,0.82)", fontSize:12,
+                            fontWeight:"600", maxWidth:140 }} numberOfLines={1}>{h}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => { removeFromModalHistory("Ao Vivo", h).then(setSearchHistory).catch(() => {}); }}
+                          hitSlop={{ top:8, bottom:8, left:4, right:10 }}
+                          activeOpacity={0.7}
+                          style={{ paddingRight:10, paddingLeft:2, paddingVertical:7 }}>
+                          <Feather name="x" size={10} color={`${RED}99`} />
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
 
               {/* Jogos section — hidden while searching */}
               {!isSearching && sortedJogos.length > 0 && (

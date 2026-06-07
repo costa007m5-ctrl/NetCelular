@@ -19,6 +19,9 @@ interface Props {
   placeholder?: string;
   style?: object;
   autoFocus?: boolean;
+  onFocus?: () => void;
+  onBlur?: () => void;
+  onSubmitEditing?: () => void;
 }
 
 export function InlineSearchBar({
@@ -27,6 +30,9 @@ export function InlineSearchBar({
   placeholder = "Buscar filmes, séries, atores...",
   style,
   autoFocus = false,
+  onFocus,
+  onBlur,
+  onSubmitEditing,
 }: Props) {
   const scale     = useRef(new Animated.Value(1)).current;
   const micPulse  = useRef(new Animated.Value(1)).current;
@@ -138,6 +144,9 @@ export function InlineSearchBar({
             autoCapitalize="none"
             autoFocus={autoFocus}
             selectionColor={RED}
+            onFocus={onFocus}
+            onBlur={onBlur}
+            onSubmitEditing={onSubmitEditing}
           />
 
           <Pressable
