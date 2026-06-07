@@ -3724,6 +3724,18 @@ function FolderBulkModal({ target, onClose, onDone }: {
   const [regProgress, setRegProgress] = useState(0);
   const [regDone, setRegDone] = useState<number | null>(null);
 
+  // Per-item overrides: user can manually edit season/episode numbers
+  const [overrides, setOverrides] = useState<Map<string, { season: number; episode: number }>>(new Map());
+  type EpEdit = { filePaths: string[]; fileName: string; season: string; episode: string; bulkSeason?: boolean };
+  const [editingEp, setEditingEp] = useState<EpEdit | null>(null);
+  // Expanded seasons: shows all eps instead of just 3
+  const [expandedSeasons, setExpandedSeasons] = useState<Set<number>>(new Set());
+
+  const effectiveItem = (item: BulkScanItem): BulkScanItem => {
+    const ov = overrides.get(item.filePath);
+    return ov ? { ...item, season: ov.season, episode: ov.episode } : item;
+  };
+
   const scan = async (type: "movie" | "series") => {
     setContentType(type);
     setScanning(true);
@@ -3843,8 +3855,8 @@ function FolderBulkModal({ target, onClose, onDone }: {
           tmdbType: tmdb.media_type,
           title: tmdb.title,
           label,
-          season: item.season ?? null,
-          episode: item.episode ?? null,
+          season: effectiveItem(item).season ?? null,
+          episode: effectiveItem(item).episode ?? null,
         });
         done++;
       } catch { errors++; }
@@ -3859,12 +3871,13 @@ function FolderBulkModal({ target, onClose, onDone }: {
     if (contentType !== "series" || scanItems.length === 0) return null;
     const map = new Map<number, BulkScanItem[]>();
     for (const item of scanItems) {
-      const s = item.season ?? 1;
+      const eff = effectiveItem(item);
+      const s = eff.season ?? 1;
       if (!map.has(s)) map.set(s, []);
-      map.get(s)!.push(item);
+      map.get(s)!.push(eff);
     }
-    return map;
-  }, [scanItems, contentType]);
+    return new Map([...map.entries()].sort((a, b) => a[0] - b[0]));
+  }, [scanItems, contentType, overrides]);
 
   const GREEN = "#22c55e";
   const RED_CONTENT = "#e50914";
@@ -4016,45 +4029,106 @@ function FolderBulkModal({ target, onClose, onDone }: {
                     </View>
                   )}
 
-                  {/* Preview — séries por temporada com checkboxes */}
+                  {/* Preview — séries por temporada com checkboxes + edição inline */}
                   {contentType === "series" && bySeason && (
                     <View style={{ marginBottom: 16, borderRadius: 10, borderWidth: 1, borderColor: "rgba(34,197,94,0.15)", overflow: "hidden" }}>
-                      {Array.from(bySeason.entries()).map(([season, eps]) => (
-                        <View key={season}>
-                          <View style={{ backgroundColor: "rgba(34,197,94,0.09)", paddingHorizontal: 12, paddingVertical: 7,
-                            flexDirection: "row", alignItems: "center", gap: 8 }}>
-                            <Feather name="layers" size={13} color={GREEN} />
-                            <Text style={{ color: GREEN, fontWeight: "700", fontSize: 12 }}>
-                              Temporada {season} — {eps.length} episódio{eps.length !== 1 ? "s" : ""}
-                            </Text>
-                          </View>
-                          {eps.slice(0, 3).map((ep, i) => (
-                            <Pressable key={i} onPress={() => toggleItem(ep.filePath)}
-                              style={{ paddingHorizontal: 12, paddingVertical: 7,
-                              borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.05)",
-                              flexDirection: "row", alignItems: "center", gap: 8,
-                              backgroundColor: selectedPaths.has(ep.filePath) ? "rgba(34,197,94,0.04)" : "transparent" }}>
-                              <Feather name={selectedPaths.has(ep.filePath) ? "check-square" : "square"} size={14}
-                                color={selectedPaths.has(ep.filePath) ? GREEN : "rgba(255,255,255,0.25)"} />
-                              <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 11, width: 36 }}>
-                                {ep.episode != null ? `E${String(ep.episode).padStart(2, "0")}` : `#${i + 1}`}
+                      {Array.from(bySeason.entries()).map(([season, eps]) => {
+                        const isExpanded = expandedSeasons.has(season);
+                        const visibleEps = isExpanded ? eps : eps.slice(0, 3);
+                        return (
+                          <View key={season}>
+                            {/* Season header — toque no número edita a temporada toda */}
+                            <View style={{ backgroundColor: "rgba(34,197,94,0.09)", paddingHorizontal: 12, paddingVertical: 7,
+                              flexDirection: "row", alignItems: "center", gap: 8 }}>
+                              <Feather name="layers" size={13} color={GREEN} />
+                              <Pressable
+                                onPress={() => {
+                                  const filePaths = eps.map((e) => e.filePath);
+                                  setEditingEp({
+                                    filePaths,
+                                    fileName: `${eps.length} episódios`,
+                                    season: String(season),
+                                    episode: "",
+                                    bulkSeason: true,
+                                  });
+                                }}
+                                style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                                <Text style={{ color: GREEN, fontWeight: "700", fontSize: 12 }}>
+                                  Temporada {season}
+                                </Text>
+                                <Feather name="edit-2" size={10} color={`${GREEN}80`} />
+                              </Pressable>
+                              <Text style={{ color: `${GREEN}80`, fontSize: 11 }}>
+                                — {eps.length} ep{eps.length !== 1 ? "s" : ""}
                               </Text>
-                              <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 11, flex: 1 }} numberOfLines={1}>
-                                {ep.fileName}
-                              </Text>
-                              {ep.size && (
-                                <Text style={{ color: "rgba(255,255,255,0.25)", fontSize: 10 }}>{ep.size}</Text>
+                              {/* Expand/collapse */}
+                              {eps.length > 3 && (
+                                <Pressable
+                                  onPress={() => setExpandedSeasons((prev) => {
+                                    const next = new Set(prev);
+                                    next.has(season) ? next.delete(season) : next.add(season);
+                                    return next;
+                                  })}
+                                  style={{ marginLeft: "auto", flexDirection: "row", alignItems: "center", gap: 3 }}>
+                                  <Text style={{ color: `${GREEN}99`, fontSize: 10 }}>
+                                    {isExpanded ? "Recolher" : `Ver todos (${eps.length})`}
+                                  </Text>
+                                  <Feather name={isExpanded ? "chevron-up" : "chevron-down"} size={11} color={`${GREEN}99`} />
+                                </Pressable>
                               )}
-                            </Pressable>
-                          ))}
-                          {eps.length > 3 && (
-                            <View style={{ paddingHorizontal: 12, paddingVertical: 6,
-                              borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.05)" }}>
-                              <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 11 }}>+ {eps.length - 3} episódios…</Text>
                             </View>
-                          )}
-                        </View>
-                      ))}
+                            {visibleEps.map((ep, i) => {
+                              const hasOverride = overrides.has(ep.filePath);
+                              return (
+                                <View key={ep.filePath + i} style={{ borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.05)",
+                                  flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 12, paddingRight: 8, paddingVertical: 7,
+                                  backgroundColor: selectedPaths.has(ep.filePath) ? "rgba(34,197,94,0.04)" : "transparent" }}>
+                                  {/* Checkbox */}
+                                  <Pressable onPress={() => toggleItem(ep.filePath)}>
+                                    <Feather name={selectedPaths.has(ep.filePath) ? "check-square" : "square"} size={14}
+                                      color={selectedPaths.has(ep.filePath) ? GREEN : "rgba(255,255,255,0.25)"} />
+                                  </Pressable>
+                                  {/* Episode badge — tappable to edit */}
+                                  <Pressable
+                                    onPress={() => setEditingEp({
+                                      filePaths: [ep.filePath],
+                                      fileName: ep.fileName,
+                                      season: String(ep.season ?? season),
+                                      episode: String(ep.episode ?? i + 1),
+                                    })}
+                                    style={{ flexDirection: "row", alignItems: "center", gap: 3,
+                                      backgroundColor: hasOverride ? "rgba(34,197,94,0.18)" : "rgba(255,255,255,0.06)",
+                                      borderRadius: 5, paddingHorizontal: 5, paddingVertical: 2 }}>
+                                    <Text style={{ color: hasOverride ? GREEN : "rgba(255,255,255,0.45)", fontSize: 10, fontWeight: "700" }}>
+                                      {ep.episode != null ? `E${String(ep.episode).padStart(2, "0")}` : `E${String(i + 1).padStart(2, "0")}`}
+                                    </Text>
+                                    <Feather name="edit-2" size={8} color={hasOverride ? `${GREEN}cc` : "rgba(255,255,255,0.2)"} />
+                                  </Pressable>
+                                  {/* Filename */}
+                                  <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 11, flex: 1 }} numberOfLines={1}>
+                                    {ep.fileName}
+                                  </Text>
+                                  {ep.size && (
+                                    <Text style={{ color: "rgba(255,255,255,0.25)", fontSize: 10 }}>{ep.size}</Text>
+                                  )}
+                                </View>
+                              );
+                            })}
+                            {!isExpanded && eps.length > 3 && (
+                              <Pressable
+                                onPress={() => setExpandedSeasons((prev) => { const n = new Set(prev); n.add(season); return n; })}
+                                style={{ paddingHorizontal: 12, paddingVertical: 7,
+                                  borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.05)",
+                                  flexDirection: "row", alignItems: "center", gap: 6 }}>
+                                <Feather name="chevron-down" size={12} color={`${GREEN}80`} />
+                                <Text style={{ color: `${GREEN}99`, fontSize: 11 }}>
+                                  + {eps.length - 3} episódios — toque para expandir e editar
+                                </Text>
+                              </Pressable>
+                            )}
+                          </View>
+                        );
+                      })}
                     </View>
                   )}
 
@@ -4366,6 +4440,108 @@ function FolderBulkModal({ target, onClose, onDone }: {
           </View>
         </View>
       </KeyboardAvoidingView>
+
+      {/* ── Modal de edição de temporada/episódio ─────────────────────────── */}
+      {editingEp && (
+        <Modal transparent visible animationType="fade" onRequestClose={() => setEditingEp(null)}>
+          <Pressable style={{ flex:1, justifyContent:"center", alignItems:"center",
+            backgroundColor:"rgba(0,0,0,0.75)" }} onPress={() => setEditingEp(null)}>
+            <Pressable onPress={(e) => e.stopPropagation()}
+              style={{ backgroundColor:"#0d1f0d", borderRadius:18, padding:20, width:280,
+                borderWidth:1, borderColor:"rgba(34,197,94,0.3)", gap:14 }}>
+              {/* Title */}
+              <View style={{ flexDirection:"row", alignItems:"center", gap:8 }}>
+                <Feather name="edit-2" size={15} color={GREEN} />
+                <Text style={{ color:"#fff", fontWeight:"700", fontSize:15, flex:1 }}>
+                  {editingEp.bulkSeason ? "Editar Temporada" : "Editar Episódio"}
+                </Text>
+                <Pressable onPress={() => setEditingEp(null)}>
+                  <Feather name="x" size={18} color="rgba(255,255,255,0.4)" />
+                </Pressable>
+              </View>
+              <Text style={{ color:"rgba(255,255,255,0.35)", fontSize:11, lineHeight:16 }} numberOfLines={2}>
+                {editingEp.fileName}
+              </Text>
+
+              {/* Fields */}
+              <View style={{ flexDirection:"row", gap:12 }}>
+                <View style={{ flex:1 }}>
+                  <Text style={{ color:"rgba(255,255,255,0.45)", fontSize:11, marginBottom:6, fontWeight:"600" }}>
+                    Temporada
+                  </Text>
+                  <TextInput
+                    value={editingEp.season}
+                    onChangeText={(v) => setEditingEp((p) => p ? { ...p, season: v.replace(/\D/g, "") } : null)}
+                    keyboardType="number-pad"
+                    style={{ color:"#fff", backgroundColor:"rgba(255,255,255,0.08)", borderRadius:10,
+                      padding:12, fontSize:20, textAlign:"center", fontWeight:"700",
+                      borderWidth:1, borderColor:"rgba(34,197,94,0.3)" }}
+                    selectTextOnFocus
+                  />
+                </View>
+                {!editingEp.bulkSeason && (
+                  <View style={{ flex:1 }}>
+                    <Text style={{ color:"rgba(255,255,255,0.45)", fontSize:11, marginBottom:6, fontWeight:"600" }}>
+                      Episódio
+                    </Text>
+                    <TextInput
+                      value={editingEp.episode}
+                      onChangeText={(v) => setEditingEp((p) => p ? { ...p, episode: v.replace(/\D/g, "") } : null)}
+                      keyboardType="number-pad"
+                      style={{ color:"#fff", backgroundColor:"rgba(255,255,255,0.08)", borderRadius:10,
+                        padding:12, fontSize:20, textAlign:"center", fontWeight:"700",
+                        borderWidth:1, borderColor:"rgba(34,197,94,0.3)" }}
+                      selectTextOnFocus
+                    />
+                  </View>
+                )}
+              </View>
+
+              {editingEp.bulkSeason && (
+                <Text style={{ color:"rgba(255,255,255,0.3)", fontSize:10, textAlign:"center" }}>
+                  Altera a temporada de todos os {editingEp.filePaths.length} episódios do grupo
+                </Text>
+              )}
+
+              {/* Buttons */}
+              <View style={{ flexDirection:"row", gap:10 }}>
+                <Pressable onPress={() => setEditingEp(null)}
+                  style={{ flex:1, padding:12, borderRadius:10, alignItems:"center",
+                    backgroundColor:"rgba(255,255,255,0.07)", borderWidth:1, borderColor:"rgba(255,255,255,0.1)" }}>
+                  <Text style={{ color:"rgba(255,255,255,0.5)", fontWeight:"600" }}>Cancelar</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    const s = parseInt(editingEp.season, 10);
+                    const ep = parseInt(editingEp.episode, 10);
+                    setOverrides((prev) => {
+                      const next = new Map(prev);
+                      for (const fp of editingEp.filePaths) {
+                        const existing = next.get(fp);
+                        if (editingEp.bulkSeason) {
+                          // Only update season; keep existing episode or auto-detected
+                          const baseEp = existing?.episode ?? scanItems.find((i) => i.filePath === fp)?.episode ?? 1;
+                          next.set(fp, { season: isNaN(s) ? 1 : s, episode: baseEp });
+                        } else {
+                          next.set(fp, {
+                            season: isNaN(s) ? 1 : s,
+                            episode: isNaN(ep) ? 1 : ep,
+                          });
+                        }
+                      }
+                      return next;
+                    });
+                    setEditingEp(null);
+                  }}
+                  style={{ flex:1, padding:12, borderRadius:10, alignItems:"center",
+                    backgroundColor:"rgba(34,197,94,0.2)", borderWidth:1, borderColor:"rgba(34,197,94,0.4)" }}>
+                  <Text style={{ color:GREEN, fontWeight:"700" }}>Confirmar</Text>
+                </Pressable>
+              </View>
+            </Pressable>
+          </Pressable>
+        </Modal>
+      )}
     </Modal>
   );
 }
