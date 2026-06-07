@@ -816,7 +816,11 @@ async function _resolveSignedDriveLinkDirect(
 export async function drivePlayDirect(
   id: string,
 ): Promise<{ url: string; cached: boolean; via: string }> {
-  const registry = await apiGetRegistry();
+  // No web (Chrome), requisições S3 diretas falham por CORS — usa API server.
+  // No nativo (Android/iOS), acessa R2 diretamente sem restrições.
+  const registry = Platform.OS === "web"
+    ? await forwardToServer<any>("/registry")
+    : await apiGetRegistry();
   const item = (registry.items ?? []).find((i: any) => i.id === id);
   if (!item) throw new Error("Item não encontrado no registry");
 
