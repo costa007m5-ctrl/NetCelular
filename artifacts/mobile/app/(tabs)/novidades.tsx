@@ -1167,7 +1167,22 @@ export default function NovidadesScreen() {
                     <SectionHeader title="Tendência Hoje" icon="trending-up"
                       badge="AO VIVO" accentColor={RED}
                       subtitle="O que o mundo está assistindo agora"
-                      onSeeAll={() => openModal("Tendência Hoje", trendMovies, RED)} />
+                      onSeeAll={() => openModal("Tendência Hoje", trendMovies, RED,
+                          undefined,
+                          [
+                            { id: 28,    label: "Ação" },
+                            { id: 12,    label: "Aventura" },
+                            { id: 16,    label: "Animação" },
+                            { id: 35,    label: "Comédia" },
+                            { id: 80,    label: "Crime" },
+                            { id: 18,    label: "Drama" },
+                            { id: 14,    label: "Fantasia" },
+                            { id: 878,   label: "Ficção Científica" },
+                            { id: 27,    label: "Terror" },
+                            { id: 53,    label: "Suspense" },
+                            { id: 10749, label: "Romance" },
+                          ]
+                        )} />
                     <WideRow items={trendMovies} onPress={goTo}
                       badgeFn={(i) => i.rating >= 8 ? "DESTAQUE" : undefined} />
                   </View>
@@ -1193,7 +1208,21 @@ export default function NovidadesScreen() {
                     <SectionHeader title="Estreando Agora" icon="zap"
                       badge="NOVO" accentColor={BLUE}
                       subtitle="Chegando aos cinemas esta semana"
-                      onSeeAll={() => openModal("Estreando Agora", nowPlaying, BLUE)} />
+                      onSeeAll={() => openModal("Estreando Agora", nowPlaying, BLUE,
+                          undefined,
+                          [
+                            { id: 28,    label: "Ação" },
+                            { id: 12,    label: "Aventura" },
+                            { id: 16,    label: "Animação" },
+                            { id: 35,    label: "Comédia" },
+                            { id: 80,    label: "Crime" },
+                            { id: 18,    label: "Drama" },
+                            { id: 14,    label: "Fantasia" },
+                            { id: 878,   label: "Ficção Científica" },
+                            { id: 27,    label: "Terror" },
+                            { id: 53,    label: "Suspense" },
+                          ]
+                        )} />
                     <FeaturedRow items={nowPlaying} onPress={goTo} accentColor={BLUE} />
                   </View>
                 </AnimatedSection>
@@ -1206,7 +1235,21 @@ export default function NovidadesScreen() {
                     <SectionHeader title="Séries no Ar" icon="tv"
                       badge="AO AR" accentColor={GREEN}
                       subtitle="Episódios novos toda semana"
-                      onSeeAll={() => openModal("Séries no Ar", onAir, GREEN)} />
+                      onSeeAll={() => openModal("Séries no Ar", onAir, GREEN,
+                          undefined,
+                          [
+                            { id: 10759, label: "Ação" },
+                            { id: 16,    label: "Animação" },
+                            { id: 35,    label: "Comédia" },
+                            { id: 80,    label: "Crime" },
+                            { id: 18,    label: "Drama" },
+                            { id: 10751, label: "Família" },
+                            { id: 14,    label: "Fantasia" },
+                            { id: 9648,  label: "Mistério" },
+                            { id: 10765, label: "Sci-Fi" },
+                            { id: 53,    label: "Suspense" },
+                          ]
+                        )} />
                     <MoodRow items={onAir} onPress={goTo}
                       labels={["NOVO EP.","HOJE","NOVO EP.","AMANHÃ","NOVO EP.","HOJE"]}
                       accentColor={GREEN} />

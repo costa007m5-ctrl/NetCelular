@@ -22,6 +22,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { apiList, apiSignedUrl, r2Route, drivePlayDirect } from "@/lib/r2-direct";
+import { downloadsManager } from "@/lib/downloads";
 import { getProxiedStreamUrl } from "@/lib/gdrive-index";
 import { useAuth } from "@/lib/auth-context";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
@@ -431,6 +432,26 @@ export default function R2PlayerScreen() {
     const isEffectiveFlix2 = !!effectiveFlix2Url;
 
     if (!isEffectiveDrive && !isEffectiveFlix2 && !activeKeyRef.current) { setPhase("error"); setErrorMsg("Arquivo não especificado"); return; }
+
+    // ── Check for locally downloaded file ──────────────────────────────────
+    if (tmdbId && Platform.OS !== "web") {
+      try {
+        const dlItem = await downloadsManager.getDownloadedItem(contentType as "movie" | "tv", tmdbId, season ?? undefined, episode ?? undefined);
+        if (dlItem?.localUri) {
+          let FileSystem: any = null;
+          try { FileSystem = require("expo-file-system"); } catch {}
+          const exists = FileSystem ? (await FileSystem.getInfoAsync(dlItem.localUri))?.exists : false;
+          if (exists) {
+            setVideoUrl(dlItem.localUri);
+            phaseRef.current = "ready";
+            setPhase("ready");
+            setIsPlaying(true);
+            return;
+          }
+        }
+      } catch {}
+    }
+
     phaseRef.current = "loading";
     setPhase("loading");
     setVideoUrl(null);

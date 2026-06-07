@@ -797,17 +797,35 @@ export default function DetailScreen() {
     }
     setDownloading(true);
     try {
-      await downloadsManager.download({
+      let streamUrl: string | undefined;
+      if (Platform.OS !== "web") {
+        try {
+          const r2Item = r2Items.find((i) => !isDriveItem(i) && !isFlixItem(i) && i.r2Key);
+          if (r2Item?.r2Key) {
+            const { apiSignedUrl } = await import("@/lib/r2-direct");
+            const signed = await apiSignedUrl(r2Item.r2Key, 86400);
+            streamUrl = signed.url;
+          }
+        } catch {}
+      }
+      const result = await downloadsManager.download({
         tmdb_id: tmdbId,
         type,
         title: details?.title ?? details?.name ?? "",
         poster_path: TMDB_IMG(details?.poster_path ?? null, "w500") ?? "",
         backdrop_path: TMDB_IMG(details?.backdrop_path ?? null, "w1280") ?? "",
+        streamUrl,
       });
+      if (result.error) {
+        Alert.alert("Erro", result.error);
+        return;
+      }
       setIsDownloaded(true);
       Alert.alert(
         "Download concluído!",
-        `"${details?.title ?? details?.name}" está disponível offline por 20 dias.`,
+        streamUrl
+          ? `"${details?.title ?? details?.name}" foi baixado e está disponível offline por 20 dias.`
+          : `"${details?.title ?? details?.name}" está disponível offline por 20 dias.`,
         [{ text: "OK" }]
       );
     } catch {

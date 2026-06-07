@@ -1,4 +1,8 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Platform } from "react-native";
+
+let FileSystem: any = null;
+try { FileSystem = require("expo-file-system"); } catch {}
 
 export interface DownloadedContent {
   key: string;
@@ -13,6 +17,7 @@ export interface DownloadedContent {
   quality: string;
   season?: number;
   episode?: number;
+  localUri?: string;
 }
 
 export interface ActiveDownload {
@@ -23,6 +28,7 @@ export interface ActiveDownload {
   size_mb: number;
   speed_mb: number;
   cancelled: boolean;
+  isReal?: boolean;
 }
 
 const STORAGE_KEY = "netplay_downloads_v1";
@@ -45,7 +51,8 @@ export function getActiveDownloads(): ActiveDownload[] {
   return Array.from(_active.values());
 }
 
-function makeKey(type: "movie" | "tv", tmdb_id: number) {
+function makeKey(type: "movie" | "tv", tmdb_id: number, season?: number, episode?: number) {
+  if (season != null && episode != null) return `${type}_${tmdb_id}_s${season}e${episode}`;
   return `${type}_${tmdb_id}`;
 }
 
@@ -65,6 +72,13 @@ function durationMs(size_mb: number, quality: string): number {
   if (quality.includes("1080")) return Math.min(size_mb * 3, 12000);
   if (quality.includes("720")) return Math.min(size_mb * 2, 8000);
   return Math.min(size_mb * 1.2, 5000);
+}
+
+function getLocalPath(key: string, streamUrl: string): string | null {
+  if (!FileSystem?.documentDirectory) return null;
+  const ext = (streamUrl.split("?")[0].split(".").pop() ?? "mp4").toLowerCase();
+  const safeKey = key.replace(/[^a-zA-Z0-9_]/g, "_");
+  return `${FileSystem.documentDirectory}netplay_dl_${safeKey}.${ext}`;
 }
 
 export const downloadsManager = {
@@ -95,11 +109,12 @@ export const downloadsManager = {
       season?: number;
       episode?: number;
       quality?: string;
+      streamUrl?: string;
     },
     onProgress?: (pct: number) => void
   ): Promise<{ error?: string }> {
     const quality = content.quality ?? "Boa (720p)";
-    const key = makeKey(content.type, content.tmdb_id);
+    const key = makeKey(content.type, content.tmdb_id, content.season, content.episode);
 
     if (_active.has(key)) return { error: "Já está sendo baixado" };
 
@@ -118,48 +133,113 @@ export const downloadsManager = {
       size_mb,
       speed_mb: 0,
       cancelled: false,
+      isReal: !!(content.streamUrl && FileSystem && Platform.OS !== "web"),
     };
     _active.set(key, active);
     notify();
 
-    const totalMs = durationMs(size_mb, quality);
-    const steps = 50;
-    const stepMs = totalMs / steps;
+    let localUri: string | undefined;
 
-    await new Promise<void>((resolve) => {
-      let step = 0;
-      const interval = setInterval(() => {
-        const curr = _active.get(key);
-        if (!curr || curr.cancelled) {
-          clearInterval(interval);
+    if (content.streamUrl && FileSystem && Platform.OS !== "web") {
+      const localPath = getLocalPath(key, content.streamUrl);
+      if (!localPath) {
+        _active.delete(key);
+        notify();
+        return { error: "Sistema de arquivos não disponível" };
+      }
+
+      try {
+        const dl = FileSystem.createDownloadResumable(
+          content.streamUrl,
+          localPath,
+          {},
+          (progress: { totalBytesWritten: number; totalBytesExpectedToWrite: number }) => {
+            const curr = _active.get(key);
+            if (!curr || curr.cancelled) return;
+            const expected = progress.totalBytesExpectedToWrite;
+            if (expected > 0) {
+              const pct = Math.min(Math.round((progress.totalBytesWritten / expected) * 100), 99);
+              curr.progress = pct;
+              const estimatedSize = Math.round(expected / (1024 * 1024));
+              curr.size_mb = estimatedSize > 0 ? estimatedSize : size_mb;
+              curr.speed_mb = Math.round(((progress.totalBytesWritten / (1024 * 1024)) / Math.max(1, (Date.now() - startTime) / 1000)) * 10) / 10;
+              onProgress?.(pct);
+              notify();
+            }
+          }
+        );
+        const startTime = Date.now();
+
+        const result = await new Promise<{ uri: string } | null>((resolve, reject) => {
+          const cancelled$ = setInterval(() => {
+            const curr = _active.get(key);
+            if (curr?.cancelled) {
+              clearInterval(cancelled$);
+              dl.cancelAsync().catch(() => {});
+              resolve(null);
+            }
+          }, 500);
+          dl.downloadAsync()
+            .then((r: { uri: string } | null) => { clearInterval(cancelled$); resolve(r ?? null); })
+            .catch((e: unknown) => { clearInterval(cancelled$); reject(e); });
+        });
+
+        if (!result) {
           _active.delete(key);
           notify();
-          resolve();
-          return;
+          return {};
         }
-        step++;
-        const pct = Math.min(Math.round((step / steps) * 100), 100);
-        const speed = Math.round((size_mb / (totalMs / 1000)) * (0.8 + Math.random() * 0.4) * 10) / 10;
-        curr.progress = pct;
-        curr.speed_mb = speed;
-        onProgress?.(pct);
+        localUri = result.uri;
+      } catch (e: any) {
+        _active.delete(key);
         notify();
+        return { error: `Falha no download: ${e?.message ?? "erro desconhecido"}` };
+      }
+    } else {
+      const totalMs = durationMs(size_mb, quality);
+      const steps = 50;
+      const stepMs = totalMs / steps;
 
-        if (step >= steps) {
-          clearInterval(interval);
-          resolve();
-        }
-      }, stepMs);
-    });
+      await new Promise<void>((resolve) => {
+        let step = 0;
+        const interval = setInterval(() => {
+          const curr = _active.get(key);
+          if (!curr || curr.cancelled) {
+            clearInterval(interval);
+            _active.delete(key);
+            notify();
+            resolve();
+            return;
+          }
+          step++;
+          const pct = Math.min(Math.round((step / steps) * 100), 100);
+          const speed = Math.round((size_mb / (totalMs / 1000)) * (0.8 + Math.random() * 0.4) * 10) / 10;
+          curr.progress = pct;
+          curr.speed_mb = speed;
+          onProgress?.(pct);
+          notify();
+          if (step >= steps) { clearInterval(interval); resolve(); }
+        }, stepMs);
+      });
 
-    if (_active.get(key)?.cancelled) {
-      _active.delete(key);
-      notify();
-      return {};
+      if (_active.get(key)?.cancelled) {
+        _active.delete(key);
+        notify();
+        return {};
+      }
     }
 
     _active.delete(key);
     notify();
+
+    let finalSizeMb = size_mb;
+    if (localUri && FileSystem) {
+      try {
+        const info = await FileSystem.getInfoAsync(localUri, { size: true });
+        const bytes: number = (info as any).size ?? 0;
+        if (bytes > 0) finalSizeMb = Math.round(bytes / (1024 * 1024));
+      } catch {}
+    }
 
     const now = new Date();
     const expiry = new Date(now.getTime() + EXPIRY_DAYS * 24 * 60 * 60 * 1000);
@@ -172,10 +252,11 @@ export const downloadsManager = {
       backdrop_path: content.backdrop_path ?? "",
       download_date: now.toISOString(),
       expiry_date: expiry.toISOString(),
-      size_mb,
+      size_mb: finalSizeMb,
       quality,
       season: content.season,
       episode: content.episode,
+      localUri,
     };
     const filtered = existing.filter((i) => i.key !== key);
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify([entry, ...filtered]));
@@ -192,17 +273,30 @@ export const downloadsManager = {
 
   async remove(key: string): Promise<void> {
     const all = await this.getAll();
+    const item = all.find((i) => i.key === key);
+    if (item?.localUri && FileSystem) {
+      try {
+        const info = await FileSystem.getInfoAsync(item.localUri);
+        if (info.exists) await FileSystem.deleteAsync(item.localUri, { idempotent: true });
+      } catch {}
+    }
     await AsyncStorage.setItem(
       STORAGE_KEY,
       JSON.stringify(all.filter((i) => i.key !== key))
     );
   },
 
-  async isDownloaded(type: "movie" | "tv", tmdb_id: number): Promise<boolean> {
-    const key = makeKey(type, tmdb_id);
+  async isDownloaded(type: "movie" | "tv", tmdb_id: number, season?: number, episode?: number): Promise<boolean> {
+    const key = makeKey(type, tmdb_id, season, episode);
     if (_active.has(key)) return false;
     const all = await this.getAll();
     return all.some((i) => i.key === key);
+  },
+
+  async getDownloadedItem(type: "movie" | "tv", tmdb_id: number, season?: number, episode?: number): Promise<DownloadedContent | null> {
+    const key = makeKey(type, tmdb_id, season, episode);
+    const all = await this.getAll();
+    return all.find((i) => i.key === key) ?? null;
   },
 
   isActivelyDownloading(type: "movie" | "tv", tmdb_id: number): boolean {
