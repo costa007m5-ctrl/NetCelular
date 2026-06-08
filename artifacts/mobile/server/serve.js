@@ -371,8 +371,8 @@ const server = http.createServer((req, res) => {
     return res.end();
   }
 
-  // Proxy /api/ → API server (porta 8080)
-  if (pathname.startsWith("/api/")) {
+  // Proxy /api and /api/* → API server (porta 8080)
+  if (pathname === "/api" || pathname.startsWith("/api/")) {
     return proxyToApi(req, res);
   }
 

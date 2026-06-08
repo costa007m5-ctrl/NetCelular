@@ -610,8 +610,15 @@ export default function Flix2PlayerScreen() {
   const onPlaybackStatusUpdate = useCallback((status: any) => {
     if (status?.isLoaded === false && status?.error) {
       if (phaseRef.current === "loading" || phaseRef.current === "ready") {
+        const playerErr = String(status.error ?? "");
+        appLog.error("player.flix2", `Erro de playback: ${playerErr}`, {
+          error: playerErr,
+          platform: Platform.OS,
+          title,
+          tmdbId,
+        });
         setPhase("error");
-        setErrorMsg("Erro ao reproduzir vídeo. Tente novamente.");
+        setErrorMsg(playerErr || "Erro ao reproduzir vídeo. Tente novamente.");
         phaseRef.current = "error";
       }
       return;
@@ -891,7 +898,10 @@ export default function Flix2PlayerScreen() {
           {phase === "error" ? (
             <View style={styles.loadCenter}>
               <Feather name="alert-circle" size={44} color={RED} />
-              <Text style={[styles.loadTitle, { marginTop: 12 }]}>{errorMsg || "Erro ao carregar"}</Text>
+              <Text style={[styles.loadTitle, { marginTop: 12 }]}>Erro ao reproduzir vídeo</Text>
+              {errorMsg ? (
+                <Text style={[styles.loadEp, { color: "#ef4444", fontSize: 12, marginBottom: 4 }]}>{errorMsg}</Text>
+              ) : null}
               <Text style={styles.loadEp}>Verifique sua conexão e tente novamente</Text>
               {autoRetryCountdown !== null ? (
                 <View style={{ alignItems: "center", gap: 6, marginTop: 20 }}>
