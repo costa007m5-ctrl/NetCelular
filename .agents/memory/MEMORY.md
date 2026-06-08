@@ -24,3 +24,4 @@
 - [Recommendations system](recommendations.md) — lib/recommendations.ts scores catalog items using watch history + ratings + watchlist from Supabase; flix2/lookup allows title-only search (tmdbId=0) after fix; items with tmdb_id=0 visible in catalog after dedup + filter fixes.
 - [Flix2 tmdb_id=0 items](flix2-zero-tmdb.md) — catalog-full dedup uses seenTmdb+seenFlix2 dual sets; applyCatalog uses hasId() helper; flix2/lookup allows title fallback when id=0; detail.tsx skips early return if title present; setLoading(false) added for tmdbId=0 guard.
 - [Flix2 player 80% deadlock](flix2-player-deadlock.md) — Video must mount on videoUrl set (not on phase=ready); cineveo allows direct fallback, fontedecanais requires proxy.
+- [Expo port conflict](expo-port-conflict.md) — expo workflow must use --port 18115 (not $PORT/5000); REACT_NATIVE_PACKAGER_HOSTNAME=$REPLIT_EXPO_DEV_DOMAIN; port 5000 must stay free for Start application proxy.
