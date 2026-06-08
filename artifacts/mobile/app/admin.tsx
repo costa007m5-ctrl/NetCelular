@@ -298,7 +298,11 @@ export default function AdminScreen() {
   const [userCount, setUserCount] = useState<number | null>(null);
   const [watchlistCount, setWatchlistCount] = useState<number | null>(null);
   const [ratingsCount, setRatingsCount] = useState<number | null>(null);
-  const [activeTab, setActiveTab] = useState<"sistema" | "emails" | "indicacoes" | "notifs" | "acervo" | "gstream" | "warez" | "contas" | "firebase">("sistema");
+  const [activeTab, setActiveTab] = useState<"sistema" | "emails" | "indicacoes" | "notifs" | "acervo" | "gstream" | "warez" | "contas" | "firebase" | "logs">("sistema");
+  const [logsData, setLogsData] = useState<Array<{ id: number; level: string; category: string; message: string; details?: any; userId?: string; device?: string; createdAt: string }>>([]);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [logsFilter, setLogsFilter] = useState<"all" | "error" | "warn" | "info">("all");
+  const [logsExpanded, setLogsExpanded] = useState<Set<number>>(new Set());
   const [contasData, setContasData] = useState<Array<{ user: any; sub: any }>>([]);
 
   const [serverDomainInput, setServerDomainInput] = useState(() => getApiDomainDisplay().replace(/^\(.*\)$/, ""));
@@ -625,6 +629,14 @@ export default function AdminScreen() {
   useEffect(() => {
     if (activeTab === "indicacoes") loadRequests();
     if (activeTab === "notifs") { loadTokenCount(); loadPushLog(); }
+    if (activeTab === "logs") {
+      setLogsLoading(true);
+      fetch(`${getApiBase()}/app-logs?limit=300`, { headers: { "x-admin-key": "" }, signal: mkSignal(10000) })
+        .then((r) => r.json())
+        .then((d) => { if (d.logs) setLogsData(d.logs); })
+        .catch(() => {})
+        .finally(() => setLogsLoading(false));
+    }
   }, [activeTab, loadRequests, loadTokenCount, loadPushLog]);
 
   const handleMarkAsAdded = async (tmdbId: number, type: "movie" | "tv", title: string) => {
@@ -804,8 +816,8 @@ export default function AdminScreen() {
       {/* ── TABS ── */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
         <View style={[styles.tabsRow, { borderBottomColor: colors.border }]}>
-          {(["sistema", "notifs", "indicacoes", "emails", "acervo", "gstream", "warez", "contas", "firebase"] as const).map((tab) => {
-            const tabColor = tab === "gstream" ? "#6366f1" : tab === "warez" ? "#f97316" : tab === "contas" ? "#22c55e" : tab === "firebase" ? "#ff6d00" : RED;
+          {(["sistema", "notifs", "indicacoes", "emails", "acervo", "gstream", "warez", "contas", "firebase", "logs"] as const).map((tab) => {
+            const tabColor = tab === "gstream" ? "#6366f1" : tab === "warez" ? "#f97316" : tab === "contas" ? "#22c55e" : tab === "firebase" ? "#ff6d00" : tab === "logs" ? "#e879f9" : RED;
             const isActive = activeTab === tab;
             return (
               <Pressable
@@ -824,20 +836,34 @@ export default function AdminScreen() {
                       .catch(() => {})
                       .finally(() => setFcmStatsLoading(false));
                   }
+                  if (tab === "logs") {
+                    setLogsLoading(true);
+                    setLogsData([]);
+                    fetch(`${getApiBase()}/app-logs?limit=300`, { signal: mkSignal(10000) })
+                      .then((r) => r.json())
+                      .then((d) => { if (d.logs) setLogsData(d.logs); })
+                      .catch(() => {})
+                      .finally(() => setLogsLoading(false));
+                  }
                 }}
                 style={[styles.tab, isActive && { borderBottomColor: tabColor, borderBottomWidth: 2 }]}
               >
                 <Feather
-                  name={tab === "sistema" ? "activity" : tab === "notifs" ? "send" : tab === "indicacoes" ? "inbox" : tab === "acervo" ? "hard-drive" : tab === "gstream" ? "play-circle" : tab === "warez" ? "globe" : tab === "contas" ? "users" : tab === "firebase" ? "zap" : "mail"}
+                  name={tab === "sistema" ? "activity" : tab === "notifs" ? "send" : tab === "indicacoes" ? "inbox" : tab === "acervo" ? "hard-drive" : tab === "gstream" ? "play-circle" : tab === "warez" ? "globe" : tab === "contas" ? "users" : tab === "firebase" ? "zap" : tab === "logs" ? "terminal" : "mail"}
                   size={14}
                   color={isActive ? tabColor : colors.mutedForeground}
                 />
                 <Text style={[styles.tabTxt, { color: isActive ? tabColor : colors.mutedForeground }]}>
-                  {tab === "sistema" ? "Sistema" : tab === "notifs" ? "Push" : tab === "indicacoes" ? "Pedidos" : tab === "acervo" ? "Acervo" : tab === "gstream" ? "GStream" : tab === "warez" ? "WarezCDN" : tab === "contas" ? "Contas" : tab === "firebase" ? "Firebase" : "E-mails"}
+                  {tab === "sistema" ? "Sistema" : tab === "notifs" ? "Push" : tab === "indicacoes" ? "Pedidos" : tab === "acervo" ? "Acervo" : tab === "gstream" ? "GStream" : tab === "warez" ? "WarezCDN" : tab === "contas" ? "Contas" : tab === "firebase" ? "Firebase" : tab === "logs" ? "Logs" : "E-mails"}
                 </Text>
                 {tab === "indicacoes" && pendingCount > 0 && (
                   <View style={[styles.badge, { backgroundColor: RED }]}>
                     <Text style={styles.badgeTxt}>{pendingCount}</Text>
+                  </View>
+                )}
+                {tab === "logs" && logsData.filter((l) => l.level === "error").length > 0 && (
+                  <View style={[styles.badge, { backgroundColor: "#ef4444" }]}>
+                    <Text style={styles.badgeTxt}>{logsData.filter((l) => l.level === "error").length}</Text>
                   </View>
                 )}
               </Pressable>
@@ -3245,6 +3271,197 @@ export default function AdminScreen() {
                   </View>
                 );
               })
+            )}
+          </>
+        )}
+
+        {/* ── ABA LOGS ── */}
+        {activeTab === "logs" && (
+          <>
+            {/* Header */}
+            <View style={[styles.sectionHeader, { marginTop: 16 }]}>
+              <Text style={[styles.sectionLabel, { color: "#e879f9" }]}>LOGS DO APLICATIVO</Text>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <Pressable
+                  onPress={() => {
+                    setLogsLoading(true);
+                    setLogsData([]);
+                    fetch(`${getApiBase()}/app-logs?limit=300`, { signal: mkSignal(10000) })
+                      .then((r) => r.json())
+                      .then((d) => { if (d.logs) setLogsData(d.logs); })
+                      .catch(() => {})
+                      .finally(() => setLogsLoading(false));
+                  }}
+                  style={[styles.refreshBtn, { backgroundColor: "#e879f915" }]}
+                >
+                  <Feather name="refresh-cw" size={12} color="#e879f9" />
+                  <Text style={[styles.refreshText, { color: "#e879f9" }]}>Atualizar</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    const filtered = logsFilter === "all" ? logsData : logsData.filter((l) => l.level === logsFilter);
+                    if (filtered.length === 0) return;
+                    const text = filtered.map((l) => {
+                      const ts = new Date(l.createdAt).toLocaleString("pt-BR");
+                      const det = l.details ? `\n  detalhes: ${JSON.stringify(l.details)}` : "";
+                      const dev = l.device ? ` [${l.device}]` : "";
+                      return `[${ts}]${dev} ${l.level.toUpperCase()} (${l.category}): ${l.message}${det}`;
+                    }).join("\n\n");
+                    Clipboard.setString(text);
+                    Alert.alert("Copiado!", `${filtered.length} log(s) copiados para o clipboard.`);
+                  }}
+                  style={[styles.refreshBtn, { backgroundColor: "#3b82f615" }]}
+                >
+                  <Feather name="copy" size={12} color="#3b82f6" />
+                  <Text style={[styles.refreshText, { color: "#3b82f6" }]}>Copiar Tudo</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    Alert.alert("Limpar Logs", "Remover todos os logs do banco?", [
+                      { text: "Cancelar", style: "cancel" },
+                      {
+                        text: "Limpar",
+                        style: "destructive",
+                        onPress: () => {
+                          fetch(`${getApiBase()}/app-logs`, { method: "DELETE", signal: mkSignal(8000) })
+                            .then(() => setLogsData([]))
+                            .catch(() => {});
+                        },
+                      },
+                    ]);
+                  }}
+                  style={[styles.refreshBtn, { backgroundColor: "#ef444415" }]}
+                >
+                  <Feather name="trash-2" size={12} color="#ef4444" />
+                  <Text style={[styles.refreshText, { color: "#ef4444" }]}>Limpar</Text>
+                </Pressable>
+              </View>
+            </View>
+
+            {/* Info box */}
+            <View style={[styles.infoBox, { backgroundColor: "#e879f90a", borderColor: "#e879f920", marginBottom: 12 }]}>
+              <Feather name="info" size={14} color="#e879f9" />
+              <Text style={[styles.infoBoxText, { color: colors.mutedForeground, flex: 1 }]}>
+                Erros do player Flix 2.0, falhas de API e eventos do app aparecem aqui. Pressione "Copiar Tudo" e cole para diagnóstico.
+              </Text>
+            </View>
+
+            {/* Filter pills */}
+            <View style={{ flexDirection: "row", gap: 8, marginBottom: 14 }}>
+              {(["all", "error", "warn", "info"] as const).map((f) => {
+                const fColor = f === "error" ? "#ef4444" : f === "warn" ? "#f59e0b" : f === "info" ? "#3b82f6" : "#e879f9";
+                const isActive = logsFilter === f;
+                const count = f === "all" ? logsData.length : logsData.filter((l) => l.level === f).length;
+                return (
+                  <Pressable
+                    key={f}
+                    onPress={() => setLogsFilter(f)}
+                    style={{
+                      flexDirection: "row", alignItems: "center", gap: 5,
+                      paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20,
+                      borderWidth: 1,
+                      borderColor: isActive ? fColor : colors.border,
+                      backgroundColor: isActive ? fColor + "20" : "transparent",
+                    }}
+                  >
+                    <Text style={{ color: isActive ? fColor : colors.mutedForeground, fontSize: 12, fontWeight: "700" }}>
+                      {f === "all" ? "Todos" : f === "error" ? "Erros" : f === "warn" ? "Avisos" : "Info"}
+                    </Text>
+                    <View style={{ backgroundColor: isActive ? fColor : colors.border, borderRadius: 8, paddingHorizontal: 5, paddingVertical: 1 }}>
+                      <Text style={{ color: isActive ? "#fff" : colors.mutedForeground, fontSize: 10, fontWeight: "700" }}>{count}</Text>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            {/* Log list */}
+            {logsLoading ? (
+              <View style={[styles.centered, { paddingVertical: 40 }]}>
+                <ActivityIndicator color="#e879f9" />
+                <Text style={{ color: colors.mutedForeground, marginTop: 12 }}>Carregando logs...</Text>
+              </View>
+            ) : logsData.filter((l) => logsFilter === "all" || l.level === logsFilter).length === 0 ? (
+              <View style={[styles.emptyBox, { borderColor: colors.border }]}>
+                <Feather name="terminal" size={32} color={colors.mutedForeground} />
+                <Text style={[styles.emptyTxt, { color: colors.mutedForeground }]}>Nenhum log encontrado</Text>
+                <Text style={{ color: colors.mutedForeground, fontSize: 12, textAlign: "center", paddingHorizontal: 16 }}>
+                  Logs aparecem automaticamente quando o app encontrar erros ou eventos importantes.
+                </Text>
+              </View>
+            ) : (
+              logsData
+                .filter((l) => logsFilter === "all" || l.level === logsFilter)
+                .map((log) => {
+                  const levelColor = log.level === "error" ? "#ef4444" : log.level === "warn" ? "#f59e0b" : "#3b82f6";
+                  const levelBg = log.level === "error" ? "#ef444415" : log.level === "warn" ? "#f59e0b15" : "#3b82f615";
+                  const isExp = logsExpanded.has(log.id);
+                  const ts = new Date(log.createdAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+                  const hasDetails = !!log.details;
+                  return (
+                    <Pressable
+                      key={log.id}
+                      onPress={() => {
+                        if (!hasDetails) return;
+                        setLogsExpanded((prev) => {
+                          const n = new Set(prev);
+                          if (n.has(log.id)) n.delete(log.id); else n.add(log.id);
+                          return n;
+                        });
+                      }}
+                      style={{
+                        backgroundColor: colors.card,
+                        borderColor: isExp ? levelColor + "55" : colors.border,
+                        borderWidth: 1,
+                        borderRadius: 12,
+                        padding: 12,
+                        marginBottom: 8,
+                        borderLeftWidth: 3,
+                        borderLeftColor: levelColor,
+                      }}
+                    >
+                      <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+                        <View style={{ backgroundColor: levelBg, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2, marginTop: 1 }}>
+                          <Text style={{ color: levelColor, fontSize: 9, fontWeight: "800", textTransform: "uppercase" }}>{log.level}</Text>
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                            <Text style={{ color: colors.mutedForeground, fontSize: 10, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" }}>{log.category}</Text>
+                            <Text style={{ color: colors.border, fontSize: 10 }}>·</Text>
+                            <Text style={{ color: colors.mutedForeground, fontSize: 10 }}>{ts}</Text>
+                            {log.device && (
+                              <>
+                                <Text style={{ color: colors.border, fontSize: 10 }}>·</Text>
+                                <Text style={{ color: colors.mutedForeground, fontSize: 10 }}>{log.device}</Text>
+                              </>
+                            )}
+                          </View>
+                          <Text style={{ color: colors.foreground, fontSize: 13, lineHeight: 18 }}>{log.message}</Text>
+                          {isExp && hasDetails && (
+                            <View style={{ marginTop: 8, backgroundColor: "rgba(0,0,0,0.3)", borderRadius: 8, padding: 10 }}>
+                              <Text style={{ color: "#a3e635", fontSize: 11, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace", lineHeight: 17 }}>
+                                {JSON.stringify(log.details, null, 2)}
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+                        <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
+                          {hasDetails && (
+                            <Feather name={isExp ? "chevron-up" : "chevron-down"} size={14} color={colors.mutedForeground} />
+                          )}
+                          <Pressable
+                            onPress={() => {
+                              const det = log.details ? `\nDetalhes: ${JSON.stringify(log.details)}` : "";
+                              Clipboard.setString(`[${ts}] ${log.level.toUpperCase()} (${log.category}): ${log.message}${det}`);
+                            }}
+                          >
+                            <Feather name="copy" size={14} color={colors.mutedForeground} />
+                          </Pressable>
+                        </View>
+                      </View>
+                    </Pressable>
+                  );
+                })
             )}
           </>
         )}

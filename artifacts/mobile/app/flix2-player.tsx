@@ -38,6 +38,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { r2Route } from "@/lib/r2-direct";
 import { getApiBase } from "@/lib/api";
+import { appLog } from "@/lib/app-logger";
 import { getProxiedStreamUrl } from "@/lib/gdrive-index";
 import { useAuth } from "@/lib/auth-context";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
