@@ -4,16 +4,19 @@
  *
  * KEY DESIGN:
  *  - cineveo.lat (vod99.cineveo.lat): token is time+sig based, NOT IP-bound.
- *    → Play DIRECTLY on device with browser User-Agent + Referer headers.
- *    → Full Range request support → ExoPlayer can seek in large MP4s.
- *  - fontedecanais (72yrci50ppqp71.com): token IS IP-bound to Replit server.
- *    → Route through API proxy so server IP matches token IP.
- *  - Web: always proxy (CORS).
+ *    → Play DIRECTLY on device with browser User-Agent + Referer + Origin headers.
+ *    → ExoPlayer makes Range requests directly → can seek in large MP4s.
+ *    → Proxy NOT used: streaming 2.2 GB through Cloudflare causes ExoPlayer to
+ *      abort the initial GET immediately (large response / first-byte delay).
+ *  - fontedecanais (72yrci50ppqp71.com): token IS IP-bound to Replit server IP.
+ *    → Must route through API proxy — device IP ≠ server IP.
+ *  - Web: always proxy (CORS — browser blocks direct CDN requests).
  *
  * Flow:
  *  1. Receive flix2Url (nixplay.lat redirect URL or direct CDN URL)
  *  2. Call /flix2/stream-url to resolve 302 redirect → get final CDN URL
- *  3. cineveo → play direct with headers; fontedecanais → proxy
+ *  3. cineveo on native → setVideoUrl(direct) + setVideoSourceHeaders(browser UA)
+ *     fontedecanais or web → setVideoUrl(proxied)
  *  4. Play via expo-av with full controls
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -354,20 +357,7 @@ export default function Flix2PlayerScreen() {
     const isCineveoUrl = (u: string) => u.includes("cineveo.lat");
 
     try {
-      // ── SERVER-SIDE resolution → proxy (web + native) ──────────────────────
-      // All Flix 2.0 streams go through the API server proxy.
-      //
-      // Why always proxy on native (not direct ExoPlayer play):
-      //   - nixplay.lat redirects to CDN (cineveo.lat / fontedecanais)
-      //   - cineveo.lat: time-based sig token but Cloudflare WAF blocks ExoPlayer
-      //     UA fingerprint even when custom headers are set (TLS fingerprint differs).
-      //   - fontedecanais: IP-bound token → only the server IP works.
-      //   - Our proxy runs with browser UA on the Replit server → CDN accepts it.
-      //   - ExoPlayer loads from the proxy URL (plain HTTPS from a trusted server).
-      //
-      // The server does: HEAD nixplay.lat (redirect:manual) → reads Location →
-      // returns CDN URL. Client wraps it in /api/stream/proxy?url=... and
-      // ExoPlayer streams through the proxy (which sends browser UA + Referer).
+      // Step 1: resolve the nixplay.lat redirect → get the real CDN URL
       const data = await r2Route<{ url: string; error?: string }>(
         `/flix2/stream-url?streamUrl=${encodeURIComponent(rawFlix2Url)}&nocache=1`
       );
@@ -378,14 +368,42 @@ export default function Flix2PlayerScreen() {
       const isCv = isCineveoUrl(resolvedUrl);
       setResolvedCdnType(isFd ? "fontedecanais" : isCv ? "cineveo" : "flix2");
 
-      // Always proxy through the server — browser UA required for CDN Cloudflare.
-      // Works for cineveo (time-based sig) and fontedecanais (IP-bound to server).
-      const proxiedUrl = getProxiedStreamUrl(resolvedUrl);
-      const proxyAvailable = !!(proxiedUrl && proxiedUrl !== resolvedUrl);
-      if (!proxyAvailable) {
-        throw new Error("Servidor de proxy não disponível. Verifique a conexão.");
+      // ── Routing strategy ────────────────────────────────────────────────────
+      //
+      // cineveo.lat on NATIVE:
+      //   Token is time+sig based, NOT IP-bound → device can fetch directly.
+      //   The proxy approach was broken: ExoPlayer sends GET (no Range) → proxy
+      //   streams 2.2 GB through Cloudflare → ExoPlayer aborts the connection
+      //   immediately because the large response never delivers first bytes fast
+      //   enough for its internal MP4 extractor timeout.
+      //   Direct play with browser User-Agent + Referer works because:
+      //   (a) ExoPlayer can send Range requests directly to cineveo, and
+      //   (b) cineveo token is not IP-bound so the device IP is fine.
+      //
+      // fontedecanais on NATIVE:
+      //   Token IS IP-bound to the Replit server IP (resolved at lookup time).
+      //   Must proxy — device IP ≠ server IP → cineveo would reject directly.
+      //
+      // WEB (any CDN):
+      //   Browser would hit CORS from cineveo/fontedecanais → must proxy.
+
+      if (Platform.OS !== "web" && isCv) {
+        // cineveo direct play on native
+        setVideoUrl(resolvedUrl);
+        setVideoSourceHeaders({
+          "User-Agent": BROWSER_UA,
+          "Referer": "https://nixplay.lat/",
+          "Origin": "https://nixplay.lat",
+        });
+      } else {
+        // fontedecanais (IP-bound) or web (CORS): route through server proxy
+        const proxiedUrl = getProxiedStreamUrl(resolvedUrl);
+        const proxyAvailable = !!(proxiedUrl && proxiedUrl !== resolvedUrl);
+        if (!proxyAvailable) {
+          throw new Error("Servidor de proxy não disponível. Verifique a conexão.");
+        }
+        setVideoUrl(proxiedUrl);
       }
-      setVideoUrl(proxiedUrl);
     } catch (e: any) {
       fakeAnim.current?.stop();
       setPhase("error");
