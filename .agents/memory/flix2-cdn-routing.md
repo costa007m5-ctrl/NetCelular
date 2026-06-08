@@ -78,6 +78,12 @@ RFC 7233: servers MUST NOT return 206 unless client sent Range header.
 - `clientRange=false` + upstream 206 → proxy returns `200 OK, Content-Length: full` (no Content-Range)
 - `clientRange=true` → proxy forwards `206 + Content-Range` unchanged
 
+### hubby.cx — novo CDN Flix 2.0 (wowserver-vods)
+
+- Alguns itens do nixplay.lat resolvem via 302 → `https://hubby.cx/movie/wowserver-vods/...`
+- `hubby.cx` foi adicionado a `FLIX2_CDN_ROOTS` em stream.ts (June 2026)
+- Tratado igual ao cineveo.lat (sem IP-bound token) — roteamento direto em nativo é provável OK
+
 ### Confirmed working (dev logs, June 2026)
 
 - Web browser: clientRange=true → proxy → cineveo 206 → request completed ✓
