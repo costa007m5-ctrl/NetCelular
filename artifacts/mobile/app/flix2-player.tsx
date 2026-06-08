@@ -790,7 +790,14 @@ export default function Flix2PlayerScreen() {
       {videoUrl && Video ? (
         <Video
           ref={videoRef}
-          source={{ uri: videoUrl, ...(videoSourceHeaders ? { headers: videoSourceHeaders } : {}) }}
+          source={{
+            uri: videoUrl,
+            // overrideFileExtensionAndroid tells ExoPlayer which extractor to use,
+            // bypassing extractor sniffing that may fail when Content-Type/URL hints
+            // are stripped/altered by the proxy. The Flix2 streams are always MP4.
+            overrideFileExtensionAndroid: "mp4",
+            ...(videoSourceHeaders ? { headers: videoSourceHeaders } : {}),
+          }}
           style={[StyleSheet.absoluteFill, phase !== "ready" && { opacity: 0 }]}
           resizeMode={ResizeMode?.CONTAIN ?? "contain"}
           shouldPlay={phase === "ready"}
@@ -798,8 +805,9 @@ export default function Flix2PlayerScreen() {
           onLoad={onVideoLoad}
           onPlaybackStatusUpdate={onPlaybackStatusUpdate}
           onError={() => { if (phaseRef.current !== "error") { setPhase("error"); setErrorMsg("Erro ao reproduzir vídeo"); phaseRef.current = "error"; } }}
-          progressUpdateIntervalMillis={500}
+          progressUpdateIntervalMillis={1000}
           useNativeControls={false}
+          shouldCorrectPitch={true}
         />
       ) : null}
 

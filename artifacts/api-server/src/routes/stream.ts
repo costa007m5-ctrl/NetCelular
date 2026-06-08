@@ -1,5 +1,5 @@
 import { Router } from "express";
-import type { Request, Response } from "express";
+import type { Request, Response as ExpressResponse } from "express";
 
 const router = Router();
 
@@ -86,6 +86,17 @@ function isHlsContentType(contentType: string | null, url: string): boolean {
 }
 
 /**
+ * Parse total size from Content-Range header: "bytes 0-1023/12345" → 12345
+ */
+function parseTotalSizeFromContentRange(contentRange: string | null): number | null {
+  if (!contentRange) return null;
+  const m = contentRange.match(/\/(\d+)\s*$/);
+  if (!m) return null;
+  const n = parseInt(m[1], 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
  * Build a self-referencing proxy URL so that HLS segment requests also go through this proxy.
  * `baseProxyUrl` is the public URL of this server (e.g. https://xxx.replit.app/api/stream/proxy).
  * If we don't know it, fall back to using a relative path that the client can resolve.
@@ -107,33 +118,22 @@ function resolveUrl(uri: string, base: string): string {
 
 /**
  * Rewrite an HLS manifest (m3u8) so that all segment and init-section URIs
- * go through this proxy. This ensures ExoPlayer fetches every .ts/.aac/.mp4
- * segment with browser UA headers — not directly to the CDN.
- *
- * Handles:
- *   - Segment URI lines (non-comment, non-tag lines)
- *   - EXT-X-KEY URI="..." attributes (encryption keys)
- *   - EXT-X-MAP URI="..." attributes (initialization segments)
- *   - EXT-X-MEDIA URI="..." attributes (alternate rendition playlists)
- *   - Nested m3u8 variant playlists (master → media playlists)
+ * go through this proxy.
  */
 function rewriteHlsManifest(body: string, manifestUrl: string, proxyBase: string): string {
   const lines = body.split("\n");
   const out: string[] = [];
 
-  // Regex to match URI="..." in EXT-X-* tags
   const uriAttrRe = /URI="([^"]+)"/g;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trimEnd();
 
-    // Comment / empty → pass through as-is
     if (line === "" || line.startsWith("#EXT-X-ENDLIST") || line.startsWith("#EXTM3U") || line.startsWith("#EXT-X-VERSION") || line.startsWith("#EXT-X-TARGETDURATION") || line.startsWith("#EXT-X-MEDIA-SEQUENCE") || line.startsWith("#EXT-X-PLAYLIST-TYPE") || line.startsWith("#EXT-X-ALLOW-CACHE") || line.startsWith("#EXT-X-DISCONTINUITY") || line.startsWith("#EXTINF") || line.startsWith("#EXT-X-BYTERANGE") || line.startsWith("#EXT-X-DISCONTINUITY-SEQUENCE") || line.startsWith("#EXT-X-PROGRAM-DATE-TIME") || line.startsWith("#EXT-X-INDEPENDENT-SEGMENTS")) {
       out.push(line);
       continue;
     }
 
-    // Tags that have URI="..." attributes to rewrite
     if (line.startsWith("#EXT-X-KEY") || line.startsWith("#EXT-X-MAP") || line.startsWith("#EXT-X-MEDIA") || line.startsWith("#EXT-X-I-FRAME-STREAM-INF") || line.startsWith("#EXT-X-SESSION-DATA")) {
       const rewritten = line.replace(uriAttrRe, (_match, uri) => {
         const abs = resolveUrl(uri, manifestUrl);
@@ -144,14 +144,11 @@ function rewriteHlsManifest(body: string, manifestUrl: string, proxyBase: string
       continue;
     }
 
-    // EXT-X-STREAM-INF is followed by a URI on the next line (variant playlist)
     if (line.startsWith("#EXT-X-STREAM-INF") || line.startsWith("#EXT-X-I-FRAME-STREAM-INF")) {
       out.push(line);
-      // Rewrite the URI="..." inside the tag too (for I-FRAME-STREAM-INF)
       continue;
     }
 
-    // Any other # tag — pass through
     if (line.startsWith("#")) {
       out.push(line);
       continue;
@@ -162,7 +159,6 @@ function rewriteHlsManifest(body: string, manifestUrl: string, proxyBase: string
     if (isAllowedHost(abs)) {
       out.push(buildSegmentProxyUrl(abs, proxyBase));
     } else {
-      // Unknown host — pass through unchanged (won't be proxied)
       out.push(line);
     }
   }
@@ -170,24 +166,95 @@ function rewriteHlsManifest(body: string, manifestUrl: string, proxyBase: string
   return out.join("\n");
 }
 
-/**
- * Derive the public proxy base URL from the incoming Express request.
- * Works both in dev (Replit preview proxy) and in deployed .replit.app environments.
- */
 function getProxyBase(req: Request): string {
-  // x-forwarded-host is set by Replit's reverse proxy
   const host = req.headers["x-forwarded-host"] ?? req.headers["host"] ?? "localhost:8080";
   const proto = req.headers["x-forwarded-proto"] ?? (req.secure ? "https" : "http");
-  // The proxy endpoint is at /api/stream/proxy
   return `${proto}://${host}/api/stream/proxy`;
+}
+
+/**
+ * Build upstream headers based on URL host.
+ * Flix2 CDN domains need Referer/Origin pointing at nixplay.lat.
+ */
+function buildUpstreamHeaders(decodedUrl: string, clientRange: string | undefined, forceRange: boolean): Record<string, string> {
+  const isFlix2 = isFlix2Host(decodedUrl);
+  const upstreamHeaders: Record<string, string> = {
+    "User-Agent": UA,
+    "Accept": "*/*",
+    "Accept-Encoding": "identity",
+    "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+    "Connection": "keep-alive",
+    "Referer": isFlix2 ? "https://nixplay.lat/" : "https://animezey16082023.animezey16082023.workers.dev/",
+  };
+  if (isFlix2) upstreamHeaders["Origin"] = "https://nixplay.lat";
+
+  // Always send a Range to upstream when we want full Content-Length info.
+  // ExoPlayer needs Content-Length to seek to the moov atom in MP4 files;
+  // some CDNs only return Content-Length when a Range is explicitly requested.
+  if (clientRange) {
+    upstreamHeaders["Range"] = clientRange;
+  } else if (forceRange) {
+    upstreamHeaders["Range"] = "bytes=0-";
+  }
+
+  return upstreamHeaders;
+}
+
+/**
+ * Forward standard response headers (Content-Type, Length, Range, etc) from upstream.
+ * Always advertises Accept-Ranges: bytes so players know seeks are supported.
+ */
+function buildForwardHeaders(upstream: Response, urlForExt: string): Record<string, string> {
+  const headers: Record<string, string> = {
+    "Accept-Ranges": "bytes",
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Expose-Headers": "Content-Length, Content-Range, Accept-Ranges",
+    "Cache-Control": "no-store",
+    "Connection": "keep-alive",
+  };
+
+  const upstreamCT = upstream.headers.get("content-type");
+  const contentType = upstreamCT && !upstreamCT.toLowerCase().includes("text/html")
+    ? upstreamCT
+    // Some CDNs return text/html or generic — infer from URL extension
+    : (urlForExt.toLowerCase().includes(".m3u8") ? "application/x-mpegurl"
+       : urlForExt.toLowerCase().includes(".mp4") ? "video/mp4"
+       : upstreamCT ?? "application/octet-stream");
+  headers["Content-Type"] = contentType;
+
+  const contentLength = upstream.headers.get("content-length");
+  const contentRange = upstream.headers.get("content-range");
+
+  if (contentRange) {
+    headers["Content-Range"] = contentRange;
+  }
+
+  // Prefer explicit Content-Length; fall back to derive from Content-Range when missing.
+  if (contentLength) {
+    headers["Content-Length"] = contentLength;
+  } else if (contentRange) {
+    // bytes start-end/total → length = end - start + 1
+    const m = contentRange.match(/bytes\s+(\d+)-(\d+)\/(\d+|\*)/i);
+    if (m) {
+      const start = parseInt(m[1], 10);
+      const end = parseInt(m[2], 10);
+      const len = end - start + 1;
+      if (Number.isFinite(len) && len > 0) headers["Content-Length"] = String(len);
+    }
+  }
+
+  const lastModified = upstream.headers.get("last-modified");
+  if (lastModified) headers["Last-Modified"] = lastModified;
+
+  const etag = upstream.headers.get("etag");
+  if (etag) headers["ETag"] = etag;
+
+  return headers;
 }
 
 // GET /stream/proxy?url=<encoded-url>
 // Transparent video proxy with Range request support for native video players.
-// For HLS manifests (m3u8): rewrites all segment/init URLs to go through this proxy,
-// so ExoPlayer fetches EVERY request (manifest + segments) with browser UA — bypassing
-// CDN Cloudflare WAF blocks that target ExoPlayer/Dalvik User-Agents.
-router.get("/proxy", async (req: Request, res: Response) => {
+router.get("/proxy", async (req: Request, res: ExpressResponse) => {
   const rawUrl = (req.query["url"] as string ?? "").trim();
 
   if (!rawUrl) {
@@ -210,30 +277,23 @@ router.get("/proxy", async (req: Request, res: Response) => {
     return;
   }
 
-  const rangeHeader = req.headers["range"];
+  const clientRange = req.headers["range"] as string | undefined;
 
-  const upstreamHeaders: Record<string, string> = {
-    "User-Agent": UA,
-    "Accept": "*/*",
-    "Accept-Encoding": "identity",
-    "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
-    // Use Flix2-specific Referer for Flix2 CDN domains; fallback to animezey for Drive
-    "Referer": isFlix2Host(decodedUrl) ? "https://nixplay.lat/" : "https://animezey16082023.animezey16082023.workers.dev/",
-  };
+  // Force a Range header to upstream when:
+  //  - Client did NOT send one (e.g., ExoPlayer initial probe)
+  //  - The URL is NOT an HLS manifest (m3u8 manifests are small text, no Range)
+  const isHlsHint = decodedUrl.toLowerCase().includes(".m3u8");
+  const forceRange = !isHlsHint;
 
-  if (isFlix2Host(decodedUrl)) {
-    upstreamHeaders["Origin"] = "https://nixplay.lat";
-  }
-
-  if (rangeHeader) {
-    upstreamHeaders["Range"] = rangeHeader;
-  }
+  const upstreamHeaders = buildUpstreamHeaders(decodedUrl, clientRange, forceRange);
 
   const ctrl = new AbortController();
-  const timeout = setTimeout(() => ctrl.abort(), 30_000);
+  // Increased timeout: redirect chains + slow Cloudflare CDNs can take >30s.
+  const timeout = setTimeout(() => ctrl.abort(), 60_000);
 
   // Close upstream connection if client disconnects
-  req.on("close", () => ctrl.abort());
+  let clientClosed = false;
+  req.on("close", () => { clientClosed = true; ctrl.abort(); });
 
   try {
     const upstream = await fetch(decodedUrl, {
@@ -246,7 +306,9 @@ router.get("/proxy", async (req: Request, res: Response) => {
 
     let host = "unknown";
     try { host = new URL(decodedUrl).hostname; } catch {}
-    console.log(`[proxy] ${upstream.status} host="${host}" range=${!!rangeHeader} ct="${upstream.headers.get("content-type") ?? ""}" url="${decodedUrl.slice(0, 100)}"`);
+    const upCL = upstream.headers.get("content-length");
+    const upCR = upstream.headers.get("content-range");
+    console.log(`[proxy] ${upstream.status} host="${host}" clientRange=${!!clientRange} forced=${forceRange && !clientRange} ct="${upstream.headers.get("content-type") ?? ""}" cl="${upCL ?? "-"}" cr="${upCR ?? "-"}"`);
 
     if (!upstream.ok && upstream.status !== 206) {
       console.log(`[proxy] upstream error ${upstream.status} for host="${host}"`);
@@ -257,13 +319,7 @@ router.get("/proxy", async (req: Request, res: Response) => {
     const contentType = upstream.headers.get("content-type");
 
     // ── HLS manifest rewriting ────────────────────────────────────────────────
-    // When the upstream returns an HLS manifest (m3u8), we rewrite all segment URIs
-    // so they go through this proxy. This ensures ExoPlayer fetches segments with
-    // browser UA headers — the only way to guarantee Cloudflare CDN doesn't block them
-    // regardless of how expo-av handles custom headers internally on Android.
-    // Range requests are NOT for m3u8 manifests (they're small text files), so we
-    // only do this rewriting on non-Range requests for HLS content.
-    if (!rangeHeader && isHlsContentType(contentType, decodedUrl)) {
+    if (!clientRange && isHlsContentType(contentType, decodedUrl)) {
       const body = await upstream.text();
       const proxyBase = getProxyBase(req);
       const rewritten = rewriteHlsManifest(body, decodedUrl, proxyBase);
@@ -277,32 +333,25 @@ router.get("/proxy", async (req: Request, res: Response) => {
       return;
     }
 
-    // ── Regular proxy (non-HLS or range request) ──────────────────────────────
-    // Forward key response headers.
-    // Always advertise Accept-Ranges: bytes so ExoPlayer/AVPlayer can use Range
-    // requests for seeking inside MP4 files. The CDN supports Range; we forward
-    // the Range header from the client to the upstream (see upstreamHeaders above).
-    const forwardHeaders: Record<string, string> = {
-      "Accept-Ranges": upstream.headers.get("accept-ranges") ?? "bytes",
-      "Access-Control-Allow-Origin": "*",
-      "Cache-Control": "no-store",
-    };
+    // ── Regular proxy (video / non-HLS / range request) ───────────────────────
+    const forwardHeaders = buildForwardHeaders(upstream as unknown as Response, decodedUrl);
 
-    if (contentType) forwardHeaders["Content-Type"] = contentType;
+    // Determine status to send to client:
+    //  - If client sent Range, mirror upstream status (206 expected, 200 if upstream doesn't support range).
+    //  - If client did NOT send Range but we forced bytes=0- and got 206 (full file),
+    //    return 200 to the client (it didn't ask for partial content).
+    let outStatus = upstream.status;
+    if (!clientRange && upstream.status === 206) {
+      outStatus = 200;
+      // Remove Content-Range since we're presenting as a normal 200.
+      delete forwardHeaders["Content-Range"];
+      // Ensure Content-Length reflects the full file when we asked bytes=0-.
+      // It already does if upstream sent the total in Content-Range.
+      const total = parseTotalSizeFromContentRange(upCR);
+      if (total) forwardHeaders["Content-Length"] = String(total);
+    }
 
-    const contentLength = upstream.headers.get("content-length");
-    if (contentLength) forwardHeaders["Content-Length"] = contentLength;
-
-    const contentRange = upstream.headers.get("content-range");
-    if (contentRange) forwardHeaders["Content-Range"] = contentRange;
-
-    const lastModified = upstream.headers.get("last-modified");
-    if (lastModified) forwardHeaders["Last-Modified"] = lastModified;
-
-    const etag = upstream.headers.get("etag");
-    if (etag) forwardHeaders["ETag"] = etag;
-
-    res.writeHead(upstream.status, forwardHeaders);
+    res.writeHead(outStatus, forwardHeaders);
 
     if (!upstream.body) {
       res.end();
@@ -312,31 +361,106 @@ router.get("/proxy", async (req: Request, res: Response) => {
     // Stream the body — use WHATWG ReadableStream reader for Node compat
     const reader = upstream.body.getReader();
     const pump = async () => {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) {
-          res.end();
-          return;
+      try {
+        while (true) {
+          if (clientClosed) {
+            try { await reader.cancel(); } catch {}
+            return;
+          }
+          const { done, value } = await reader.read();
+          if (done) {
+            try { res.end(); } catch {}
+            return;
+          }
+          const canContinue = res.write(value);
+          if (!canContinue) {
+            // Back-pressure: wait for drain before reading more
+            await new Promise<void>((resolve) => res.once("drain", resolve));
+          }
         }
-        const canContinue = res.write(value);
-        if (!canContinue) {
-          // Back-pressure: wait for drain before reading more
-          await new Promise<void>((resolve) => res.once("drain", resolve));
-        }
+      } catch (e) {
+        // Reader/stream errored (typically client abort). Quietly end.
+        try { res.end(); } catch {}
       }
     };
 
-    pump().catch(() => {
-      try { res.end(); } catch {}
-    });
+    pump();
   } catch (err: any) {
     clearTimeout(timeout);
     if (!res.headersSent) {
       if (err?.name === "AbortError") {
-        res.status(504).json({ error: "Upstream timeout or client disconnected" });
+        // Client aborted is normal during seek/replay — log gently.
+        if (!clientClosed) {
+          res.status(504).json({ error: "Upstream timeout" });
+        } else {
+          // Client already gone — nothing to send.
+          try { res.end(); } catch {}
+        }
       } else {
         res.status(502).json({ error: err?.message ?? "Proxy error" });
       }
+    }
+  }
+});
+
+// HEAD /stream/proxy?url=<encoded-url>
+// Some players (ExoPlayer/AVPlayer) issue a HEAD first to retrieve Content-Length
+// and confirm Accept-Ranges support before doing GET with Range.
+router.head("/proxy", async (req: Request, res: ExpressResponse) => {
+  const rawUrl = (req.query["url"] as string ?? "").trim();
+  if (!rawUrl) { res.status(400).end(); return; }
+
+  let decodedUrl: string;
+  try { decodedUrl = decodeURIComponent(rawUrl); } catch { decodedUrl = rawUrl; }
+
+  if (!isAllowedHost(decodedUrl)) {
+    res.status(403).end(); return;
+  }
+
+  // Use GET with Range: bytes=0-0 to get headers reliably (some CDNs block HEAD).
+  const upstreamHeaders = buildUpstreamHeaders(decodedUrl, "bytes=0-0", true);
+
+  const ctrl = new AbortController();
+  const timeout = setTimeout(() => ctrl.abort(), 30_000);
+  req.on("close", () => ctrl.abort());
+
+  try {
+    const upstream = await fetch(decodedUrl, {
+      method: "GET",
+      headers: upstreamHeaders,
+      redirect: "follow",
+      signal: ctrl.signal,
+    });
+    clearTimeout(timeout);
+
+    // We don't need the body for HEAD — cancel ASAP.
+    try { upstream.body?.cancel(); } catch {}
+
+    let host = "unknown";
+    try { host = new URL(decodedUrl).hostname; } catch {}
+    const upCR = upstream.headers.get("content-range");
+    console.log(`[proxy HEAD] ${upstream.status} host="${host}" cr="${upCR ?? "-"}"`);
+
+    if (!upstream.ok && upstream.status !== 206) {
+      res.status(upstream.status).end();
+      return;
+    }
+
+    const forwardHeaders = buildForwardHeaders(upstream as unknown as Response, decodedUrl);
+
+    // For HEAD, prefer to report the TOTAL file size in Content-Length
+    // (extracted from Content-Range), not the 1-byte response we asked for.
+    const total = parseTotalSizeFromContentRange(upCR);
+    if (total) forwardHeaders["Content-Length"] = String(total);
+    delete forwardHeaders["Content-Range"];
+
+    res.writeHead(200, forwardHeaders);
+    res.end();
+  } catch (err: any) {
+    clearTimeout(timeout);
+    if (!res.headersSent) {
+      if (err?.name === "AbortError") res.status(504).end();
+      else res.status(502).end();
     }
   }
 });
@@ -345,8 +469,9 @@ router.get("/proxy", async (req: Request, res: Response) => {
 router.options("/proxy", (_req, res) => {
   res.set({
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
     "Access-Control-Allow-Headers": "Range, Content-Type",
+    "Access-Control-Expose-Headers": "Content-Length, Content-Range, Accept-Ranges",
     "Access-Control-Max-Age": "86400",
   }).sendStatus(204);
 });
