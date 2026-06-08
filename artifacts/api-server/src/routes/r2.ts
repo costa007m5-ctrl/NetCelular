@@ -2733,6 +2733,28 @@ router.get("/flix2/stream-url", async (req, res) => {
       res.json({ url: finalUrl, via: "terabox-fallback", error: "Link expirado no TeraBox. Tente outro episódio." }); return;
     }
 
+    // Step 4: if the redirect landed on fontedecanais (IP-bound token), DO NOT
+    // return the resolved URL. fontedecanais tokens are bound to the egress IP
+    // that performed the HEAD request — on load-balanced infra (Replit), the IP
+    // of a second outbound request can differ → token rejected.
+    //
+    // Workaround: return the ORIGINAL nixplay URL. The client will then send it
+    // to /api/stream/proxy, which uses redirect:"follow" → so the redirect
+    // resolution AND the streaming GET share the same TCP socket / outbound IP,
+    // making the IP-bound token valid.
+    const isFonteCanais = (() => {
+      try {
+        const h = new URL(finalUrl).hostname;
+        return h.endsWith("72yrci50ppqp71.com") || h.endsWith("fontedecanais.me");
+      } catch { return false; }
+    })();
+    if (isFonteCanais) {
+      console.log(`[flix2/stream-url] fontedecanais detected → returning original nixplay URL for proxy redirect-follow`);
+      const result = { url: streamUrl, via: "fontedecanais-passthrough" };
+      res.json(result);
+      return;
+    }
+
     const result = { url: finalUrl };
     STREAM_URL_CACHE.set(streamUrl, { result, cachedAt: Date.now() });
     res.json(result);
