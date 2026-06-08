@@ -162,20 +162,48 @@ let _apiChild = null;
 let _shuttingDown = false;
 
 function killPortSync(port) {
+  // Pure /proc approach — works on Linux/NixOS without lsof.
+  // 1. Find the socket inode for the port from /proc/net/tcp & /proc/net/tcp6.
+  // 2. Scan /proc/<pid>/fd/ for a symlink pointing at socket:[inode].
+  // 3. Send SIGKILL to that pid (skipping our own process).
   try {
-    const { execSync } = require("child_process");
-    const out = execSync(`lsof -ti tcp:${port} 2>/dev/null || true`, { encoding: "utf8" }).trim();
-    if (out) {
-      const pids = out.split(/\s+/).filter(Boolean);
-      pids.forEach((pid) => {
-        if (pid && String(pid) !== String(process.pid)) {
+    const portHex = port.toString(16).toUpperCase().padStart(4, "0");
+    let inode = null;
+    for (const file of ["/proc/net/tcp6", "/proc/net/tcp"]) {
+      try {
+        const lines = fs.readFileSync(file, "utf8").split("\n").slice(1);
+        for (const line of lines) {
+          const parts = line.trim().split(/\s+/);
+          if (parts.length < 10) continue;
+          const localAddr = parts[1] || "";
+          const colonIdx = localAddr.lastIndexOf(":");
+          if (colonIdx < 0) continue;
+          const portPart = localAddr.slice(colonIdx + 1).toUpperCase();
+          if (portPart === portHex) { inode = parts[9]; break; }
+        }
+        if (inode && inode !== "0") break;
+      } catch {}
+    }
+    if (!inode || inode === "0") return false;
+
+    const socketLink = `socket:[${inode}]`;
+    const procEntries = fs.readdirSync("/proc").filter((e) => /^\d+$/.test(e));
+    for (const pid of procEntries) {
+      if (pid === String(process.pid)) continue;
+      try {
+        const fds = fs.readdirSync(`/proc/${pid}/fd`);
+        for (const fd of fds) {
           try {
-            process.kill(Number(pid), "SIGKILL");
-            console.log(`[api-server] Matou processo órfão na porta ${port} (pid=${pid})`);
+            if (fs.readlinkSync(`/proc/${pid}/fd/${fd}`) === socketLink) {
+              try {
+                process.kill(Number(pid), "SIGKILL");
+                console.log(`[api-server] Matou processo órfão na porta ${port} (pid=${pid})`);
+              } catch {}
+              return true;
+            }
           } catch {}
         }
-      });
-      return pids.length > 0;
+      } catch {}
     }
   } catch {}
   return false;

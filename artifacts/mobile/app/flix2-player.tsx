@@ -364,8 +364,10 @@ export default function Flix2PlayerScreen() {
       if (data.error) throw new Error(data.error);
 
       const resolvedUrl = data.url;
-      // via="fontedecanais-passthrough" means server detected an IP-bound CDN
-      // (fontedecanais or hubby.cx) and returned the original nixplay URL unchanged.
+      // via="fontedecanais-passthrough" was the old strategy (nixplay URL returned).
+      // New strategy (via="fontedecanais"): server resolves the redirect once and
+      // returns the actual CDN URL with an IP-bound token. The proxy reuses that
+      // same token for every Range request → no per-request redirect/token churn.
       const isPassthrough = data.via === "fontedecanais-passthrough";
       const isFd = isFonteUrl(resolvedUrl) || isPassthrough;
       const isCv = isCineveoUrl(resolvedUrl);
@@ -377,13 +379,12 @@ export default function Flix2PlayerScreen() {
       //   Token is time+sig based, NOT IP-bound → device can fetch directly.
       //   Direct play with browser User-Agent + Referer works.
       //
-      // fontedecanais / hubby.cx on NATIVE (isPassthrough):
-      //   Server returns the original nixplay URL (not the IP-bound CDN URL).
-      //   Device plays nixplay URL DIRECTLY → ExoPlayer follows the 302 redirect
-      //   itself → gets a token bound to the DEVICE IP → can make Range requests
-      //   directly to the CDN without proxy overhead.
-      //   This fixes: (a) hubby.cx 401 (server IP vs device IP mismatch) and
-      //               (b) fontedecanais "request aborted" (large proxy stream abort).
+      // fontedecanais / hubby.cx on NATIVE:
+      //   CDN URL has a server-IP-bound token. The proxy must handle it so that
+      //   all Range requests (moov atom seek, progressive buffer) come from the
+      //   same server IP that the token was bound to.
+      //   nixplay (HTTPS) → fontedecanais (HTTP): proxy follows this server-side,
+      //   ExoPlayer only ever sees the HTTPS proxy URL.
       //
       // WEB (any CDN):
       //   Browser would hit CORS from CDNs → must proxy.
@@ -398,17 +399,10 @@ export default function Flix2PlayerScreen() {
           "Origin": "https://nixplay.lat",
         });
       } else {
-        // fontedecanais / hubby.cx (isPassthrough) → proxy even on native.
-        //
-        // Why NOT direct play for isPassthrough?
-        // nixplay.lat (HTTPS) → fontedecanais (HTTP port 80): cross-protocol redirect.
-        // ExoPlayer blocks HTTPS→HTTP redirects by default regardless of usesCleartextTraffic.
-        //
-        // Proxy approach: each Range request from ExoPlayer goes through the API proxy
-        // which follows the nixplay→fontedecanais redirect fresh each time, getting a new
-        // token bound to the proxy's current outgoing IP. The proxy returns 206+Content-Range
-        // so ExoPlayer uses range-based seeking (not slow progressive streaming).
-        //
+        // fontedecanais / hubby.cx → proxy (native + web).
+        // Server already resolved the CDN URL once; the proxy uses that same
+        // IP-bound token for every Range request ExoPlayer sends, giving stable
+        // moov-atom seeks and progressive buffering without 401/abort errors.
         // Web: always proxy (CORS).
         const proxiedUrl = getProxiedStreamUrl(resolvedUrl);
         const proxyAvailable = !!(proxiedUrl && proxiedUrl !== resolvedUrl);

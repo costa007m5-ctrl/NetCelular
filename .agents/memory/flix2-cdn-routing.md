@@ -18,97 +18,73 @@ nixplay.lat/movie/{user}/{pass}/{id}.mp4
 
 | CDN | Platform | Strategy | Why |
 |-----|----------|----------|-----|
-| cineveo.lat | native | **DIRECT** with browser headers | Token not IP-bound; proxy through Cloudflare causes ExoPlayer to abort (see below) |
+| cineveo.lat | native | **DIRECT** with browser headers | Token not IP-bound; proxy through Cloudflare causes ExoPlayer to abort |
 | cineveo.lat | web | **PROXY** | Browser CORS blocks direct CDN requests |
-| fontedecanais | native | **PROXY** | Token IS IP-bound to Replit server IP; device IP ≠ server IP |
-| fontedecanais | web | **PROXY** | CORS + IP-bound token |
+| fontedecanais | native | **PROXY** (resolved CDN URL) | Token IS IP-bound to Replit server IP; device IP ≠ server IP |
+| fontedecanais | web | **PROXY** (resolved CDN URL) | CORS + IP-bound token |
+
+### /flix2/stream-url — fontedecanais strategy (CURRENT, June 2026)
+
+**Old strategy (broken):** returned original nixplay URL with `via="fontedecanais-passthrough"`.
+Proxy would follow nixplay→fontedecanais redirect on EVERY Range request → new token each time.
+ExoPlayer aborts initial connection, makes moov-atom Range request ~1-2s later → token mismatch or
+server briefly unavailable → "Erro ao reproduzir vídeo".
+
+**New strategy (fixed):** resolve the nixplay→fontedecanais redirect ONCE server-side.
+Return the resolved CDN URL with `via="fontedecanais"`. Cache with 20s TTL.
+Proxy uses the SAME IP-bound token for all Range requests from ExoPlayer → stable.
+On retry, client sends `nocache=1` → fresh token generated.
+
+```typescript
+// r2.ts isIpBoundCdn block now returns:
+const result = { url: finalUrl, via: "fontedecanais" };  // finalUrl = resolved CDN URL
+STREAM_URL_CACHE.set(streamUrl, { result, cachedAt: Date.now() });
+```
+
+### /flix2/stream-url — cineveo behavior
+
+- Sends HEAD with `redirect: manual` + `User-Agent: Mozilla/5.0`
+- nixplay.lat responds 302 → cineveo.lat URL (time-based token, any IP)
+- Returns cineveo URL directly; client plays without proxy on native
+- 20s TTL cache; `?nocache=1` bypasses on retry
 
 ### Why PROXY fails for cineveo on native (ExoPlayer)
 
 The proxy chain is `ExoPlayer → Cloudflare → Replit API server → cineveo`.
-
-ExoPlayer sends an initial `GET` (no Range header). The proxy:
-1. Fetches from cineveo using `Range: bytes=0-` → gets `206` with 2.2 GB body
-2. Returns `200 OK, Content-Length: 2199061564, Accept-Ranges: bytes` to ExoPlayer
-3. Starts streaming 2.2 GB through Cloudflare
-
-**ExoPlayer aborts after ~900ms** — 4 retries, never sends any Range requests.
-
-Root cause: The proxy takes ~900ms just to get first bytes from cineveo. Cloudflare
-buffers/transforms the large streaming response in a way that ExoPlayer cannot parse
-(no Range requests arrive at all after the initial 900ms abort). The response status
-(`200` vs `206`) doesn't matter — the abort pattern persists regardless.
+ExoPlayer aborts after ~900ms — Cloudflare buffers/transforms the large streaming response.
+Root cause is Cloudflare interference, not token issues.
 
 ### Why DIRECT works for cineveo on native
 
 cineveo token is time+sig based — **not IP-bound** → device IP is fine.
-ExoPlayer (via expo-av) plays the URL directly with custom headers:
+ExoPlayer with custom headers:
 ```javascript
-videoSourceHeaders = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) ...",
-  "Referer": "https://nixplay.lat/",
-  "Origin": "https://nixplay.lat",
-}
+{ "User-Agent": "Mozilla/5.0 ...", "Referer": "https://nixplay.lat/", "Origin": "https://nixplay.lat" }
 ```
-ExoPlayer sends `Range: bytes=0-` to cineveo directly, then seeked to moov atom
-(e.g. `Range: bytes=2192310272-2199061563` for a 2.2 GB file) → completed ✓
 
-Note: Earlier claim that "Cloudflare WAF blocks ExoPlayer TLS fingerprint" was WRONG.
-cineveo does NOT block ExoPlayer TLS. Direct play works with browser UA headers.
+### hubby.cx — CDN Flix 2.0 wowserver-vods (IP-bound)
 
-### /flix2/stream-url behavior
+- Same isIpBoundCdn detection as fontedecanais
+- Returns resolved CDN URL with `via="fontedecanais"` (same strategy)
+- hubby.cx in FLIX2_CDN_ROOTS (stream.ts) and isIpBoundCdn block (r2.ts)
 
-- Sends HEAD with `redirect: manual` + `User-Agent: Mozilla/5.0`
-- nixplay.lat responds 302 → cineveo.lat URL
-- For fontedecanais: returns the original nixplay URL (not the fontedecanais URL)
-  so the proxy can follow the redirect server-side with the correct IP
-- 20s TTL cache; `?nocache=1` bypasses on retry
-
-### Proxy (stream.ts) headers for cineveo/nixplay
+### Proxy (stream.ts) headers for nixplay/fontedecanais
 
 ```javascript
 "User-Agent": UA,  // full browser UA
 "Referer": "https://nixplay.lat/",
 "Origin": "https://nixplay.lat",
 ```
+When clientRange absent, proxy forces `Range: bytes=0-` upstream → gets 206+Content-Range.
+Forwards 206 to ExoPlayer → ExoPlayer uses range-based seeking mode (not progressive download).
 
-### HTTP status fix (stream.ts, June 2026)
+### ExoPlayer seeking modes
 
-RFC 7233: servers MUST NOT return 206 unless client sent Range header.
-- `clientRange=false` + upstream 206 → proxy returns `200 OK, Content-Length: full` (no Content-Range)
-- `clientRange=true` → proxy forwards `206 + Content-Range` unchanged
+- 200 response: progressive download → fails for files >~500MB, no seeking
+- 206 response: range-based → reads few KB, aborts, sends Range requests for moov atom + seeking
+  (the "request aborted" in logs after 206 is NORMAL — ExoPlayer seeking to moov atom)
 
-### hubby.cx — CDN Flix 2.0 wowserver-vods (IP-bound, June 2026)
+### killPortSync in serve.js
 
-- Alguns itens do nixplay.lat resolvem via 302 → `https://hubby.cx/movie/wowserver-vods/...`
-- Token É IP-bound (igual fontedecanais): proxy retornava 401 porque o IP do servidor na resolução ≠ IP do worker no streaming
-- `hubby.cx` adicionado a `FLIX2_CDN_ROOTS` em stream.ts (para web proxy) E ao bloco `isIpBoundCdn` em stream-url (para native direct-play passthrough)
-
-### Arquitetura de roteamento nativo FINAL (June 2026)
-
-| CDN | via stream-url | Native | Web |
-|-----|---------------|--------|-----|
-| cineveo.lat | retorna cineveo URL | **DIRETO** (token time-based, qualquer IP) | PROXY (CORS) |
-| fontedecanais | retorna nixplay URL (`via="fontedecanais-passthrough"`) | **PROXY** (ver abaixo) | PROXY (CORS) |
-| hubby.cx | retorna nixplay URL (`via="fontedecanais-passthrough"`) | **PROXY** (ver abaixo) | PROXY (CORS) |
-
-**Por que NOT direct play para fontedecanais/hubby.cx no native:**
-- nixplay.lat (HTTPS) → fontedecanais/hubby.cx (HTTP port 80) = redirect cross-protocol
-- ExoPlayer bloqueia cross-protocol redirects (HTTPS→HTTP) por padrão, independente de usesCleartextTraffic
-- `usesCleartextTraffic=true` no manifest Android NÃO resolve isso (é configuração diferente do ExoPlayer)
-
-**Por que proxy + 206 forwarding funciona agora para fontedecanais/hubby.cx:**
-- stream.ts proxy encaminha 206+Content-Range direto (não converte 206→200)
-- ExoPlayer vê 206 → usa modo range-based seeking (não progressive download)
-- ExoPlayer faz Range requests → proxy segue nixplay→CDN redirect de novo a cada request (token fresco bound ao IP do proxy)
-- Antes (200): ExoPlayer tentava progressive download de 1.3GB → abortava
-
-**ExoPlayer seeking modes:**
-- 200 response: progressive download mode → falha para arquivos grandes (>~500MB), sem seeking
-- 206 response: range-based mode → lê alguns KB, fecha, faz Range requests para moov atom e seeking
-
-### Confirmed working (dev logs, June 2026)
-
-- Web browser: clientRange=true → proxy → cineveo 206 → request completed ✓
-- Native ExoPlayer: direct cineveo URL + headers → Range requests directly to CDN ✓
-  - Observed: `Range: bytes=2192310272-2199061563/2199061564` (moov seek) → completed ✓
+Uses /proc/net/tcp (not lsof — lsof not available on Replit NixOS).
+Finds socket inode for port, scans /proc/PID/fd/ for socket:[inode] symlink, SIGKILLs that PID.

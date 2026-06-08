@@ -2733,14 +2733,21 @@ router.get("/flix2/stream-url", async (req, res) => {
       res.json({ url: finalUrl, via: "terabox-fallback", error: "Link expirado no TeraBox. Tente outro episódio." }); return;
     }
 
-    // Step 4: if the redirect landed on an IP-bound CDN (fontedecanais or hubby.cx),
-    // DO NOT return the resolved URL with an IP-bound token.
+    // Step 4: if the redirect landed on an IP-bound CDN (fontedecanais / hubby.cx),
+    // return the RESOLVED CDN URL (with the server-IP-bound token) so the proxy
+    // can reuse the same token for every Range request ExoPlayer makes.
     //
-    // Strategy: return the ORIGINAL nixplay URL with via="fontedecanais-passthrough".
-    // The native client will then play the nixplay URL DIRECTLY — ExoPlayer follows
-    // the redirect itself, gets a token bound to the DEVICE IP, and can make Range
-    // requests directly to the CDN without any proxy overhead.
-    // On web, the client still proxies (CORS).
+    // Why return the resolved URL (not the original nixplay URL)?
+    //   When the proxy receives the nixplay URL, it follows the redirect fresh on
+    //   EVERY ExoPlayer Range request, generating a different CDN token each time.
+    //   ExoPlayer's moov-atom seek (abort initial → Range: bytes=end-N) arrives ~1-2s
+    //   later; if the API server is briefly busy or the token changes between requests,
+    //   ExoPlayer gets an error and shows "Erro ao reproduzir vídeo".
+    //
+    //   Returning the already-resolved CDN URL means ALL Range requests hit the same
+    //   URL with the same server-IP-bound token → consistent, reliable playback.
+    //   The proxy handles the HTTP upstream (HTTPS→HTTP is fine server-side).
+    //   On retry the client passes nocache=1 which forces a fresh token.
     const isIpBoundCdn = (() => {
       try {
         const h = new URL(finalUrl).hostname;
@@ -2754,8 +2761,9 @@ router.get("/flix2/stream-url", async (req, res) => {
     })();
     if (isIpBoundCdn) {
       const cdnHost = (() => { try { return new URL(finalUrl).hostname; } catch { return "unknown"; } })();
-      console.log(`[flix2/stream-url] ip-bound CDN (${cdnHost}) → returning original nixplay URL for device direct-play`);
-      const result = { url: streamUrl, via: "fontedecanais-passthrough" };
+      console.log(`[flix2/stream-url] ip-bound CDN (${cdnHost}) → returning resolved CDN URL for stable proxy`);
+      const result = { url: finalUrl, via: "fontedecanais" };
+      STREAM_URL_CACHE.set(streamUrl, { result, cachedAt: Date.now() });
       res.json(result);
       return;
     }
