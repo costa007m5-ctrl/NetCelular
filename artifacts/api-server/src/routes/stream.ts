@@ -357,26 +357,19 @@ router.get("/proxy", async (req: Request, res: ExpressResponse) => {
 
     // Determine status to send to client.
     //
-    // RFC 7233: servers MUST NOT return 206 unless the client sent a Range header.
-    // ExoPlayer correctly aborts connections that return 206 for non-range GETs.
-    //
     // Strategy:
-    //   clientRange present  → forward 206 + Content-Range as-is (correct range response)
-    //   clientRange absent   → return 200 OK + Content-Length (from Content-Range total)
-    //                          + Accept-Ranges: bytes so ExoPlayer knows it can seek.
-    //                          ExoPlayer will then issue Range requests for the moov atom
-    //                          and for seeking, which the proxy handles correctly (206).
-    let outStatus = upstream.status;
-    if (!clientRange && upstream.status === 206) {
-      outStatus = 200;
-      // Derive Content-Length from Content-Range total (upstream returned bytes=0-end/total)
-      if (upCR) {
-        const total = parseTotalSizeFromContentRange(upCR);
-        if (total) forwardHeaders["Content-Length"] = String(total);
-      }
-      // Remove Content-Range from the 200 response — it would be misleading without a Range request
-      delete forwardHeaders["Content-Range"];
-    }
+    //   clientRange present  → forward 206 + Content-Range as-is
+    //   clientRange absent   → forward 206 + Content-Range as-is (even though client didn't send Range)
+    //
+    // Why forward 206 even for no-Range requests?
+    // ExoPlayer (Android) uses the response status to decide its seeking strategy:
+    //   - 200: progressive download mode → tries to stream the entire file → aborts on large files (>500MB)
+    //   - 206: range-based mode → reads a few KB, closes, then issues Range requests for moov atom + seeks
+    // Since we forced Range: bytes=0- upstream to get Content-Range (file size), forwarding
+    // 206 + Content-Range lets ExoPlayer use proper random-access seeking. In practice this
+    // is safe: the proxy has already sent Range: bytes=0- upstream, so the 206+Content-Range
+    // accurately reflects the bytes being returned starting at offset 0.
+    const outStatus = upstream.status;
 
     res.writeHead(outStatus, forwardHeaders);
 

@@ -2764,7 +2764,12 @@ router.get("/flix2/stream-url", async (req, res) => {
     STREAM_URL_CACHE.set(streamUrl, { result, cachedAt: Date.now() });
     res.json(result);
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    const isTimeout = err?.name === "AbortError" || err?.message?.includes("aborted");
+    if (isTimeout) {
+      res.status(504).json({ error: "Tempo limite ao resolver URL de streaming. Tente novamente." });
+    } else {
+      res.status(500).json({ error: err.message });
+    }
   }
 });
 

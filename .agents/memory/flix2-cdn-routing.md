@@ -84,20 +84,28 @@ RFC 7233: servers MUST NOT return 206 unless client sent Range header.
 - Token É IP-bound (igual fontedecanais): proxy retornava 401 porque o IP do servidor na resolução ≠ IP do worker no streaming
 - `hubby.cx` adicionado a `FLIX2_CDN_ROOTS` em stream.ts (para web proxy) E ao bloco `isIpBoundCdn` em stream-url (para native direct-play passthrough)
 
-### Arquitetura de roteamento nativo revisada (June 2026)
+### Arquitetura de roteamento nativo FINAL (June 2026)
 
 | CDN | via stream-url | Native | Web |
 |-----|---------------|--------|-----|
 | cineveo.lat | retorna cineveo URL | **DIRETO** (token time-based, qualquer IP) | PROXY (CORS) |
-| fontedecanais | retorna nixplay URL (`via="fontedecanais-passthrough"`) | **DIRETO** (ExoPlayer segue redirect, ganha token device-IP) | PROXY (CORS) |
-| hubby.cx | retorna nixplay URL (`via="fontedecanais-passthrough"`) | **DIRETO** (ExoPlayer segue redirect, ganha token device-IP) | PROXY (CORS) |
+| fontedecanais | retorna nixplay URL (`via="fontedecanais-passthrough"`) | **PROXY** (ver abaixo) | PROXY (CORS) |
+| hubby.cx | retorna nixplay URL (`via="fontedecanais-passthrough"`) | **PROXY** (ver abaixo) | PROXY (CORS) |
 
-**Por que direto funciona para fontedecanais/hubby.cx no native agora:**
-- Server faz HEAD com `redirect:manual` → pega Location mas NÃO consome o token
-- Devolve URL original do nixplay com `via="fontedecanais-passthrough"`
-- Native: flix2-player.tsx detecta `isPassthrough=true` → seta videoUrl = nixplay URL direto
-- ExoPlayer segue o 302 do dispositivo → fontedecanais/hubby.cx emite token bound ao IP do dispositivo → Range requests funcionam direto
-- Corrige: hubby.cx 401 (IP mismatch) + fontedecanais "request aborted" (proxy grande via Cloudflare mata ExoPlayer)
+**Por que NOT direct play para fontedecanais/hubby.cx no native:**
+- nixplay.lat (HTTPS) → fontedecanais/hubby.cx (HTTP port 80) = redirect cross-protocol
+- ExoPlayer bloqueia cross-protocol redirects (HTTPS→HTTP) por padrão, independente de usesCleartextTraffic
+- `usesCleartextTraffic=true` no manifest Android NÃO resolve isso (é configuração diferente do ExoPlayer)
+
+**Por que proxy + 206 forwarding funciona agora para fontedecanais/hubby.cx:**
+- stream.ts proxy encaminha 206+Content-Range direto (não converte 206→200)
+- ExoPlayer vê 206 → usa modo range-based seeking (não progressive download)
+- ExoPlayer faz Range requests → proxy segue nixplay→CDN redirect de novo a cada request (token fresco bound ao IP do proxy)
+- Antes (200): ExoPlayer tentava progressive download de 1.3GB → abortava
+
+**ExoPlayer seeking modes:**
+- 200 response: progressive download mode → falha para arquivos grandes (>~500MB), sem seeking
+- 206 response: range-based mode → lê alguns KB, fecha, faz Range requests para moov atom e seeking
 
 ### Confirmed working (dev logs, June 2026)
 

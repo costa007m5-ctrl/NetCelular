@@ -388,8 +388,9 @@ export default function Flix2PlayerScreen() {
       // WEB (any CDN):
       //   Browser would hit CORS from CDNs → must proxy.
 
-      if (Platform.OS !== "web" && (isCv || isPassthrough)) {
-        // Direct play on native: cineveo, fontedecanais passthrough, hubby.cx passthrough
+      if (Platform.OS !== "web" && isCv) {
+        // cineveo on native: token is time-based (NOT IP-bound) → device can play directly.
+        // Direct play avoids proxy overhead (ExoPlayer sends Range requests to cineveo directly).
         setVideoUrl(resolvedUrl);
         setVideoSourceHeaders({
           "User-Agent": BROWSER_UA,
@@ -397,7 +398,18 @@ export default function Flix2PlayerScreen() {
           "Origin": "https://nixplay.lat",
         });
       } else {
-        // web (CORS): route through server proxy
+        // fontedecanais / hubby.cx (isPassthrough) → proxy even on native.
+        //
+        // Why NOT direct play for isPassthrough?
+        // nixplay.lat (HTTPS) → fontedecanais (HTTP port 80): cross-protocol redirect.
+        // ExoPlayer blocks HTTPS→HTTP redirects by default regardless of usesCleartextTraffic.
+        //
+        // Proxy approach: each Range request from ExoPlayer goes through the API proxy
+        // which follows the nixplay→fontedecanais redirect fresh each time, getting a new
+        // token bound to the proxy's current outgoing IP. The proxy returns 206+Content-Range
+        // so ExoPlayer uses range-based seeking (not slow progressive streaming).
+        //
+        // Web: always proxy (CORS).
         const proxiedUrl = getProxiedStreamUrl(resolvedUrl);
         const proxyAvailable = !!(proxiedUrl && proxiedUrl !== resolvedUrl);
         if (!proxyAvailable) {
