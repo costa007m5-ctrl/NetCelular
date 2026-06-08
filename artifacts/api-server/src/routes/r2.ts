@@ -2733,23 +2733,28 @@ router.get("/flix2/stream-url", async (req, res) => {
       res.json({ url: finalUrl, via: "terabox-fallback", error: "Link expirado no TeraBox. Tente outro episódio." }); return;
     }
 
-    // Step 4: if the redirect landed on fontedecanais (IP-bound token), DO NOT
-    // return the resolved URL. fontedecanais tokens are bound to the egress IP
-    // that performed the HEAD request — on load-balanced infra (Replit), the IP
-    // of a second outbound request can differ → token rejected.
+    // Step 4: if the redirect landed on an IP-bound CDN (fontedecanais or hubby.cx),
+    // DO NOT return the resolved URL with an IP-bound token.
     //
-    // Workaround: return the ORIGINAL nixplay URL. The client will then send it
-    // to /api/stream/proxy, which uses redirect:"follow" → so the redirect
-    // resolution AND the streaming GET share the same TCP socket / outbound IP,
-    // making the IP-bound token valid.
-    const isFonteCanais = (() => {
+    // Strategy: return the ORIGINAL nixplay URL with via="fontedecanais-passthrough".
+    // The native client will then play the nixplay URL DIRECTLY — ExoPlayer follows
+    // the redirect itself, gets a token bound to the DEVICE IP, and can make Range
+    // requests directly to the CDN without any proxy overhead.
+    // On web, the client still proxies (CORS).
+    const isIpBoundCdn = (() => {
       try {
         const h = new URL(finalUrl).hostname;
-        return h.endsWith("72yrci50ppqp71.com") || h.endsWith("fontedecanais.me");
+        return (
+          h.endsWith("72yrci50ppqp71.com") ||
+          h.endsWith("fontedecanais.me") ||
+          h === "hubby.cx" ||
+          h.endsWith(".hubby.cx")
+        );
       } catch { return false; }
     })();
-    if (isFonteCanais) {
-      console.log(`[flix2/stream-url] fontedecanais detected → returning original nixplay URL for proxy redirect-follow`);
+    if (isIpBoundCdn) {
+      const cdnHost = (() => { try { return new URL(finalUrl).hostname; } catch { return "unknown"; } })();
+      console.log(`[flix2/stream-url] ip-bound CDN (${cdnHost}) → returning original nixplay URL for device direct-play`);
       const result = { url: streamUrl, via: "fontedecanais-passthrough" };
       res.json(result);
       return;

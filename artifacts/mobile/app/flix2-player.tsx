@@ -358,13 +358,16 @@ export default function Flix2PlayerScreen() {
 
     try {
       // Step 1: resolve the nixplay.lat redirect → get the real CDN URL
-      const data = await r2Route<{ url: string; error?: string }>(
+      const data = await r2Route<{ url: string; via?: string; error?: string }>(
         `/flix2/stream-url?streamUrl=${encodeURIComponent(rawFlix2Url)}&nocache=1`
       );
       if (data.error) throw new Error(data.error);
 
       const resolvedUrl = data.url;
-      const isFd = isFonteUrl(resolvedUrl);
+      // via="fontedecanais-passthrough" means server detected an IP-bound CDN
+      // (fontedecanais or hubby.cx) and returned the original nixplay URL unchanged.
+      const isPassthrough = data.via === "fontedecanais-passthrough";
+      const isFd = isFonteUrl(resolvedUrl) || isPassthrough;
       const isCv = isCineveoUrl(resolvedUrl);
       setResolvedCdnType(isFd ? "fontedecanais" : isCv ? "cineveo" : "flix2");
 
@@ -372,23 +375,21 @@ export default function Flix2PlayerScreen() {
       //
       // cineveo.lat on NATIVE:
       //   Token is time+sig based, NOT IP-bound → device can fetch directly.
-      //   The proxy approach was broken: ExoPlayer sends GET (no Range) → proxy
-      //   streams 2.2 GB through Cloudflare → ExoPlayer aborts the connection
-      //   immediately because the large response never delivers first bytes fast
-      //   enough for its internal MP4 extractor timeout.
-      //   Direct play with browser User-Agent + Referer works because:
-      //   (a) ExoPlayer can send Range requests directly to cineveo, and
-      //   (b) cineveo token is not IP-bound so the device IP is fine.
+      //   Direct play with browser User-Agent + Referer works.
       //
-      // fontedecanais on NATIVE:
-      //   Token IS IP-bound to the Replit server IP (resolved at lookup time).
-      //   Must proxy — device IP ≠ server IP → cineveo would reject directly.
+      // fontedecanais / hubby.cx on NATIVE (isPassthrough):
+      //   Server returns the original nixplay URL (not the IP-bound CDN URL).
+      //   Device plays nixplay URL DIRECTLY → ExoPlayer follows the 302 redirect
+      //   itself → gets a token bound to the DEVICE IP → can make Range requests
+      //   directly to the CDN without proxy overhead.
+      //   This fixes: (a) hubby.cx 401 (server IP vs device IP mismatch) and
+      //               (b) fontedecanais "request aborted" (large proxy stream abort).
       //
       // WEB (any CDN):
-      //   Browser would hit CORS from cineveo/fontedecanais → must proxy.
+      //   Browser would hit CORS from CDNs → must proxy.
 
-      if (Platform.OS !== "web" && isCv) {
-        // cineveo direct play on native
+      if (Platform.OS !== "web" && (isCv || isPassthrough)) {
+        // Direct play on native: cineveo, fontedecanais passthrough, hubby.cx passthrough
         setVideoUrl(resolvedUrl);
         setVideoSourceHeaders({
           "User-Agent": BROWSER_UA,
@@ -396,7 +397,7 @@ export default function Flix2PlayerScreen() {
           "Origin": "https://nixplay.lat",
         });
       } else {
-        // fontedecanais (IP-bound) or web (CORS): route through server proxy
+        // web (CORS): route through server proxy
         const proxiedUrl = getProxiedStreamUrl(resolvedUrl);
         const proxyAvailable = !!(proxiedUrl && proxiedUrl !== resolvedUrl);
         if (!proxyAvailable) {

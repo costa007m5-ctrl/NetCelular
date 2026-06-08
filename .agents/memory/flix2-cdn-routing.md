@@ -78,11 +78,26 @@ RFC 7233: servers MUST NOT return 206 unless client sent Range header.
 - `clientRange=false` + upstream 206 → proxy returns `200 OK, Content-Length: full` (no Content-Range)
 - `clientRange=true` → proxy forwards `206 + Content-Range` unchanged
 
-### hubby.cx — novo CDN Flix 2.0 (wowserver-vods)
+### hubby.cx — CDN Flix 2.0 wowserver-vods (IP-bound, June 2026)
 
 - Alguns itens do nixplay.lat resolvem via 302 → `https://hubby.cx/movie/wowserver-vods/...`
-- `hubby.cx` foi adicionado a `FLIX2_CDN_ROOTS` em stream.ts (June 2026)
-- Tratado igual ao cineveo.lat (sem IP-bound token) — roteamento direto em nativo é provável OK
+- Token É IP-bound (igual fontedecanais): proxy retornava 401 porque o IP do servidor na resolução ≠ IP do worker no streaming
+- `hubby.cx` adicionado a `FLIX2_CDN_ROOTS` em stream.ts (para web proxy) E ao bloco `isIpBoundCdn` em stream-url (para native direct-play passthrough)
+
+### Arquitetura de roteamento nativo revisada (June 2026)
+
+| CDN | via stream-url | Native | Web |
+|-----|---------------|--------|-----|
+| cineveo.lat | retorna cineveo URL | **DIRETO** (token time-based, qualquer IP) | PROXY (CORS) |
+| fontedecanais | retorna nixplay URL (`via="fontedecanais-passthrough"`) | **DIRETO** (ExoPlayer segue redirect, ganha token device-IP) | PROXY (CORS) |
+| hubby.cx | retorna nixplay URL (`via="fontedecanais-passthrough"`) | **DIRETO** (ExoPlayer segue redirect, ganha token device-IP) | PROXY (CORS) |
+
+**Por que direto funciona para fontedecanais/hubby.cx no native agora:**
+- Server faz HEAD com `redirect:manual` → pega Location mas NÃO consome o token
+- Devolve URL original do nixplay com `via="fontedecanais-passthrough"`
+- Native: flix2-player.tsx detecta `isPassthrough=true` → seta videoUrl = nixplay URL direto
+- ExoPlayer segue o 302 do dispositivo → fontedecanais/hubby.cx emite token bound ao IP do dispositivo → Range requests funcionam direto
+- Corrige: hubby.cx 401 (IP mismatch) + fontedecanais "request aborted" (proxy grande via Cloudflare mata ExoPlayer)
 
 ### Confirmed working (dev logs, June 2026)
 
