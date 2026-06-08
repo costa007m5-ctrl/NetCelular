@@ -2,14 +2,35 @@
 
 App mobile premium de streaming (IPTV/VOD) com identidade visual estilo Netflix/Disney+/Prime Video.
 
-## Run & Operate
+## Run & Operate (Replit)
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
+- **Start application** workflow runs everything: builds the API server, then serves the Expo landing page on port 5000 with the API proxied to port 8080.
+- `pnpm install` — install all workspace dependencies (required after fresh clone)
+- `pnpm --filter @workspace/api-server run build` — rebuild the API server bundle
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+
+## Required Secrets / Env Vars
+
+Set these in the Replit Secrets tab before deploying:
+
+| Key | Description |
+|-----|-------------|
+| `DATABASE_URL` | Postgres connection string (auto-set by Replit DB) |
+| `TMDB_API_KEY` | TMDB API key for movie/TV metadata |
+| `ADMIN_API_KEY` | Admin route authentication key |
+| `R2_ACCESS_KEY_ID` | Cloudflare R2 access key |
+| `R2_SECRET_ACCESS_KEY` | Cloudflare R2 secret key |
+| `SUPABASE_SERVICE_KEY` | Supabase service role key (push notifications) |
+| `SUPABASE_ANON_KEY` | Supabase anon key |
+| `FIREBASE_SERVICE_ACCOUNT_JSON` | Firebase service account JSON (FCM push) |
+| `CF_ACCOUNT_ID` | Cloudflare account ID (D1 integration) |
+| `CF_D1_DATABASE_ID` | Cloudflare D1 database ID |
+| `CF_API_TOKEN` | Cloudflare API token |
+
+Non-sensitive config already set as env vars: `R2_ACCOUNT_ID`, `R2_BUCKET_NAME`, `SUPABASE_URL`, `PORT` (5000), `API_PORT` (8080).
 
 ## Stack
 
