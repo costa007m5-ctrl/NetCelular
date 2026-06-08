@@ -23,7 +23,7 @@ const SUPABASE_ANON_KEY =
 
 // Domínio de produção permanente — sempre usado como fallback final se nenhum outro funcionar.
 // Este domínio é estável (não muda entre sessões Replit como os domínios dev).
-const PRODUCTION_DOMAIN = "net-celular--calm-eagle677.replit.app";
+const PRODUCTION_DOMAIN = "net-celular--cleverbdeer769.replit.app";
 
 let _dynamicDomain: string | null = null;
 
@@ -107,16 +107,23 @@ export async function initApiDomain(): Promise<void> {
       AsyncStorage.getItem(STORAGE_KEY),
     ]);
 
-    if (fromSupabase) {
-      _dynamicDomain = fromSupabase;
-      await AsyncStorage.setItem(STORAGE_KEY, fromSupabase);
-    } else if (fromStorage?.trim()) {
-      _dynamicDomain = fromStorage.trim();
-    } else {
-      // 3. Último recurso: domínio de produção fixo baked no código.
-      // Garante que APKs já instalados nunca ficam sem API mesmo se Supabase falhar.
-      _dynamicDomain = PRODUCTION_DOMAIN;
-      await AsyncStorage.setItem(STORAGE_KEY, PRODUCTION_DOMAIN);
+    // IMPORTANT: verify Supabase/AsyncStorage domains are alive before using them.
+    // A stale domain (e.g., from a previous Replit session) silently routes all API
+    // calls to the wrong server, which returns "Access Denied: VOD API Gateway".
+    // Both sources are checked in parallel, but we use the first alive one found.
+    const candidates = [fromSupabase, fromStorage?.trim() || null, PRODUCTION_DOMAIN].filter(Boolean) as string[];
+    let resolved: string | null = null;
+    for (const candidate of candidates) {
+      const alive = await _checkDomainAlive(candidate);
+      if (alive) { resolved = candidate; break; }
+    }
+    if (!resolved) resolved = PRODUCTION_DOMAIN;
+
+    _dynamicDomain = resolved;
+    await AsyncStorage.setItem(STORAGE_KEY, resolved);
+    // Keep Supabase up-to-date with the working domain so other devices pick it up.
+    if (resolved !== fromSupabase) {
+      _saveDomainToSupabase(resolved).catch(() => {});
     }
   } catch {}
 }
