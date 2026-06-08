@@ -355,23 +355,26 @@ router.get("/proxy", async (req: Request, res: ExpressResponse) => {
     const forwardHeaders = buildForwardHeaders(upstream as unknown as Response, decodedUrl);
 
     // Determine status to send to client.
-    // IMPORTANT: Do NOT convert 206 → 200, even when the client did not send a Range header.
     //
-    // Why: when the proxy forced "Range: bytes=0-" upstream and gets 206 back, we must
-    // keep the 206 + Content-Range so ExoPlayer/AVPlayer knows the content supports
-    // random access (Range seeking). If we return 200 instead, the player treats the
-    // stream as a plain progressive download — for non-faststart MP4 files (moov at end)
-    // it reads sequentially, never finds the moov atom, and aborts after ~800 ms.
-    // Keeping 206 + Content-Range triggers the MP4 extractor's random-access path,
-    // which then sends a Range request for the moov atom at the end of the file.
-    const outStatus = upstream.status;
-    // Ensure Content-Length reflects the full file size when we asked bytes=0-.
-    // buildForwardHeaders already populates it from Content-Range; this is a safety net.
-    if (!clientRange && upstream.status === 206 && upCR) {
-      const total = parseTotalSizeFromContentRange(upCR);
-      if (total && !forwardHeaders["Content-Length"]) {
-        forwardHeaders["Content-Length"] = String(total);
+    // RFC 7233: servers MUST NOT return 206 unless the client sent a Range header.
+    // ExoPlayer correctly aborts connections that return 206 for non-range GETs.
+    //
+    // Strategy:
+    //   clientRange present  → forward 206 + Content-Range as-is (correct range response)
+    //   clientRange absent   → return 200 OK + Content-Length (from Content-Range total)
+    //                          + Accept-Ranges: bytes so ExoPlayer knows it can seek.
+    //                          ExoPlayer will then issue Range requests for the moov atom
+    //                          and for seeking, which the proxy handles correctly (206).
+    let outStatus = upstream.status;
+    if (!clientRange && upstream.status === 206) {
+      outStatus = 200;
+      // Derive Content-Length from Content-Range total (upstream returned bytes=0-end/total)
+      if (upCR) {
+        const total = parseTotalSizeFromContentRange(upCR);
+        if (total) forwardHeaders["Content-Length"] = String(total);
       }
+      // Remove Content-Range from the 200 response — it would be misleading without a Range request
+      delete forwardHeaders["Content-Range"];
     }
 
     res.writeHead(outStatus, forwardHeaders);

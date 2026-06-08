@@ -1,0 +1,174 @@
+
+
+06-08 12:00:26
+artifact mode enabled runnable=2 static=0
+
+06-08 12:00:26
+starting up user application
+
+06-08 12:00:26
+starting artifact processes for monorepo deployment
+
+06-08 12:00:26
+metasidecar: loaded enterprise status from environment is_enterprise=false
+
+06-08 12:00:26
+waiting for runnable artifact ports ports=[8080 18115]
+
+06-08 12:00:26
+healthcheck failed error=healthcheck /api returned status 500
+
+06-08 12:00:26
+baseline ports snapshot before artifact start ports=[1104]
+
+06-08 12:00:26
+starting artifact processes count=2
+
+06-08 12:00:26
+starting artifact process port=18115 artifact=artifacts/mobile args=[pnpm --filter @workspace/mobile run serve]
+
+06-08 12:00:26
+starting artifact process port=8080 artifact=artifacts/api-server args=[node --enable-source-maps artifacts/api-server/dist/index.mjs]
+
+06-08 12:00:26
+healthcheck failed error=healthcheck / returned status 500
+
+06-08 12:00:26
+healthcheck failed error=healthcheck / returned status 500
+
+06-08 12:00:26
+artifact process started pid=21 artifact=artifacts/mobile
+
+
+06-08 12:00:26
+healthcheck failed error=healthcheck /api returned status 500
+
+06-08 12:00:26
+artifact process started artifact=artifacts/api-server pid=19
+
+06-08 12:00:26
+healthcheck failed error=healthcheck /api returned status 500
+
+06-08 12:00:26
+healthcheck failed error=healthcheck / returned status 500
+
+06-08 12:00:26
+healthcheck failed error=healthcheck /api returned status 500
+
+06-08 12:00:26
+healthcheck failed error=healthcheck / returned status 500
+
+06-08 12:00:27
+healthcheck failed error=healthcheck /api returned status 500
+
+06-08 12:00:27
+> @workspace/mobile@0.0.0 serve /home/runner/workspace/artifacts/mobile
+
+06-08 12:07:56
+[flix2] cache warm: type=series items=7534
+
+06-08 12:09:00
+[flix2] cache warm: type=animes items=849
+
+06-08 12:13:40
+{"level":30,"time":1780931620379,"pid":19,"hostname":"localhost","req":{"id":2,"method":"GET","url":"/api/healthz"},"res":{"statusCode":200},"responseTime":6,"msg":"request completed"}
+
+06-08 12:13:48
+{"level":30,"time":1780931628052,"pid":19,"hostname":"localhost","req":{"id":5,"method":"GET","url":"/api/r2/flix2/catalog-full"},"res":{"statusCode":200},"responseTime":68,"msg":"request completed"}
+
+06-08 12:13:48
+{"level":30,"time":1780931628896,"pid":19,"hostname":"localhost","req":{"id":6,"method":"GET","url":"/api/r2/flix2/catalog-full"},"res":{"statusCode":200},"responseTime":711,"msg":"request completed"}
+
+06-08 12:13:54
+{"level":30,"time":1780931634306,"pid":19,"hostname":"localhost","req":{"id":7,"method":"GET","url":"/api/r2/flix2/catalog"},"res":{"statusCode":200},"responseTime":1,"msg":"request completed"}
+
+06-08 12:13:54
+{"level":30,"time":1780931634388,"pid":19,"hostname":"localhost","req":{"id":8,"method":"GET","url":"/api/r2/flix2/catalog"},"res":{"statusCode":200},"responseTime":2,"msg":"request completed"}
+
+06-08 12:13:54
+{"level":30,"time":1780931634391,"pid":19,"hostname":"localhost","req":{"id":9,"method":"GET","url":"/api/r2/flix2/catalog"},"res":{"statusCode":200},"responseTime":2,"msg":"request completed"}
+
+06-08 12:13:57
+{"level":30,"time":1780931637282,"pid":19,"hostname":"localhost","req":{"id":10,"method":"POST","url":"/api/drive/folder"},"res":{"statusCode":200},"responseTime":1311,"msg":"request completed"}
+
+06-08 12:13:57
+{"level":30,"time":1780931637333,"pid":19,"hostname":"localhost","req":{"id":11,"method":"POST","url":"/api/drive/folder"},"res":{"statusCode":200},"responseTime":1277,"msg":"request completed"}
+
+06-08 12:13:57
+{"level":30,"time":1780931637403,"pid":19,"hostname":"localhost","req":{"id":12,"method":"POST","url":"/api/drive/folder"},"res":{"statusCode":200},"responseTime":1341,"msg":"request completed"}
+
+06-08 12:13:58
+{"level":30,"time":1780931638541,"pid":19,"hostname":"localhost","req":{"id":15,"method":"POST","url":"/api/drive/folder"},"res":{"statusCode":200},"responseTime":882,"msg":"request completed"}
+
+Expand
+
+Wrap
+
+Colors
+
+Live
+New
+Background tasks allow you to get more work done at once.
+
+Try creating your first one!
+
+View documentation
+
+
+New task
+Core
+Search tools…
+
+Agent Skills
+Manage skills that extend Agent capabilities
+
+App Storage
+Host and save uploads like images, videos, and documents
+
+Artifacts
+Browse generated artifacts and previews
+
+Auth
+Let users log in to your App using a prebuilt login page
+
+Canvas
+Agent-controlled canvas for mockups and wireframes
+
+Console
+View the terminal output after running your code
+
+Database
+Stores structured data such as user profiles, game scores, and product catalogs.
+
+Developer
+Internal developer tools, telemetry, and diagnostics
+
+Files
+Browse and edit your project files
+
+Git
+Version control for your App
+
+Growth
+Find, fix, and monitor SEO and growth opportunities
+
+Integrations
+Connect to Replit-native and external services
+
+Monitoring
+View traffic, request metrics, resource usage, and analytics for your deployed App
+
+Secrets
+Store sensitive information (like API keys) securely in your App
+
+Security Center
+Find, fix, and monitor security vulnerabilities and privacy issues
+
+Shell
+Directly access your App through a command line interface (CLI)
+
+User Settings
+Configure personal editor preferences and workspace settings which apply to all Apps
+
+Workflows
+Configure different ways to run your App
