@@ -631,7 +631,7 @@ export default function AdminScreen() {
     if (activeTab === "notifs") { loadTokenCount(); loadPushLog(); }
     if (activeTab === "logs") {
       setLogsLoading(true);
-      fetch(`${getApiBase()}/app-logs?limit=300`, { headers: { "x-admin-key": "" }, signal: mkSignal(10000) })
+      fetch(`${getApiBase()}/app-logs?limit=300`, { signal: mkSignal(10000) })
         .then((r) => r.json())
         .then((d) => { if (d.logs) setLogsData(d.logs); })
         .catch(() => {})

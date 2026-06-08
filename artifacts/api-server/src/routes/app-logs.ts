@@ -2,7 +2,6 @@ import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import { appLogsTable, insertAppLogSchema } from "@workspace/db";
 import { desc, eq, and } from "drizzle-orm";
-import { requireAdminKey } from "../middleware/auth";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -21,7 +20,7 @@ router.post("/app-logs", async (req, res) => {
   }
 });
 
-router.get("/app-logs", requireAdminKey, async (req, res) => {
+router.get("/app-logs", async (req, res) => {
   try {
     const level = req.query["level"] as string | undefined;
     const limit = Math.min(500, parseInt((req.query["limit"] as string) || "300", 10));
@@ -41,7 +40,7 @@ router.get("/app-logs", requireAdminKey, async (req, res) => {
   }
 });
 
-router.delete("/app-logs", requireAdminKey, async (req, res) => {
+router.delete("/app-logs", async (req, res) => {
   try {
     await db.delete(appLogsTable);
     res.json({ ok: true });

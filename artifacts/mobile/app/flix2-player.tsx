@@ -357,6 +357,16 @@ export default function Flix2PlayerScreen() {
     const isFonteUrl = (u: string) => ["72yrci50ppqp71.com", "fontedecanais.me"].some((r) => u.includes(r));
     const isCineveoUrl = (u: string) => u.includes("cineveo.lat");
 
+    appLog.info("player.flix2", "Iniciando resolução de stream", {
+      rawUrl: rawFlix2Url?.slice(0, 120),
+      platform: Platform.OS,
+      title,
+      tmdbId,
+      season: season ?? null,
+      episode: episode ?? null,
+      retryCount,
+    });
+
     try {
       // Step 1: resolve the nixplay.lat redirect → get the real CDN URL
       const data = await r2Route<{ url: string; via?: string; error?: string }>(
@@ -372,7 +382,17 @@ export default function Flix2PlayerScreen() {
       const isPassthrough = data.via === "fontedecanais-passthrough";
       const isFd = isFonteUrl(resolvedUrl) || isPassthrough;
       const isCv = isCineveoUrl(resolvedUrl);
-      setResolvedCdnType(isFd ? "fontedecanais" : isCv ? "cineveo" : "flix2");
+      const cdnType = isFd ? "fontedecanais" : isCv ? "cineveo" : "flix2";
+      setResolvedCdnType(cdnType);
+
+      appLog.info("player.flix2", `CDN resolvido: ${cdnType}`, {
+        resolvedUrl: resolvedUrl?.slice(0, 120),
+        via: data.via ?? "none",
+        isPassthrough,
+        isFd,
+        isCv,
+        platform: Platform.OS,
+      });
 
       // ── Routing strategy ────────────────────────────────────────────────────
       //
@@ -393,6 +413,7 @@ export default function Flix2PlayerScreen() {
       if (Platform.OS !== "web" && isCv) {
         // cineveo on native: token is time-based (NOT IP-bound) → device can play directly.
         // Direct play avoids proxy overhead (ExoPlayer sends Range requests to cineveo directly).
+        appLog.info("player.flix2", "Reprodução direta (cineveo nativo)", { url: resolvedUrl?.slice(0, 80) });
         setVideoUrl(resolvedUrl);
         setVideoSourceHeaders({
           "User-Agent": BROWSER_UA,
@@ -410,12 +431,25 @@ export default function Flix2PlayerScreen() {
         if (!proxyAvailable) {
           throw new Error("Servidor de proxy não disponível. Verifique a conexão.");
         }
+        appLog.info("player.flix2", `Reprodução via proxy (${cdnType})`, {
+          proxyUrl: proxiedUrl?.slice(0, 80),
+          platform: Platform.OS,
+        });
         setVideoUrl(proxiedUrl);
       }
     } catch (e: any) {
       fakeAnim.current?.stop();
+      const errMsg = e.message ?? "Erro ao carregar vídeo";
+      appLog.error("player.flix2", `Falha ao carregar stream: ${errMsg}`, {
+        rawUrl: rawFlix2Url?.slice(0, 120),
+        error: errMsg,
+        platform: Platform.OS,
+        title,
+        tmdbId,
+        retryCount,
+      });
       setPhase("error");
-      setErrorMsg(e.message ?? "Erro ao carregar vídeo");
+      setErrorMsg(errMsg);
     }
   }, [params.flix2Url]);
 
