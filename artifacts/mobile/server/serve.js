@@ -158,7 +158,12 @@ function isPortInUse(port) {
   });
 }
 
+let _apiChild = null;
+let _shuttingDown = false;
+
 function spawnApiServer() {
+  if (_shuttingDown) return;
+
   const apiDist = path.resolve(__dirname, "..", "..", "api-server", "dist", "index.mjs");
   if (!fs.existsSync(apiDist)) {
     console.warn("[api-server] dist não encontrado em:", apiDist, "— proxy pode falhar.");
@@ -170,16 +175,42 @@ function spawnApiServer() {
     stdio: ["ignore", "pipe", "pipe"],
   });
 
+  _apiChild = child;
+
   child.stdout.on("data", (d) => process.stdout.write(`[api] ${d}`));
   child.stderr.on("data", (d) => process.stderr.write(`[api] ${d}`));
 
   child.on("exit", (code, signal) => {
+    _apiChild = null;
+    if (_shuttingDown) return;
     console.error(`[api-server] Saiu (code=${code} signal=${signal}) — reiniciando em 3s`);
     setTimeout(spawnApiServer, 3000);
   });
 
   console.log(`[api-server] Iniciado na porta ${API_PORT}`);
 }
+
+// Graceful shutdown: matar o processo filho antes de sair
+// Sem isso, o filho fica como órfão segurando a porta e causa EADDRINUSE no restart
+function shutdown(signal) {
+  if (_shuttingDown) return;
+  _shuttingDown = true;
+  console.log(`[serve] ${signal} recebido — encerrando...`);
+  if (_apiChild) {
+    try { _apiChild.kill("SIGTERM"); } catch {}
+    // Força SIGKILL após 5s se o filho não sair
+    setTimeout(() => {
+      try { _apiChild && _apiChild.kill("SIGKILL"); } catch {}
+      process.exit(0);
+    }, 5000).unref();
+    _apiChild.on("exit", () => process.exit(0));
+  } else {
+    process.exit(0);
+  }
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT",  () => shutdown("SIGINT"));
 
 // Sobe o API server somente se a porta não estiver já em uso
 // (em desenvolvimento o workflow do API server ocupa a porta; em produção não)

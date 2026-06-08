@@ -23,7 +23,7 @@ const SUPABASE_ANON_KEY =
 
 // Domínio de produção permanente — sempre usado como fallback final se nenhum outro funcionar.
 // Este domínio é estável (não muda entre sessões Replit como os domínios dev).
-const PRODUCTION_DOMAIN = "net-celular--cleverbdeer769.replit.app";
+const PRODUCTION_DOMAIN = "net-celular--calm-eagle677.replit.app";
 
 let _dynamicDomain: string | null = null;
 
@@ -86,7 +86,10 @@ export async function initApiDomain(): Promise<void> {
     // 1. EXPO_PUBLIC_DOMAIN baked in at build time — but verify it's reachable first.
     // Dev domains (e.g. *.janeway.replit.dev) change every session; production .replit.app domains
     // are stable. If the baked domain is dead (stale dev domain), fall through to Supabase.
-    const fromEnv = process.env.EXPO_PUBLIC_DOMAIN?.trim();
+    // Strip protocol prefix (https:// or http://) and trailing slashes — the domain var must
+    // be a bare hostname (e.g. "net-celular--calm-eagle677.replit.app"), not a full URL.
+    const rawEnv = process.env.EXPO_PUBLIC_DOMAIN?.trim();
+    const fromEnv = rawEnv ? rawEnv.replace(/^https?:\/\//, "").replace(/\/+$/, "") : "";
     if (fromEnv) {
       const alive = await _checkDomainAlive(fromEnv);
       if (alive) {
