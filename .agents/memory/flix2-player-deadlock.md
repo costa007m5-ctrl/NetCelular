@@ -38,6 +38,30 @@ Fix: `const base = Platform.OS === "web" ? "/api" : getApiBaseLib();` — web us
 
 Similarly, old APK builds where `getApiBase()` returned null (stale/missing domain) would also get `proxyAvailable = false`. Fixed by hardcoding `PRODUCTION_DOMAIN` as the final fallback in `getApiBase()` so it never returns null.
 
+## Express 5 HEAD request routing (critical gotcha)
+
+In Express 5, `router.get(path, handler)` also handles HEAD requests — unlike Express 4 where GET-only meant GET-only. This means:
+- A separately registered `router.head(path, handler)` is **never reached** if `router.get()` for the same path is registered first
+- The GET handler runs for HEAD requests, including any slow upstream fetch calls
+
+**Why it matters for video proxy:** The GET handler's upstream `fetch()` call to cineveo.lat takes >10s, causing ExoPlayer/AVPlayer to timeout with "Erro ao reproduzir vídeo" when they send a HEAD probe before the first GET.
+
+**Fix:** Add `if (req.method === "HEAD")` check **inside the GET handler** right after `isAllowedHost()` validation, respond with synthetic headers instantly, and `return`. Do NOT rely on a separate `router.head()` — it won't be reached.
+
+```typescript
+if (req.method === "HEAD") {
+  const isHls = decodedUrl.toLowerCase().includes(".m3u8");
+  res.writeHead(200, {
+    "Content-Type": isHls ? "application/x-mpegurl" : "video/mp4",
+    "Accept-Ranges": "bytes",
+    "Access-Control-Allow-Origin": "*",
+    ...
+  });
+  res.end();
+  return;
+}
+```
+
 ## cineveo vs fontedecanais proxy rule
 
 Also fixed the proxy guard:

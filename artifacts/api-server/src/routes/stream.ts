@@ -277,6 +277,24 @@ router.get("/proxy", async (req: Request, res: ExpressResponse) => {
     return;
   }
 
+  // EXPRESS 5: router.get() handles both GET and HEAD. Intercept HEAD here
+  // and respond instantly — never probe the upstream CDN for HEAD requests.
+  // cineveo.lat takes >10s to respond to byte-range probes which causes
+  // ExoPlayer/AVPlayer to timeout and show "Erro ao reproduzir vídeo".
+  if (req.method === "HEAD") {
+    const isHls = decodedUrl.toLowerCase().includes(".m3u8");
+    res.writeHead(200, {
+      "Content-Type": isHls ? "application/x-mpegurl" : "video/mp4",
+      "Accept-Ranges": "bytes",
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+      "Access-Control-Expose-Headers": "Content-Length, Content-Range, Accept-Ranges",
+      "Cache-Control": "no-store",
+    });
+    res.end();
+    return;
+  }
+
   const clientRange = req.headers["range"] as string | undefined;
 
   // Force a Range header to upstream when:
@@ -409,9 +427,12 @@ router.get("/proxy", async (req: Request, res: ExpressResponse) => {
 });
 
 // HEAD /stream/proxy?url=<encoded-url>
-// Some players (ExoPlayer/AVPlayer) issue a HEAD first to retrieve Content-Length
-// and confirm Accept-Ranges support before doing GET with Range.
-router.head("/proxy", async (req: Request, res: ExpressResponse) => {
+// ExoPlayer/AVPlayer issue HEAD before the first GET to confirm Accept-Ranges support.
+// IMPORTANT: Do NOT probe the upstream CDN here — cineveo.lat takes >15s to respond
+// to byte-range probes, which causes players to timeout with a playback error.
+// Instead, respond instantly with synthetic headers. The player will then issue a GET
+// request which returns the real Content-Length via Content-Range in the 206 response.
+router.head("/proxy", (req: Request, res: ExpressResponse) => {
   const rawUrl = (req.query["url"] as string ?? "").trim();
   if (!rawUrl) { res.status(400).end(); return; }
 
@@ -422,52 +443,23 @@ router.head("/proxy", async (req: Request, res: ExpressResponse) => {
     res.status(403).end(); return;
   }
 
-  // Use GET with Range: bytes=0-0 to get headers reliably (some CDNs block HEAD).
-  const upstreamHeaders = buildUpstreamHeaders(decodedUrl, "bytes=0-0", true);
+  // Determine Content-Type hint from URL extension.
+  const isHls = decodedUrl.toLowerCase().includes(".m3u8");
+  const ct = isHls ? "application/x-mpegurl" : "video/mp4";
 
-  const ctrl = new AbortController();
-  const timeout = setTimeout(() => ctrl.abort(), 30_000);
-  req.on("close", () => ctrl.abort());
-
-  try {
-    const upstream = await fetch(decodedUrl, {
-      method: "GET",
-      headers: upstreamHeaders,
-      redirect: "follow",
-      signal: ctrl.signal,
-    });
-    clearTimeout(timeout);
-
-    // We don't need the body for HEAD — cancel ASAP.
-    try { upstream.body?.cancel(); } catch {}
-
-    let host = "unknown";
-    try { host = new URL(decodedUrl).hostname; } catch {}
-    const upCR = upstream.headers.get("content-range");
-    console.log(`[proxy HEAD] ${upstream.status} host="${host}" cr="${upCR ?? "-"}"`);
-
-    if (!upstream.ok && upstream.status !== 206) {
-      res.status(upstream.status).end();
-      return;
-    }
-
-    const forwardHeaders = buildForwardHeaders(upstream as unknown as Response, decodedUrl);
-
-    // For HEAD, prefer to report the TOTAL file size in Content-Length
-    // (extracted from Content-Range), not the 1-byte response we asked for.
-    const total = parseTotalSizeFromContentRange(upCR);
-    if (total) forwardHeaders["Content-Length"] = String(total);
-    delete forwardHeaders["Content-Range"];
-
-    res.writeHead(200, forwardHeaders);
-    res.end();
-  } catch (err: any) {
-    clearTimeout(timeout);
-    if (!res.headersSent) {
-      if (err?.name === "AbortError") res.status(504).end();
-      else res.status(502).end();
-    }
-  }
+  // Respond immediately — no upstream round-trip.
+  // Accept-Ranges: bytes tells the player it can seek (issue Range GETs).
+  // Content-Length is intentionally omitted; players that require it will
+  // discover the file size from the Content-Range header in the first GET.
+  res.writeHead(200, {
+    "Content-Type": ct,
+    "Accept-Ranges": "bytes",
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+    "Access-Control-Expose-Headers": "Content-Length, Content-Range, Accept-Ranges",
+    "Cache-Control": "no-store",
+  });
+  res.end();
 });
 
 // OPTIONS for CORS preflight
