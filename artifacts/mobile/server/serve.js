@@ -160,6 +160,29 @@ function isPortInUse(port) {
 
 let _apiChild = null;
 let _shuttingDown = false;
+let _portWatchTimer = null;
+
+// When another autoscale instance already owns :8080, we don't restart our
+// own api-server. Instead we watch every 20s; if the port drops we take over.
+function startPortWatcher() {
+  if (_portWatchTimer || _shuttingDown) return;
+  console.log(`[api-server] Monitorando porta ${API_PORT} — assumirá se a instância principal cair`);
+  _portWatchTimer = setInterval(() => {
+    if (_shuttingDown || _apiChild) {
+      clearInterval(_portWatchTimer);
+      _portWatchTimer = null;
+      return;
+    }
+    isPortInUse(API_PORT).then((inUse) => {
+      if (!inUse) {
+        clearInterval(_portWatchTimer);
+        _portWatchTimer = null;
+        console.log(`[api-server] Porta ${API_PORT} liberada — iniciando servidor local...`);
+        spawnApiServer();
+      }
+    });
+  }, 20000);
+}
 
 function killPortSync(port) {
   // Pure /proc approach — works on Linux/NixOS without lsof.
@@ -231,6 +254,24 @@ function spawnApiServer() {
   child.on("exit", (code, signal) => {
     _apiChild = null;
     if (_shuttingDown) return;
+
+    // code=0 means the api-server detected EADDRINUSE and exited gracefully —
+    // another autoscale instance already owns the port.
+    // Don't restart; proxy to the running instance and watch for takeover.
+    if (code === 0) {
+      isPortInUse(API_PORT).then((inUse) => {
+        if (inUse) {
+          console.log(`[api-server] Outra instância servindo na porta ${API_PORT} — proxy ativo, monitorando...`);
+          startPortWatcher();
+        } else {
+          // Port is free despite clean exit (e.g. hot-reload, intentional stop) — restart.
+          spawnApiServer();
+        }
+      });
+      return;
+    }
+
+    // Non-zero exit: restart after delay, killing any orphan first.
     console.error(`[api-server] Saiu (code=${code} signal=${signal}) — reiniciando em 3s`);
     setTimeout(() => {
       isPortInUse(API_PORT).then((inUse) => {

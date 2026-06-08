@@ -18,6 +18,20 @@ if (Number.isNaN(port) || port <= 0) {
 
 app.listen(port, (err) => {
   if (err) {
+    const nodeErr = err as NodeJS.ErrnoException;
+
+    if (nodeErr.code === "EADDRINUSE") {
+      // Another instance (autoscale container) is already serving this port.
+      // Exit with code=0 so serve.js does NOT restart us immediately.
+      // serve.js will proxy /api/* to the running instance on :8080 and
+      // will start its own server if that port ever drops.
+      logger.warn(
+        { port },
+        "Port already in use — another instance is serving. Exiting gracefully.",
+      );
+      process.exit(0);
+    }
+
     logger.error({ err }, "Error listening on port");
     process.exit(1);
   }
