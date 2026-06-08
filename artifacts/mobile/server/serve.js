@@ -161,6 +161,26 @@ function isPortInUse(port) {
 let _apiChild = null;
 let _shuttingDown = false;
 
+function killPortSync(port) {
+  try {
+    const { execSync } = require("child_process");
+    const out = execSync(`lsof -ti tcp:${port} 2>/dev/null || true`, { encoding: "utf8" }).trim();
+    if (out) {
+      const pids = out.split(/\s+/).filter(Boolean);
+      pids.forEach((pid) => {
+        if (pid && String(pid) !== String(process.pid)) {
+          try {
+            process.kill(Number(pid), "SIGKILL");
+            console.log(`[api-server] Matou processo órfão na porta ${port} (pid=${pid})`);
+          } catch {}
+        }
+      });
+      return pids.length > 0;
+    }
+  } catch {}
+  return false;
+}
+
 function spawnApiServer() {
   if (_shuttingDown) return;
 
@@ -184,7 +204,17 @@ function spawnApiServer() {
     _apiChild = null;
     if (_shuttingDown) return;
     console.error(`[api-server] Saiu (code=${code} signal=${signal}) — reiniciando em 3s`);
-    setTimeout(spawnApiServer, 3000);
+    setTimeout(() => {
+      isPortInUse(API_PORT).then((inUse) => {
+        if (inUse) {
+          console.log(`[api-server] Porta ${API_PORT} ocupada por órfão — liberando...`);
+          killPortSync(API_PORT);
+          setTimeout(spawnApiServer, 1000);
+        } else {
+          spawnApiServer();
+        }
+      });
+    }, 3000);
   });
 
   console.log(`[api-server] Iniciado na porta ${API_PORT}`);
@@ -212,11 +242,12 @@ function shutdown(signal) {
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT",  () => shutdown("SIGINT"));
 
-// Sobe o API server somente se a porta não estiver já em uso
-// (em desenvolvimento o workflow do API server ocupa a porta; em produção não)
+// Sobe o API server, matando qualquer processo órfão na porta primeiro.
 isPortInUse(API_PORT).then((inUse) => {
   if (inUse) {
-    console.log(`[api-server] Porta ${API_PORT} já ocupada — usando servidor existente.`);
+    console.log(`[api-server] Porta ${API_PORT} ocupada na inicialização — liberando processo órfão...`);
+    killPortSync(API_PORT);
+    setTimeout(spawnApiServer, 1500);
   } else {
     spawnApiServer();
   }
