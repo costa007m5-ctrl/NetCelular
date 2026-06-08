@@ -336,19 +336,24 @@ router.get("/proxy", async (req: Request, res: ExpressResponse) => {
     // ── Regular proxy (video / non-HLS / range request) ───────────────────────
     const forwardHeaders = buildForwardHeaders(upstream as unknown as Response, decodedUrl);
 
-    // Determine status to send to client:
-    //  - If client sent Range, mirror upstream status (206 expected, 200 if upstream doesn't support range).
-    //  - If client did NOT send Range but we forced bytes=0- and got 206 (full file),
-    //    return 200 to the client (it didn't ask for partial content).
-    let outStatus = upstream.status;
-    if (!clientRange && upstream.status === 206) {
-      outStatus = 200;
-      // Remove Content-Range since we're presenting as a normal 200.
-      delete forwardHeaders["Content-Range"];
-      // Ensure Content-Length reflects the full file when we asked bytes=0-.
-      // It already does if upstream sent the total in Content-Range.
+    // Determine status to send to client.
+    // IMPORTANT: Do NOT convert 206 → 200, even when the client did not send a Range header.
+    //
+    // Why: when the proxy forced "Range: bytes=0-" upstream and gets 206 back, we must
+    // keep the 206 + Content-Range so ExoPlayer/AVPlayer knows the content supports
+    // random access (Range seeking). If we return 200 instead, the player treats the
+    // stream as a plain progressive download — for non-faststart MP4 files (moov at end)
+    // it reads sequentially, never finds the moov atom, and aborts after ~800 ms.
+    // Keeping 206 + Content-Range triggers the MP4 extractor's random-access path,
+    // which then sends a Range request for the moov atom at the end of the file.
+    const outStatus = upstream.status;
+    // Ensure Content-Length reflects the full file size when we asked bytes=0-.
+    // buildForwardHeaders already populates it from Content-Range; this is a safety net.
+    if (!clientRange && upstream.status === 206 && upCR) {
       const total = parseTotalSizeFromContentRange(upCR);
-      if (total) forwardHeaders["Content-Length"] = String(total);
+      if (total && !forwardHeaders["Content-Length"]) {
+        forwardHeaders["Content-Length"] = String(total);
+      }
     }
 
     res.writeHead(outStatus, forwardHeaders);
