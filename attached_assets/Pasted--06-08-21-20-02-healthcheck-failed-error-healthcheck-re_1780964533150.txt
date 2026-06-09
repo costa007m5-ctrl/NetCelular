@@ -1,0 +1,195 @@
+
+
+06-08 21:20:02
+healthcheck failed error=healthcheck / returned status 500
+
+06-08 21:20:33
+timeout waiting for artifact processes, sending SIGKILL
+
+06-08 21:20:43
+starting artifact processes for monorepo deployment
+
+06-08 21:20:43
+starting up user application
+
+06-08 21:20:43
+artifact mode enabled static=0 runnable=2
+
+06-08 21:20:43
+metasidecar: loaded enterprise status from environment is_enterprise=false
+
+06-08 21:20:43
+forwarding local port 0 to external port 80 (mapped as 1104)
+
+06-08 21:20:43
+waiting for runnable artifact ports ports=[8080 18115]
+
+06-08 21:20:43
+baseline ports snapshot before artifact start ports=[1105 1104]
+
+06-08 21:20:43
+starting artifact processes count=2
+
+06-08 21:20:43
+healthcheck failed error=healthcheck / returned status 500
+
+06-08 21:20:43
+starting artifact process artifact=artifacts/mobile args=[pnpm --filter @workspace/mobile run serve] port=18115
+
+06-08 21:20:43
+artifact process started pid=20 artifact=artifacts/mobile
+
+06-08 21:20:43
+artifact process started artifact=artifacts/api-server pid=19
+
+06-08 21:20:43
+healthcheck failed error=healthcheck /api returned status 500
+
+06-08 21:20:43
+healthcheck failed error=healthcheck /api returned status 500
+
+06-08 21:20:43
+healthcheck failed error=healthcheck /api returned status 500
+
+06-08 21:20:43
+healthcheck failed error=healthcheck / returned status 500
+
+06-08 21:20:43
+healthcheck failed error=healthcheck /api returned status 500
+
+06-08 21:20:43
+healthcheck failed error=healthcheck /api returned status 500
+
+06-08 21:20:44
+artifact port detected port=8080 detected=1 expected=2
+
+06-08 21:20:44
+{"level":30,"time":1780964444224,"pid":19,"hostname":"localhost","port":8080,"msg":"Server listening"}
+
+06-08 21:21:14
+timeout waiting for artifact processes, sending SIGKILL
+
+06-08 21:21:14
+crash loop detected
+
+06-08 21:21:22
+starting up user application
+
+
+06-08 21:21:22
+metasidecar: loaded enterprise status from environment is_enterprise=false
+
+06-08 21:21:22
+artifact mode enabled runnable=2 static=0
+
+06-08 21:21:22
+starting artifact processes for monorepo deployment
+
+06-08 21:21:22
+waiting for runnable artifact ports ports=[8080 18115]
+
+06-08 21:21:22
+forwarding local port 0 to external port 80 (mapped as 1104)
+
+06-08 21:21:22
+healthcheck failed error=healthcheck / returned status 500
+
+06-08 21:21:22
+baseline ports snapshot before artifact start ports=[1105 1106 1104]
+
+06-08 21:21:22
+starting artifact process port=8080 artifact=artifacts/api-server args=[node --enable-source-maps artifacts/api-server/dist/index.mjs]
+
+06-08 21:21:22
+starting artifact process args=[pnpm --filter @workspace/mobile run serve] port=18115 artifact=artifacts/mobile
+
+06-08 21:21:22
+artifact process started artifact=artifacts/mobile pid=18
+
+06-08 21:21:22
+artifact process started artifact=artifacts/api-server pid=19
+
+06-08 21:21:22
+healthcheck failed error=healthcheck / returned status 500
+
+06-08 21:21:22
+healthcheck failed error=healthcheck / returned status 500
+
+06-08 21:21:22
+healthcheck failed error=healthcheck /api returned status 500
+
+06-08 21:21:22
+healthcheck failed error=healthcheck / returned status 500
+
+Expand
+
+Wrap
+
+Colors
+
+Live
+New
+Background tasks allow you to get more work done at once.
+
+Try creating your first one!
+
+View documentation
+
+
+New task
+Core
+Search tools…
+
+Agent Skills
+Manage skills that extend Agent capabilities
+
+App Storage
+Host and save uploads like images, videos, and documents
+
+Artifacts
+Browse generated artifacts and previews
+
+Auth
+Let users log in to your App using a prebuilt login page
+
+Canvas
+Agent-controlled canvas for mockups and wireframes
+
+Console
+View the terminal output after running your code
+
+Database
+Stores structured data such as user profiles, game scores, and product catalogs.
+
+Developer
+Internal developer tools, telemetry, and diagnostics
+
+Files
+Browse and edit your project files
+
+Git
+Version control for your App
+
+Growth
+Find, fix, and monitor SEO and growth opportunities
+
+Integrations
+Connect to Replit-native and external services
+
+Monitoring
+View traffic, request metrics, resource usage, and analytics for your deployed App
+
+Secrets
+Store sensitive information (like API keys) securely in your App
+
+Security Center
+Find, fix, and monitor security vulnerabilities and privacy issues
+
+Shell
+Directly access your App through a command line interface (CLI)
+
+User Settings
+Configure personal editor preferences and workspace settings which apply to all Apps
+
+Workflows
+Configure different ways to run your App
