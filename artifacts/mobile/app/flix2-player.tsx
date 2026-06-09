@@ -422,17 +422,23 @@ export default function Flix2PlayerScreen() {
         });
       } else {
         // fontedecanais / hubby.cx → proxy (native + web).
-        // Server already resolved the CDN URL once; the proxy uses that same
-        // IP-bound token for every Range request ExoPlayer sends, giving stable
-        // moov-atom seeks and progressive buffering without 401/abort errors.
-        // Web: always proxy (CORS).
-        const proxiedUrl = getProxiedStreamUrl(resolvedUrl);
-        const proxyAvailable = !!(proxiedUrl && proxiedUrl !== resolvedUrl);
+        //
+        // IMPORTANT: pass the ORIGINAL nixplay URL (rawFlix2Url) to the proxy,
+        // NOT the pre-resolved CDN URL. The proxy resolves the redirect on its
+        // own IP (with a 55s cache) so the IP-bound CDN token always matches
+        // the instance that will forward the stream. On autoscale deployments,
+        // stream-url and proxy may run on different instances (different IPs),
+        // so using the pre-resolved CDN URL causes 403 from fontedecanais.
+        // Web: always proxy (CORS). cineveo is handled above (direct native).
+        const urlToProxy = isFd && rawFlix2Url ? rawFlix2Url : resolvedUrl;
+        const proxiedUrl = getProxiedStreamUrl(urlToProxy);
+        const proxyAvailable = !!(proxiedUrl && proxiedUrl !== urlToProxy);
         if (!proxyAvailable) {
           throw new Error("Servidor de proxy não disponível. Verifique a conexão.");
         }
         appLog.info("player.flix2", `Reprodução via proxy (${cdnType})`, {
           proxyUrl: proxiedUrl?.slice(0, 80),
+          usingNixplayUrl: isFd,
           platform: Platform.OS,
         });
         setVideoUrl(proxiedUrl);

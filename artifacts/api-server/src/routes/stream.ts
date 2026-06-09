@@ -253,6 +253,42 @@ function buildForwardHeaders(upstream: Response, urlForExt: string): Record<stri
   return headers;
 }
 
+// ── Nixplay redirect resolution cache ────────────────────────────────────────
+// Caches the resolved fontedecanais CDN URL per nixplay URL (60s TTL).
+// This ensures the token is always resolved by the SAME server instance that
+// will proxy the stream — critical for autoscale deployments where different
+// instances have different outbound IPs, and fontedecanais tokens are IP-bound.
+const NIXPLAY_CDN_CACHE = new Map<string, { cdnUrl: string; cachedAt: number }>();
+const NIXPLAY_CDN_TTL_MS = 55_000; // 55s — slightly under most CDN token TTLs
+
+function isNixplayUrl(url: string): boolean {
+  try { return new URL(url).hostname === "nixplay.lat"; } catch { return false; }
+}
+
+async function resolveNixplayCdn(nixplayUrl: string, signal: AbortSignal): Promise<string> {
+  const cached = NIXPLAY_CDN_CACHE.get(nixplayUrl);
+  if (cached && Date.now() - cached.cachedAt < NIXPLAY_CDN_TTL_MS) {
+    return cached.cdnUrl;
+  }
+  // Follow the 302 redirect from nixplay to get the CDN URL with token
+  // bound to THIS instance's outbound IP.
+  const resp = await fetch(nixplayUrl, {
+    method: "HEAD",
+    redirect: "manual",
+    signal,
+    headers: {
+      "User-Agent": UA,
+      "Referer": "https://nixplay.lat/",
+      "Origin": "https://nixplay.lat",
+    },
+  });
+  const location = resp.headers.get("location");
+  if (!location) return nixplayUrl;
+  console.log(`[proxy] nixplay→CDN resolved: ${new URL(location).hostname}`);
+  NIXPLAY_CDN_CACHE.set(nixplayUrl, { cdnUrl: location, cachedAt: Date.now() });
+  return location;
+}
+
 // GET /stream/proxy?url=<encoded-url>
 // Transparent video proxy with Range request support for native video players.
 router.get("/proxy", async (req: Request, res: ExpressResponse) => {
@@ -315,7 +351,22 @@ router.get("/proxy", async (req: Request, res: ExpressResponse) => {
   req.on("close", () => { clientClosed = true; ctrl.abort(); });
 
   try {
-    const upstream = await fetch(decodedUrl, {
+    // If the URL is a nixplay.lat redirect URL, resolve it to the CDN URL
+    // using THIS instance's outbound IP so the IP-bound token matches.
+    let fetchUrl = decodedUrl;
+    if (isNixplayUrl(decodedUrl)) {
+      try {
+        fetchUrl = await resolveNixplayCdn(decodedUrl, ctrl.signal);
+      } catch (e) {
+        console.log(`[proxy] nixplay redirect failed, using original url: ${e}`);
+      }
+      // Rebuild upstream headers for the resolved CDN URL (different host)
+      if (fetchUrl !== decodedUrl) {
+        Object.assign(upstreamHeaders, buildUpstreamHeaders(fetchUrl, clientRange, forceRange));
+      }
+    }
+
+    const upstream = await fetch(fetchUrl, {
       method: "GET",
       headers: upstreamHeaders,
       redirect: "follow",
@@ -324,7 +375,7 @@ router.get("/proxy", async (req: Request, res: ExpressResponse) => {
     clearTimeout(timeout);
 
     let host = "unknown";
-    try { host = new URL(decodedUrl).hostname; } catch {}
+    try { host = new URL(fetchUrl).hostname; } catch {}
     const upCL = upstream.headers.get("content-length");
     const upCR = upstream.headers.get("content-range");
     console.log(`[proxy] ${upstream.status} host="${host}" clientRange=${!!clientRange} forced=${forceRange && !clientRange} ct="${upstream.headers.get("content-type") ?? ""}" cl="${upCL ?? "-"}" cr="${upCR ?? "-"}"`);
