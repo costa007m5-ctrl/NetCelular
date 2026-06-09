@@ -7,7 +7,6 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
-      "appRootDir": "artifacts/mobile",
       "android": {
         "buildType": "apk",
         "image": "latest"
@@ -18,7 +17,6 @@
     },
     "preview": {
       "distribution": "internal",
-      "appRootDir": "artifacts/mobile",
       "android": {
         "buildType": "apk",
         "image": "latest"
@@ -29,7 +27,6 @@
     },
     "production": {
       "autoIncrement": true,
-      "appRootDir": "artifacts/mobile",
       "android": {
         "buildType": "app-bundle",
         "image": "latest"
@@ -40,7 +37,6 @@
     },
     "production-apk": {
       "autoIncrement": true,
-      "appRootDir": "artifacts/mobile",
       "android": {
         "buildType": "apk",
         "image": "latest"
