@@ -358,6 +358,11 @@ export default function Flix2PlayerScreen() {
     const isTeraboxUrl = (u: string) => TERABOX_HOSTS.some((h) => u.includes(h));
     const isFonteUrl = (u: string) => ["72yrci50ppqp71.com", "fontedecanais.me"].some((r) => u.includes(r));
     const isCineveoUrl = (u: string) => u.includes("cineveo.lat");
+    // nixplay.lat direct MP4/HLS URLs (e.g. /movie/..., /series/...) — their own server,
+    // no Cloudflare proxy, ExoPlayer can reach it directly without custom headers.
+    const isNixplayDirect = (u: string) => {
+      try { return new URL(u).hostname === "nixplay.lat"; } catch { return false; }
+    };
 
     appLog.info("player.flix2", "Iniciando resolução de stream", {
       rawUrl: rawFlix2Url?.slice(0, 120),
@@ -384,7 +389,8 @@ export default function Flix2PlayerScreen() {
       const isPassthrough = data.via === "fontedecanais-passthrough";
       const isFd = isFonteUrl(resolvedUrl) || isPassthrough;
       const isCv = isCineveoUrl(resolvedUrl);
-      const cdnType = isFd ? "fontedecanais" : isCv ? "cineveo" : "flix2";
+      const isNx = isNixplayDirect(resolvedUrl);
+      const cdnType = isFd ? "fontedecanais" : isCv ? "cineveo" : isNx ? "nixplay-direct" : "flix2";
       setResolvedCdnType(cdnType);
 
       appLog.info("player.flix2", `CDN resolvido: ${cdnType}`, {
@@ -412,15 +418,18 @@ export default function Flix2PlayerScreen() {
       // WEB (any CDN):
       //   Browser would hit CORS from CDNs → must proxy through Replit.
 
-      if (Platform.OS !== "web" && isFd) {
+      if (Platform.OS !== "web" && (isFd || isNx)) {
         // fontedecanais on native: time-based token, any IP works.
+        // nixplay.lat direct MP4/HLS: their own server, no Cloudflare proxy,
+        //   ExoPlayer plays it directly — no headers, no Range-stripping proxy.
         // Play directly from device — no headers needed, cleartext enabled.
-        appLog.info("player.flix2", "Reprodução direta (fontedecanais nativo)", {
+        const cdnLabel = isNx ? "nixplay-direct" : "fontedecanais";
+        appLog.info("player.flix2", `Reprodução direta (${cdnLabel} nativo)`, {
           url: resolvedUrl?.slice(0, 80),
           platform: Platform.OS,
         });
         setVideoUrl(resolvedUrl);
-        // No custom headers — fontedecanais serves without Referer/Origin
+        // No custom headers — server without Referer/Origin requirement
       } else if (Platform.OS !== "web" && isCv) {
         // cineveo on native: route through CF Worker which sets Referer/Origin upstream.
         // CF Worker confirmed → 206 for cineveo ✅
