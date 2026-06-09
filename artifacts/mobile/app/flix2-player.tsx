@@ -37,7 +37,6 @@ import { Image } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-import { r2Route } from "@/lib/r2-direct";
 import { getApiBase } from "@/lib/api";
 import { appLog } from "@/lib/app-logger";
 import { getProxiedStreamUrl } from "@/lib/gdrive-index";
@@ -364,7 +363,7 @@ export default function Flix2PlayerScreen() {
       try { return new URL(u).hostname === "nixplay.lat"; } catch { return false; }
     };
 
-    appLog.info("player.flix2", "Iniciando resolução de stream", {
+    appLog.info("player.flix2", "Iniciando reprodução direta", {
       rawUrl: rawFlix2Url?.slice(0, 120),
       platform: Platform.OS,
       title,
@@ -375,97 +374,47 @@ export default function Flix2PlayerScreen() {
     });
 
     try {
-      // Early-exit: if the raw URL is already a direct nixplay.lat media file,
-      // skip the server resolution entirely — no redirect to follow, no proxy needed.
-      // This avoids a server HEAD request that may timeout (nixplay blocks Replit IPs).
-      if (Platform.OS !== "web" && isNixplayDirect(rawFlix2Url)) {
-        appLog.info("player.flix2", "Reprodução direta (nixplay-direct early-exit)", {
-          url: rawFlix2Url?.slice(0, 80),
-          platform: Platform.OS,
-        });
-        setResolvedCdnType("nixplay-direct");
-        setVideoUrl(rawFlix2Url);
-        return;
-      }
-
-      // Step 1: resolve the nixplay.lat redirect → get the real CDN URL
-      const data = await r2Route<{ url: string; via?: string; error?: string }>(
-        `/flix2/stream-url?streamUrl=${encodeURIComponent(rawFlix2Url)}&nocache=1`
-      );
-      if (data.error) throw new Error(data.error);
-
-      const resolvedUrl = data.url;
-      // via="fontedecanais-passthrough" was the old strategy (nixplay URL returned).
-      // New strategy (via="fontedecanais"): server resolves the redirect once and
-      // returns the actual CDN URL with an IP-bound token. The proxy reuses that
-      // same token for every Range request → no per-request redirect/token churn.
-      const isPassthrough = data.via === "fontedecanais-passthrough";
-      const isFd = isFonteUrl(resolvedUrl) || isPassthrough;
-      const isCv = isCineveoUrl(resolvedUrl);
-      const isNx = isNixplayDirect(resolvedUrl);
-      const cdnType = isFd ? "fontedecanais" : isCv ? "cineveo" : isNx ? "nixplay-direct" : "flix2";
-      setResolvedCdnType(cdnType);
-
-      appLog.info("player.flix2", `CDN resolvido: ${cdnType}`, {
-        resolvedUrl: resolvedUrl?.slice(0, 120),
-        via: data.via ?? "none",
-        isPassthrough,
-        isFd,
-        isCv,
-        platform: Platform.OS,
-      });
-
-      // ── Routing strategy (confirmed by live curl tests) ──────────────────────
+      // ── Reprodução direta, sem servidor intermediário ─────────────────────────
       //
-      // fontedecanais (72yrci50ppqp71.com) on NATIVE:
-      //   Token is TIME-BASED, NOT IP-bound — same token works from any IP.
-      //   CF Worker gets 403 because Cloudflare IPs are blocked by fontedecanais CDN.
-      //   Direct play from device with resolvedUrl works without any custom headers.
-      //   android:usesCleartextTraffic=true is already set for HTTP CDN URLs.
+      // Estratégia: tocar a URL como o navegador faz — passando os headers
+      // de Referer/Origin do nixplay.lat diretamente para o player nativo.
+      // Isso elimina a dependência do servidor /flix2/stream-url.
       //
-      // cineveo.lat (vod99.cineveo.lat) on NATIVE:
-      //   Needs Referer/Origin set server-side — CF Worker sets these correctly.
-      //   CF Worker confirmed returning 206 for cineveo ✅
-      //   Pass rawFlix2Url (nixplay URL) so the Worker resolves + proxies fresh.
-      //
-      // WEB (any CDN):
-      //   Browser would hit CORS from CDNs → must proxy through Replit.
+      // cineveo.lat: única exceção — precisa do CF Worker que seta headers
+      //              no servidor. Para todos os outros (nixplay, fontedecanais,
+      //              etc.) o player nativo reproduz direto com os headers abaixo.
 
-      if (Platform.OS !== "web" && (isFd || isNx)) {
-        // fontedecanais on native: time-based token, any IP works.
-        // nixplay.lat direct MP4/HLS: their own server, no Cloudflare proxy,
-        //   ExoPlayer plays it directly — no headers, no Range-stripping proxy.
-        // Play directly from device — no headers needed, cleartext enabled.
-        const cdnLabel = isNx ? "nixplay-direct" : "fontedecanais";
-        appLog.info("player.flix2", `Reprodução direta (${cdnLabel} nativo)`, {
-          url: resolvedUrl?.slice(0, 80),
-          platform: Platform.OS,
-        });
-        setVideoUrl(resolvedUrl);
-        // No custom headers — server without Referer/Origin requirement
-      } else if (Platform.OS !== "web" && isCv) {
-        // cineveo on native: route through CF Worker which sets Referer/Origin upstream.
-        // CF Worker confirmed → 206 for cineveo ✅
+      if (Platform.OS !== "web" && isCineveoUrl(rawFlix2Url)) {
+        // cineveo: precisa de headers especiais setados pelo CF Worker upstream
         const workerUrl = `${CF_WORKER_URL}/?url=${encodeURIComponent(rawFlix2Url)}`;
         appLog.info("player.flix2", "Reprodução via CF Worker (cineveo)", {
           workerUrl: workerUrl.slice(0, 80),
           platform: Platform.OS,
         });
+        setResolvedCdnType("cineveo");
         setVideoUrl(workerUrl);
-        // No custom headers — Worker sets its own Referer/Origin upstream
-      } else {
-        // Other CDNs or web → Replit proxy (CORS on web; unknown CDN behavior on native).
-        const urlToProxy = resolvedUrl;
-        const proxiedUrl = getProxiedStreamUrl(urlToProxy);
-        const proxyAvailable = !!(proxiedUrl && proxiedUrl !== urlToProxy);
-        if (!proxyAvailable) {
+      } else if (Platform.OS === "web") {
+        // Web: browser não pode setar Referer/Origin em requests de mídia → proxy
+        const proxiedUrl = getProxiedStreamUrl(rawFlix2Url);
+        if (!proxiedUrl || proxiedUrl === rawFlix2Url) {
           throw new Error("Servidor de proxy não disponível. Verifique a conexão.");
         }
-        appLog.info("player.flix2", `Reprodução via proxy (${cdnType})`, {
-          proxyUrl: proxiedUrl?.slice(0, 80),
+        appLog.info("player.flix2", "Reprodução via proxy (web)", {
+          proxyUrl: proxiedUrl.slice(0, 80),
+        });
+        setResolvedCdnType("flix2");
+        setVideoUrl(proxiedUrl);
+      } else {
+        // Nativo (Android/iOS): reprodução direta com headers de browser.
+        // ExoPlayer/AVPlayer aceitam Referer+Origin e tocam o MP4/HLS diretamente,
+        // igual ao que um navegador faz ao dar play em https://nixplay.lat/movie/...
+        appLog.info("player.flix2", "Reprodução direta com headers de browser", {
+          url: rawFlix2Url?.slice(0, 80),
           platform: Platform.OS,
         });
-        setVideoUrl(proxiedUrl);
+        setResolvedCdnType(isNixplayDirect(rawFlix2Url) ? "nixplay-direct" : isFonteUrl(rawFlix2Url) ? "fontedecanais" : "flix2");
+        setVideoSourceHeaders(FLIX2_HEADERS);
+        setVideoUrl(rawFlix2Url);
       }
     } catch (e: any) {
       fakeAnim.current?.stop();
