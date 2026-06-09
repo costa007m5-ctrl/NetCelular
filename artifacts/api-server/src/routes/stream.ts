@@ -408,19 +408,36 @@ router.get("/proxy", async (req: Request, res: ExpressResponse) => {
 
     // Determine status to send to client.
     //
-    // Strategy:
-    //   clientRange present  → forward 206 + Content-Range as-is
-    //   clientRange absent   → forward 206 + Content-Range as-is (even though client didn't send Range)
+    // HTTP spec: 206 Partial Content MUST only be sent when the client sent a
+    // Range request header. If the client sent no Range header, the response
+    // MUST be 200 OK — even if we forced Range: bytes=0- upstream to learn the
+    // file size.
     //
-    // Why forward 206 even for no-Range requests?
-    // ExoPlayer (Android) uses the response status to decide its seeking strategy:
-    //   - 200: progressive download mode → tries to stream the entire file → aborts on large files (>500MB)
-    //   - 206: range-based mode → reads a few KB, closes, then issues Range requests for moov atom + seeks
-    // Since we forced Range: bytes=0- upstream to get Content-Range (file size), forwarding
-    // 206 + Content-Range lets ExoPlayer use proper random-access seeking. In practice this
-    // is safe: the proxy has already sent Range: bytes=0- upstream, so the 206+Content-Range
-    // accurately reflects the bytes being returned starting at offset 0.
-    const outStatus = upstream.status;
+    // ExoPlayer abort-loop root cause (observed in logs):
+    //   Client sends GET (no Range) → proxy returns 206 → ExoPlayer treats 206
+    //   without a prior Range request as an invalid server response → aborts →
+    //   retries → loops until "Erro ao reproduzir vídeo".
+    //
+    // Correct ExoPlayer flow with 200:
+    //   1. Client sends GET (no Range) → proxy returns 200 + Content-Length + Accept-Ranges
+    //   2. ExoPlayer sees Accept-Ranges: bytes → knows it can seek
+    //   3. ExoPlayer reads first bytes to locate moov atom
+    //   4. ExoPlayer sends Range: bytes=<offset>- for moov atom → proxy returns 206
+    //   5. ExoPlayer parses moov → starts playing
+    //
+    // When the client DID send a Range header, forward the upstream 206 + Content-Range.
+    let outStatus: number;
+    if (clientRange) {
+      // Client asked for a range — forward 206 as-is
+      outStatus = upstream.status; // 206
+    } else {
+      // Client asked for the full resource — must respond 200.
+      // Strip Content-Range (not valid in 200 responses).
+      // Content-Length is already set by buildForwardHeaders from the upstream
+      // Content-Length (which equals total size when Range: bytes=0- was sent).
+      outStatus = 200;
+      delete forwardHeaders["Content-Range"];
+    }
 
     res.writeHead(outStatus, forwardHeaders);
 
