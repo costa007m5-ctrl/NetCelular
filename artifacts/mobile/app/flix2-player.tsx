@@ -60,6 +60,7 @@ const RED = "#e50914";
 const TMDB_IMG = (path: string | null | undefined, size = "w780") =>
   path ? `https://image.tmdb.org/t/p/${size}${path}` : null;
 const TMDB_KEY = "8f0beb08cf016ec8de49e454e09879ec";
+const CF_WORKER_URL = "https://netplay-stream-proxy.netplay.workers.dev";
 const AUTO_HIDE_MS = 4500;
 const NEXT_EP_COUNTDOWN_S = 20;
 const SKIP_INTRO_MAX_S = 90;
@@ -414,11 +415,11 @@ export default function Flix2PlayerScreen() {
       // WEB (any CDN):
       //   Browser would hit CORS from CDNs → must proxy.
 
-      if (Platform.OS !== "web" && (isCv || isFd)) {
-        // cineveo + fontedecanais on native: token is time-based (NOT IP-bound).
+      if (Platform.OS !== "web" && isCv) {
+        // cineveo on native: token is time+sig based, NOT IP-bound.
         // Device plays directly — ExoPlayer sends Range requests to the CDN
-        // without Replit's proxy stripping them.
-        appLog.info("player.flix2", `Reprodução direta (${cdnType} nativo)`, {
+        // without any proxy stripping them.
+        appLog.info("player.flix2", "Reprodução direta (cineveo nativo)", {
           url: resolvedUrl?.slice(0, 80),
           platform: Platform.OS,
         });
@@ -428,8 +429,22 @@ export default function Flix2PlayerScreen() {
           "Referer": "https://nixplay.lat/",
           "Origin": "https://nixplay.lat",
         });
+      } else if (Platform.OS !== "web" && isFd) {
+        // fontedecanais on native: token IS IP-bound to whoever resolves the redirect.
+        // Replit's reverse proxy strips Range headers → ExoPlayer abort-loop.
+        // Fix: route through the Cloudflare Worker which:
+        //  1. Resolves the nixplay.lat redirect (token bound to CF's IP)
+        //  2. Proxies bytes back to ExoPlayer with Range headers intact (CF handles natively)
+        // Pass rawFlix2Url (nixplay URL) so the Worker generates a fresh IP-bound token.
+        const workerUrl = `${CF_WORKER_URL}/?url=${encodeURIComponent(rawFlix2Url)}`;
+        appLog.info("player.flix2", "Reprodução via CF Worker (fontedecanais)", {
+          workerUrl: workerUrl.slice(0, 80),
+          platform: Platform.OS,
+        });
+        setVideoUrl(workerUrl);
+        // No custom headers needed — Worker sets its own Referer/Origin upstream
       } else {
-        // Other CDNs or web → proxy (CORS on web; unknown CDN behavior on native).
+        // Other CDNs or web → Replit proxy (CORS on web; unknown CDN behavior on native).
         const urlToProxy = resolvedUrl;
         const proxiedUrl = getProxiedStreamUrl(urlToProxy);
         const proxyAvailable = !!(proxiedUrl && proxiedUrl !== urlToProxy);
