@@ -1,0 +1,56 @@
+{
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "local"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "appRootDir": "artifacts/mobile",
+      "android": {
+        "buildType": "apk",
+        "image": "latest"
+      },
+      "env": {
+        "NODE_VERSION": "20"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "appRootDir": "artifacts/mobile",
+      "android": {
+        "buildType": "apk",
+        "image": "latest"
+      },
+      "env": {
+        "NODE_VERSION": "20"
+      }
+    },
+    "production": {
+      "autoIncrement": true,
+      "appRootDir": "artifacts/mobile",
+      "android": {
+        "buildType": "app-bundle",
+        "image": "latest"
+      },
+      "env": {
+        "NODE_VERSION": "20"
+      }
+    },
+    "production-apk": {
+      "autoIncrement": true,
+      "appRootDir": "artifacts/mobile",
+      "android": {
+        "buildType": "apk",
+        "image": "latest"
+      },
+      "env": {
+        "NODE_VERSION": "20"
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}
