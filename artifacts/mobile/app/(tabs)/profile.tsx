@@ -968,7 +968,7 @@ export default function ProfileScreen() {
           <Row icon="log-out" label="Sair da Conta" danger onPress={handleLogout} last />
         </Section>
 
-        <Text style={[s.version, { color: colors.mutedForeground }]}>NETPLAY v2.1.0 · Feito com ❤️ no Brasil</Text>
+        <Text style={[s.version, { color: colors.mutedForeground }]}>NETPLAY v2.2.0 (09/06/2026) · Feito com ❤️ no Brasil</Text>
       </ScrollView>
 
       {/* ── MODAL: OPÇÕES DO AVATAR ──────────────────────── */}
