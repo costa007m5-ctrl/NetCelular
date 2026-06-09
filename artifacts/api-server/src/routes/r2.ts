@@ -2733,21 +2733,19 @@ router.get("/flix2/stream-url", async (req, res) => {
       res.json({ url: finalUrl, via: "terabox-fallback", error: "Link expirado no TeraBox. Tente outro episódio." }); return;
     }
 
-    // Step 4: if the redirect landed on an IP-bound CDN (fontedecanais / hubby.cx),
-    // return the RESOLVED CDN URL (with the server-IP-bound token) so the proxy
-    // can reuse the same token for every Range request ExoPlayer makes.
+    // Step 4: if the redirect landed on fontedecanais / hubby.cx,
+    // return the RESOLVED CDN URL so the client always has the final URL.
     //
-    // Why return the resolved URL (not the original nixplay URL)?
-    //   When the proxy receives the nixplay URL, it follows the redirect fresh on
-    //   EVERY ExoPlayer Range request, generating a different CDN token each time.
-    //   ExoPlayer's moov-atom seek (abort initial → Range: bytes=end-N) arrives ~1-2s
-    //   later; if the API server is briefly busy or the token changes between requests,
-    //   ExoPlayer gets an error and shows "Erro ao reproduzir vídeo".
+    // NOTE (confirmed by live curl tests):
+    //   fontedecanais tokens are TIME-BASED, NOT IP-bound — the same token works
+    //   from any IP within the same time window. The APK plays fontedecanais DIRECTLY
+    //   from the device (no proxy). CF Worker gets 403 because Cloudflare IPs are
+    //   blocked by fontedecanais CDN.
     //
-    //   Returning the already-resolved CDN URL means ALL Range requests hit the same
-    //   URL with the same server-IP-bound token → consistent, reliable playback.
-    //   The proxy handles the HTTP upstream (HTTPS→HTTP is fine server-side).
-    //   On retry the client passes nocache=1 which forces a fresh token.
+    // Why return the resolved URL instead of the nixplay URL?
+    //   So the client can detect the CDN type from the hostname (fontedecanais vs
+    //   cineveo) and apply the correct routing strategy. The client uses nocache=1
+    //   on retry to get a fresh token if it expired.
     const isIpBoundCdn = (() => {
       try {
         const h = new URL(finalUrl).hostname;

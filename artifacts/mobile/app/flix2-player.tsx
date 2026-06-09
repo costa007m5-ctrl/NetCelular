@@ -2,21 +2,22 @@
  * flix2-player.tsx
  * Dedicated player for Flix2 / fontedecanais CDN content.
  *
- * KEY DESIGN:
- *  - cineveo.lat (vod99.cineveo.lat): token is time+sig based, NOT IP-bound.
- *    → Play DIRECTLY on device with browser User-Agent + Referer + Origin headers.
- *    → ExoPlayer makes Range requests directly → can seek in large MP4s.
- *    → Proxy NOT used: streaming 2.2 GB through Cloudflare causes ExoPlayer to
- *      abort the initial GET immediately (large response / first-byte delay).
- *  - fontedecanais (72yrci50ppqp71.com): token IS IP-bound to Replit server IP.
- *    → Must route through API proxy — device IP ≠ server IP.
+ * KEY DESIGN (confirmed by live curl tests):
+ *  - fontedecanais (72yrci50ppqp71.com): token is TIME-BASED, NOT IP-bound.
+ *    → Play DIRECTLY on device with resolvedUrl (no custom headers needed).
+ *    → CF Worker gets 403 because Cloudflare IPs are blocked by fontedecanais CDN.
+ *    → android:usesCleartextTraffic=true already set for HTTP CDN URLs.
+ *  - cineveo.lat (vod99.cineveo.lat): needs Referer/Origin set server-side.
+ *    → Route through CF Worker which sets correct upstream headers.
+ *    → CF Worker confirmed returning 206 for cineveo ✅
  *  - Web: always proxy (CORS — browser blocks direct CDN requests).
  *
  * Flow:
  *  1. Receive flix2Url (nixplay.lat redirect URL or direct CDN URL)
  *  2. Call /flix2/stream-url to resolve 302 redirect → get final CDN URL
- *  3. cineveo on native → setVideoUrl(direct) + setVideoSourceHeaders(browser UA)
- *     fontedecanais or web → setVideoUrl(proxied)
+ *  3. fontedecanais on native → setVideoUrl(resolvedUrl) direct play
+ *     cineveo on native → setVideoUrl(CF Worker URL with rawFlix2Url)
+ *     web or other → setVideoUrl(Replit proxy)
  *  4. Play via expo-av with full controls
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -395,54 +396,41 @@ export default function Flix2PlayerScreen() {
         platform: Platform.OS,
       });
 
-      // ── Routing strategy ────────────────────────────────────────────────────
+      // ── Routing strategy (confirmed by live curl tests) ──────────────────────
       //
-      // cineveo.lat on NATIVE:
-      //   Token is time+sig based, NOT IP-bound → device plays directly.
-      //   Direct play with browser User-Agent + Referer works.
-      //
-      // fontedecanais on NATIVE:
-      //   Token is TIME-BASED (same token for same minute regardless of requester).
-      //   NOT IP-bound — confirmed by observation: same token returned for the
-      //   same time window from different IPs.
-      //   Proxy approach FAILS in production because Replit's reverse proxy strips
-      //   HTTP Range headers, causing ExoPlayer to abort-loop (reads moov atom,
-      //   closes, re-sends Range request which gets stripped → 200 again → loop).
-      //   Direct play with browser headers lets ExoPlayer send Range requests
-      //   straight to the CDN without any middleman stripping them.
+      // fontedecanais (72yrci50ppqp71.com) on NATIVE:
+      //   Token is TIME-BASED, NOT IP-bound — same token works from any IP.
+      //   CF Worker gets 403 because Cloudflare IPs are blocked by fontedecanais CDN.
+      //   Direct play from device with resolvedUrl works without any custom headers.
       //   android:usesCleartextTraffic=true is already set for HTTP CDN URLs.
       //
+      // cineveo.lat (vod99.cineveo.lat) on NATIVE:
+      //   Needs Referer/Origin set server-side — CF Worker sets these correctly.
+      //   CF Worker confirmed returning 206 for cineveo ✅
+      //   Pass rawFlix2Url (nixplay URL) so the Worker resolves + proxies fresh.
+      //
       // WEB (any CDN):
-      //   Browser would hit CORS from CDNs → must proxy.
+      //   Browser would hit CORS from CDNs → must proxy through Replit.
 
-      if (Platform.OS !== "web" && isCv) {
-        // cineveo on native: token is time+sig based, NOT IP-bound.
-        // Device plays directly — ExoPlayer sends Range requests to the CDN
-        // without any proxy stripping them.
-        appLog.info("player.flix2", "Reprodução direta (cineveo nativo)", {
+      if (Platform.OS !== "web" && isFd) {
+        // fontedecanais on native: time-based token, any IP works.
+        // Play directly from device — no headers needed, cleartext enabled.
+        appLog.info("player.flix2", "Reprodução direta (fontedecanais nativo)", {
           url: resolvedUrl?.slice(0, 80),
           platform: Platform.OS,
         });
         setVideoUrl(resolvedUrl);
-        setVideoSourceHeaders({
-          "User-Agent": BROWSER_UA,
-          "Referer": "https://nixplay.lat/",
-          "Origin": "https://nixplay.lat",
-        });
-      } else if (Platform.OS !== "web" && isFd) {
-        // fontedecanais on native: token IS IP-bound to whoever resolves the redirect.
-        // Replit's reverse proxy strips Range headers → ExoPlayer abort-loop.
-        // Fix: route through the Cloudflare Worker which:
-        //  1. Resolves the nixplay.lat redirect (token bound to CF's IP)
-        //  2. Proxies bytes back to ExoPlayer with Range headers intact (CF handles natively)
-        // Pass rawFlix2Url (nixplay URL) so the Worker generates a fresh IP-bound token.
+        // No custom headers — fontedecanais serves without Referer/Origin
+      } else if (Platform.OS !== "web" && isCv) {
+        // cineveo on native: route through CF Worker which sets Referer/Origin upstream.
+        // CF Worker confirmed → 206 for cineveo ✅
         const workerUrl = `${CF_WORKER_URL}/?url=${encodeURIComponent(rawFlix2Url)}`;
-        appLog.info("player.flix2", "Reprodução via CF Worker (fontedecanais)", {
+        appLog.info("player.flix2", "Reprodução via CF Worker (cineveo)", {
           workerUrl: workerUrl.slice(0, 80),
           platform: Platform.OS,
         });
         setVideoUrl(workerUrl);
-        // No custom headers needed — Worker sets its own Referer/Origin upstream
+        // No custom headers — Worker sets its own Referer/Origin upstream
       } else {
         // Other CDNs or web → Replit proxy (CORS on web; unknown CDN behavior on native).
         const urlToProxy = resolvedUrl;
