@@ -375,6 +375,19 @@ export default function Flix2PlayerScreen() {
     });
 
     try {
+      // Early-exit: if the raw URL is already a direct nixplay.lat media file,
+      // skip the server resolution entirely — no redirect to follow, no proxy needed.
+      // This avoids a server HEAD request that may timeout (nixplay blocks Replit IPs).
+      if (Platform.OS !== "web" && isNixplayDirect(rawFlix2Url)) {
+        appLog.info("player.flix2", "Reprodução direta (nixplay-direct early-exit)", {
+          url: rawFlix2Url?.slice(0, 80),
+          platform: Platform.OS,
+        });
+        setResolvedCdnType("nixplay-direct");
+        setVideoUrl(rawFlix2Url);
+        return;
+      }
+
       // Step 1: resolve the nixplay.lat redirect → get the real CDN URL
       const data = await r2Route<{ url: string; via?: string; error?: string }>(
         `/flix2/stream-url?streamUrl=${encodeURIComponent(rawFlix2Url)}&nocache=1`
