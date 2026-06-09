@@ -397,23 +397,31 @@ export default function Flix2PlayerScreen() {
       // ── Routing strategy ────────────────────────────────────────────────────
       //
       // cineveo.lat on NATIVE:
-      //   Token is time+sig based, NOT IP-bound → device can fetch directly.
+      //   Token is time+sig based, NOT IP-bound → device plays directly.
       //   Direct play with browser User-Agent + Referer works.
       //
-      // fontedecanais / hubby.cx on NATIVE:
-      //   CDN URL has a server-IP-bound token. The proxy must handle it so that
-      //   all Range requests (moov atom seek, progressive buffer) come from the
-      //   same server IP that the token was bound to.
-      //   nixplay (HTTPS) → fontedecanais (HTTP): proxy follows this server-side,
-      //   ExoPlayer only ever sees the HTTPS proxy URL.
+      // fontedecanais on NATIVE:
+      //   Token is TIME-BASED (same token for same minute regardless of requester).
+      //   NOT IP-bound — confirmed by observation: same token returned for the
+      //   same time window from different IPs.
+      //   Proxy approach FAILS in production because Replit's reverse proxy strips
+      //   HTTP Range headers, causing ExoPlayer to abort-loop (reads moov atom,
+      //   closes, re-sends Range request which gets stripped → 200 again → loop).
+      //   Direct play with browser headers lets ExoPlayer send Range requests
+      //   straight to the CDN without any middleman stripping them.
+      //   android:usesCleartextTraffic=true is already set for HTTP CDN URLs.
       //
       // WEB (any CDN):
       //   Browser would hit CORS from CDNs → must proxy.
 
-      if (Platform.OS !== "web" && isCv) {
-        // cineveo on native: token is time-based (NOT IP-bound) → device can play directly.
-        // Direct play avoids proxy overhead (ExoPlayer sends Range requests to cineveo directly).
-        appLog.info("player.flix2", "Reprodução direta (cineveo nativo)", { url: resolvedUrl?.slice(0, 80) });
+      if (Platform.OS !== "web" && (isCv || isFd)) {
+        // cineveo + fontedecanais on native: token is time-based (NOT IP-bound).
+        // Device plays directly — ExoPlayer sends Range requests to the CDN
+        // without Replit's proxy stripping them.
+        appLog.info("player.flix2", `Reprodução direta (${cdnType} nativo)`, {
+          url: resolvedUrl?.slice(0, 80),
+          platform: Platform.OS,
+        });
         setVideoUrl(resolvedUrl);
         setVideoSourceHeaders({
           "User-Agent": BROWSER_UA,
@@ -421,16 +429,8 @@ export default function Flix2PlayerScreen() {
           "Origin": "https://nixplay.lat",
         });
       } else {
-        // fontedecanais / hubby.cx → proxy (native + web).
-        //
-        // IMPORTANT: pass the ORIGINAL nixplay URL (rawFlix2Url) to the proxy,
-        // NOT the pre-resolved CDN URL. The proxy resolves the redirect on its
-        // own IP (with a 55s cache) so the IP-bound CDN token always matches
-        // the instance that will forward the stream. On autoscale deployments,
-        // stream-url and proxy may run on different instances (different IPs),
-        // so using the pre-resolved CDN URL causes 403 from fontedecanais.
-        // Web: always proxy (CORS). cineveo is handled above (direct native).
-        const urlToProxy = isFd && rawFlix2Url ? rawFlix2Url : resolvedUrl;
+        // Other CDNs or web → proxy (CORS on web; unknown CDN behavior on native).
+        const urlToProxy = resolvedUrl;
         const proxiedUrl = getProxiedStreamUrl(urlToProxy);
         const proxyAvailable = !!(proxiedUrl && proxiedUrl !== urlToProxy);
         if (!proxyAvailable) {
@@ -438,7 +438,6 @@ export default function Flix2PlayerScreen() {
         }
         appLog.info("player.flix2", `Reprodução via proxy (${cdnType})`, {
           proxyUrl: proxiedUrl?.slice(0, 80),
-          usingNixplayUrl: isFd,
           platform: Platform.OS,
         });
         setVideoUrl(proxiedUrl);
