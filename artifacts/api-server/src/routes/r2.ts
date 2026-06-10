@@ -2779,6 +2779,21 @@ router.get("/flix2/stream-url", async (req, res) => {
       return;
     }
 
+    // Step 5: if no redirect was resolved (finalUrl === streamUrl), nixplay blocked the
+    // server IP with a non-3xx response. Route through the CF Worker which runs on
+    // Cloudflare edge IPs — those are not blocked by nixplay.
+    // The CF Worker already has resolveNixplay() built-in to follow the 302 server-side.
+    // This makes the OLD APK (without client-side fetch fix) work without a new build.
+    const CF_WORKER = process.env["CF_WORKER_URL"] ?? "https://netplay-stream-proxy.netplay.workers.dev";
+    if (finalUrl === streamUrl) {
+      const workerUrl = `${CF_WORKER}/?url=${encodeURIComponent(streamUrl)}`;
+      console.log(`[flix2/stream-url] nixplay unresolved → routing via CF Worker`);
+      const result = { url: workerUrl, via: "cf-worker" };
+      STREAM_URL_CACHE.set(streamUrl, { result, cachedAt: Date.now() });
+      res.json(result);
+      return;
+    }
+
     const result = { url: finalUrl };
     STREAM_URL_CACHE.set(streamUrl, { result, cachedAt: Date.now() });
     res.json(result);

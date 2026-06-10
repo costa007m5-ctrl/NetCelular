@@ -424,7 +424,7 @@ export default function Flix2PlayerScreen() {
           appLog.warn("player.flix2", "Resolução client-side falhou", { error: String(clientErr) });
         }
 
-        // Passo 2: se a resolução client-side também falhou, tenta servidor como último recurso
+        // Passo 2: se client-side falhou, tenta via servidor (que agora retorna CF Worker URL)
         if (resolvedUrl === rawFlix2Url) {
           try {
             const apiBase = await getApiBase();
@@ -441,6 +441,13 @@ export default function Flix2PlayerScreen() {
               }
             }
           } catch {}
+        }
+
+        // Passo 3: se ainda não resolveu, roteia via CF Worker diretamente
+        // O Worker tem resolveNixplay() que segue o redirect de Cloudflare edge IPs
+        if (resolvedUrl === rawFlix2Url) {
+          resolvedUrl = `${CF_WORKER_URL}/?url=${encodeURIComponent(rawFlix2Url)}`;
+          resolvedVia = "cf-worker-direct";
         }
 
         appLog.info("player.flix2", "Reprodução nixplay resolvida", {
