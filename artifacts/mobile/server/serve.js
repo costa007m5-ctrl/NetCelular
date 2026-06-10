@@ -311,12 +311,14 @@ function shutdown(signal) {
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT",  () => shutdown("SIGINT"));
 
-// Sobe o API server, matando qualquer processo órfão na porta primeiro.
+// Sobe o API server apenas se a porta NÃO estiver em uso.
+// Em deployment autoscale, o api-server roda como artifact separado — não matar.
 isPortInUse(API_PORT).then((inUse) => {
   if (inUse) {
-    console.log(`[api-server] Porta ${API_PORT} ocupada na inicialização — liberando processo órfão...`);
-    killPortSync(API_PORT);
-    setTimeout(spawnApiServer, 1500);
+    // Porta ocupada: pode ser o artifact do api-server no deployment autoscale,
+    // ou outra instância. Apenas monitorar — NÃO matar nem reiniciar.
+    console.log(`[api-server] Porta ${API_PORT} ocupada — usando instância existente (modo deployment).`);
+    startPortWatcher();
   } else {
     spawnApiServer();
   }

@@ -31,4 +31,8 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use("/api", router);
 
+// Root healthcheck — deployment proxy hits GET / on port 8080 (externalPort=80).
+// Without this route Express returns 404 which the deployment treats as unhealthy.
+app.get("/", (_req, res) => { res.json({ ok: true, service: "netplay-api" }); });
+
 export default app;
