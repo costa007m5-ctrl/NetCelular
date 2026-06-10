@@ -38,11 +38,6 @@ workflows:
         script: pnpm install --no-frozen-lockfile
         working_directory: .
 
-      - name: Instalar dependências do app mobile
-        script: |
-          cd artifacts/mobile
-          npm install --legacy-peer-deps
-
       - name: Configurar variáveis de ambiente do Expo
         script: |
           cd artifacts/mobile
@@ -59,7 +54,7 @@ workflows:
         script: |
           cd artifacts/mobile
           npx expo prebuild --clean --platform android --no-install
-          npm install --legacy-peer-deps
+          pnpm install --no-frozen-lockfile
 
       - name: Garantir buildConfig no build.gradle
         script: |
@@ -140,11 +135,6 @@ workflows:
         script: pnpm install --no-frozen-lockfile
         working_directory: .
 
-      - name: Instalar dependências do app mobile
-        script: |
-          cd artifacts/mobile
-          npm install --legacy-peer-deps
-
       - name: Configurar variáveis de ambiente do Expo
         script: |
           cd artifacts/mobile
@@ -161,7 +151,7 @@ workflows:
         script: |
           cd artifacts/mobile
           npx expo prebuild --clean --platform ios --no-install
-          npm install --legacy-peer-deps
+          pnpm install --no-frozen-lockfile
 
       - name: Instalar pods
         script: |
