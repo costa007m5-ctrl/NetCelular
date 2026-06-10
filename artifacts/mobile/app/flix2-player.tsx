@@ -392,6 +392,8 @@ export default function Flix2PlayerScreen() {
         // ExoPlayer bloqueia cross-scheme HTTPS→HTTP mesmo com usesCleartextTraffic.
         // Fix: resolver server-side via /flix2/stream-url para obter a URL fontedecanais,
         // depois tocar DIRETAMENTE (sem redirect) — usesCleartextTraffic permite HTTP direto.
+        // Fallback: se resolução falhar (URL não muda → nixplay deu 401/timeout server-side),
+        // rota pelo proxy da API que segue o 302 server-side com browser UA.
         const apiBase = await getApiBase();
         const resolveUrl = `${apiBase}/flix2/stream-url?streamUrl=${encodeURIComponent(rawFlix2Url)}&nocache=${retryCount > 0 ? "1" : "0"}`;
         const resolveCtrl = new AbortController();
@@ -409,15 +411,34 @@ export default function Flix2PlayerScreen() {
             }
           }
         } catch { clearTimeout(resolveTimer); }
+
+        const resolutionSucceeded = resolvedUrl !== rawFlix2Url;
+
         appLog.info("player.flix2", "Reprodução nixplay resolvida server-side", {
           rawUrl: rawFlix2Url.slice(0, 80),
           resolvedUrl: resolvedUrl.slice(0, 80),
           via: resolvedVia,
+          resolutionSucceeded,
           platform: Platform.OS,
         });
-        setResolvedCdnType(isFonteUrl(resolvedUrl) ? "fontedecanais" : "nixplay");
-        setVideoSourceHeaders(FLIX2_HEADERS);
-        setVideoUrl(resolvedUrl);
+
+        if (!resolutionSucceeded) {
+          // Resolução falhou (nixplay retornou 401/timeout ao servidor).
+          // Fallback: rota pelo proxy da API — segue o 302 server-side,
+          // envia browser UA + Referer corretos, sem expor credenciais ao ExoPlayer.
+          const proxiedUrl = getProxiedStreamUrl(rawFlix2Url);
+          appLog.info("player.flix2", "Nixplay resolução falhou → usando proxy API", {
+            proxyUrl: proxiedUrl.slice(0, 80),
+            platform: Platform.OS,
+          });
+          setResolvedCdnType("nixplay-proxy");
+          setVideoSourceHeaders(undefined);
+          setVideoUrl(proxiedUrl);
+        } else {
+          setResolvedCdnType(isFonteUrl(resolvedUrl) ? "fontedecanais" : "nixplay");
+          setVideoSourceHeaders(FLIX2_HEADERS);
+          setVideoUrl(resolvedUrl);
+        }
       } else if (Platform.OS !== "web" && isCineveoUrl(rawFlix2Url)) {
         // cineveo.lat → CF Worker (precisa de Referer/Origin setados server-side)
         const workerUrl = `${CF_WORKER_URL}/?url=${encodeURIComponent(rawFlix2Url)}`;

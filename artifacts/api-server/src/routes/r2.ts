@@ -2720,7 +2720,12 @@ router.get("/flix2/stream-url", async (req, res) => {
         method: "HEAD",
         redirect: "manual",
         signal: controller.signal,
-        headers: { "User-Agent": "Mozilla/5.0" },
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+          "Referer": "https://nixplay.lat/",
+          "Origin": "https://nixplay.lat",
+          "Accept": "*/*",
+        },
       });
     } finally { clearTimeout(timer); }
     // For redirect:manual, a 3xx response gives us the Location header directly.
