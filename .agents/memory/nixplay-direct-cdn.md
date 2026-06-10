@@ -1,43 +1,46 @@
 ---
 name: nixplay.lat CDN routing
-description: nixplay.lat URLs redirect (302) to http:// fontedecanais CDN. Cross-scheme HTTPS→HTTP redirect is blocked by ExoPlayer even with usesCleartextTraffic. Fix: resolve redirect server-side via /flix2/stream-url, play fontedecanais URL directly. Fallback: proxy via /api/stream/proxy when resolution fails.
+description: nixplay.lat blocks Replit datacenter IPs with 401. Fix: resolve redirect ON DEVICE using React Native fetch (mobile IP not blocked). response.url gives final fontedecanais URL after redirect. ExoPlayer plays fontedecanais directly (no cross-scheme redirect needed).
 ---
 
 # nixplay.lat CDN routing (definitive)
 
-## The problem
-- `nixplay.lat/movie/{user}/{pass}/{id}.mp4` → 302 → `http://fontedecanais-me.72yrci50ppqp71.com/...`
-- ExoPlayer follows the redirect but Android blocks the cross-scheme HTTPS→HTTP transition
-- `android:usesCleartextTraffic="true"` does NOT help with cross-scheme redirects — only direct HTTP requests
-- CF Worker (`netplay-stream-proxy.netplay.workers.dev`) returns 403 for nixplay.lat URLs (Worker only handles cineveo)
+## Root cause
+- `nixplay.lat/movie/{user}/{pass}/{id}.mp4` → 302 → `http://fontedecanais...` CDN
+- Replit server IP = datacenter IP → nixplay returns **401** (IP blocked)
+- ExoPlayer: even if it reaches nixplay, it blocks cross-scheme HTTPS→HTTP redirect
+- CF Worker: returns 403 for nixplay.lat (only handles cineveo)
+- Server proxy: also blocked (same datacenter IP)
 
-## The fix (OTA-deliverable)
-1. **API server** (`/flix2/stream-url`): HEAD request to nixplay must use full browser UA + `Referer: https://nixplay.lat/` + `Origin: https://nixplay.lat`. Using only `"Mozilla/5.0"` causes nixplay to return 401 instead of 302.
-2. **flix2-player.tsx**: for `isNixplayDirect(rawFlix2Url)` on native, call `/flix2/stream-url` to get the resolved fontedecanais URL, then pass it **directly** to ExoPlayer with browser UA headers. No cross-scheme redirect → `usesCleartextTraffic` allows the direct HTTP request.
-3. **Fallback**: if `/flix2/stream-url` returns the same URL unchanged (resolution still failed), route through `getProxiedStreamUrl()` → `/api/stream/proxy` which handles the full redirect chain server-side.
+## The fix (client-side redirect resolution)
+React Native `fetch` on Android:
+- Follows redirects including HTTPS→HTTP (unlike ExoPlayer)  
+- Mobile device IP is NOT blocked by nixplay
+- `response.url` = final URL after all redirects = fontedecanais CDN URL
+- Pass fontedecanais URL directly to ExoPlayer → no redirect needed
+
+## Implementation (flix2-player.tsx)
+```
+fetch(nixplayUrl, { method:'GET', headers: FLIX2_HEADERS, Range:'bytes=0-0' })
+  → response.url = fontedecanais URL
+  → setVideoUrl(response.url)    // ExoPlayer plays direct, no redirect
+```
+Server call `/flix2/stream-url` is a fallback only (rarely succeeds due to IP block).
 
 ## Routing table (nativo Android/iOS)
 | URL | Strategy |
 |---|---|
-| `nixplay.lat` | Call `/flix2/stream-url` → resolve → play fontedecanais direct |
-| `nixplay.lat` (resolution failed) | `getProxiedStreamUrl()` → `/api/stream/proxy` fallback |
+| `nixplay.lat` | Client-side fetch → response.url → play fontedecanais direct |
+| `nixplay.lat` (client fetch fails) | Server `/flix2/stream-url` fallback |
 | `cineveo.lat` | CF Worker (Referer/Origin server-side) |
 | fontedecanais direct URL | Direct play with browser UA headers |
 | Web | Replit proxy |
 
-## Why server can resolve but ExoPlayer can't
-- nixplay stream URLs have credentials in the path: `/movie/{user}/{pass}/{id}.mp4`
-- Server HEAD with `redirect: manual` gets the 302 Location header
-- Returns the `http://fontedecanais...` URL to the client
-- Client gives that URL directly to ExoPlayer — no redirect needed
-- `usesCleartextTraffic: true` in AndroidManifest allows direct HTTP (not cross-scheme redirect)
-
 ## CF Worker behavior
-- `netplay-stream-proxy.netplay.workers.dev` → 403 for nixplay.lat (not configured for it)
-- Works only for cineveo.lat (sets Referer/Origin server-side)
-- fontedecanais CDN blocks Cloudflare IPs → Worker also can't proxy fontedecanais
+- `netplay-stream-proxy.netplay.workers.dev` → 403 for nixplay.lat
+- Works only for cineveo.lat
 
-## OTA publish from Replit (requires EXPO_TOKEN secret)
+## OTA publish (requires EXPO_TOKEN secret in Replit)
 Pattern when EXPO_TOKEN is for `grupo-streaming-brasil-net` but app.json has netplaybr projectId:
 1. Temporarily swap app.json owner+projectId to old values (sed -i)
 2. `npx expo export --platform android --output-dir dist`

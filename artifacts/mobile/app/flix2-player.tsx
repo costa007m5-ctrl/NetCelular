@@ -390,55 +390,69 @@ export default function Flix2PlayerScreen() {
       if (Platform.OS !== "web" && isNixplayDirect(rawFlix2Url)) {
         // nixplay.lat → redireciona (302) para http:// fontedecanais CDN.
         // ExoPlayer bloqueia cross-scheme HTTPS→HTTP mesmo com usesCleartextTraffic.
-        // Fix: resolver server-side via /flix2/stream-url para obter a URL fontedecanais,
-        // depois tocar DIRETAMENTE (sem redirect) — usesCleartextTraffic permite HTTP direto.
-        // Fallback: se resolução falhar (URL não muda → nixplay deu 401/timeout server-side),
-        // rota pelo proxy da API que segue o 302 server-side com browser UA.
-        const apiBase = await getApiBase();
-        const resolveUrl = `${apiBase}/flix2/stream-url?streamUrl=${encodeURIComponent(rawFlix2Url)}&nocache=${retryCount > 0 ? "1" : "0"}`;
-        const resolveCtrl = new AbortController();
-        const resolveTimer = setTimeout(() => resolveCtrl.abort(), 10000);
+        //
+        // ESTRATÉGIA: resolver o redirect NO DEVICE (IP mobile não é bloqueado).
+        // React Native fetch() segue HTTPS→HTTP sem restrição — diferente do ExoPlayer.
+        // response.url retorna a URL final após todos os redirects.
+        // Depois passamos a URL fontedecanais direto ao ExoPlayer (sem redirect).
+        //
+        // O servidor Replit tem IP de datacenter bloqueado pelo nixplay → não usar servidor.
+
         let resolvedUrl = rawFlix2Url;
-        let resolvedVia = "nixplay-fallback";
+        let resolvedVia = "nixplay-direct";
+
+        // Passo 1: resolver redirect no device com fetch (segue HTTPS→HTTP)
         try {
-          const r = await fetch(resolveUrl, { signal: resolveCtrl.signal });
-          clearTimeout(resolveTimer);
-          if (r.ok) {
-            const data = await r.json() as { url: string; via?: string };
-            if (data.url && data.url !== rawFlix2Url) {
-              resolvedUrl = data.url;
-              resolvedVia = data.via ?? "fontedecanais";
-            }
+          const clientCtrl = new AbortController();
+          const clientTimer = setTimeout(() => clientCtrl.abort(), 10000);
+          const headResp = await fetch(rawFlix2Url, {
+            method: "GET",
+            headers: {
+              ...FLIX2_HEADERS,
+              // Pedir apenas 1 byte para não baixar o vídeo inteiro
+              "Range": "bytes=0-0",
+            },
+            signal: clientCtrl.signal,
+          });
+          clearTimeout(clientTimer);
+          // response.url é a URL FINAL após seguir todos os redirects
+          if (headResp.url && headResp.url !== rawFlix2Url) {
+            resolvedUrl = headResp.url;
+            resolvedVia = "client-redirect";
           }
-        } catch { clearTimeout(resolveTimer); }
+        } catch (clientErr: any) {
+          appLog.warn("player.flix2", "Resolução client-side falhou", { error: String(clientErr) });
+        }
 
-        const resolutionSucceeded = resolvedUrl !== rawFlix2Url;
+        // Passo 2: se a resolução client-side também falhou, tenta servidor como último recurso
+        if (resolvedUrl === rawFlix2Url) {
+          try {
+            const apiBase = await getApiBase();
+            const resolveUrl = `${apiBase}/flix2/stream-url?streamUrl=${encodeURIComponent(rawFlix2Url)}&nocache=1`;
+            const srvCtrl = new AbortController();
+            const srvTimer = setTimeout(() => srvCtrl.abort(), 8000);
+            const r = await fetch(resolveUrl, { signal: srvCtrl.signal });
+            clearTimeout(srvTimer);
+            if (r.ok) {
+              const data = await r.json() as { url: string; via?: string };
+              if (data.url && data.url !== rawFlix2Url) {
+                resolvedUrl = data.url;
+                resolvedVia = data.via ?? "server-resolve";
+              }
+            }
+          } catch {}
+        }
 
-        appLog.info("player.flix2", "Reprodução nixplay resolvida server-side", {
+        appLog.info("player.flix2", "Reprodução nixplay resolvida", {
           rawUrl: rawFlix2Url.slice(0, 80),
           resolvedUrl: resolvedUrl.slice(0, 80),
           via: resolvedVia,
-          resolutionSucceeded,
           platform: Platform.OS,
         });
 
-        if (!resolutionSucceeded) {
-          // Resolução falhou (nixplay retornou 401/timeout ao servidor).
-          // Fallback: rota pelo proxy da API — segue o 302 server-side,
-          // envia browser UA + Referer corretos, sem expor credenciais ao ExoPlayer.
-          const proxiedUrl = getProxiedStreamUrl(rawFlix2Url);
-          appLog.info("player.flix2", "Nixplay resolução falhou → usando proxy API", {
-            proxyUrl: proxiedUrl.slice(0, 80),
-            platform: Platform.OS,
-          });
-          setResolvedCdnType("nixplay-proxy");
-          setVideoSourceHeaders(undefined);
-          setVideoUrl(proxiedUrl);
-        } else {
-          setResolvedCdnType(isFonteUrl(resolvedUrl) ? "fontedecanais" : "nixplay");
-          setVideoSourceHeaders(FLIX2_HEADERS);
-          setVideoUrl(resolvedUrl);
-        }
+        setResolvedCdnType(isFonteUrl(resolvedUrl) ? "fontedecanais" : resolvedVia === "client-redirect" ? "nixplay-client" : "nixplay");
+        setVideoSourceHeaders(FLIX2_HEADERS);
+        setVideoUrl(resolvedUrl);
       } else if (Platform.OS !== "web" && isCineveoUrl(rawFlix2Url)) {
         // cineveo.lat → CF Worker (precisa de Referer/Origin setados server-side)
         const workerUrl = `${CF_WORKER_URL}/?url=${encodeURIComponent(rawFlix2Url)}`;
