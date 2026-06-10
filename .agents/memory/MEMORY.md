@@ -27,4 +27,4 @@
 - [Flix2 player 80% deadlock](flix2-player-deadlock.md) — Video must mount on videoUrl set (not on phase=ready); both cineveo and fontedecanais use direct play on native (not proxy).
 - [Expo port conflict](expo-port-conflict.md) — expo workflow must use --port 18115 (not $PORT/5000); REACT_NATIVE_PACKAGER_HOSTNAME=$REPLIT_EXPO_DEV_DOMAIN; port 5000 must stay free for Start application proxy.
 - [Replit prod proxy strips Range headers](replit-range-strip.md) — Replit's production reverse proxy strips HTTP Range headers from inbound requests; clientRange is always false in prod logs. Never use server-side proxy for video that needs ExoPlayer Range seeks; use direct CDN URLs from the device instead.
-- [nixplay.lat direct CDN routing](nixplay-direct-cdn.md) — nixplay.lat/movie/ and /series/ paths are direct MP4s; use EAS_SKIP_AUTO_FINGERPRINT=1 for OTA updates in Replit main agent.
+- [nixplay.lat direct CDN routing](nixplay-direct-cdn.md) — nixplay.lat/movie/ and /series/ paths are direct MP4s; ExoPlayer UA blocked in prod APKs → must use CF Worker (same as cineveo), not direct play.

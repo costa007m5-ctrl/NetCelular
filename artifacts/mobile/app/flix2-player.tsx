@@ -380,18 +380,22 @@ export default function Flix2PlayerScreen() {
       // de Referer/Origin do nixplay.lat diretamente para o player nativo.
       // Isso elimina a dependência do servidor /flix2/stream-url.
       //
-      // cineveo.lat: única exceção — precisa do CF Worker que seta headers
-      //              no servidor. Para todos os outros (nixplay, fontedecanais,
-      //              etc.) o player nativo reproduz direto com os headers abaixo.
+      // cineveo.lat + nixplay.lat direto: ExoPlayer (prod APK) não consegue
+      //   sobrescrever User-Agent via source.headers — servidor bloqueia okhttp UA.
+      //   → CF Worker faz a requisição com UA de browser e faz streaming com Range.
+      // fontedecanais: token não é IP-bound; play direto sem CF Worker.
 
-      if (Platform.OS !== "web" && isCineveoUrl(rawFlix2Url)) {
-        // cineveo: precisa de headers especiais setados pelo CF Worker upstream
+      if (Platform.OS !== "web" && (isCineveoUrl(rawFlix2Url) || isNixplayDirect(rawFlix2Url))) {
+        // cineveo + nixplay.lat direct: ExoPlayer não consegue sobrescrever User-Agent
+        // via source.headers em APKs de produção — o servidor bloqueia o UA do okhttp.
+        // CF Worker define o UA de browser upstream e faz streaming correto com Range.
         const workerUrl = `${CF_WORKER_URL}/?url=${encodeURIComponent(rawFlix2Url)}`;
-        appLog.info("player.flix2", "Reprodução via CF Worker (cineveo)", {
+        appLog.info("player.flix2", "Reprodução via CF Worker (UA override)", {
           workerUrl: workerUrl.slice(0, 80),
+          cdn: isCineveoUrl(rawFlix2Url) ? "cineveo" : "nixplay-direct",
           platform: Platform.OS,
         });
-        setResolvedCdnType("cineveo");
+        setResolvedCdnType(isCineveoUrl(rawFlix2Url) ? "cineveo" : "nixplay-direct");
         setVideoUrl(workerUrl);
       } else if (Platform.OS === "web") {
         // Web: browser não pode setar Referer/Origin em requests de mídia → proxy
