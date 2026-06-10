@@ -261,7 +261,7 @@ export default function Flix2PlayerScreen() {
   // ── Session management ──────────────────────────────────────────────────────
   useEffect(() => {
     if (!user?.id) return;
-    checkAndStartSession(user.id).then((result) => {
+    checkAndStartSession(user.id, user.role).then((result) => {
       if (result !== "ok") setSessionBlocked(result as any);
     });
     const hbInterval = setInterval(heartbeatSession, 20000);

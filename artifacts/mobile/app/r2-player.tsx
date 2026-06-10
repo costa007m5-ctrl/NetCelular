@@ -364,7 +364,7 @@ export default function R2PlayerScreen() {
   // ── Session limit tracking ──────────────────────────────────────────────────
   useEffect(() => {
     if (!user?.id) return;
-    checkAndStartSession(user.id).then((result) => {
+    checkAndStartSession(user.id, user.role).then((result) => {
       if (result !== "ok") setSessionBlocked(result);
     });
     const hbInterval = setInterval(heartbeatSession, 20000);

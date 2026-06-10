@@ -21,7 +21,10 @@ let _currentToken: string | null = null;
 
 export function getCurrentSessionToken() { return _currentToken; }
 
-export async function checkAndStartSession(userId: string): Promise<SessionCheckResult> {
+export async function checkAndStartSession(userId: string, role?: string): Promise<SessionCheckResult> {
+  // Admins have no screen limit, trial or plan restrictions
+  if (role === "admin") return "ok";
+
   try {
     let sub = await db.subscriptions.get(userId);
 
