@@ -380,23 +380,38 @@ export default function Flix2PlayerScreen() {
       // de Referer/Origin do nixplay.lat diretamente para o player nativo.
       // Isso elimina a dependência do servidor /flix2/stream-url.
       //
-      // cineveo.lat + nixplay.lat direto: ExoPlayer (prod APK) não consegue
-      //   sobrescrever User-Agent via source.headers — servidor bloqueia okhttp UA.
-      //   → CF Worker faz a requisição com UA de browser e faz streaming com Range.
-      // fontedecanais: token não é IP-bound; play direto sem CF Worker.
+      // Routing rules (confirmed by live tests):
+      //  cineveo.lat        → CF Worker (sets Referer/Origin server-side)
+      //  nixplay.lat/movie/ → PROXY: nixplay redirects to fontedecanais HTTP CDN;
+      //                       ExoPlayer follows HTTPS→HTTP redirect which Android
+      //                       blocks in production APKs. Proxy handles redirect
+      //                       server-side and streams over HTTPS to the device.
+      //                       (same logic as r2-player.tsx isUnresolved branch)
+      //  fontedecanais direct (resolved CDN URL) → play direto (token não é IP-bound)
+      //  web               → proxy (CORS)
 
-      if (Platform.OS !== "web" && (isCineveoUrl(rawFlix2Url) || isNixplayDirect(rawFlix2Url))) {
-        // cineveo + nixplay.lat direct: ExoPlayer não consegue sobrescrever User-Agent
-        // via source.headers em APKs de produção — o servidor bloqueia o UA do okhttp.
-        // CF Worker define o UA de browser upstream e faz streaming correto com Range.
+      if (Platform.OS !== "web" && isCineveoUrl(rawFlix2Url)) {
+        // cineveo: precisa de headers especiais setados pelo CF Worker upstream
         const workerUrl = `${CF_WORKER_URL}/?url=${encodeURIComponent(rawFlix2Url)}`;
-        appLog.info("player.flix2", "Reprodução via CF Worker (UA override)", {
+        appLog.info("player.flix2", "Reprodução via CF Worker (cineveo)", {
           workerUrl: workerUrl.slice(0, 80),
-          cdn: isCineveoUrl(rawFlix2Url) ? "cineveo" : "nixplay-direct",
           platform: Platform.OS,
         });
-        setResolvedCdnType(isCineveoUrl(rawFlix2Url) ? "cineveo" : "nixplay-direct");
+        setResolvedCdnType("cineveo");
         setVideoUrl(workerUrl);
+      } else if (Platform.OS !== "web" && isNixplayDirect(rawFlix2Url)) {
+        // nixplay.lat/movie/ → redirects to fontedecanais HTTP CDN; proxy handles
+        // the redirect server-side so the device only sees HTTPS.
+        const proxiedUrl = getProxiedStreamUrl(rawFlix2Url);
+        if (!proxiedUrl || proxiedUrl === rawFlix2Url) {
+          throw new Error("Servidor de proxy não disponível. Verifique a conexão.");
+        }
+        appLog.info("player.flix2", "Reprodução via proxy (nixplay redirect→HTTP CDN)", {
+          proxyUrl: proxiedUrl.slice(0, 80),
+          platform: Platform.OS,
+        });
+        setResolvedCdnType("nixplay-direct");
+        setVideoUrl(proxiedUrl);
       } else if (Platform.OS === "web") {
         // Web: browser não pode setar Referer/Origin em requests de mídia → proxy
         const proxiedUrl = getProxiedStreamUrl(rawFlix2Url);
@@ -409,14 +424,13 @@ export default function Flix2PlayerScreen() {
         setResolvedCdnType("flix2");
         setVideoUrl(proxiedUrl);
       } else {
-        // Nativo (Android/iOS): reprodução direta com headers de browser.
-        // ExoPlayer/AVPlayer aceitam Referer+Origin e tocam o MP4/HLS diretamente,
-        // igual ao que um navegador faz ao dar play em https://nixplay.lat/movie/...
+        // Nativo (Android/iOS): fontedecanais direct CDN URL — token não é IP-bound,
+        // play direto com headers de browser.
         appLog.info("player.flix2", "Reprodução direta com headers de browser", {
           url: rawFlix2Url?.slice(0, 80),
           platform: Platform.OS,
         });
-        setResolvedCdnType(isNixplayDirect(rawFlix2Url) ? "nixplay-direct" : isFonteUrl(rawFlix2Url) ? "fontedecanais" : "flix2");
+        setResolvedCdnType(isFonteUrl(rawFlix2Url) ? "fontedecanais" : "flix2");
         setVideoSourceHeaders(FLIX2_HEADERS);
         setVideoUrl(rawFlix2Url);
       }
