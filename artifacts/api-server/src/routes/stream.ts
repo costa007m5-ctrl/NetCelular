@@ -527,6 +527,34 @@ router.head("/proxy", (req: Request, res: ExpressResponse) => {
   res.end();
 });
 
+// GET /stream/resolve-url?url=<encoded-nixplay-url>
+// Resolves a nixplay.lat redirect URL to the final CDN URL server-side,
+// so the device can play the CDN URL directly without going through the proxy.
+// The fontedecanais token is TIME-BASED (not IP-bound), so any device IP works.
+router.get("/resolve-url", async (req: Request, res: ExpressResponse) => {
+  const rawUrl = (req.query["url"] as string ?? "").trim();
+  if (!rawUrl) { res.status(400).json({ error: "url param required" }); return; }
+  let decodedUrl: string;
+  try { decodedUrl = decodeURIComponent(rawUrl); } catch { decodedUrl = rawUrl; }
+
+  if (!isNixplayUrl(decodedUrl)) {
+    res.json({ url: decodedUrl });
+    return;
+  }
+
+  try {
+    const ctrl = new AbortController();
+    const timeout = setTimeout(() => ctrl.abort(), 10_000);
+    const cdnUrl = await resolveNixplayCdn(decodedUrl, ctrl.signal);
+    clearTimeout(timeout);
+    res.set("Access-Control-Allow-Origin", "*");
+    res.json({ url: cdnUrl });
+  } catch (e: any) {
+    console.log(`[resolve-url] failed: ${e?.message}`);
+    res.status(502).json({ error: "Failed to resolve URL", detail: e?.message });
+  }
+});
+
 // OPTIONS for CORS preflight
 router.options("/proxy", (_req, res) => {
   res.set({

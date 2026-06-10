@@ -400,18 +400,32 @@ export default function Flix2PlayerScreen() {
         setResolvedCdnType("cineveo");
         setVideoUrl(workerUrl);
       } else if (Platform.OS !== "web" && isNixplayDirect(rawFlix2Url)) {
-        // nixplay.lat/movie/ → redirects to fontedecanais HTTP CDN; proxy handles
-        // the redirect server-side so the device only sees HTTPS.
-        const proxiedUrl = getProxiedStreamUrl(rawFlix2Url);
-        if (!proxiedUrl || proxiedUrl === rawFlix2Url) {
-          throw new Error("Servidor de proxy não disponível. Verifique a conexão.");
+        // nixplay.lat/movie/ → server resolves the 302 redirect to the fontedecanais
+        // CDN URL, then the DEVICE plays the CDN URL directly.
+        // Token is TIME-BASED (not IP-bound) → any device IP works.
+        // usesCleartextTraffic=true → HTTP CDN URLs allowed on Android.
+        // Avoids Replit proxy (cuts streams after ~2s) and CF Worker (blocked by CDN).
+        const apiBase = getApiBase();
+        if (!apiBase) throw new Error("API não disponível. Verifique a conexão.");
+        const resolveCtrl = new AbortController();
+        const resolveTimeout = setTimeout(() => resolveCtrl.abort(), 10_000);
+        let resolveResp: Response;
+        try {
+          resolveResp = await fetch(
+            `${apiBase}/stream/resolve-url?url=${encodeURIComponent(rawFlix2Url)}`,
+            { signal: resolveCtrl.signal }
+          );
+        } finally {
+          clearTimeout(resolveTimeout);
         }
-        appLog.info("player.flix2", "Reprodução via proxy (nixplay redirect→HTTP CDN)", {
-          proxyUrl: proxiedUrl.slice(0, 80),
+        if (!resolveResp.ok) throw new Error(`Falha ao resolver URL (${resolveResp.status})`);
+        const { url: cdnUrl } = await resolveResp.json() as { url: string };
+        appLog.info("player.flix2", "Reprodução direta CDN (nixplay resolvido)", {
+          cdnHost: (() => { try { return new URL(cdnUrl).hostname; } catch { return "?"; } })(),
           platform: Platform.OS,
         });
         setResolvedCdnType("nixplay-direct");
-        setVideoUrl(proxiedUrl);
+        setVideoUrl(cdnUrl);
       } else if (Platform.OS === "web") {
         // Web: browser não pode setar Referer/Origin em requests de mídia → proxy
         const proxiedUrl = getProxiedStreamUrl(rawFlix2Url);
