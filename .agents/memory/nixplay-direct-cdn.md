@@ -1,27 +1,39 @@
 ---
 name: nixplay.lat direct CDN routing
-description: nixplay.lat/movie/ and /series/ paths are direct MP4s that must play directly on native Android, not via Replit proxy (which strips Range headers).
+description: nixplay.lat/movie/ and /series/ URLs must go via CF Worker on native APK — ExoPlayer UA blocked by Cloudflare + HTTPS→HTTP redirect blocked on release APKs.
 ---
 
 # nixplay.lat direct CDN routing
 
-## The rule
-`nixplay.lat/movie/...` and `/series/...` URLs are **direct MP4/HLS files** served from nixplay.lat itself. They do NOT redirect to cineveo or fontedecanais. On native Android, they MUST be played directly from the device — NOT through the Replit proxy.
+## The rule (updated June 2026)
+`nixplay.lat/movie/...` and `/series/...` URLs on **native Android APKs** must be routed via the **CF Worker** (`netplay-stream-proxy.netplay.workers.dev`), same as cineveo.lat.
 
-**Why:** Replit's production reverse proxy strips HTTP Range headers (confirmed in prod logs). ExoPlayer requires Range headers for seeking. Without Range headers, ExoPlayer throws "Erro ao reproduzir vídeo" immediately. Expo Go/web uses a different player that doesn't strictly require Range → works fine there.
+**Why direct fails on APKs:**
+1. ExoPlayer UA is blocked by nixplay.lat's Cloudflare WAF in production APKs (works in Expo Go because Expo Go uses a different UA)
+2. nixplay.lat does a 302 redirect to fontedecanais via HTTP; Android blocks HTTPS→HTTP cross-scheme redirects in release APKs even with `usesCleartextTraffic=true`
+3. Replit proxy strips Range headers → ExoPlayer can't seek
 
-**How to apply:** In `flix2-player.tsx`, the `isNixplayDirect` function detects these URLs (`hostname === "nixplay.lat"`). The routing condition `if (Platform.OS !== "web" && (isFd || isNx))` sends them to direct device playback, same as fontedecanais.
-
-## EAS OTA update trick (Replit main agent)
-When running `eas update` from the Replit main agent, the fingerprint step tries a git operation which is blocked. Always add:
+**How to apply (flix2-player.tsx):**
+`isNixplayDirect` detects `hostname === "nixplay.lat"`. Routing condition:
 ```
-EAS_SKIP_AUTO_FINGERPRINT=1
+if (Platform.OS !== "web" && (isCineveoUrl(rawFlix2Url) || isNixplayDirect(rawFlix2Url)))
+  → CF Worker: `CF_WORKER_URL/?url=${encodeURIComponent(rawFlix2Url)}`
 ```
-This skips the fingerprint and lets publishing complete. The bundles upload fine; only the auto-fingerprint step is blocked.
+Worker resolves the nixplay redirect server-side (Cloudflare IP not blocked), proxies bytes with Range headers intact.
 
-Command pattern:
+**Web:** proxy via Replit `/api/stream/proxy` (CORS blocks direct)
+
+## EAS OTA publish from Replit main agent
+
+Two-step pattern (bundle first, then publish with --skip-bundler):
 ```bash
-EAS_SKIP_AUTO_FINGERPRINT=1 EXPO_TOKEN=$EXPO_TOKEN /home/runner/workspace/.config/npm/node_global/bin/eas update --branch preview --message "..." --non-interactive
+# Step 1: let it export (takes ~2 min, may timeout but that's ok — dist/ is cached)
+cd artifacts/mobile && EXPO_TOKEN=$EXPO_TOKEN EAS_SKIP_AUTO_FINGERPRINT=1 npx eas-cli@latest update --branch production --message "..." --non-interactive
+
+# Step 2: if step 1 timed out before publishing, reuse cached dist
+EXPO_TOKEN=$EXPO_TOKEN EAS_SKIP_AUTO_FINGERPRINT=1 npx eas-cli@latest update --branch production --message "..." --non-interactive --skip-bundler
 ```
 
-**Why:** Replit blocks destructive git operations in the main agent. EAS auto-fingerprint calls `git stash` internally. Skipping it has no functional impact on the OTA update delivery.
+**Why `EAS_SKIP_AUTO_FINGERPRINT=1`:** Replit blocks destructive git ops in main agent. EAS auto-fingerprint calls `git stash` internally → blocked. Skipping has no impact on OTA delivery.
+
+**Why `--skip-bundler` on step 2:** Metro bundle is already in `dist/` from step 1. Reusing it saves ~90s and avoids another timeout.
