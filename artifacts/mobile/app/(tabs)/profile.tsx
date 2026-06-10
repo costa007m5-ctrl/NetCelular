@@ -968,7 +968,7 @@ export default function ProfileScreen() {
           <Row icon="log-out" label="Sair da Conta" danger onPress={handleLogout} last />
         </Section>
 
-        <Text style={[s.version, { color: colors.mutedForeground }]}>NETPLAY v2.2.0 (09/06/2026) · Feito com ❤️ no Brasil</Text>
+        <Text style={[s.version, { color: colors.mutedForeground }]}>NETPLAY v2.3.0 (10/06/2026) · Feito com ❤️ no Brasil</Text>
       </ScrollView>
 
       {/* ── MODAL: OPÇÕES DO AVATAR ──────────────────────── */}
@@ -1257,7 +1257,7 @@ export default function ProfileScreen() {
               <Text style={{ color: "#fff", fontSize: 28, fontWeight: "900" }}>N</Text>
             </LinearGradient>
             <Text style={{ color: colors.foreground, fontSize: 20, fontWeight: "800", marginTop: 12 }}>NETPLAY</Text>
-            <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>Versão 2.2.0 (build 220)</Text>
+            <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>Versão 2.3.0 (build 230)</Text>
           </View>
           <View style={[s.aboutRow, { borderColor: colors.border + "40" }]}>
             <Text style={{ color: colors.mutedForeground, fontSize: 13, lineHeight: 20 }}>
@@ -1266,8 +1266,8 @@ export default function ProfileScreen() {
             </Text>
           </View>
           {[
-            { label: "Versão do app", val: "2.2.0" },
-            { label: "Build", val: "220 · CF Worker" },
+            { label: "Versão do app", val: "2.3.0" },
+            { label: "Build", val: "230 · Admin bypass + nixplay fix" },
             { label: "Plataforma", val: Platform.OS === "ios" ? "iOS" : Platform.OS === "android" ? "Android" : "Web" },
           ].map((row) => (
             <View key={row.label} style={[s.payRow, { borderColor: colors.border + "40" }]}>
