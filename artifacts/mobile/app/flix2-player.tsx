@@ -390,42 +390,24 @@ export default function Flix2PlayerScreen() {
       //  fontedecanais direct (resolved CDN URL) → play direto (token não é IP-bound)
       //  web               → proxy (CORS)
 
-      if (Platform.OS !== "web" && isCineveoUrl(rawFlix2Url)) {
-        // cineveo: precisa de headers especiais setados pelo CF Worker upstream
+      if (Platform.OS !== "web" && (isCineveoUrl(rawFlix2Url) || isNixplayDirect(rawFlix2Url))) {
+        // cineveo.lat e nixplay.lat/movie|series → CF Worker
+        //
+        // Por que nixplay via CF Worker (não direto / não resolve-url):
+        //  1. ExoPlayer UA é bloqueado pelo Cloudflare do nixplay em APKs release
+        //  2. nixplay redireciona para fontedecanais via HTTP; Android bloqueia
+        //     redirects HTTPS→HTTP em APKs release mesmo com usesCleartextTraffic
+        //  3. O CF Worker recebe a URL do nixplay, resolve o redirect ele mesmo
+        //     (IP da Cloudflare não é bloqueado), e faz proxy com Range headers
+        //     intactos → ExoPlayer pode fazer seeking normalmente
         const workerUrl = `${CF_WORKER_URL}/?url=${encodeURIComponent(rawFlix2Url)}`;
-        appLog.info("player.flix2", "Reprodução via CF Worker (cineveo)", {
+        appLog.info("player.flix2", "Reprodução via CF Worker", {
+          cdn: isCineveoUrl(rawFlix2Url) ? "cineveo" : "nixplay-direct",
           workerUrl: workerUrl.slice(0, 80),
           platform: Platform.OS,
         });
-        setResolvedCdnType("cineveo");
+        setResolvedCdnType(isCineveoUrl(rawFlix2Url) ? "cineveo" : "nixplay-direct");
         setVideoUrl(workerUrl);
-      } else if (Platform.OS !== "web" && isNixplayDirect(rawFlix2Url)) {
-        // nixplay.lat/movie/ → server resolves the 302 redirect to the fontedecanais
-        // CDN URL, then the DEVICE plays the CDN URL directly.
-        // Token is TIME-BASED (not IP-bound) → any device IP works.
-        // usesCleartextTraffic=true → HTTP CDN URLs allowed on Android.
-        // Avoids Replit proxy (cuts streams after ~2s) and CF Worker (blocked by CDN).
-        const apiBase = getApiBase();
-        if (!apiBase) throw new Error("API não disponível. Verifique a conexão.");
-        const resolveCtrl = new AbortController();
-        const resolveTimeout = setTimeout(() => resolveCtrl.abort(), 10_000);
-        let resolveResp: Response;
-        try {
-          resolveResp = await fetch(
-            `${apiBase}/stream/resolve-url?url=${encodeURIComponent(rawFlix2Url)}`,
-            { signal: resolveCtrl.signal }
-          );
-        } finally {
-          clearTimeout(resolveTimeout);
-        }
-        if (!resolveResp.ok) throw new Error(`Falha ao resolver URL (${resolveResp.status})`);
-        const { url: cdnUrl } = await resolveResp.json() as { url: string };
-        appLog.info("player.flix2", "Reprodução direta CDN (nixplay resolvido)", {
-          cdnHost: (() => { try { return new URL(cdnUrl).hostname; } catch { return "?"; } })(),
-          platform: Platform.OS,
-        });
-        setResolvedCdnType("nixplay-direct");
-        setVideoUrl(cdnUrl);
       } else if (Platform.OS === "web") {
         // Web: browser não pode setar Referer/Origin em requests de mídia → proxy
         const proxiedUrl = getProxiedStreamUrl(rawFlix2Url);
