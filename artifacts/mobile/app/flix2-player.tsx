@@ -864,7 +864,22 @@ export default function Flix2PlayerScreen() {
           isLooping={false}
           onLoad={onVideoLoad}
           onPlaybackStatusUpdate={onPlaybackStatusUpdate}
-          onError={() => { if (phaseRef.current !== "error") { setPhase("error"); setErrorMsg("Erro ao reproduzir vídeo"); phaseRef.current = "error"; } }}
+          onError={(err) => {
+            if (phaseRef.current !== "error") {
+              const errStr = String(err ?? "").trim() || "Erro ao reproduzir vídeo";
+              appLog.error("player.flix2", `onError ExoPlayer: ${errStr}`, {
+                error: errStr,
+                platform: Platform.OS,
+                title,
+                tmdbId,
+                cdnType: resolvedCdnType,
+                videoUrl: videoUrl?.slice(0, 120),
+              });
+              setPhase("error");
+              setErrorMsg(errStr);
+              phaseRef.current = "error";
+            }
+          }}
           progressUpdateIntervalMillis={1000}
           useNativeControls={false}
           shouldCorrectPitch={true}
@@ -892,8 +907,11 @@ export default function Flix2PlayerScreen() {
             <View style={styles.loadCenter}>
               <Feather name="alert-circle" size={44} color={RED} />
               <Text style={[styles.loadTitle, { marginTop: 12 }]}>Erro ao reproduzir vídeo</Text>
-              {errorMsg ? (
-                <Text style={[styles.loadEp, { color: "#ef4444", fontSize: 12, marginBottom: 4 }]}>{errorMsg}</Text>
+              {errorMsg && errorMsg !== "Erro ao reproduzir vídeo" ? (
+                <Text style={[styles.loadEp, { color: "#ef4444", fontSize: 11, marginBottom: 4, textAlign: "center", maxWidth: 280 }]}>{errorMsg}</Text>
+              ) : null}
+              {resolvedCdnType ? (
+                <Text style={[styles.loadEp, { color: "#888", fontSize: 10, marginBottom: 4 }]}>CDN: {resolvedCdnType}</Text>
               ) : null}
               <Text style={styles.loadEp}>Verifique sua conexão e tente novamente</Text>
               {autoRetryCountdown !== null ? (
