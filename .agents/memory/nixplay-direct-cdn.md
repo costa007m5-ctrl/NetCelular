@@ -5,22 +5,25 @@ description: nixplay.lat/movie/ and /series/ URLs must go via CF Worker on nativ
 
 # nixplay.lat direct CDN routing
 
-## The rule (updated June 2026)
-`nixplay.lat/movie/...` and `/series/...` URLs on **native Android APKs** must be routed via the **CF Worker** (`netplay-stream-proxy.netplay.workers.dev`), same as cineveo.lat.
+## The rule (updated June 2026 — DIRECT play, no proxy)
+`nixplay.lat/movie/...` and `/series/...` URLs on **native Android APKs** play **DIRECTLY** on the device with browser User-Agent + Referer headers passed via `expo-av` source.headers. No CF Worker, no proxy, no server.
 
-**Why direct fails on APKs:**
-1. ExoPlayer UA is blocked by nixplay.lat's Cloudflare WAF in production APKs (works in Expo Go because Expo Go uses a different UA)
-2. nixplay.lat does a 302 redirect to fontedecanais via HTTP; Android blocks HTTPS→HTTP cross-scheme redirects in release APKs even with `usesCleartextTraffic=true`
-3. Replit proxy strips Range headers → ExoPlayer can't seek
+**Why direct works now:**
+- `expo-av` (expo-av ≥16) passes `headers` from the source object directly to ExoPlayer's `DefaultDataSource` via `httpHeaders`
+- Browser UA bypasses Cloudflare WAF: `"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ..."`
+- Referer: `"https://nixplay.lat/"` satisfies hotlink checks
 
 **How to apply (flix2-player.tsx):**
 `isNixplayDirect` detects `hostname === "nixplay.lat"`. Routing condition:
 ```
-if (Platform.OS !== "web" && (isCineveoUrl(rawFlix2Url) || isNixplayDirect(rawFlix2Url)))
-  → CF Worker: `CF_WORKER_URL/?url=${encodeURIComponent(rawFlix2Url)}`
+if (Platform.OS !== "web" && isNixplayDirect(rawFlix2Url)) {
+  setVideoSourceHeaders(FLIX2_HEADERS);  // UA + Referer + Origin
+  setVideoUrl(rawFlix2Url);              // direct MP4/HLS URL
+}
 ```
-Worker resolves the nixplay redirect server-side (Cloudflare IP not blocked), proxies bytes with Range headers intact.
+FLIX2_HEADERS = `{ "User-Agent": "Mozilla/5.0...", "Referer": "https://nixplay.lat/", "Origin": "https://nixplay.lat" }`
 
+**cineveo.lat:** still goes via CF Worker (Referer must be set server-side for CDN to accept)
 **Web:** proxy via Replit `/api/stream/proxy` (CORS blocks direct)
 
 ## EAS OTA publish from Replit main agent

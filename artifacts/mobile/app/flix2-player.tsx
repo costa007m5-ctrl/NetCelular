@@ -376,37 +376,34 @@ export default function Flix2PlayerScreen() {
     try {
       // ── Reprodução direta, sem servidor intermediário ─────────────────────────
       //
-      // Estratégia: tocar a URL como o navegador faz — passando os headers
-      // de Referer/Origin do nixplay.lat diretamente para o player nativo.
-      // Isso elimina a dependência do servidor /flix2/stream-url.
-      //
-      // Routing rules (confirmed by live tests):
-      //  cineveo.lat        → CF Worker (sets Referer/Origin server-side)
-      //  nixplay.lat/movie/ → PROXY: nixplay redirects to fontedecanais HTTP CDN;
-      //                       ExoPlayer follows HTTPS→HTTP redirect which Android
-      //                       blocks in production APKs. Proxy handles redirect
-      //                       server-side and streams over HTTPS to the device.
-      //                       (same logic as r2-player.tsx isUnresolved branch)
-      //  fontedecanais direct (resolved CDN URL) → play direto (token não é IP-bound)
-      //  web               → proxy (CORS)
+      // Routing rules (definitivo — sem proxy de servidor):
+      //  nixplay.lat/movie|series → DIRETO no device com browser UA + Referer headers.
+      //                             Sem CF Worker, sem proxy. expo-av repassa os headers
+      //                             nativamente para ExoPlayer.
+      //  cineveo.lat              → CF Worker (Referer/Origin precisam ser setados
+      //                             server-side para CDN aceitar)
+      //  fontedecanais direct     → play direto (token não é IP-bound)
+      //  web                      → proxy (CORS bloqueia requests diretos do browser)
 
-      if (Platform.OS !== "web" && (isCineveoUrl(rawFlix2Url) || isNixplayDirect(rawFlix2Url))) {
-        // cineveo.lat e nixplay.lat/movie|series → CF Worker
-        //
-        // Por que nixplay via CF Worker (não direto / não resolve-url):
-        //  1. ExoPlayer UA é bloqueado pelo Cloudflare do nixplay em APKs release
-        //  2. nixplay redireciona para fontedecanais via HTTP; Android bloqueia
-        //     redirects HTTPS→HTTP em APKs release mesmo com usesCleartextTraffic
-        //  3. O CF Worker recebe a URL do nixplay, resolve o redirect ele mesmo
-        //     (IP da Cloudflare não é bloqueado), e faz proxy com Range headers
-        //     intactos → ExoPlayer pode fazer seeking normalmente
+      if (Platform.OS !== "web" && isNixplayDirect(rawFlix2Url)) {
+        // nixplay.lat/movie|series → Play DIRETO no device com browser UA + Referer.
+        // Sem CF Worker, sem proxy, sem servidor intermediário.
+        // ExoPlayer recebe os headers nativamente via expo-av source.headers.
+        appLog.info("player.flix2", "Reprodução nixplay direta com headers de browser", {
+          url: rawFlix2Url?.slice(0, 80),
+          platform: Platform.OS,
+        });
+        setResolvedCdnType("nixplay-direct");
+        setVideoSourceHeaders(FLIX2_HEADERS);
+        setVideoUrl(rawFlix2Url);
+      } else if (Platform.OS !== "web" && isCineveoUrl(rawFlix2Url)) {
+        // cineveo.lat → CF Worker (precisa de Referer/Origin setados server-side)
         const workerUrl = `${CF_WORKER_URL}/?url=${encodeURIComponent(rawFlix2Url)}`;
-        appLog.info("player.flix2", "Reprodução via CF Worker", {
-          cdn: isCineveoUrl(rawFlix2Url) ? "cineveo" : "nixplay-direct",
+        appLog.info("player.flix2", "Reprodução via CF Worker (cineveo)", {
           workerUrl: workerUrl.slice(0, 80),
           platform: Platform.OS,
         });
-        setResolvedCdnType(isCineveoUrl(rawFlix2Url) ? "cineveo" : "nixplay-direct");
+        setResolvedCdnType("cineveo");
         setVideoUrl(workerUrl);
       } else if (Platform.OS === "web") {
         // Web: browser não pode setar Referer/Origin em requests de mídia → proxy
