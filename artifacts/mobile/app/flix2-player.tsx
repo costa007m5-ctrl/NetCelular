@@ -2,23 +2,25 @@
  * flix2-player.tsx
  * Dedicated player for Flix2 / fontedecanais CDN content.
  *
- * KEY DESIGN (confirmed by live curl tests):
- *  - fontedecanais (72yrci50ppqp71.com): token is TIME-BASED, NOT IP-bound.
- *    → Play DIRECTLY on device with resolvedUrl (no custom headers needed).
- *    → CF Worker gets 403 because Cloudflare IPs are blocked by fontedecanais CDN.
- *    → android:usesCleartextTraffic=true already set for HTTP CDN URLs.
- *  - cineveo.lat (vod99.cineveo.lat): needs Referer/Origin set server-side.
- *    → Route through CF Worker which sets correct upstream headers.
- *    → CF Worker confirmed returning 206 for cineveo ✅
- *  - Web: always proxy (CORS — browser blocks direct CDN requests).
+ * KEY DESIGN:
+ *  - nixplay.lat: redireciona (302) para http:// fontedecanais CDN (cleartext HTTP).
+ *    → ExoPlayer segue o redirect e Android bloqueia cleartext mesmo com usesCleartextTraffic.
+ *    → Fix: CF Worker resolve o redirect server-side e serve HTTPS ao ExoPlayer.
+ *  - fontedecanais direct URL: token TIME-BASED, não IP-bound → play direto com headers.
+ *    → CF Worker gets 403 porque Cloudflare IPs são bloqueados pela CDN fontedecanais.
+ *  - cineveo.lat: precisa de Referer/Origin server-side → CF Worker.
+ *  - Web: sempre proxy (CORS bloqueia requests diretos de mídia no browser).
+ *
+ * Routing (nativo Android/iOS):
+ *  nixplay.lat  → CF Worker (resolve redirect HTTP→HTTPS server-side)
+ *  cineveo.lat  → CF Worker (Referer/Origin server-side)
+ *  fontedecanais direct URL → play direto com browser UA + Referer headers
+ *  web → Replit proxy
  *
  * Flow:
- *  1. Receive flix2Url (nixplay.lat redirect URL or direct CDN URL)
- *  2. Call /flix2/stream-url to resolve 302 redirect → get final CDN URL
- *  3. fontedecanais on native → setVideoUrl(resolvedUrl) direct play
- *     cineveo on native → setVideoUrl(CF Worker URL with rawFlix2Url)
- *     web or other → setVideoUrl(Replit proxy)
- *  4. Play via expo-av with full controls
+ *  1. Receive rawFlix2Url
+ *  2. Route per rules above → setVideoUrl()
+ *  3. Play via expo-av with full controls
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -385,25 +387,18 @@ export default function Flix2PlayerScreen() {
       //  fontedecanais direct     → play direto (token não é IP-bound)
       //  web                      → proxy (CORS bloqueia requests diretos do browser)
 
-      if (Platform.OS !== "web" && isNixplayDirect(rawFlix2Url)) {
-        // nixplay.lat/movie|series → Play DIRETO no device com browser UA + Referer.
-        // Sem CF Worker, sem proxy, sem servidor intermediário.
-        // ExoPlayer recebe os headers nativamente via expo-av source.headers.
-        appLog.info("player.flix2", "Reprodução nixplay direta com headers de browser", {
-          url: rawFlix2Url?.slice(0, 80),
-          platform: Platform.OS,
-        });
-        setResolvedCdnType("nixplay-direct");
-        setVideoSourceHeaders(FLIX2_HEADERS);
-        setVideoUrl(rawFlix2Url);
-      } else if (Platform.OS !== "web" && isCineveoUrl(rawFlix2Url)) {
-        // cineveo.lat → CF Worker (precisa de Referer/Origin setados server-side)
+      if (Platform.OS !== "web" && (isNixplayDirect(rawFlix2Url) || isCineveoUrl(rawFlix2Url))) {
+        // nixplay.lat → redireciona para http:// fontedecanais CDN (cleartext).
+        // Android bloqueia HTTP nos redirects do ExoPlayer mesmo com usesCleartextTraffic.
+        // cineveo.lat → precisa de Referer/Origin setados server-side.
+        // Ambos: CF Worker resolve o redirect server-side e serve HTTPS ao ExoPlayer.
         const workerUrl = `${CF_WORKER_URL}/?url=${encodeURIComponent(rawFlix2Url)}`;
-        appLog.info("player.flix2", "Reprodução via CF Worker (cineveo)", {
+        const cdnLabel = isNixplayDirect(rawFlix2Url) ? "nixplay" : "cineveo";
+        appLog.info("player.flix2", `Reprodução via CF Worker (${cdnLabel})`, {
           workerUrl: workerUrl.slice(0, 80),
           platform: Platform.OS,
         });
-        setResolvedCdnType("cineveo");
+        setResolvedCdnType(cdnLabel);
         setVideoUrl(workerUrl);
       } else if (Platform.OS === "web") {
         // Web: browser não pode setar Referer/Origin em requests de mídia → proxy
