@@ -63,7 +63,7 @@
       "lang": "pt-BR"
     },
     "updates": {
-      "url": "https://u.expo.dev/aa86cc57-e8c0-4ce7-806c-0d1e5e345991",
+      "url": "https://u.expo.dev/9e40f0e0-0934-495d-b2b4-60dfab863dbb",
       "enabled": true,
       "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 0
@@ -107,7 +107,7 @@
     },
     "extra": {
       "eas": {
-        "projectId": "aa86cc57-e8c0-4ce7-806c-0d1e5e345991"
+        "projectId": "9e40f0e0-0934-495d-b2b4-60dfab863dbb"
       },
       "apiDomain": "net-celular--happylion157.replit.app"
     }
