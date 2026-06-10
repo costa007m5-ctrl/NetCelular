@@ -2,6 +2,7 @@ export { useAsyncState } from "./useAsyncState";
 export { useColors } from "./useColors";
 export { useDebounce, useDebouncedCallback } from "./useDebounce";
 export { useLocalStorage } from "./useLocalStorage";
+export { useOTAUpdate } from "./useOTAUpdate";
 export { usePrevious } from "./usePrevious";
 export { useScrollHeader } from "./useScrollHeader";
 export { useToggle } from "./useToggle";

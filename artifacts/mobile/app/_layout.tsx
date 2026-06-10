@@ -22,7 +22,8 @@ import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { ThemeProvider } from "@/lib/theme-context";
 import { CatalogProvider } from "@/lib/catalog-context";
 import { requestPermissionsAndSetup, scheduleNewContentNotification, saveNotificationToHistory, checkWatchlistNotifications } from "@/lib/notifications";
-import { checkAndPromptUpdate } from "@/lib/app-updater";
+import { checkAndApplyUpdate, startPeriodicUpdateChecks } from "@/lib/app-updater";
+import { UpdateBanner } from "@/components/UpdateBanner";
 import { supabase } from "@/lib/supabase";
 import { initApiDomain } from "@/lib/api";
 import { startBackgroundPrefetch } from "@/lib/flix2-prefetch";
@@ -271,10 +272,12 @@ export default function RootLayout() {
     requestPermissionsAndSetup().then((granted) => {
       if (granted) scheduleNewContentNotification().catch(() => {});
     });
-    // Check for OTA updates 3 seconds after launch (non-blocking)
+    // OTA: silent reload if update is available right at launch
     const updateTimer = setTimeout(() => {
-      checkAndPromptUpdate(true).catch(() => {});
+      checkAndApplyUpdate({ forceReload: true }).catch(() => {});
     }, 3000);
+    // OTA: periodic checks every 30 min while app is open
+    startPeriodicUpdateChecks(30 * 60 * 1000);
     return () => clearTimeout(updateTimer);
   }, []);
 
@@ -294,6 +297,7 @@ export default function RootLayout() {
                     <View style={{ flex: 1 }}>
                       <RootNavigator />
                       {showSplash && <NetplaySplash onFinish={handleSplashFinish} />}
+                      <UpdateBanner />
                     </View>
                   </KeyboardProvider>
                 </GestureHandlerRootView>

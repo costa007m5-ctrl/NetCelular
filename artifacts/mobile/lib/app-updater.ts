@@ -1,64 +1,119 @@
-import { Alert, Platform } from "react-native";
+import { Platform } from "react-native";
 
-type UpdateResult =
-  | { status: "up-to-date" }
-  | { status: "updated" }
-  | { status: "error"; reason: string }
-  | { status: "unavailable" };
+export type UpdateStatus =
+  | "idle"
+  | "checking"
+  | "up-to-date"
+  | "downloading"
+  | "ready"
+  | "error"
+  | "unavailable";
 
-export async function checkAndPromptUpdate(
-  silent = true
-): Promise<UpdateResult> {
-  if (Platform.OS === "web") return { status: "unavailable" };
+export type UpdateState = {
+  status: UpdateStatus;
+  error?: string;
+};
+
+type Listener = (state: UpdateState) => void;
+
+let _state: UpdateState = { status: "idle" };
+const _listeners = new Set<Listener>();
+let _checkInterval: ReturnType<typeof setInterval> | null = null;
+let _lastCheck = 0;
+
+function setState(next: UpdateState) {
+  _state = next;
+  _listeners.forEach((fn) => fn(next));
+}
+
+export function getUpdateState(): UpdateState {
+  return _state;
+}
+
+export function subscribeToUpdateState(fn: Listener): () => void {
+  _listeners.add(fn);
+  return () => _listeners.delete(fn);
+}
+
+export async function checkAndApplyUpdate(
+  options: { silent?: boolean; forceReload?: boolean } = {}
+): Promise<void> {
+  if (Platform.OS === "web") {
+    setState({ status: "unavailable" });
+    return;
+  }
+
+  const now = Date.now();
+  // Throttle: skip if checked less than 5 minutes ago
+  if (!options.forceReload && now - _lastCheck < 5 * 60 * 1000 && _state.status !== "idle") {
+    return;
+  }
 
   try {
     const Updates = require("expo-updates");
 
     if (__DEV__) {
-      console.log("[Update] Modo desenvolvimento — verificação ignorada.");
-      return { status: "unavailable" };
+      setState({ status: "unavailable" });
+      return;
     }
 
-    console.log("[Update] Verificando atualizações...");
+    _lastCheck = now;
+    setState({ status: "checking" });
+
     const result = await Updates.checkForUpdateAsync();
 
     if (!result.isAvailable) {
-      console.log("[Update] App está atualizado.");
-      return { status: "up-to-date" };
+      setState({ status: "up-to-date" });
+      return;
     }
 
-    console.log("[Update] Nova atualização encontrada! Baixando...");
+    setState({ status: "downloading" });
     await Updates.fetchUpdateAsync();
-    console.log("[Update] Download concluído.");
 
-    return new Promise((resolve) => {
-      Alert.alert(
-        "🚀 Atualização disponível",
-        "Uma nova versão do NETPLAY foi instalada. Reinicie o app para aplicar as novidades.",
-        [
-          {
-            text: "Mais tarde",
-            style: "cancel",
-            onPress: () => resolve({ status: "updated" }),
-          },
-          {
-            text: "Reiniciar agora",
-            style: "default",
-            onPress: async () => {
-              try {
-                await Updates.reloadAsync();
-              } catch {
-                resolve({ status: "updated" });
-              }
-            },
-          },
-        ],
-        { cancelable: false }
-      );
-    });
+    if (options.forceReload) {
+      // Silent reload: app just launched, apply immediately without asking
+      try {
+        await Updates.reloadAsync();
+      } catch {
+        setState({ status: "ready" });
+      }
+    } else {
+      // Show banner: user is actively using the app
+      setState({ status: "ready" });
+    }
   } catch (e: any) {
-    const reason = e?.message ?? String(e);
-    console.warn("[Update] Erro ao verificar atualização:", reason);
-    return { status: "error", reason };
+    const reason: string = e?.message ?? String(e);
+    console.warn("[Update] Erro:", reason);
+    setState({ status: "error", error: reason });
   }
+}
+
+export async function applyUpdate(): Promise<void> {
+  try {
+    const Updates = require("expo-updates");
+    await Updates.reloadAsync();
+  } catch {}
+}
+
+/**
+ * Start periodic background checks every `intervalMs` ms (default 30 min).
+ * Call once at app startup. Safe to call multiple times — only one timer runs.
+ */
+export function startPeriodicUpdateChecks(intervalMs = 30 * 60 * 1000): void {
+  if (_checkInterval) return;
+  _checkInterval = setInterval(() => {
+    checkAndApplyUpdate({ silent: true }).catch(() => {});
+  }, intervalMs);
+}
+
+export function stopPeriodicUpdateChecks(): void {
+  if (_checkInterval) {
+    clearInterval(_checkInterval);
+    _checkInterval = null;
+  }
+}
+
+/** @deprecated use checkAndApplyUpdate */
+export async function checkAndPromptUpdate(_silent = true) {
+  await checkAndApplyUpdate({ silent: true });
 }
