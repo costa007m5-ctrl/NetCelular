@@ -387,18 +387,45 @@ export default function Flix2PlayerScreen() {
       //  fontedecanais direct     → play direto (token não é IP-bound)
       //  web                      → proxy (CORS bloqueia requests diretos do browser)
 
-      if (Platform.OS !== "web" && (isNixplayDirect(rawFlix2Url) || isCineveoUrl(rawFlix2Url))) {
-        // nixplay.lat → redireciona para http:// fontedecanais CDN (cleartext).
-        // Android bloqueia HTTP nos redirects do ExoPlayer mesmo com usesCleartextTraffic.
-        // cineveo.lat → precisa de Referer/Origin setados server-side.
-        // Ambos: CF Worker resolve o redirect server-side e serve HTTPS ao ExoPlayer.
+      if (Platform.OS !== "web" && isNixplayDirect(rawFlix2Url)) {
+        // nixplay.lat → redireciona (302) para http:// fontedecanais CDN.
+        // ExoPlayer bloqueia cross-scheme HTTPS→HTTP mesmo com usesCleartextTraffic.
+        // Fix: resolver server-side via /flix2/stream-url para obter a URL fontedecanais,
+        // depois tocar DIRETAMENTE (sem redirect) — usesCleartextTraffic permite HTTP direto.
+        const apiBase = await getApiBase();
+        const resolveUrl = `${apiBase}/flix2/stream-url?streamUrl=${encodeURIComponent(rawFlix2Url)}&nocache=${retryCount > 0 ? "1" : "0"}`;
+        const resolveCtrl = new AbortController();
+        const resolveTimer = setTimeout(() => resolveCtrl.abort(), 10000);
+        let resolvedUrl = rawFlix2Url;
+        let resolvedVia = "nixplay-fallback";
+        try {
+          const r = await fetch(resolveUrl, { signal: resolveCtrl.signal });
+          clearTimeout(resolveTimer);
+          if (r.ok) {
+            const data = await r.json() as { url: string; via?: string };
+            if (data.url && data.url !== rawFlix2Url) {
+              resolvedUrl = data.url;
+              resolvedVia = data.via ?? "fontedecanais";
+            }
+          }
+        } catch { clearTimeout(resolveTimer); }
+        appLog.info("player.flix2", "Reprodução nixplay resolvida server-side", {
+          rawUrl: rawFlix2Url.slice(0, 80),
+          resolvedUrl: resolvedUrl.slice(0, 80),
+          via: resolvedVia,
+          platform: Platform.OS,
+        });
+        setResolvedCdnType(isFonteUrl(resolvedUrl) ? "fontedecanais" : "nixplay");
+        setVideoSourceHeaders(FLIX2_HEADERS);
+        setVideoUrl(resolvedUrl);
+      } else if (Platform.OS !== "web" && isCineveoUrl(rawFlix2Url)) {
+        // cineveo.lat → CF Worker (precisa de Referer/Origin setados server-side)
         const workerUrl = `${CF_WORKER_URL}/?url=${encodeURIComponent(rawFlix2Url)}`;
-        const cdnLabel = isNixplayDirect(rawFlix2Url) ? "nixplay" : "cineveo";
-        appLog.info("player.flix2", `Reprodução via CF Worker (${cdnLabel})`, {
+        appLog.info("player.flix2", "Reprodução via CF Worker (cineveo)", {
           workerUrl: workerUrl.slice(0, 80),
           platform: Platform.OS,
         });
-        setResolvedCdnType(cdnLabel);
+        setResolvedCdnType("cineveo");
         setVideoUrl(workerUrl);
       } else if (Platform.OS === "web") {
         // Web: browser não pode setar Referer/Origin em requests de mídia → proxy

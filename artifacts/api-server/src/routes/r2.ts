@@ -2687,31 +2687,13 @@ router.get("/flix2/stream-url", async (req, res) => {
   CACHE_STATS.streamUrl.misses++;
 
   try {
-    // Step 0: if the raw URL is already a nixplay.lat direct media file
-    // (e.g. /movie/..., /series/... paths with .mp4 / .m3u8), return immediately.
-    // No HEAD request needed — nixplay.lat is their own CDN server, not a redirect.
-    // Doing a HEAD from Replit may timeout or get 403 because nixplay blocks server IPs.
-    const isNixplayDirectUrl = (() => {
-      try {
-        const u = new URL(streamUrl);
-        if (u.hostname !== "nixplay.lat") return false;
-        const p = u.pathname;
-        return (
-          p.startsWith("/movie/") ||
-          p.startsWith("/series/") ||
-          p.endsWith(".mp4") ||
-          p.endsWith(".m3u8") ||
-          p.endsWith(".mkv")
-        );
-      } catch { return false; }
-    })();
-    if (isNixplayDirectUrl) {
-      const result = { url: streamUrl, via: "nixplay-direct" };
-      STREAM_URL_CACHE.set(streamUrl, { result, cachedAt: Date.now() });
-      console.log(`[flix2/stream-url] nixplay direct URL — returning as-is: "${streamUrl.slice(0, 80)}"`);
-      res.json(result);
-      return;
-    }
+    // Step 0: nixplay.lat/movie/ and /series/ URLs redirect (302) to fontedecanais CDN.
+    // ExoPlayer blocks cross-scheme HTTPS→HTTP redirects even with usesCleartextTraffic.
+    // Fix: resolve the redirect server-side → return the fontedecanais URL so the
+    // client can play it DIRECTLY (no cross-scheme redirect, just direct HTTP).
+    // If server gets 403 (nixplay blocks some IPs), fall through to HEAD below.
+    // Note: nixplay stream URLs have credentials embedded (/movie/user/pass/id.mp4),
+    // so the server can follow the redirect with proper auth.
 
     // Step 1: if the raw URL is already TeraBox, resolve directly
     if (isTeraboxUrl(streamUrl)) {
