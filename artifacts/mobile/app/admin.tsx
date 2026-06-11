@@ -997,6 +997,22 @@ export default function AdminScreen() {
               )}
             </View>
 
+            {/* ── Testador de Players ── */}
+            <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginTop: 16, marginBottom: 8 }]}>DIAGNÓSTICO DE PLAYERS</Text>
+            <Pressable
+              onPress={() => router.push("/link-tester" as any)}
+              style={[styles.apiCard, { backgroundColor: "#f9731618", borderColor: "#f9731640", flexDirection: "row", alignItems: "center", gap: 14, paddingVertical: 16, marginBottom: 16 }]}
+            >
+              <View style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: "#f97316", alignItems: "center", justifyContent: "center" }}>
+                <Text style={{ fontSize: 22 }}>🧪</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.apiName, { color: colors.foreground, fontSize: 15 }]}>Testador de Links</Text>
+                <Text style={[styles.apiLatency, { color: colors.mutedForeground }]}>20 estratégias de player — nixplay.lat e outros CDNs</Text>
+              </View>
+              <Feather name="chevron-right" size={18} color="#f97316" />
+            </Pressable>
+
             <View style={[styles.infoBox, { backgroundColor: "#6366f110", borderColor: "#6366f130", marginBottom: 8 }]}>
               <Feather name="info" size={15} color="#6366f1" />
               <View style={{ flex: 1 }}>
