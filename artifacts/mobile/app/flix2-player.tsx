@@ -224,9 +224,11 @@ export default function Flix2PlayerScreen() {
   const [contentLogo, setContentLogo] = useState<string | null>(null);
 
   // ── Player mode ───────────────────────────────────────────────────────────────
-  // expo-av (ExoPlayer) is used for all native CDN types.
-  // A hidden WebView is used ONLY to resolve nixplay.lat redirects before playing.
-  const useWebViewPlayer = false;
+  // expo-av (ExoPlayer) is used for most CDN types.
+  // WebViewVideoPlayer is used for nixplay.lat / fontedecanais / cineveo on native:
+  //   its Chromium engine follows HTTPS→HTTP redirects and allows mixed content,
+  //   exactly like Expo Go — ExoPlayer blocks these even with usesCleartextTraffic.
+  const [useWebViewPlayer, setUseWebViewPlayer] = useState(false);
 
   // ── Resolver WebView (nixplay redirect resolution) ────────────────────────────
   // Android WebView's onShouldStartLoadWithRequest fires for cross-scheme
@@ -372,6 +374,7 @@ export default function Flix2PlayerScreen() {
     setPhase("loading");
     setVideoUrl(null);
     setVideoSourceHeaders(undefined);
+    setUseWebViewPlayer(false);
     setIsPlaying(false);
     setIsBuffering(false);
     hasStartedPlayingRef.current = false;
@@ -426,23 +429,24 @@ export default function Flix2PlayerScreen() {
       //  web                      → proxy (CORS bloqueia requests diretos do browser)
 
       if (Platform.OS !== "web" && isNixplayDirect(rawFlix2Url)) {
-        // nixplay.lat: play DIRETO com headers de browser (UA + Referer + Origin).
+        // nixplay.lat → WebViewVideoPlayer (Chromium).
         //
-        // Quando ExoPlayer envia os headers completos de browser, o servidor nixplay
-        // serve o conteúdo diretamente SEM redirecionar para o CDN HTTP fontedecanais.
-        // Isso evita completamente o erro CLEARTEXT (HTTPS→HTTP cross-scheme redirect).
+        // ExoPlayer (OkHttp) bloqueia redirects HTTPS→HTTP mesmo com
+        // usesCleartextTraffic=true — política de segurança de cross-scheme redirect.
+        // O Chromium embutido no WebView segue HTTPS→HTTP livremente (mixedContentMode="always"),
+        // assim como o Expo Go. O baseUrl="https://nixplay.lat" define automaticamente
+        // o Origin e Referer corretos para o servidor nixplay aceitar a requisição.
         //
-        // Confirmado no Link Tester: Estratégia 5 "Headers Flix2 completo" funciona.
-        // Não usar WebView resolver nem CF Worker — ambos causam o redirect HTTP
-        // que o ExoPlayer bloqueia por network security policy.
+        // Estratégia: usar o browser integrado exatamente como o Expo Go faz.
 
-        appLog.info("player.flix2", "Reprodução nixplay DIRETO com headers Flix2", {
+        appLog.info("player.flix2", "Reprodução nixplay via WebViewVideoPlayer (Chromium)", {
           rawUrl: rawFlix2Url.slice(0, 80),
           platform: Platform.OS,
         });
 
         setResolvedCdnType("nixplay");
         setVideoSourceHeaders(FLIX2_HEADERS);
+        setUseWebViewPlayer(true);
         setVideoUrl(rawFlix2Url);
       } else if (Platform.OS !== "web" && isCineveoUrl(rawFlix2Url)) {
         // cineveo.lat → CF Worker (precisa de Referer/Origin setados server-side)
