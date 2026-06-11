@@ -72,6 +72,13 @@ const SAVE_INTERVAL_MS = 15000;
 const SPEEDS = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0] as const;
 const SLEEP_PRESETS = [15, 30, 45, 60, 90] as const;
 
+/** Extrai um badge de qualidade reconhecível do label (ex: "Fonte 1080p" → "1080p"). */
+function detectQualityLabel(label: string): string | null {
+  if (!label) return null;
+  const m = label.match(/\b(4[Kk]|2160p?|1080p?|720p?|480p?|360p?|SD|HD|FHD|UHD)\b/i);
+  return m ? m[1].toUpperCase() : null;
+}
+
 interface Flix2Item {
   id: string;
   flix2Url: string;
@@ -174,6 +181,17 @@ export default function Flix2PlayerScreen() {
   const [videoResolution, setVideoResolution] = useState<string | null>(null);
   const [resolvedCdnType, setResolvedCdnType] = useState<string | null>(null);
 
+  // ── Quality selector ─────────────────────────────────────────────────────────
+  const [selectedQualityId, setSelectedQualityId] = useState<string>("current");
+  const [showQualityPanel, setShowQualityPanel] = useState(false);
+
+  // Quality options = flix2Items filtered by same episode (or all items for movies).
+  // Each item with a different label represents a quality variant of the same content.
+  const qualityOptions = isTV
+    ? flix2Items.filter((i) => i.season === season && i.episode === episode)
+    : flix2Items.filter((i) => i.season === null && i.episode === null);
+  const hasMultipleQualities = qualityOptions.length > 1;
+
   // ── Advanced state ───────────────────────────────────────────────────────────
   const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
   const [showSpeedPanel, setShowSpeedPanel] = useState(false);
@@ -213,6 +231,9 @@ export default function Flix2PlayerScreen() {
   );
 
   // ── Refs ─────────────────────────────────────────────────────────────────────
+  // activeFlixUrlRef holds the URL currently being played — overridable by the
+  // quality selector without triggering a full router navigation.
+  const activeFlixUrlRef = useRef<string>(params.flix2Url ?? "");
   const videoRef = useRef<any>(null);
   const phaseRef = useRef<"loading" | "ready" | "error">("loading");
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -338,7 +359,8 @@ export default function Flix2PlayerScreen() {
 
   // ── Load video URL ───────────────────────────────────────────────────────────
   const loadVideoUrl = useCallback(async () => {
-    const rawFlix2Url = params.flix2Url;
+    // Use the quality-overridden URL if set, otherwise fall back to the route param.
+    const rawFlix2Url = activeFlixUrlRef.current || params.flix2Url;
     if (!rawFlix2Url) { setPhase("error"); setErrorMsg("URL não especificada"); return; }
 
     phaseRef.current = "loading";
@@ -772,6 +794,22 @@ export default function Flix2PlayerScreen() {
     goToNextEpisode();
   }, [continuousPlay, goToNextEpisode]);
 
+  // ── Quality selector ──────────────────────────────────────────────────────────
+  const selectQuality = useCallback((item: Flix2Item) => {
+    if (item.flix2Url === activeFlixUrlRef.current) {
+      setShowQualityPanel(false);
+      return;
+    }
+    haptic([0, 30, 60, 30]);
+    setShowQualityPanel(false);
+    setSelectedQualityId(item.id);
+    activeFlixUrlRef.current = item.flix2Url;
+    setRetryCount(0);
+    setAutoRetryCountdown(null);
+    if (autoRetryTimerRef.current) { clearInterval(autoRetryTimerRef.current); autoRetryTimerRef.current = null; }
+    loadVideoUrl();
+  }, [loadVideoUrl, haptic]);
+
   // ── Double-tap seek detection ─────────────────────────────────────────────────
   const handleTap = useCallback((x: number) => {
     const now = Date.now();
@@ -890,6 +928,41 @@ export default function Flix2PlayerScreen() {
           </View>
         </Pressable>
       </Modal>
+
+      {/* Quality panel */}
+      {hasMultipleQualities && (
+        <Modal visible={showQualityPanel} transparent animationType="fade">
+          <Pressable style={styles.panelOverlay} onPress={() => setShowQualityPanel(false)}>
+            <View style={styles.speedPanelBox}>
+              <Text style={styles.speedPanelTitle}>Qualidade do vídeo</Text>
+              {qualityOptions.map((opt) => {
+                const isSelected = selectedQualityId === opt.id ||
+                  (selectedQualityId === "current" && opt.flix2Url === params.flix2Url);
+                const qualityLabel = detectQualityLabel(opt.label);
+                return (
+                  <Pressable
+                    key={opt.id}
+                    style={[styles.speedOption, isSelected && { backgroundColor: "rgba(229,9,20,0.18)" }]}
+                    onPress={() => selectQuality(opt)}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.speedOptionText, isSelected && { color: RED }]}>
+                        {opt.label || `Fonte ${qualityOptions.indexOf(opt) + 1}`}
+                      </Text>
+                    </View>
+                    {qualityLabel && (
+                      <View style={styles.qualityOptionBadge}>
+                        <Text style={styles.qualityOptionBadgeText}>{qualityLabel}</Text>
+                      </View>
+                    )}
+                    {isSelected && <Feather name="check" size={14} color={RED} />}
+                  </Pressable>
+                );
+              })}
+            </View>
+          </Pressable>
+        </Modal>
+      )}
 
       {/* Sleep panel */}
       <Modal visible={showSleepPanel} transparent animationType="fade">
@@ -1206,6 +1279,11 @@ export default function Flix2PlayerScreen() {
                     <Text style={styles.speedBadgeText}>{playbackSpeed}×</Text>
                   </View>
                 )}
+                {hasMultipleQualities && (
+                  <Pressable style={styles.iconBtn} onPress={() => { setShowQualityPanel(true); showControls(); }}>
+                    <Feather name="layers" size={18} color="#fff" />
+                  </Pressable>
+                )}
                 <Pressable style={styles.iconBtn} onPress={() => { setShowSpeedPanel(true); showControls(); }}>
                   <Feather name="zap" size={18} color="#fff" />
                 </Pressable>
@@ -1512,6 +1590,10 @@ const styles = StyleSheet.create({
   speedPanelTitle: { color: "rgba(255,255,255,0.5)", fontSize: 11, fontWeight: "700", textAlign: "center", paddingVertical: 8 },
   speedOption: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, paddingVertical: 14, borderRadius: 10 },
   speedOptionText: { color: "#fff", fontSize: 15, fontWeight: "600" },
+
+  // Quality option badge
+  qualityOptionBadge: { backgroundColor: "rgba(229,9,20,0.25)", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, marginRight: 8 },
+  qualityOptionBadgeText: { color: RED, fontSize: 11, fontWeight: "800", letterSpacing: 0.5 },
 
   // Session modal
   sessionModal: { flex: 1, backgroundColor: "rgba(0,0,0,0.85)", justifyContent: "center", alignItems: "center" },
