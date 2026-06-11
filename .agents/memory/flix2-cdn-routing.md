@@ -1,9 +1,9 @@
 ---
 name: Flix2 CDN routing and proxy architecture
-description: How nixplay.lat streams are resolved and proxied; routing rules for cineveo vs fontedecanais on native vs web.
+description: How nixplay.lat streams are resolved and proxied; routing rules for nixplay/cineveo/fontedecanais on native vs web.
 ---
 
-## Definitive architecture (June 2026, revised — CF Worker)
+## Definitive architecture (June 2026 — nixplay+cineveo via CF Worker)
 
 ### Stream chain for nixplay.lat VOD
 
@@ -18,58 +18,45 @@ nixplay.lat/movie/{user}/{pass}/{id}.mp4
 
 | CDN | Platform | Strategy | Why |
 |-----|----------|----------|-----|
-| cineveo.lat | native | **DIRECT** with browser headers | Token not IP-bound; ExoPlayer Range requests reach CDN intact |
-| cineveo.lat | web | **PROXY** (Replit) | Browser CORS blocks direct CDN requests |
-| fontedecanais | native | **CF WORKER** `netplay-stream-proxy.netplay.workers.dev` | Token IP-bound; Replit proxy strips Range headers; CF Worker handles both |
-| fontedecanais | web | **PROXY** (Replit) | CORS + IP-bound token |
+| nixplay.lat URL | native | **CF WORKER** | 302 → HTTP fontedecanais; ExoPlayer blocks HTTPS→HTTP; token IP-bound to device → CDN rejects; CF Worker resolves+proxies with CF IP |
+| cineveo.lat URL | native | **CF WORKER** | Referer/Origin must be set server-side; CDN rejects without them |
+| fontedecanais direct URL | native | **DIRECT** with browser headers | Already-resolved URL; token bound to whoever resolved it |
+| any | web | **PROXY** (Replit) | CORS blocks direct media requests from browser |
 
-### CF Worker for fontedecanais (current solution)
+### Why nixplay.lat CANNOT use WebViewVideoPlayer in APK
+
+WebViewVideoPlayer was the previous approach but fails in the APK:
+- nixplay.lat redirects to `http://fontedecanais` (HTTP, not HTTPS)
+- Even with mixedContentMode="always", the token generated is IP-bound to the **device's IP**
+- The fontedecanais CDN blocks mobile/carrier IPs → 403
+
+### CF Worker for nixplay + cineveo (current solution)
 
 Worker URL: `https://netplay-stream-proxy.netplay.workers.dev`
 Deployed to account: `9827b92a6b3a621e8c6f50274e68f37b` (netplay subdomain)
 Script: `artifacts/cf-worker/stream-proxy.js`
 
-**Why CF Worker and not Replit proxy:**
-- Replit's production reverse proxy strips HTTP `Range` headers from inbound requests
-- ExoPlayer sends Range requests for moov-atom seek → Replit strips them → returns 200 again → abort loop
-- CF Worker runs on Cloudflare's infrastructure → Range headers arrive intact
-- Worker resolves nixplay.lat redirect (token binds to CF's IP) → proxies from CDN with same IP → works
+**Flow for nixplay.lat URLs:**
+1. flix2-player passes nixplay URL to `CF_WORKER_URL/?url=<encoded nixplayUrl>`
+2. CF Worker detects `nixplay.lat` hostname → calls `resolveNixplay()` (HEAD with redirect:manual)
+3. Worker gets fontedecanais Location header → token IP-bound to CF's edge IP
+4. Worker fetches fontedecanais CDN from same CF IP → token valid
+5. Worker streams bytes with Range headers → ExoPlayer seeks normally
 
-**Flow:**
-1. flix2-player calls `/flix2/stream-url` → gets `via="fontedecanais"` confirmation
-2. For native + isFd: builds `CF_WORKER_URL/?url=<encoded rawFlix2Url>` (nixplay URL, NOT resolved CDN URL)
-3. Worker resolves nixplay → CDN URL (IP-bound to CF's IP)
-4. Worker proxies bytes with Range headers forwarded → ExoPlayer seeks normally
+**CRITICAL:** Always pass `rawFlix2Url` (nixplay.lat URL) to Worker — NOT the already-resolved CDN URL.
+If you pass the pre-resolved CDN URL: token is bound to whoever resolved it (Replit IP or another CF edge) → likely 403.
 
-**IMPORTANT:** Pass `rawFlix2Url` (nixplay.lat URL) to the Worker — NOT the already-resolved CDN URL.
-The resolved CDN URL has a token bound to the API server's IP, not CF's IP → 403.
+### Why Replit proxy fails for fontedecanais
 
-### Why proxy fails for fontedecanais on Replit prod
+Confirmed in logs: Replit's production reverse proxy strips all `Range` headers from inbound requests
+(`clientRange=false` in every log). ExoPlayer Range seek loop → abort.
 
-Confirmed in logs: every request shows `clientRange=false` — the Replit reverse proxy strips
-all `Range` headers from inbound requests before they reach Express. ExoPlayer reads moov atom,
-aborts, sends `Range: bytes=N-` → stripped → server returns 200 again → loop until error.
+### hubby.cx — CDN Flix 2.0 (IP-bound)
 
-### /flix2/stream-url — fontedecanais strategy
-
-Server resolves nixplay→CDN once, returns `{ url: cdnUrl, via: "fontedecanais" }` (20s TTL cache).
-Client reads `via` to detect fontedecanais → routes to CF Worker with original nixplay URL.
-`?nocache=1` forces fresh resolution on retry.
-
-### hubby.cx — CDN Flix 2.0 wowserver-vods (IP-bound)
-
-Same isIpBoundCdn detection as fontedecanais → same CF Worker routing applies.
-hubby.cx in FLIX2_CDN_ROOTS (stream.ts) and isIpBoundCdn block (r2.ts).
-
-### cineveo — why direct works
-
-Token is time+sig based (not IP-bound) → device IP is fine. ExoPlayer with custom headers:
-```javascript
-{ "User-Agent": "Mozilla/5.0 ...", "Referer": "https://nixplay.lat/", "Origin": "https://nixplay.lat" }
-```
+Same as fontedecanais. isIpBoundCdn detection → CF Worker routing. hubby.cx in FLIX2_CDN_ROOTS.
 
 ### ExoPlayer seeking modes
 
 - 200 response: progressive download → fails for files >~500MB, no seeking
-- 206 response: range-based → reads few KB, aborts, sends Range requests for moov atom + seeking
-  (the "request aborted" in logs after 206 is NORMAL — ExoPlayer seeking to moov atom)
+- 206 response: range-based → reads few KB moov atom, aborts, sends Range requests for seeking
+  (the "request aborted" in logs after 206 is NORMAL — ExoPlayer moov-atom seeking)

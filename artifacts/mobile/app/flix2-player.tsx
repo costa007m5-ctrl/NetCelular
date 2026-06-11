@@ -417,45 +417,36 @@ export default function Flix2PlayerScreen() {
     });
 
     try {
-      // ── Reprodução direta, sem servidor intermediário ─────────────────────────
+      // ── Routing rules (APK/native) ────────────────────────────────────────────
       //
-      // Routing rules (definitivo — sem proxy de servidor):
-      //  nixplay.lat/movie|series → DIRETO no device com browser UA + Referer headers.
-      //                             Sem CF Worker, sem proxy. expo-av repassa os headers
-      //                             nativamente para ExoPlayer.
-      //  cineveo.lat              → CF Worker (Referer/Origin precisam ser setados
-      //                             server-side para CDN aceitar)
-      //  fontedecanais direct     → play direto (token não é IP-bound)
-      //  web                      → proxy (CORS bloqueia requests diretos do browser)
+      //  nixplay.lat  → CF Worker
+      //    O nixplay retorna 302 para http://fontedecanais (HTTP, não HTTPS).
+      //    ExoPlayer bloqueia HTTPS→HTTP mesmo com usesCleartextTraffic.
+      //    WebViewVideoPlayer também falha no APK: o token gerado fica vinculado
+      //    ao IP do dispositivo, e a CDN fontedecanais bloqueia IPs de celular.
+      //    Solução: CF Worker resolve o redirect — token fica vinculado ao IP do
+      //    Cloudflare, Worker faz proxy do stream com o mesmo IP → CDN aceita.
+      //    IMPORTANTE: passar a URL nixplay.lat (não a CDN já resolvida), para que
+      //    o token seja gerado para o IP do Worker, não do servidor Replit.
+      //
+      //  cineveo.lat  → CF Worker (Referer/Origin precisam ser setados server-side)
+      //
+      //  fontedecanais direct URL → play direto com headers de browser
+      //    (URL já resolvida, token não é IP-bound nesse caso)
+      //
+      //  web → proxy (CORS bloqueia requests diretos do browser)
 
-      if (Platform.OS !== "web" && isNixplayDirect(rawFlix2Url)) {
-        // nixplay.lat → WebViewVideoPlayer (Chromium).
-        //
-        // ExoPlayer (OkHttp) bloqueia redirects HTTPS→HTTP mesmo com
-        // usesCleartextTraffic=true — política de segurança de cross-scheme redirect.
-        // O Chromium embutido no WebView segue HTTPS→HTTP livremente (mixedContentMode="always"),
-        // assim como o Expo Go. O baseUrl="https://nixplay.lat" define automaticamente
-        // o Origin e Referer corretos para o servidor nixplay aceitar a requisição.
-        //
-        // Estratégia: usar o browser integrado exatamente como o Expo Go faz.
-
-        appLog.info("player.flix2", "Reprodução nixplay via WebViewVideoPlayer (Chromium)", {
-          rawUrl: rawFlix2Url.slice(0, 80),
-          platform: Platform.OS,
-        });
-
-        setResolvedCdnType("nixplay");
-        setVideoSourceHeaders(FLIX2_HEADERS);
-        setUseWebViewPlayer(true);
-        setVideoUrl(rawFlix2Url);
-      } else if (Platform.OS !== "web" && isCineveoUrl(rawFlix2Url)) {
-        // cineveo.lat → CF Worker (precisa de Referer/Origin setados server-side)
+      if (Platform.OS !== "web" && (isNixplayDirect(rawFlix2Url) || isCineveoUrl(rawFlix2Url))) {
+        // nixplay.lat e cineveo.lat → CF Worker
+        // Worker resolve o 302 redirect server-side → token IP-bound ao IP do Cloudflare
+        // Worker faz proxy do stream com Range headers → ExoPlayer busca normalmente
         const workerUrl = `${CF_WORKER_URL}/?url=${encodeURIComponent(rawFlix2Url)}`;
-        appLog.info("player.flix2", "Reprodução via CF Worker (cineveo)", {
-          workerUrl: workerUrl.slice(0, 80),
+        const cdnLabel = isNixplayDirect(rawFlix2Url) ? "nixplay→fontedecanais" : "cineveo";
+        appLog.info("player.flix2", `Reprodução via CF Worker (${cdnLabel})`, {
+          workerUrl: workerUrl.slice(0, 100),
           platform: Platform.OS,
         });
-        setResolvedCdnType("cineveo");
+        setResolvedCdnType(isNixplayDirect(rawFlix2Url) ? "nixplay-cf" : "cineveo");
         setVideoUrl(workerUrl);
       } else if (Platform.OS === "web") {
         // Web: browser não pode setar Referer/Origin em requests de mídia → proxy
