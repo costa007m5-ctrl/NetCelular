@@ -221,14 +221,13 @@ export default function Flix2PlayerScreen() {
   const [contentLogo, setContentLogo] = useState<string | null>(null);
 
   // ── Player mode ───────────────────────────────────────────────────────────────
-  // Use WebView player for CDN types that ExoPlayer fails on (nixplay/fontedecanais/cineveo).
-  // The WebView Chromium engine follows HTTPS→HTTP redirects and handles special URL chars.
-  const useWebViewPlayer = Platform.OS !== "web" && (
-    resolvedCdnType === "nixplay" ||
-    resolvedCdnType === "nixplay-client" ||
-    resolvedCdnType === "fontedecanais" ||
-    resolvedCdnType === "cineveo"
-  );
+  // expo-av (ExoPlayer) is used for all native CDN types.
+  // WebView was previously used to follow HTTPS→HTTP redirects, but:
+  //   - redirects are now pre-resolved via client-side fetch (fontedecanais direct HTTP URL)
+  //   - CF Worker fallback returns HTTPS — ExoPlayer handles it fine
+  //   - Android system WebView caused MEDIA_ELEMENT_ERROR on production APKs
+  // useWebViewPlayer is kept as false; the flag is reserved for future use.
+  const useWebViewPlayer = false;
 
   // ── Refs ─────────────────────────────────────────────────────────────────────
   // activeFlixUrlRef holds the URL currently being played — overridable by the
@@ -434,27 +433,53 @@ export default function Flix2PlayerScreen() {
         let resolvedUrl = rawFlix2Url;
         let resolvedVia = "nixplay-direct";
 
-        // Passo 1: resolver redirect no device com fetch (segue HTTPS→HTTP)
+        // Passo 1a: resolver redirect com HEAD + redirect:"manual"
+        // No Android/OkHttp, redirect automático HTTPS→HTTP é bloqueado por segurança,
+        // então response.url permanece a URL original mesmo após um 302.
+        // Com redirect:"manual", recebemos o 302 diretamente e lemos o header Location.
         try {
-          const clientCtrl = new AbortController();
-          const clientTimer = setTimeout(() => clientCtrl.abort(), 10000);
-          const headResp = await fetch(rawFlix2Url, {
-            method: "GET",
-            headers: {
-              ...FLIX2_HEADERS,
-              // Pedir apenas 1 byte para não baixar o vídeo inteiro
-              "Range": "bytes=0-0",
-            },
-            signal: clientCtrl.signal,
+          const manualCtrl = new AbortController();
+          const manualTimer = setTimeout(() => manualCtrl.abort(), 8000);
+          const manualResp = await fetch(rawFlix2Url, {
+            method: "HEAD",
+            headers: FLIX2_HEADERS,
+            redirect: "manual",
+            signal: manualCtrl.signal,
           });
-          clearTimeout(clientTimer);
-          // response.url é a URL FINAL após seguir todos os redirects
-          if (headResp.url && headResp.url !== rawFlix2Url) {
-            resolvedUrl = headResp.url;
+          clearTimeout(manualTimer);
+          const location = manualResp.headers.get("location") ?? manualResp.headers.get("Location");
+          if (location && location !== rawFlix2Url) {
+            resolvedUrl = location;
             resolvedVia = "client-redirect";
+            appLog.info("player.flix2", "Redirect resolvido via HEAD manual", {
+              location: location.slice(0, 80),
+            });
           }
-        } catch (clientErr: any) {
-          appLog.warn("player.flix2", "Resolução client-side falhou", { error: String(clientErr) });
+        } catch (manualErr: any) {
+          appLog.warn("player.flix2", "HEAD manual falhou", { error: String(manualErr) });
+        }
+
+        // Passo 1b: se não resolveu, tentar GET com redirect follow (funciona para HTTPS→HTTPS)
+        if (resolvedUrl === rawFlix2Url) {
+          try {
+            const clientCtrl = new AbortController();
+            const clientTimer = setTimeout(() => clientCtrl.abort(), 10000);
+            const headResp = await fetch(rawFlix2Url, {
+              method: "GET",
+              headers: {
+                ...FLIX2_HEADERS,
+                "Range": "bytes=0-0",
+              },
+              signal: clientCtrl.signal,
+            });
+            clearTimeout(clientTimer);
+            if (headResp.url && headResp.url !== rawFlix2Url) {
+              resolvedUrl = headResp.url;
+              resolvedVia = "client-redirect";
+            }
+          } catch (clientErr: any) {
+            appLog.warn("player.flix2", "Resolução client-side falhou", { error: String(clientErr) });
+          }
         }
 
         // Passo 2: se client-side falhou, tenta via servidor (que agora retorna CF Worker URL)
