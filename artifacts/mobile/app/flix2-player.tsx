@@ -52,6 +52,9 @@ let Video: any = null;
 let ResizeMode: any = null;
 try { const av = require("expo-av"); Video = av.Video; ResizeMode = av.ResizeMode; } catch {}
 
+let WebView: any = null;
+try { WebView = require("react-native-webview").WebView; } catch {}
+
 let ScreenOrientation: any = null;
 try { ScreenOrientation = require("expo-screen-orientation"); } catch {}
 
@@ -222,12 +225,15 @@ export default function Flix2PlayerScreen() {
 
   // ── Player mode ───────────────────────────────────────────────────────────────
   // expo-av (ExoPlayer) is used for all native CDN types.
-  // WebView was previously used to follow HTTPS→HTTP redirects, but:
-  //   - redirects are now pre-resolved via client-side fetch (fontedecanais direct HTTP URL)
-  //   - CF Worker fallback returns HTTPS — ExoPlayer handles it fine
-  //   - Android system WebView caused MEDIA_ELEMENT_ERROR on production APKs
-  // useWebViewPlayer is kept as false; the flag is reserved for future use.
+  // A hidden WebView is used ONLY to resolve nixplay.lat redirects before playing.
   const useWebViewPlayer = false;
+
+  // ── Resolver WebView (nixplay redirect resolution) ────────────────────────────
+  // Android WebView's onShouldStartLoadWithRequest fires for cross-scheme
+  // HTTPS→HTTP redirects — something fetch()/XHR cannot do on Android/Hermes.
+  const [resolverUrl, setResolverUrl] = useState<string | null>(null);
+  const resolverCallbackRef = useRef<((url: string) => void) | null>(null);
+  const resolverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Refs ─────────────────────────────────────────────────────────────────────
   // activeFlixUrlRef holds the URL currently being played — overridable by the
@@ -433,79 +439,47 @@ export default function Flix2PlayerScreen() {
         let resolvedUrl = rawFlix2Url;
         let resolvedVia = "nixplay-direct";
 
-        // Passo 1a: resolver redirect com HEAD + redirect:"manual"
-        // No Android/OkHttp, redirect automático HTTPS→HTTP é bloqueado por segurança,
-        // então response.url permanece a URL original mesmo após um 302.
-        // Com redirect:"manual", recebemos o 302 diretamente e lemos o header Location.
-        try {
-          const manualCtrl = new AbortController();
-          const manualTimer = setTimeout(() => manualCtrl.abort(), 8000);
-          const manualResp = await fetch(rawFlix2Url, {
-            method: "HEAD",
-            headers: FLIX2_HEADERS,
-            redirect: "manual",
-            signal: manualCtrl.signal,
-          });
-          clearTimeout(manualTimer);
-          const location = manualResp.headers.get("location") ?? manualResp.headers.get("Location");
-          if (location && location !== rawFlix2Url) {
-            resolvedUrl = location;
-            resolvedVia = "client-redirect";
-            appLog.info("player.flix2", "Redirect resolvido via HEAD manual", {
-              location: location.slice(0, 80),
-            });
-          }
-        } catch (manualErr: any) {
-          appLog.warn("player.flix2", "HEAD manual falhou", { error: String(manualErr) });
-        }
-
-        // Passo 1b: se não resolveu, tentar GET com redirect follow (funciona para HTTPS→HTTPS)
-        if (resolvedUrl === rawFlix2Url) {
+        // ESTRATÉGIA: WebView oculto com onShouldStartLoadWithRequest.
+        //
+        // fetch(redirect:"manual") no Android/Hermes NÃO expõe o header Location
+        // em respostas 302 — retorna opaque response com headers vazios.
+        // fetch(redirect:"follow") bloqueia cross-scheme HTTPS→HTTP (OkHttp segurança).
+        //
+        // O WebView do Android (Chromium) SIM segue HTTPS→HTTP e o callback
+        // onShouldStartLoadWithRequest dispara para cada URL na cadeia de redirects,
+        // permitindo capturar a URL final (fontedecanais) antes de qualquer carregamento.
+        if (WebView) {
           try {
-            const clientCtrl = new AbortController();
-            const clientTimer = setTimeout(() => clientCtrl.abort(), 10000);
-            const headResp = await fetch(rawFlix2Url, {
-              method: "GET",
-              headers: {
-                ...FLIX2_HEADERS,
-                "Range": "bytes=0-0",
-              },
-              signal: clientCtrl.signal,
+            const webviewResolved = await new Promise<string>((resolve) => {
+              resolverCallbackRef.current = resolve;
+              setResolverUrl(rawFlix2Url);
+              // Timeout: se o WebView não resolver em 10s, continua sem resolução
+              resolverTimerRef.current = setTimeout(() => {
+                if (resolverCallbackRef.current) {
+                  resolverCallbackRef.current = null;
+                  resolve(rawFlix2Url);
+                }
+              }, 10000);
             });
-            clearTimeout(clientTimer);
-            if (headResp.url && headResp.url !== rawFlix2Url) {
-              resolvedUrl = headResp.url;
-              resolvedVia = "client-redirect";
+            setResolverUrl(null);
+            if (webviewResolved !== rawFlix2Url) {
+              resolvedUrl = webviewResolved;
+              resolvedVia = "webview-redirect";
+              appLog.info("player.flix2", "Redirect resolvido via WebView", {
+                resolved: webviewResolved.slice(0, 80),
+              });
             }
-          } catch (clientErr: any) {
-            appLog.warn("player.flix2", "Resolução client-side falhou", { error: String(clientErr) });
+          } catch (wvErr: any) {
+            setResolverUrl(null);
+            appLog.warn("player.flix2", "WebView resolver falhou", { error: String(wvErr) });
           }
         }
 
-        // Passo 2: se client-side falhou, tenta via servidor (que agora retorna CF Worker URL)
-        if (resolvedUrl === rawFlix2Url) {
-          try {
-            const apiBase = await getApiBase();
-            const resolveUrl = `${apiBase}/flix2/stream-url?streamUrl=${encodeURIComponent(rawFlix2Url)}&nocache=1`;
-            const srvCtrl = new AbortController();
-            const srvTimer = setTimeout(() => srvCtrl.abort(), 8000);
-            const r = await fetch(resolveUrl, { signal: srvCtrl.signal });
-            clearTimeout(srvTimer);
-            if (r.ok) {
-              const data = await r.json() as { url: string; via?: string };
-              if (data.url && data.url !== rawFlix2Url) {
-                resolvedUrl = data.url;
-                resolvedVia = data.via ?? "server-resolve";
-              }
-            }
-          } catch {}
-        }
-
-        // Passo 3: se ainda não resolveu, roteia via CF Worker diretamente
-        // O Worker tem resolveNixplay() que segue o redirect de Cloudflare edge IPs
+        // Fallback: CF Worker (caso o WebView não esteja disponível ou timeout)
         if (resolvedUrl === rawFlix2Url) {
           resolvedUrl = `${CF_WORKER_URL}/?url=${encodeURIComponent(rawFlix2Url)}`;
-          resolvedVia = "cf-worker-direct";
+          resolvedVia = "cf-worker-fallback";
+          appLog.warn("player.flix2", "Usando CF Worker como fallback para nixplay");
         }
 
         appLog.info("player.flix2", "Reprodução nixplay resolvida", {
@@ -515,8 +489,10 @@ export default function Flix2PlayerScreen() {
           platform: Platform.OS,
         });
 
-        setResolvedCdnType(isFonteUrl(resolvedUrl) ? "fontedecanais" : resolvedVia === "client-redirect" ? "nixplay-client" : "nixplay");
-        setVideoSourceHeaders(FLIX2_HEADERS);
+        setResolvedCdnType(isFonteUrl(resolvedUrl) ? "fontedecanais" : resolvedVia === "webview-redirect" ? "nixplay-resolved" : "nixplay");
+        // fontedecanais: token não é IP-bound, play direto com browser UA + Referer
+        // cf-worker: HTTPS proxy, sem headers adicionais necessários
+        setVideoSourceHeaders(isFonteUrl(resolvedUrl) ? FLIX2_HEADERS : undefined);
         setVideoUrl(resolvedUrl);
       } else if (Platform.OS !== "web" && isCineveoUrl(rawFlix2Url)) {
         // cineveo.lat → CF Worker (precisa de Referer/Origin setados server-side)
@@ -1506,6 +1482,40 @@ export default function Flix2PlayerScreen() {
           })()}
         </ScrollView>
       </Animated.View>
+
+      {/* ── Hidden WebView — resolve nixplay.lat redirects before playing ──────
+          Mounts only when resolverUrl is set (nixplay URL detected).
+          onShouldStartLoadWithRequest fires for every URL in the redirect chain,
+          including cross-scheme HTTPS→HTTP which fetch()/XHR cannot follow.
+          Returns false to STOP the WebView loading (we only want the URL, not
+          the actual content), then resolverCallbackRef delivers it to the
+          awaiting Promise in loadVideoUrl(). ──────────────────────────────── */}
+      {resolverUrl !== null && WebView && Platform.OS !== "web" && (
+        <WebView
+          source={{ uri: resolverUrl }}
+          style={{ width: 0, height: 0, opacity: 0, position: "absolute", pointerEvents: "none" }}
+          onShouldStartLoadWithRequest={(req: any) => {
+            const u: string = req.url ?? "";
+            // Ignore the original nixplay URL and about:/data: frames
+            if (!u || u.includes("nixplay.lat") || u.startsWith("about:") || u.startsWith("data:")) {
+              return true; // let it continue
+            }
+            // We got the redirect destination — capture it and stop loading
+            if (resolverCallbackRef.current) {
+              if (resolverTimerRef.current) clearTimeout(resolverTimerRef.current);
+              resolverCallbackRef.current(u);
+              resolverCallbackRef.current = null;
+            }
+            return false; // stop WebView from loading the actual content
+          }}
+          userAgent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+          javaScriptEnabled={false}
+          mediaPlaybackRequiresUserAction={true}
+          startInLoadingState={false}
+          mixedContentMode="always"
+          originWhitelist={["*"]}
+        />
+      )}
     </View>
   );
 }
