@@ -45,9 +45,8 @@ interface Props {
   progressUpdateIntervalMillis?: number;
 }
 
-function buildHtml(uri: string, headers: Record<string, string>, intervalMs: number): string {
+function buildHtml(uri: string, _headers: Record<string, string>, intervalMs: number): string {
   const escapedUri = uri.replace(/'/g, "\\'").replace(/"/g, "&quot;");
-  const headersJson = JSON.stringify(headers);
   const intervalS = Math.max(0.25, intervalMs / 1000);
 
   return `<!DOCTYPE html>
@@ -144,36 +143,13 @@ video{width:100%;height:100%;object-fit:contain;display:block}
   document.addEventListener('message', handleCmd);
   window.addEventListener('message', handleCmd);
 
-  // Load source (fetch+play via Blob to send custom headers on Android WebView)
-  var hdrs = ${headersJson};
-  var hasCriticalHeaders = Object.keys(hdrs).some(function(k){ return k.toLowerCase() !== 'range'; });
-
-  function loadDirect() {
-    v.src = '${escapedUri}';
-    v.load();
-    v.play().catch(function(){});
-  }
-
-  if (hasCriticalHeaders && typeof fetch !== 'undefined') {
-    // Fetch with custom headers then create object URL so WebView sends them
-    fetch('${escapedUri}', { headers: hdrs, method: 'GET' })
-      .then(function(resp) {
-        if (!resp.ok) throw new Error('HTTP ' + resp.status);
-        return resp.blob();
-      })
-      .then(function(blob) {
-        var url = URL.createObjectURL(blob);
-        v.src = url;
-        v.load();
-        v.play().catch(function(){});
-      })
-      .catch(function() {
-        // fallback: try direct (no headers)
-        loadDirect();
-      });
-  } else {
-    loadDirect();
-  }
+  // Load source directly — the WebView userAgent prop already sends a browser UA
+  // for all requests (including <video> element fetches), so no blob trick needed.
+  // Blob approach caused MEDIA_ELEMENT_ERROR: Format error on production APKs because
+  // Android system WebView doesn't support seeking in blob-backed video URLs.
+  v.src = '${escapedUri}';
+  v.load();
+  v.play().catch(function(){});
 })();
 </script>
 </body>
