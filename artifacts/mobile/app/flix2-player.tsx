@@ -46,6 +46,7 @@ import { useAuth } from "@/lib/auth-context";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
 import { checkAndStartSession, heartbeatSession, endSession } from "@/lib/session-manager";
 import { saveLocalProgress } from "@/hooks/useWatchProgress";
+import WebViewVideoPlayer, { type WebViewVideoPlayerRef } from "@/components/WebViewVideoPlayer";
 
 let Video: any = null;
 let ResizeMode: any = null;
@@ -200,6 +201,16 @@ export default function Flix2PlayerScreen() {
   const [tipIdx, setTipIdx] = useState(0);
   const tipTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [contentLogo, setContentLogo] = useState<string | null>(null);
+
+  // ── Player mode ───────────────────────────────────────────────────────────────
+  // Use WebView player for CDN types that ExoPlayer fails on (nixplay/fontedecanais/cineveo).
+  // The WebView Chromium engine follows HTTPS→HTTP redirects and handles special URL chars.
+  const useWebViewPlayer = Platform.OS !== "web" && (
+    resolvedCdnType === "nixplay" ||
+    resolvedCdnType === "nixplay-client" ||
+    resolvedCdnType === "fontedecanais" ||
+    resolvedCdnType === "cineveo"
+  );
 
   // ── Refs ─────────────────────────────────────────────────────────────────────
   const videoRef = useRef<any>(null);
@@ -907,8 +918,41 @@ export default function Flix2PlayerScreen() {
       {/* IMPORTANT: mount as soon as videoUrl is set (not only when ready).
           Mounting only on "ready" creates a deadlock: onLoad/onPlaybackStatusUpdate
           never fire → transitionToReady never called → stuck at 80% forever.
-          We hide the video visually during loading; it becomes visible once ready. */}
-      {videoUrl && Video ? (
+          We hide the video visually during loading; it becomes visible once ready.
+          
+          Two player modes:
+          • WebViewVideoPlayer — nixplay.lat / fontedecanais / cineveo links on native.
+            Chromium WebView handles HTTPS→HTTP redirects and special URL chars (@@)
+            that ExoPlayer rejects even with usesCleartextTraffic.
+          • expo-av Video — all other sources (direct links, proxy, web). */}
+      {videoUrl && useWebViewPlayer ? (
+        <WebViewVideoPlayer
+          ref={videoRef}
+          uri={videoUrl}
+          headers={videoSourceHeaders}
+          style={[StyleSheet.absoluteFill, phase !== "ready" && { opacity: 0 }]}
+          shouldPlay={phase === "ready"}
+          rate={playbackSpeed}
+          onLoad={onVideoLoad}
+          onPlaybackStatusUpdate={onPlaybackStatusUpdate}
+          onError={(errStr) => {
+            if (phaseRef.current !== "error") {
+              appLog.error("player.flix2", `onError WebView: ${errStr}`, {
+                error: errStr,
+                platform: Platform.OS,
+                title,
+                tmdbId,
+                cdnType: resolvedCdnType,
+                videoUrl: videoUrl?.slice(0, 120),
+              });
+              setPhase("error");
+              setErrorMsg(errStr);
+              phaseRef.current = "error";
+            }
+          }}
+          progressUpdateIntervalMillis={1000}
+        />
+      ) : videoUrl && Video ? (
         <Video
           ref={videoRef}
           source={{
@@ -925,7 +969,7 @@ export default function Flix2PlayerScreen() {
           isLooping={false}
           onLoad={onVideoLoad}
           onPlaybackStatusUpdate={onPlaybackStatusUpdate}
-          onError={(err) => {
+          onError={(err: any) => {
             if (phaseRef.current !== "error") {
               const errStr = String(err ?? "").trim() || "Erro ao reproduzir vídeo";
               appLog.error("player.flix2", `onError ExoPlayer: ${errStr}`, {
