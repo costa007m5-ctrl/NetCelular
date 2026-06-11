@@ -482,6 +482,16 @@ export default function Flix2PlayerScreen() {
           appLog.warn("player.flix2", "Usando CF Worker como fallback para nixplay");
         }
 
+        // If WebView resolved to an HTTP URL, ExoPlayer will throw CLEARTEXT error.
+        // Upgrade via CF Worker so the device receives an HTTPS stream URL.
+        if (resolvedUrl !== rawFlix2Url && resolvedUrl.startsWith("http://")) {
+          appLog.info("player.flix2", "HTTP resolved URL → CF Worker HTTPS upgrade", {
+            httpUrl: resolvedUrl.slice(0, 80),
+          });
+          resolvedUrl = `${CF_WORKER_URL}/?url=${encodeURIComponent(resolvedUrl)}`;
+          resolvedVia = resolvedVia + "+cf-http-upgrade";
+        }
+
         appLog.info("player.flix2", "Reprodução nixplay resolvida", {
           rawUrl: rawFlix2Url.slice(0, 80),
           resolvedUrl: resolvedUrl.slice(0, 80),
@@ -489,9 +499,9 @@ export default function Flix2PlayerScreen() {
           platform: Platform.OS,
         });
 
-        setResolvedCdnType(isFonteUrl(resolvedUrl) ? "fontedecanais" : resolvedVia === "webview-redirect" ? "nixplay-resolved" : "nixplay");
+        setResolvedCdnType(isFonteUrl(resolvedUrl) ? "fontedecanais" : resolvedVia.includes("webview-redirect") ? "nixplay-resolved" : "nixplay");
         // fontedecanais: token não é IP-bound, play direto com browser UA + Referer
-        // cf-worker: HTTPS proxy, sem headers adicionais necessários
+        // cf-worker / http-upgrade: HTTPS proxy, sem headers adicionais necessários
         setVideoSourceHeaders(isFonteUrl(resolvedUrl) ? FLIX2_HEADERS : undefined);
         setVideoUrl(resolvedUrl);
       } else if (Platform.OS !== "web" && isCineveoUrl(rawFlix2Url)) {

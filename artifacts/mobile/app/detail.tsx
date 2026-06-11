@@ -262,6 +262,8 @@ export default function DetailScreen() {
   const isAdmin = user?.role === "admin" ||
     (user?.email ? ["admin@netplay.tv", "admin@netplay.com.br"].includes(user.email) : false);
   const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null);
+  const [convertingLinkId, setConvertingLinkId] = useState<string | null>(null);
+  const [convertedLinks, setConvertedLinks] = useState<Record<string, string>>({});
   const [inList, setInList] = useState(false);
   const [liked, setLiked] = useState<boolean | undefined>(undefined);
   const [watchingCatalog, setWatchingCatalog] = useState(false);
@@ -874,6 +876,39 @@ export default function DetailScreen() {
         backdropPath: details?.backdrop_path ?? "",
       },
     });
+  };
+
+  const convertFlix2Link = async (linkId: string, url: string) => {
+    setConvertingLinkId(linkId);
+    const FLIX2_HDRS = {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      "Referer": "https://nixplay.lat/",
+      "Origin": "https://nixplay.lat",
+    };
+    let resolved = url;
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 8000);
+      const resp = await fetch(url, { method: "HEAD", headers: FLIX2_HDRS, redirect: "manual", signal: ctrl.signal });
+      clearTimeout(t);
+      const loc = resp.headers.get("location") ?? resp.headers.get("Location");
+      if (loc && loc !== url) resolved = loc;
+    } catch {}
+    if (resolved === url) {
+      try {
+        const ctrl2 = new AbortController();
+        const t2 = setTimeout(() => ctrl2.abort(), 8000);
+        const resp2 = await fetch(url, { method: "GET", headers: { ...FLIX2_HDRS, Range: "bytes=0-0" }, signal: ctrl2.signal });
+        clearTimeout(t2);
+        if (resp2.url && resp2.url !== url) resolved = resp2.url;
+      } catch {}
+    }
+    setConvertingLinkId(null);
+    if (resolved !== url) {
+      setConvertedLinks(prev => ({ ...prev, [linkId]: resolved }));
+    } else {
+      Alert.alert("Converter Link", "Não foi possível resolver este link. Use o Link Tester para testar estratégias alternativas.");
+    }
   };
 
   const fixMismatchedIds = async () => {
@@ -1822,6 +1857,10 @@ export default function DetailScreen() {
                         )}
                         {links.map((lk) => {
                           const wasCopied = copiedLinkId === lk.id;
+                          const isConverting = convertingLinkId === lk.id;
+                          const convertedUrl = convertedLinks[lk.id];
+                          const isNixplay = lk.url.includes("nixplay.lat") || lk.url.includes("cineveo.lat");
+                          const wasCopiedConverted = copiedLinkId === lk.id + "-converted";
                           return (
                             <View key={lk.id} style={styles.adminLinkRow}>
                               <View style={{ flex: 1 }}>
@@ -1832,21 +1871,55 @@ export default function DetailScreen() {
                                   <Text style={[styles.adminLinkLabel, { color: colors.foreground }]} numberOfLines={1}>{lk.label}</Text>
                                 </View>
                                 <Text style={[styles.adminLinkUrl, { color: colors.mutedForeground }]} numberOfLines={2} selectable>{lk.url}</Text>
+                                {convertedUrl ? (
+                                  <View style={{ marginTop: 6, borderTopWidth: 1, borderTopColor: "#22c55e22", paddingTop: 5 }}>
+                                    <Text style={{ fontSize: 9, color: "#22c55e", fontWeight: "700", letterSpacing: 0.5, marginBottom: 2 }}>URL CONVERTIDA</Text>
+                                    <Text style={[styles.adminLinkUrl, { color: "#22c55e" }]} numberOfLines={2} selectable>{convertedUrl}</Text>
+                                    <Pressable
+                                      onPress={() => {
+                                        if (Platform.OS === "web") {
+                                          (navigator as any).clipboard?.writeText(convertedUrl).catch(() => {});
+                                        } else {
+                                          Clipboard.setString(convertedUrl);
+                                        }
+                                        setCopiedLinkId(lk.id + "-converted");
+                                        setTimeout(() => setCopiedLinkId(null), 2000);
+                                      }}
+                                      style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4, alignSelf: "flex-start", backgroundColor: wasCopiedConverted ? "#22c55e15" : "#22c55e10", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: wasCopiedConverted ? "#22c55e55" : "#22c55e25" }}
+                                    >
+                                      <Feather name={wasCopiedConverted ? "check" : "copy"} size={11} color="#22c55e" />
+                                      <Text style={{ fontSize: 10, color: "#22c55e", fontWeight: "600" }}>{wasCopiedConverted ? "Copiado!" : "Copiar URL CDN"}</Text>
+                                    </Pressable>
+                                  </View>
+                                ) : null}
                               </View>
-                              <Pressable
-                                onPress={() => {
-                                  if (Platform.OS === "web") {
-                                    (navigator as any).clipboard?.writeText(lk.url).catch(() => {});
-                                  } else {
-                                    Clipboard.setString(lk.url);
-                                  }
-                                  setCopiedLinkId(lk.id);
-                                  setTimeout(() => setCopiedLinkId(null), 2000);
-                                }}
-                                style={[styles.adminCopyBtn, { borderColor: wasCopied ? "#22c55e55" : colors.border, backgroundColor: wasCopied ? "#22c55e15" : colors.card }]}
-                              >
-                                <Feather name={wasCopied ? "check" : "copy"} size={14} color={wasCopied ? "#22c55e" : colors.mutedForeground} />
-                              </Pressable>
+                              <View style={{ flexDirection: "column", gap: 6, alignItems: "center" }}>
+                                <Pressable
+                                  onPress={() => {
+                                    if (Platform.OS === "web") {
+                                      (navigator as any).clipboard?.writeText(lk.url).catch(() => {});
+                                    } else {
+                                      Clipboard.setString(lk.url);
+                                    }
+                                    setCopiedLinkId(lk.id);
+                                    setTimeout(() => setCopiedLinkId(null), 2000);
+                                  }}
+                                  style={[styles.adminCopyBtn, { borderColor: wasCopied ? "#22c55e55" : colors.border, backgroundColor: wasCopied ? "#22c55e15" : colors.card }]}
+                                >
+                                  <Feather name={wasCopied ? "check" : "copy"} size={14} color={wasCopied ? "#22c55e" : colors.mutedForeground} />
+                                </Pressable>
+                                {isNixplay && !convertedUrl && (
+                                  <Pressable
+                                    onPress={() => convertFlix2Link(lk.id, lk.url)}
+                                    disabled={isConverting}
+                                    style={{ width: 30, height: 30, borderRadius: 8, alignItems: "center", justifyContent: "center", backgroundColor: "#8b5cf615", borderWidth: 1, borderColor: "#8b5cf640" }}
+                                  >
+                                    {isConverting
+                                      ? <ActivityIndicator size={12} color="#8b5cf6" />
+                                      : <Feather name="zap" size={13} color="#8b5cf6" />}
+                                  </Pressable>
+                                )}
+                              </View>
                             </View>
                           );
                         })}
