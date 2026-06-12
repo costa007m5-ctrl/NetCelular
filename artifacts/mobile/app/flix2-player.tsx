@@ -3,24 +3,23 @@
  * Dedicated player for Flix2 / fontedecanais CDN content.
  *
  * KEY DESIGN:
- *  - nixplay.lat: redireciona (302) para http:// fontedecanais CDN (cleartext HTTP).
- *    → ExoPlayer segue o redirect e Android bloqueia cleartext mesmo com usesCleartextTraffic.
- *    → Fix: CF Worker resolve o redirect server-side e serve HTTPS ao ExoPlayer.
- *  - fontedecanais direct URL: token TIME-BASED, não IP-bound → play direto com headers.
- *    → CF Worker gets 403 porque Cloudflare IPs são bloqueados pela CDN fontedecanais.
- *  - cineveo.lat: precisa de Referer/Origin server-side → CF Worker.
- *  - Web: sempre proxy (CORS bloqueia requests diretos de mídia no browser).
+ *  - Todos os CDNs no native (Android/iOS) → WebViewVideoPlayer (Chrome).
+ *    O Chrome do WebView faz a requisição diretamente do IP do dispositivo:
+ *    nixplay.lat redireciona para http://fontedecanais com token IP-bound ao dispositivo.
+ *    Chrome segue o redirect HTTPS→HTTP (mixedContentMode="always"), token bate → funciona.
+ *    ExoPlayer bloqueava cleartext mesmo com usesCleartextTraffic=true.
+ *    CF Worker não funciona: token fica no IP do Cloudflare, CDN bloqueia.
+ *  - Web: proxy (CORS bloqueia requests diretos de mídia no browser).
  *
- * Routing (nativo Android/iOS):
- *  nixplay.lat  → CF Worker (resolve redirect HTTP→HTTPS server-side)
- *  cineveo.lat  → CF Worker (Referer/Origin server-side)
- *  fontedecanais direct URL → play direto com browser UA + Referer headers
- *  web → Replit proxy
+ * Routing:
+ *  native (Android/iOS) → WebViewVideoPlayer com URL original (Chrome resolve tudo)
+ *  web                  → Replit proxy
  *
  * Flow:
  *  1. Receive rawFlix2Url
- *  2. Route per rules above → setVideoUrl()
- *  3. Play via expo-av with full controls
+ *  2. native → setUseWebViewPlayer(true) + setVideoUrl(rawUrl)
+ *     web    → setVideoUrl(proxiedUrl)
+ *  3. WebViewVideoPlayer (Chrome HTML5 video) plays with full controls
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -436,19 +435,7 @@ export default function Flix2PlayerScreen() {
       //
       //  web → proxy (CORS bloqueia requests diretos do browser)
 
-      if (Platform.OS !== "web" && (isNixplayDirect(rawFlix2Url) || isCineveoUrl(rawFlix2Url))) {
-        // nixplay.lat e cineveo.lat → CF Worker
-        // Worker resolve o 302 redirect server-side → token IP-bound ao IP do Cloudflare
-        // Worker faz proxy do stream com Range headers → ExoPlayer busca normalmente
-        const workerUrl = `${CF_WORKER_URL}/?url=${encodeURIComponent(rawFlix2Url)}`;
-        const cdnLabel = isNixplayDirect(rawFlix2Url) ? "nixplay→fontedecanais" : "cineveo";
-        appLog.info("player.flix2", `Reprodução via CF Worker (${cdnLabel})`, {
-          workerUrl: workerUrl.slice(0, 100),
-          platform: Platform.OS,
-        });
-        setResolvedCdnType(isNixplayDirect(rawFlix2Url) ? "nixplay-cf" : "cineveo");
-        setVideoUrl(workerUrl);
-      } else if (Platform.OS === "web") {
+      if (Platform.OS === "web") {
         // Web: browser não pode setar Referer/Origin em requests de mídia → proxy
         const proxiedUrl = getProxiedStreamUrl(rawFlix2Url);
         if (!proxiedUrl || proxiedUrl === rawFlix2Url) {
@@ -460,14 +447,27 @@ export default function Flix2PlayerScreen() {
         setResolvedCdnType("flix2");
         setVideoUrl(proxiedUrl);
       } else {
-        // Nativo (Android/iOS): fontedecanais direct CDN URL — token não é IP-bound,
-        // play direto com headers de browser.
-        appLog.info("player.flix2", "Reprodução direta com headers de browser", {
-          url: rawFlix2Url?.slice(0, 80),
+        // Nativo (Android/iOS): TODOS os CDNs via WebViewVideoPlayer (Chrome).
+        //
+        // O Chrome do WebView faz a requisição diretamente do IP do dispositivo:
+        //   nixplay.lat → redireciona para http://fontedecanais com token IP-bound
+        //   Token é gerado para o IP do dispositivo → Chrome usa o mesmo IP → CDN aceita ✓
+        //   mixedContentMode="always" permite seguir o redirect HTTPS→HTTP
+        //   Chars especiais como @@ na URL são tratados nativamente pelo Chrome
+        //
+        // Vantagem sobre ExoPlayer + CF Worker:
+        //   ExoPlayer bloqueia HTTPS→HTTP mesmo com usesCleartextTraffic
+        //   CF Worker: token fica no IP do Cloudflare, não do dispositivo → CDN bloqueia
+        //   WebView Chrome: token fica no IP do dispositivo → CDN aceita sem proxy
+        const cdnLabel = isNixplayDirect(rawFlix2Url) ? "nixplay→fontedecanais" :
+          isCineveoUrl(rawFlix2Url) ? "cineveo" :
+          isFonteUrl(rawFlix2Url) ? "fontedecanais" : "flix2";
+        appLog.info("player.flix2", `Reprodução via WebView Chrome (${cdnLabel})`, {
+          url: rawFlix2Url?.slice(0, 100),
           platform: Platform.OS,
         });
-        setResolvedCdnType(isFonteUrl(rawFlix2Url) ? "fontedecanais" : "flix2");
-        setVideoSourceHeaders(FLIX2_HEADERS);
+        setResolvedCdnType(cdnLabel);
+        setUseWebViewPlayer(true);
         setVideoUrl(rawFlix2Url);
       }
     } catch (e: any) {
@@ -940,10 +940,10 @@ export default function Flix2PlayerScreen() {
           We hide the video visually during loading; it becomes visible once ready.
           
           Two player modes:
-          • WebViewVideoPlayer — nixplay.lat / fontedecanais / cineveo links on native.
-            Chromium WebView handles HTTPS→HTTP redirects and special URL chars (@@)
-            that ExoPlayer rejects even with usesCleartextTraffic.
-          • expo-av Video — all other sources (direct links, proxy, web). */}
+          • WebViewVideoPlayer — ALL native (Android/iOS) Flix2 URLs.
+            Chrome handles HTTPS→HTTP redirect, IP-bound tokens (request comes from
+            device IP so token matches), special chars like @@ in URL, mixed content.
+          • expo-av Video — web (proxied URL). */}
       {videoUrl && useWebViewPlayer ? (
         <WebViewVideoPlayer
           ref={videoRef}
