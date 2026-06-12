@@ -129,6 +129,38 @@ app:
 # Ideal para testes rápidos sem configurar keystore.
 # ─────────────────────────────────────────────────────────────
 workflows:
+  # Workflow padrão do Bitrise — roda quando nenhum workflow específico é selecionado
+  primary:
+    summary: "APK debug padrão (alias de apk-debug)"
+    steps:
+      - activate-ssh-key@4: {}
+      - git-clone@8:
+          inputs:
+            - update_submodules: "no"
+      - cache-pull@2: {}
+      - <<: *setup_node_pnpm
+      - <<: *install_deps
+      - <<: *expo_prebuild
+      - <<: *patch_android
+      - android-build@1:
+          title: "Gradle: assembleDebug → APK"
+          inputs:
+            - project_location: $ANDROID_ROOT
+            - module: app
+            - variant: debug
+            - build_type: apk
+      - cache-push@2:
+          inputs:
+            - cache_paths: |-
+                ~/.pnpm-store
+                ~/.gradle/caches
+                $BITRISE_SOURCE_DIR/node_modules
+                $MOBILE_ROOT/node_modules
+      - deploy-to-bitrise-io@2:
+          title: "Publicar APK debug no Bitrise"
+          inputs:
+            - notify_user_groups: everyone
+
   apk-debug:
     summary: "APK debug (debug key) — para testes internos rápidos"
     steps:
