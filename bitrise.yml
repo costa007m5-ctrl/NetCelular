@@ -133,7 +133,9 @@ workflows:
     summary: "APK debug (debug key) — para testes internos rápidos"
     steps:
       - activate-ssh-key@4: {}
-      - git-clone@8: {}
+      - git-clone@8:
+          inputs:
+            - update_submodules: "no"
       - cache-pull@2: {}
       - <<: *setup_node_pnpm
       - <<: *install_deps
@@ -168,7 +170,9 @@ workflows:
     summary: "APK release assinado — distribuição interna (QA/testers)"
     steps:
       - activate-ssh-key@4: {}
-      - git-clone@8: {}
+      - git-clone@8:
+          inputs:
+            - update_submodules: "no"
       - cache-pull@2: {}
       - <<: *setup_node_pnpm
       - <<: *install_deps
@@ -204,7 +208,9 @@ workflows:
     summary: "APK produção assinado — release final"
     steps:
       - activate-ssh-key@4: {}
-      - git-clone@8: {}
+      - git-clone@8:
+          inputs:
+            - update_submodules: "no"
       - cache-pull@2: {}
       - <<: *setup_node_pnpm
       - <<: *install_deps
@@ -240,7 +246,9 @@ workflows:
     summary: "AAB produção — para publicação na Google Play Store"
     steps:
       - activate-ssh-key@4: {}
-      - git-clone@8: {}
+      - git-clone@8:
+          inputs:
+            - update_submodules: "no"
       - cache-pull@2: {}
       - <<: *setup_node_pnpm
       - <<: *install_deps
