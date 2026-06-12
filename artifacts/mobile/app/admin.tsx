@@ -1008,7 +1008,7 @@ export default function AdminScreen() {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.apiName, { color: colors.foreground, fontSize: 15 }]}>Testador de Links</Text>
-                <Text style={[styles.apiLatency, { color: colors.mutedForeground }]}>20 estratégias de player — nixplay.lat e outros CDNs</Text>
+                <Text style={[styles.apiLatency, { color: colors.mutedForeground }]}>220 estratégias de player — nixplay.lat, CF Worker, fontedecanais e mais</Text>
               </View>
               <Feather name="chevron-right" size={18} color="#f97316" />
             </Pressable>
