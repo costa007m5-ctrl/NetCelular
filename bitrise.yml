@@ -133,11 +133,13 @@ workflows:
   primary:
     summary: "APK debug padrão (alias de apk-debug)"
     steps:
-      - activate-ssh-key@4: {}
+      - activate-ssh-key@4:
+          is_skippable: true
       - git-clone@8:
           inputs:
             - update_submodules: "no"
-      - cache-pull@2: {}
+      - cache-pull@2:
+          is_skippable: true
       - <<: *setup_node_pnpm
       - <<: *install_deps
       - <<: *expo_prebuild
@@ -150,6 +152,7 @@ workflows:
             - variant: debug
             - build_type: apk
       - cache-push@2:
+          is_skippable: true
           inputs:
             - cache_paths: |-
                 ~/.pnpm-store
@@ -164,11 +167,13 @@ workflows:
   apk-debug:
     summary: "APK debug (debug key) — para testes internos rápidos"
     steps:
-      - activate-ssh-key@4: {}
+      - activate-ssh-key@4:
+          is_skippable: true
       - git-clone@8:
           inputs:
             - update_submodules: "no"
-      - cache-pull@2: {}
+      - cache-pull@2:
+          is_skippable: true
       - <<: *setup_node_pnpm
       - <<: *install_deps
       - <<: *expo_prebuild
@@ -181,6 +186,7 @@ workflows:
             - variant: debug
             - build_type: apk
       - cache-push@2:
+          is_skippable: true
           inputs:
             - cache_paths: |-
                 ~/.pnpm-store
@@ -201,11 +207,13 @@ workflows:
   apk-preview:
     summary: "APK release assinado — distribuição interna (QA/testers)"
     steps:
-      - activate-ssh-key@4: {}
+      - activate-ssh-key@4:
+          is_skippable: true
       - git-clone@8:
           inputs:
             - update_submodules: "no"
-      - cache-pull@2: {}
+      - cache-pull@2:
+          is_skippable: true
       - <<: *setup_node_pnpm
       - <<: *install_deps
       - <<: *expo_prebuild
@@ -239,11 +247,13 @@ workflows:
   apk-production:
     summary: "APK produção assinado — release final"
     steps:
-      - activate-ssh-key@4: {}
+      - activate-ssh-key@4:
+          is_skippable: true
       - git-clone@8:
           inputs:
             - update_submodules: "no"
-      - cache-pull@2: {}
+      - cache-pull@2:
+          is_skippable: true
       - <<: *setup_node_pnpm
       - <<: *install_deps
       - <<: *expo_prebuild
@@ -277,11 +287,13 @@ workflows:
   aab-production:
     summary: "AAB produção — para publicação na Google Play Store"
     steps:
-      - activate-ssh-key@4: {}
+      - activate-ssh-key@4:
+          is_skippable: true
       - git-clone@8:
           inputs:
             - update_submodules: "no"
-      - cache-pull@2: {}
+      - cache-pull@2:
+          is_skippable: true
       - <<: *setup_node_pnpm
       - <<: *install_deps
       - <<: *expo_prebuild
