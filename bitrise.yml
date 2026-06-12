@@ -7,7 +7,7 @@ app:
     - MOBILE_ROOT: "$BITRISE_SOURCE_DIR/artifacts/mobile"
     - ANDROID_ROOT: "$BITRISE_SOURCE_DIR/artifacts/mobile/android"
     - GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx4g -Dkotlin.daemon.jvm.options=-Xmx4g"
-    - NODE_VERSION: "20"
+    - NODE_VERSION: "22"
     - PNPM_VERSION: "10.26.1"
 
 # ─────────────────────────────────────────────────────────────
@@ -24,9 +24,10 @@ app:
           # ── Bitrise macOS usa asdf; Linux usa nvm ──
           if command -v asdf &>/dev/null; then
             echo "==> asdf detectado (macOS Bitrise)"
-            asdf plugin add nodejs https://github.com/asdf-vm/asdf-nodejs.git 2>/dev/null || true
+            asdf plugin add nodejs 2>/dev/null || true
             asdf install nodejs "$NODE_VERSION" 2>/dev/null || true
-            asdf global nodejs "$NODE_VERSION"
+            asdf global nodejs "$NODE_VERSION" 2>/dev/null || \
+              asdf global nodejs "$(asdf list nodejs 2>/dev/null | tail -1 | tr -d ' *')" 2>/dev/null || true
           else
             echo "==> nvm detectado (Linux Bitrise)"
             export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
