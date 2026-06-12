@@ -20,13 +20,25 @@ app:
       - content: |-
           #!/usr/bin/env bash
           set -euo pipefail
-          export NVM_DIR="$HOME/.nvm"
-          [ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"
-          nvm install "$NODE_VERSION"
-          nvm use "$NODE_VERSION"
-          nvm alias default "$NODE_VERSION"
+
+          # ── Bitrise macOS usa asdf; Linux usa nvm ──
+          if command -v asdf &>/dev/null; then
+            echo "==> asdf detectado (macOS Bitrise)"
+            asdf plugin add nodejs https://github.com/asdf-vm/asdf-nodejs.git 2>/dev/null || true
+            asdf install nodejs "$NODE_VERSION" 2>/dev/null || true
+            asdf global nodejs "$NODE_VERSION"
+          else
+            echo "==> nvm detectado (Linux Bitrise)"
+            export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+            [ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"
+            nvm install "$NODE_VERSION"
+            nvm use "$NODE_VERSION"
+            nvm alias default "$NODE_VERSION"
+          fi
+
+          echo "==> node: $(node -v)"
           npm install -g "pnpm@$PNPM_VERSION" --prefer-offline
-          echo "==> node: $(node -v)  |  pnpm: $(pnpm -v)"
+          echo "==> pnpm: $(pnpm -v)"
 
 .install_deps: &install_deps
   script@1:
@@ -35,8 +47,12 @@ app:
       - content: |-
           #!/usr/bin/env bash
           set -euo pipefail
-          export NVM_DIR="$HOME/.nvm"
-          source "$NVM_DIR/nvm.sh" && nvm use "$NODE_VERSION"
+          if command -v asdf &>/dev/null; then
+            asdf global nodejs "$NODE_VERSION" 2>/dev/null || true
+          else
+            export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+            [ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh" && nvm use "$NODE_VERSION"
+          fi
           cd "$BITRISE_SOURCE_DIR"
           pnpm install --frozen-lockfile
 
@@ -47,8 +63,12 @@ app:
       - content: |-
           #!/usr/bin/env bash
           set -euo pipefail
-          export NVM_DIR="$HOME/.nvm"
-          source "$NVM_DIR/nvm.sh" && nvm use "$NODE_VERSION"
+          if command -v asdf &>/dev/null; then
+            asdf global nodejs "$NODE_VERSION" 2>/dev/null || true
+          else
+            export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+            [ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh" && nvm use "$NODE_VERSION"
+          fi
           cd "$MOBILE_ROOT"
           pnpm exec expo prebuild --clean --platform android --non-interactive
           # Garante buildConfig true no app/build.gradle
