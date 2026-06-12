@@ -4,16 +4,18 @@
  *
  * KEY DESIGN:
  *  - Todos os CDNs no native (Android/iOS) → WebViewVideoPlayer (Chrome).
- *    O Chrome do WebView faz a requisição diretamente do IP do dispositivo:
- *    nixplay.lat redireciona para http://fontedecanais com token IP-bound ao dispositivo.
- *    Chrome segue o redirect HTTPS→HTTP (mixedContentMode="always"), token bate → funciona.
- *    ExoPlayer bloqueava cleartext mesmo com usesCleartextTraffic=true.
- *    CF Worker não funciona: token fica no IP do Cloudflare, CDN bloqueia.
+ *  - nixplay.lat URLs são resolvidas server-side via /api/stream/resolve-url:
+ *    o servidor segue o redirect HEAD e devolve a URL fontedecanais HTTPS com token.
+ *    O token é time-based (não IP-bound) → o dispositivo toca diretamente.
+ *    Fallback: CF Worker se o resolve falhar.
+ *  - cineveo.lat e fontedecanais direto → WebView sem intermediário.
  *  - Web: proxy (CORS bloqueia requests diretos de mídia no browser).
  *
  * Routing:
- *  native (Android/iOS) → WebViewVideoPlayer com URL original (Chrome resolve tudo)
- *  web                  → Replit proxy
+ *  native nixplay   → resolve-url API → fontedecanais direto (fallback: CF Worker)
+ *  native cineveo   → WebViewVideoPlayer direto
+ *  native fontedecanais → WebViewVideoPlayer direto
+ *  web              → Replit proxy
  *
  * Flow:
  *  1. Receive rawFlix2Url
@@ -466,12 +468,41 @@ export default function Flix2PlayerScreen() {
         let cdnLabel = "flix2";
 
         if (isNixplayDirect(rawFlix2Url)) {
-          // nixplay.lat → CF Worker (converte HTTP redirect em stream HTTPS).
-          // CORS: baseUrl do WebView deve bater com a origem do vídeo para o
-          // elemento <video> não bloquear a requisição cross-origin.
-          playerUrl = `${CF_WORKER_URL}/?url=${encodeURIComponent(rawFlix2Url)}`;
-          cdnLabel = "nixplay-cf";
-          setWebViewBaseUrl(CF_WORKER_URL);
+          // nixplay.lat → resolver redirect server-side para URL fontedecanais HTTPS.
+          // O servidor segue o HEAD redirect e devolve a CDN URL com token.
+          // Token é time-based (não IP-bound) → qualquer IP do dispositivo funciona.
+          // Fallback: CF Worker se o resolve falhar ou demorar.
+          let resolved = false;
+          try {
+            const apiBase = await getApiBase();
+            const resolveCtrl = new AbortController();
+            const resolveTimeout = setTimeout(() => resolveCtrl.abort(), 8_000);
+            const resolveResp = await fetch(
+              `${apiBase}/api/stream/resolve-url?url=${encodeURIComponent(rawFlix2Url)}`,
+              { signal: resolveCtrl.signal }
+            );
+            clearTimeout(resolveTimeout);
+            if (resolveResp.ok) {
+              const data = await resolveResp.json();
+              if (data.url && data.url !== rawFlix2Url && isFonteUrl(data.url)) {
+                playerUrl = data.url;
+                cdnLabel = "fontedecanais";
+                setWebViewBaseUrl("https://nixplay.lat");
+                resolved = true;
+                appLog.info("player.flix2", "nixplay → fontedecanais resolvido", {
+                  resolved: data.url.slice(0, 100),
+                });
+              }
+            }
+          } catch {
+            // timeout ou erro de rede → cai no fallback abaixo
+          }
+          if (!resolved) {
+            // Fallback: CF Worker converte HTTP redirect em stream HTTPS.
+            playerUrl = `${CF_WORKER_URL}/?url=${encodeURIComponent(rawFlix2Url)}`;
+            cdnLabel = "nixplay-cf";
+            setWebViewBaseUrl(CF_WORKER_URL);
+          }
         } else if (isCineveoUrl(rawFlix2Url)) {
           cdnLabel = "cineveo";
           setWebViewBaseUrl("https://cineveo.lat");
