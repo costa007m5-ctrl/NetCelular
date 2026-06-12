@@ -1,0 +1,5 @@
+[submodule "NetCelular_imported"]
+	path = NetCelular_imported
+	url = https://github.com/placeholder/placeholder.git
+	update = none
+	ignore = all
