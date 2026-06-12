@@ -228,6 +228,7 @@ export default function Flix2PlayerScreen() {
   //   its Chromium engine follows HTTPS→HTTP redirects and allows mixed content,
   //   exactly like Expo Go — ExoPlayer blocks these even with usesCleartextTraffic.
   const [useWebViewPlayer, setUseWebViewPlayer] = useState(false);
+  const [webViewBaseUrl, setWebViewBaseUrl] = useState("https://nixplay.lat");
 
   // ── Resolver WebView (nixplay redirect resolution) ────────────────────────────
   // Android WebView's onShouldStartLoadWithRequest fires for cross-scheme
@@ -374,6 +375,7 @@ export default function Flix2PlayerScreen() {
     setVideoUrl(null);
     setVideoSourceHeaders(undefined);
     setUseWebViewPlayer(false);
+    setWebViewBaseUrl("https://nixplay.lat");
     setIsPlaying(false);
     setIsBuffering(false);
     hasStartedPlayingRef.current = false;
@@ -447,28 +449,44 @@ export default function Flix2PlayerScreen() {
         setResolvedCdnType("flix2");
         setVideoUrl(proxiedUrl);
       } else {
-        // Nativo (Android/iOS): TODOS os CDNs via WebViewVideoPlayer (Chrome).
+        // Nativo (Android/iOS): WebViewVideoPlayer para todos os CDNs.
         //
-        // O Chrome do WebView faz a requisição diretamente do IP do dispositivo:
-        //   nixplay.lat → redireciona para http://fontedecanais com token IP-bound
-        //   Token é gerado para o IP do dispositivo → Chrome usa o mesmo IP → CDN aceita ✓
-        //   mixedContentMode="always" permite seguir o redirect HTTPS→HTTP
-        //   Chars especiais como @@ na URL são tratados nativamente pelo Chrome
+        // nixplay.lat → SEMPRE via CF Worker (URL HTTPS limpa para o WebView)
+        //   O nixplay redireciona para http://fontedecanais (HTTP).
+        //   Android WebView em APK de produção bloqueia <video> HTTPS→HTTP mesmo com
+        //   mixedContentMode="always" → MEDIA_ELEMENT_ERROR: Format error.
+        //   Fix definitivo: CF Worker resolve o redirect server-side e serve o stream
+        //   como HTTPS. WebView recebe URL HTTPS do Worker → sem mixed content → funciona.
         //
-        // Vantagem sobre ExoPlayer + CF Worker:
-        //   ExoPlayer bloqueia HTTPS→HTTP mesmo com usesCleartextTraffic
-        //   CF Worker: token fica no IP do Cloudflare, não do dispositivo → CDN bloqueia
-        //   WebView Chrome: token fica no IP do dispositivo → CDN aceita sem proxy
-        const cdnLabel = isNixplayDirect(rawFlix2Url) ? "nixplay→fontedecanais" :
-          isCineveoUrl(rawFlix2Url) ? "cineveo" :
-          isFonteUrl(rawFlix2Url) ? "fontedecanais" : "flix2";
+        // cineveo.lat e fontedecanais direct → WebView direto (já são HTTPS, sem redirect HTTP)
+        //
+        // Chars especiais como @@ na URL são tratados nativamente pelo Chrome.
+
+        let playerUrl = rawFlix2Url;
+        let cdnLabel = "flix2";
+
+        if (isNixplayDirect(rawFlix2Url)) {
+          // nixplay.lat → CF Worker (converte HTTP redirect em stream HTTPS).
+          // CORS: baseUrl do WebView deve bater com a origem do vídeo para o
+          // elemento <video> não bloquear a requisição cross-origin.
+          playerUrl = `${CF_WORKER_URL}/?url=${encodeURIComponent(rawFlix2Url)}`;
+          cdnLabel = "nixplay-cf";
+          setWebViewBaseUrl(CF_WORKER_URL);
+        } else if (isCineveoUrl(rawFlix2Url)) {
+          cdnLabel = "cineveo";
+          setWebViewBaseUrl("https://cineveo.lat");
+        } else if (isFonteUrl(rawFlix2Url)) {
+          cdnLabel = "fontedecanais";
+          setWebViewBaseUrl("https://nixplay.lat");
+        }
+
         appLog.info("player.flix2", `Reprodução via WebView Chrome (${cdnLabel})`, {
-          url: rawFlix2Url?.slice(0, 100),
+          url: playerUrl?.slice(0, 100),
           platform: Platform.OS,
         });
         setResolvedCdnType(cdnLabel);
         setUseWebViewPlayer(true);
-        setVideoUrl(rawFlix2Url);
+        setVideoUrl(playerUrl);
       }
     } catch (e: any) {
       fakeAnim.current?.stop();
@@ -948,6 +966,7 @@ export default function Flix2PlayerScreen() {
         <WebViewVideoPlayer
           ref={videoRef}
           uri={videoUrl}
+          baseUrl={webViewBaseUrl}
           headers={videoSourceHeaders}
           style={[StyleSheet.absoluteFill, phase !== "ready" && { opacity: 0 }]}
           shouldPlay={phase === "ready"}

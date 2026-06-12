@@ -2,7 +2,7 @@
  * WebViewVideoPlayer
  *
  * HTML5 video player embutido em react-native-webview.
- * Usado como fallback para URLs nixplay.lat / fontedecanais que o ExoPlayer
+ * Usado para URLs Flix2 (nixplay.lat/cineveo/fontedecanais) que o ExoPlayer
  * não consegue reproduzir (redirect HTTPS→HTTP, chars especiais, bloqueio de cleartext).
  *
  * A interface do ref é compatível com expo-av:
@@ -10,6 +10,11 @@
  *   ref.playAsync()
  *   ref.pauseAsync()
  *   ref.setRateAsync(rate)
+ *
+ * IMPORTANTE: o prop `baseUrl` deve bater com a origem do vídeo para evitar
+ * bloqueio CORS do elemento <video>. Ex:
+ *   nixplay via CF Worker → baseUrl="https://netplay-stream-proxy.netplay.workers.dev"
+ *   cineveo/fontedecanais direto → baseUrl="https://nixplay.lat"
  */
 import React, { forwardRef, useCallback, useImperativeHandle, useRef } from "react";
 import { Platform, StyleSheet, View } from "react-native";
@@ -35,6 +40,7 @@ export interface PlaybackStatus {
 
 interface Props {
   uri: string;
+  baseUrl?: string;
   headers?: Record<string, string>;
   style?: any;
   shouldPlay?: boolean;
@@ -60,7 +66,7 @@ video{width:100%;height:100%;object-fit:contain;display:block}
 </style>
 </head>
 <body>
-<video id="v" playsinline webkit-playsinline preload="auto"></video>
+<video id="v" playsinline webkit-playsinline preload="auto" crossorigin="anonymous"></video>
 <script>
 (function(){
   var v = document.getElementById('v');
@@ -159,6 +165,7 @@ video{width:100%;height:100%;object-fit:contain;display:block}
 const WebViewVideoPlayer = forwardRef<WebViewVideoPlayerRef, Props>(function WebViewVideoPlayer(
   {
     uri,
+    baseUrl = "https://nixplay.lat",
     headers = {},
     style,
     shouldPlay,
@@ -226,7 +233,7 @@ const WebViewVideoPlayer = forwardRef<WebViewVideoPlayerRef, Props>(function Web
     <View style={[styles.container, style]}>
       <WebView
         ref={webviewRef}
-        source={{ html, baseUrl: "https://nixplay.lat" }}
+        source={{ html, baseUrl }}
         style={styles.webview}
         onMessage={onMessage}
         mediaPlaybackRequiresUserAction={false}
