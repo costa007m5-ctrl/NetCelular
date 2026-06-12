@@ -467,41 +467,74 @@ export default function Flix2PlayerScreen() {
         let playerUrl = rawFlix2Url;
         let cdnLabel = "flix2";
 
-        if (isNixplayDirect(rawFlix2Url)) {
-          // nixplay.lat → resolver redirect server-side para URL fontedecanais HTTPS.
-          // O servidor segue o HEAD redirect e devolve a CDN URL com token.
-          // Token é time-based (não IP-bound) → qualquer IP do dispositivo funciona.
-          // Fallback: CF Worker se o resolve falhar ou demorar.
-          let resolved = false;
+        if (isNixplayDirect(rawFlix2Url) && WebView) {
+          // nixplay.lat → resolver redirect usando o IP do DISPOSITIVO via WebView oculto.
+          //
+          // Por que dispositivo e não servidor/CF Worker?
+          //   nixplay.lat bloqueia IPs de datacenter (Cloudflare, Replit) com 403/timeout.
+          //   O dispositivo tem IP residencial/móvel que o nixplay aceita.
+          //   onShouldStartLoadWithRequest do Android WebView dispara para redirects
+          //   HTTPS→HTTP cross-scheme que fetch()/XHR não conseguem seguir no Hermes.
+          //   Capturamos a URL fontedecanais real antes do WebView carregá-la.
+          //
+          // A URL capturada pode ser HTTP — WebViewVideoPlayer com mixedContentMode="always"
+          // e v.src definido diretamente (sem redirect no elemento video) aceita HTTP.
+          let capturedCdnUrl: string | null = null;
           try {
-            const apiBase = await getApiBase();
-            const resolveCtrl = new AbortController();
-            const resolveTimeout = setTimeout(() => resolveCtrl.abort(), 8_000);
-            const resolveResp = await fetch(
-              `${apiBase}/api/stream/resolve-url?url=${encodeURIComponent(rawFlix2Url)}`,
-              { signal: resolveCtrl.signal }
-            );
-            clearTimeout(resolveTimeout);
-            if (resolveResp.ok) {
-              const data = await resolveResp.json();
-              if (data.url && data.url !== rawFlix2Url && isFonteUrl(data.url)) {
-                playerUrl = data.url;
-                cdnLabel = "fontedecanais";
-                setWebViewBaseUrl("https://nixplay.lat");
-                resolved = true;
-                appLog.info("player.flix2", "nixplay → fontedecanais resolvido", {
-                  resolved: data.url.slice(0, 100),
-                });
-              }
-            }
+            capturedCdnUrl = await new Promise<string>((resolve, reject) => {
+              resolverCallbackRef.current = resolve;
+              resolverTimerRef.current = setTimeout(() => {
+                resolverCallbackRef.current = null;
+                reject(new Error("timeout"));
+              }, 10_000);
+              setResolverUrl(rawFlix2Url);
+            });
           } catch {
-            // timeout ou erro de rede → cai no fallback abaixo
+            // timeout → tenta server-side como segundo nível
+          } finally {
+            if (resolverTimerRef.current) { clearTimeout(resolverTimerRef.current); resolverTimerRef.current = null; }
+            setResolverUrl(null);
           }
-          if (!resolved) {
-            // Fallback: CF Worker converte HTTP redirect em stream HTTPS.
-            playerUrl = `${CF_WORKER_URL}/?url=${encodeURIComponent(rawFlix2Url)}`;
-            cdnLabel = "nixplay-cf";
-            setWebViewBaseUrl(CF_WORKER_URL);
+
+          if (capturedCdnUrl) {
+            // Dispositivo resolveu o redirect — URL CDN capturada, toca direto
+            playerUrl = capturedCdnUrl;
+            cdnLabel = "fontedecanais";
+            setWebViewBaseUrl("https://nixplay.lat");
+            appLog.info("player.flix2", "nixplay → CDN resolvido pelo dispositivo", {
+              cdnUrl: capturedCdnUrl.slice(0, 100),
+            });
+          } else {
+            // Nível 2: servidor resolve (funciona se nixplay não bloquear o IP do servidor)
+            let serverResolved = false;
+            try {
+              const apiBase = await getApiBase();
+              const resolveCtrl = new AbortController();
+              const resolveTimeout = setTimeout(() => resolveCtrl.abort(), 8_000);
+              const resolveResp = await fetch(
+                `${apiBase}/api/stream/resolve-url?url=${encodeURIComponent(rawFlix2Url)}`,
+                { signal: resolveCtrl.signal }
+              );
+              clearTimeout(resolveTimeout);
+              if (resolveResp.ok) {
+                const data = await resolveResp.json();
+                if (data.url && data.url !== rawFlix2Url && isFonteUrl(data.url)) {
+                  playerUrl = data.url;
+                  cdnLabel = "fontedecanais";
+                  setWebViewBaseUrl("https://nixplay.lat");
+                  serverResolved = true;
+                  appLog.info("player.flix2", "nixplay → fontedecanais via servidor", {
+                    resolved: data.url.slice(0, 100),
+                  });
+                }
+              }
+            } catch {}
+            if (!serverResolved) {
+              // Nível 3 (último fallback): CF Worker
+              playerUrl = `${CF_WORKER_URL}/?url=${encodeURIComponent(rawFlix2Url)}`;
+              cdnLabel = "nixplay-cf";
+              setWebViewBaseUrl(CF_WORKER_URL);
+            }
           }
         } else if (isCineveoUrl(rawFlix2Url)) {
           cdnLabel = "cineveo";
