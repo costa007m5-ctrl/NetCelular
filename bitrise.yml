@@ -1,0 +1,274 @@
+format_version: "13"
+default_step_lib_source: https://github.com/bitrise-io/bitrise-steplib.git
+project_type: react-native
+
+app:
+  envs:
+    - MOBILE_ROOT: "$BITRISE_SOURCE_DIR/artifacts/mobile"
+    - ANDROID_ROOT: "$BITRISE_SOURCE_DIR/artifacts/mobile/android"
+    - GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx4g -Dkotlin.daemon.jvm.options=-Xmx4g"
+    - NODE_VERSION: "20"
+    - PNPM_VERSION: "10.26.1"
+
+# ─────────────────────────────────────────────────────────────
+# ANCHORS (reutilizados nos workflows abaixo)
+# ─────────────────────────────────────────────────────────────
+.setup_node_pnpm: &setup_node_pnpm
+  script@1:
+    title: "Setup: Node.js $NODE_VERSION + pnpm $PNPM_VERSION"
+    inputs:
+      - content: |-
+          #!/usr/bin/env bash
+          set -euo pipefail
+          export NVM_DIR="$HOME/.nvm"
+          [ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"
+          nvm install "$NODE_VERSION"
+          nvm use "$NODE_VERSION"
+          nvm alias default "$NODE_VERSION"
+          npm install -g "pnpm@$PNPM_VERSION" --prefer-offline
+          echo "==> node: $(node -v)  |  pnpm: $(pnpm -v)"
+
+.install_deps: &install_deps
+  script@1:
+    title: "pnpm install (workspace)"
+    inputs:
+      - content: |-
+          #!/usr/bin/env bash
+          set -euo pipefail
+          export NVM_DIR="$HOME/.nvm"
+          source "$NVM_DIR/nvm.sh" && nvm use "$NODE_VERSION"
+          cd "$BITRISE_SOURCE_DIR"
+          pnpm install --frozen-lockfile
+
+.expo_prebuild: &expo_prebuild
+  script@1:
+    title: "Expo Prebuild (Android)"
+    inputs:
+      - content: |-
+          #!/usr/bin/env bash
+          set -euo pipefail
+          export NVM_DIR="$HOME/.nvm"
+          source "$NVM_DIR/nvm.sh" && nvm use "$NODE_VERSION"
+          cd "$MOBILE_ROOT"
+          pnpm exec expo prebuild --clean --platform android --non-interactive
+          # Garante buildConfig true no app/build.gradle
+          node scripts/ensure-build-config.js
+
+.patch_android: &patch_android
+  script@1:
+    title: "Patch Android (ícone + buildConfig)"
+    inputs:
+      - content: |-
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          ANDROID_RES="$ANDROID_ROOT/app/src/main/res"
+          VALUES="$ANDROID_RES/values"
+          DRAWABLE="$ANDROID_RES/drawable"
+          MIPMAP="$ANDROID_RES/mipmap-anydpi-v26"
+          BUILD_GRADLE="$ANDROID_ROOT/app/build.gradle"
+
+          echo "==> [patch-android] Iniciando..."
+
+          mkdir -p "$VALUES" "$DRAWABLE"
+
+          # 1. Cor do fundo do ícone
+          cat > "$VALUES/netplay_icon_colors.xml" <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <color name="iconBackground">#000000</color>
+          </resources>
+          XML
+          echo "    ✓ netplay_icon_colors.xml criado"
+
+          # 2. Drawable de fundo (preto)
+          cat > "$DRAWABLE/ic_launcher_background.xml" <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <shape xmlns:android="http://schemas.android.com/apk/res/android">
+              <solid android:color="#000000"/>
+          </shape>
+          XML
+          echo "    ✓ ic_launcher_background.xml criado"
+
+          # 3. Substitui referências de cor nos XMLs do mipmap
+          if [ -d "$MIPMAP" ]; then
+            for f in "$MIPMAP/ic_launcher.xml" "$MIPMAP/ic_launcher_round.xml"; do
+              if [ -f "$f" ] && grep -q '@color/iconBackground' "$f"; then
+                sed -i 's|@color/iconBackground|@drawable/ic_launcher_background|g' "$f"
+                echo "    ✓ $(basename "$f") patchado"
+              fi
+            done
+          fi
+
+          # 4. Garante buildConfig true (redundante com ensure-build-config.js, mas seguro)
+          if [ -f "$BUILD_GRADLE" ]; then
+            if ! grep -q 'buildConfig true\|buildConfig = true' "$BUILD_GRADLE"; then
+              python3 - <<'PY'
+          import re, sys
+          path = "$BUILD_GRADLE"
+          with open(path) as f:
+              c = f.read()
+          if 'buildFeatures' in c:
+              c = re.sub(r'(buildFeatures\s*\{)([^}]*?)(\})',
+                  lambda m: m.group(1) + m.group(2) + '        buildConfig true\n    ' + m.group(3),
+                  c, flags=re.DOTALL)
+          else:
+              c = c.replace('android {', 'android {\n    buildFeatures {\n        buildConfig true\n    }', 1)
+          with open(path, 'w') as f:
+              f.write(c)
+          print("    ✓ buildConfig true injetado")
+          PY
+            fi
+          fi
+
+          echo "==> [patch-android] Concluído!"
+
+# ─────────────────────────────────────────────────────────────
+# WORKFLOW: apk-debug
+# APK debug assinado com a debug key padrão do Android.
+# Ideal para testes rápidos sem configurar keystore.
+# ─────────────────────────────────────────────────────────────
+workflows:
+  apk-debug:
+    summary: "APK debug (debug key) — para testes internos rápidos"
+    steps:
+      - activate-ssh-key@4: {}
+      - git-clone@8: {}
+      - cache-pull@2: {}
+      - <<: *setup_node_pnpm
+      - <<: *install_deps
+      - <<: *expo_prebuild
+      - <<: *patch_android
+      - android-build@1:
+          title: "Gradle: assembleDebug → APK"
+          inputs:
+            - project_location: $ANDROID_ROOT
+            - module: app
+            - variant: debug
+            - build_type: apk
+      - cache-push@2:
+          inputs:
+            - cache_paths: |-
+                ~/.pnpm-store
+                ~/.gradle/caches
+                $BITRISE_SOURCE_DIR/node_modules
+                $MOBILE_ROOT/node_modules
+      - deploy-to-bitrise-io@2:
+          title: "Publicar APK debug no Bitrise"
+          inputs:
+            - notify_user_groups: everyone
+
+  # ─────────────────────────────────────────────────────────────
+  # WORKFLOW: apk-preview
+  # APK release assinado com a keystore configurada no Bitrise.
+  # Para distribuição interna (testers, QA).
+  # Configure no Bitrise: Code Signing → Android Keystore File
+  # ─────────────────────────────────────────────────────────────
+  apk-preview:
+    summary: "APK release assinado — distribuição interna (QA/testers)"
+    steps:
+      - activate-ssh-key@4: {}
+      - git-clone@8: {}
+      - cache-pull@2: {}
+      - <<: *setup_node_pnpm
+      - <<: *install_deps
+      - <<: *expo_prebuild
+      - <<: *patch_android
+      - android-build@1:
+          title: "Gradle: assembleRelease → APK"
+          inputs:
+            - project_location: $ANDROID_ROOT
+            - module: app
+            - variant: release
+            - build_type: apk
+      - sign-apk@1:
+          title: "Assinar APK com keystore"
+      - cache-push@2:
+          inputs:
+            - cache_paths: |-
+                ~/.pnpm-store
+                ~/.gradle/caches
+                $BITRISE_SOURCE_DIR/node_modules
+                $MOBILE_ROOT/node_modules
+      - deploy-to-bitrise-io@2:
+          title: "Publicar APK preview no Bitrise"
+          inputs:
+            - notify_user_groups: everyone
+
+  # ─────────────────────────────────────────────────────────────
+  # WORKFLOW: apk-production
+  # APK de produção assinado — para enviar à Play Store ou
+  # distribuir diretamente como release final.
+  # ─────────────────────────────────────────────────────────────
+  apk-production:
+    summary: "APK produção assinado — release final"
+    steps:
+      - activate-ssh-key@4: {}
+      - git-clone@8: {}
+      - cache-pull@2: {}
+      - <<: *setup_node_pnpm
+      - <<: *install_deps
+      - <<: *expo_prebuild
+      - <<: *patch_android
+      - android-build@1:
+          title: "Gradle: assembleRelease → APK produção"
+          inputs:
+            - project_location: $ANDROID_ROOT
+            - module: app
+            - variant: release
+            - build_type: apk
+      - sign-apk@1:
+          title: "Assinar APK com keystore de produção"
+      - cache-push@2:
+          inputs:
+            - cache_paths: |-
+                ~/.pnpm-store
+                ~/.gradle/caches
+                $BITRISE_SOURCE_DIR/node_modules
+                $MOBILE_ROOT/node_modules
+      - deploy-to-bitrise-io@2:
+          title: "Publicar APK produção no Bitrise"
+          inputs:
+            - notify_user_groups: everyone
+
+  # ─────────────────────────────────────────────────────────────
+  # WORKFLOW: aab-production
+  # Android App Bundle (.aab) para publicação na Google Play Store.
+  # Use este workflow quando for submeter à Play Store.
+  # ─────────────────────────────────────────────────────────────
+  aab-production:
+    summary: "AAB produção — para publicação na Google Play Store"
+    steps:
+      - activate-ssh-key@4: {}
+      - git-clone@8: {}
+      - cache-pull@2: {}
+      - <<: *setup_node_pnpm
+      - <<: *install_deps
+      - <<: *expo_prebuild
+      - <<: *patch_android
+      - android-build@1:
+          title: "Gradle: bundleRelease → AAB"
+          inputs:
+            - project_location: $ANDROID_ROOT
+            - module: app
+            - variant: release
+            - build_type: aab
+      - sign-apk@1:
+          title: "Assinar AAB com keystore de produção"
+      - cache-push@2:
+          inputs:
+            - cache_paths: |-
+                ~/.pnpm-store
+                ~/.gradle/caches
+                $BITRISE_SOURCE_DIR/node_modules
+                $MOBILE_ROOT/node_modules
+      - google-play-deploy@3:
+          title: "Publicar AAB na Google Play (opcional)"
+          inputs:
+            - package_name: com.netplay.app
+            - track: internal
+          is_skippable: true
+      - deploy-to-bitrise-io@2:
+          title: "Publicar AAB no Bitrise"
+          inputs:
+            - notify_user_groups: everyone
