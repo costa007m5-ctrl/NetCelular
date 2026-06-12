@@ -133,8 +133,6 @@ workflows:
   primary:
     summary: "APK debug padrão (alias de apk-debug)"
     steps:
-      - activate-ssh-key@4:
-          is_skippable: true
       - git-clone@8:
           inputs:
             - update_submodules: "no"
@@ -167,8 +165,6 @@ workflows:
   apk-debug:
     summary: "APK debug (debug key) — para testes internos rápidos"
     steps:
-      - activate-ssh-key@4:
-          is_skippable: true
       - git-clone@8:
           inputs:
             - update_submodules: "no"
@@ -207,8 +203,6 @@ workflows:
   apk-preview:
     summary: "APK release assinado — distribuição interna (QA/testers)"
     steps:
-      - activate-ssh-key@4:
-          is_skippable: true
       - git-clone@8:
           inputs:
             - update_submodules: "no"
@@ -247,8 +241,6 @@ workflows:
   apk-production:
     summary: "APK produção assinado — release final"
     steps:
-      - activate-ssh-key@4:
-          is_skippable: true
       - git-clone@8:
           inputs:
             - update_submodules: "no"
@@ -287,8 +279,6 @@ workflows:
   aab-production:
     summary: "AAB produção — para publicação na Google Play Store"
     steps:
-      - activate-ssh-key@4:
-          is_skippable: true
       - git-clone@8:
           inputs:
             - update_submodules: "no"
