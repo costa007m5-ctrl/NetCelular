@@ -34,7 +34,7 @@ const FLIX2_CDN_ROOTS = [
   "fontedecanais.me",
   "cineveo.lat",
   "nixplay.lat",
-  "hubby.cx",             // Flix 2.0 wowserver-vods CDN (redirect target)
+  "hubby.cx",             // Xtream Codes primary CDN (wowserver-vods)
 ];
 
 function isAllowedHost(urlStr: string): boolean {

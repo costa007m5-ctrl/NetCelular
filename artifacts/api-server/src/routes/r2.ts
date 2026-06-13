@@ -2132,12 +2132,98 @@ function normalizeTitleForSearch(t: string): string {
     .trim();
 }
 
-const FLIX2_USER = "Reis007-vods";
-const FLIX2_PASS = encodeURIComponent("Reis12@@");
+// ── Xtream Codes credentials (hubby.cx) ───────────────────────────────────────
+const FLIX2_SERVER = process.env["FLIX2_SERVER"] ?? "https://hubby.cx";
+const FLIX2_USER   = process.env["FLIX2_USER"]   ?? "wowserver-vods";
+const FLIX2_PASS   = process.env["FLIX2_PASS"]   ?? "fUT3Phipaq10huqAPastEmlbr";
 
 // ── Per-page cache (10 min TTL) — populated during warm-up, serves admin + mobile instantly ──
 const PAGE_CACHE = new Map<string, { data: any; cachedAt: number }>();
 const PAGE_CACHE_TTL_MS = 10 * 60 * 1000;
+
+// ── Xtream Codes raw catalog cache (30 min TTL) ───────────────────────────────
+// Xtream Codes returns ALL items in one request (no server-side pagination).
+// We fetch once, cache, and simulate pagination in flix2FetchPage().
+const XTREAM_RAW_CACHE = new Map<string, { items: any[]; cachedAt: number }>();
+const XTREAM_RAW_TTL_MS = 30 * 60 * 1000;
+const XTREAM_PAGE_SIZE = 20;
+
+// Map a Xtream Codes VOD stream item to the existing app format
+function mapXtreamVod(item: any): any {
+  const streamId = item.stream_id ?? item.num;
+  const ext = item.container_extension || "mp4";
+  const backdropArr: string[] = item.backdrop_path ?? [];
+  return {
+    id:        String(streamId),
+    tmdb_id:   Number(item.tmdb) || 0,
+    title:     item.name ?? "",
+    type:      "filme",
+    year:      item.releaseDate ? (parseInt(item.releaseDate) || 0) : 0,
+    rating:    String(item.rating ?? item.rating_5based ?? "0"),
+    poster:    item.stream_icon ?? "",
+    backdrop:  backdropArr[0] ?? item.stream_icon ?? "",
+    synopsis:  item.plot ?? "",
+    stream_url: `${FLIX2_SERVER}/${FLIX2_USER}/${FLIX2_PASS}/${streamId}.${ext}`,
+  };
+}
+
+// Map a Xtream Codes series item to the existing app format
+function mapXtreamSeries(item: any): any {
+  const seriesId = item.series_id ?? item.num;
+  const backdropArr: string[] = item.backdrop_path ?? [];
+  return {
+    id:        String(seriesId),
+    tmdb_id:   Number(item.tmdb) || 0,
+    title:     item.name ?? "",
+    type:      "serie",
+    year:      item.releaseDate ? (parseInt(item.releaseDate) || 0) : 0,
+    rating:    String(item.rating ?? item.rating_5based ?? "0"),
+    poster:    item.cover ?? "",
+    backdrop:  backdropArr[0] ?? item.cover ?? "",
+    synopsis:  item.plot ?? "",
+    stream_url: null, // episodes fetched separately via /flix2/series-episodes
+  };
+}
+
+// Fetch ALL items for a catalog type from Xtream Codes (single request, cached 30 min)
+async function xtreamFetchAll(type: string): Promise<any[]> {
+  const cached = XTREAM_RAW_CACHE.get(type);
+  if (cached && Date.now() - cached.cachedAt < XTREAM_RAW_TTL_MS) {
+    return cached.items;
+  }
+
+  const isVod = type === "movies";
+  const action = isVod ? "get_vod_streams" : "get_series";
+
+  const url = `${FLIX2_SERVER}/player_api.php?username=${FLIX2_USER}&password=${FLIX2_PASS}&action=${action}`;
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), 30_000);
+  try {
+    const r = await fetch(url, { signal: ctrl.signal });
+    clearTimeout(tid);
+    const data = await r.json();
+    if (!Array.isArray(data)) return [];
+
+    const items: any[] = isVod
+      ? data.map(mapXtreamVod)
+      : data.map(mapXtreamSeries);
+
+    XTREAM_RAW_CACHE.set(type, { items, cachedAt: Date.now() });
+    // Also populate the "animes" key with the same series list
+    // (app deduplication by seenTmdb+seenFlix2 prevents duplicates)
+    if (type === "series") {
+      const existing = XTREAM_RAW_CACHE.get("animes");
+      if (!existing || Date.now() - existing.cachedAt >= XTREAM_RAW_TTL_MS) {
+        XTREAM_RAW_CACHE.set("animes", { items, cachedAt: Date.now() });
+      }
+    }
+    console.log(`[flix2/xtream] fetched type=${type} items=${items.length}`);
+    return items;
+  } catch (e) {
+    clearTimeout(tid);
+    throw e;
+  }
+}
 
 // ── Cache hit/miss statistics (reset on server restart) ────────────────────
 const SERVER_STARTED_AT = Date.now();
@@ -2149,25 +2235,30 @@ const CACHE_STATS = {
   lookup:    { hits: 0, misses: 0 },
 };
 
+// Simulates Nixplay-style paginated responses backed by the Xtream Codes bulk fetch.
 async function flix2FetchPage(type: string, page: number): Promise<{ success: boolean; pagination: any; data: any[] }> {
   const cacheKey = `${type}:${page}`;
   const hit = PAGE_CACHE.get(cacheKey);
   if (hit && Date.now() - hit.cachedAt < PAGE_CACHE_TTL_MS) { CACHE_STATS.page.hits++; return hit.data; }
   CACHE_STATS.page.misses++;
 
-  const url = `https://nixplay.lat/api/catalog.php?username=${FLIX2_USER}&password=${FLIX2_PASS}&type=${type}&page=${page}`;
-  const ctrl = new AbortController();
-  const tid = setTimeout(() => ctrl.abort(), 20000);
-  try {
-    const r = await fetch(url, { signal: ctrl.signal });
-    clearTimeout(tid);
-    const data = await r.json();
-    if (data?.success) PAGE_CACHE.set(cacheKey, { data, cachedAt: Date.now() });
-    return data;
-  } catch (e) {
-    clearTimeout(tid);
-    throw e;
-  }
+  const allItems = await xtreamFetchAll(type);
+  const start = (page - 1) * XTREAM_PAGE_SIZE;
+  const slice = allItems.slice(start, start + XTREAM_PAGE_SIZE);
+  const totalPages = Math.max(1, Math.ceil(allItems.length / XTREAM_PAGE_SIZE));
+
+  const data = {
+    success: true,
+    pagination: {
+      current_page:  page,
+      total_pages:   totalPages,
+      per_page:      XTREAM_PAGE_SIZE,
+      total:         allItems.length,
+    },
+    data: slice,
+  };
+  PAGE_CACHE.set(cacheKey, { data, cachedAt: Date.now() });
+  return data;
 }
 
 // ── GET /flix2/catalog — proxy to nixplay.lat API (avoids CORS on mobile) ─────
@@ -2987,10 +3078,9 @@ router.get("/flix2/series-episodes", async (req, res) => {
     }
   }
 
-  // ── Path D: live API fallback (Xtream Codes get_series_info.php) ─────────
+  // ── Path D: live API fallback (Xtream Codes player_api.php get_series_info) ──
   try {
-    const pass = decodeURIComponent(FLIX2_PASS);
-    const url = `https://nixplay.lat/api/get_series_info.php?username=${FLIX2_USER}&password=${encodeURIComponent(pass)}&series_id=${seriesId}`;
+    const url = `${FLIX2_SERVER}/player_api.php?username=${FLIX2_USER}&password=${FLIX2_PASS}&action=get_series_info&series_id=${seriesId}`;
     const ctrl = new AbortController();
     const tid = setTimeout(() => ctrl.abort(), 20000);
     let r: Response;
@@ -3009,7 +3099,7 @@ router.get("/flix2/series-episodes", async (req, res) => {
         for (const ep of eps) {
           if (!ep?.id) continue;
           const ext = ep.container_extension || "mp4";
-          const streamUrl = `https://nixplay.lat/series/${FLIX2_USER}/${pass}/${ep.id}.${ext}`;
+          const streamUrl = `${FLIX2_SERVER}/series/${FLIX2_USER}/${FLIX2_PASS}/${ep.id}.${ext}`;
           allEpisodes.push({
             season,
             episode: Number(ep.episode_num ?? ep.episode ?? 1),

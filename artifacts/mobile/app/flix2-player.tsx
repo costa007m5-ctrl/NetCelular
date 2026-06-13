@@ -401,8 +401,10 @@ export default function Flix2PlayerScreen() {
     };
     const TERABOX_HOSTS = ["terabox.com", "1024terabox.com", "teraboxapp.com", "1024tera.com", "4funbox.com"];
     const isTeraboxUrl = (u: string) => TERABOX_HOSTS.some((h) => u.includes(h));
-    const isFonteUrl = (u: string) => ["72yrci50ppqp71.com", "fontedecanais.me"].some((r) => u.includes(r));
+    // Direct CDN URLs (hubby.cx Xtream Codes or fontedecanais) — play without redirect
+    const isFonteUrl = (u: string) => ["72yrci50ppqp71.com", "fontedecanais.me", "hubby.cx"].some((r) => u.includes(r));
     const isCineveoUrl = (u: string) => u.includes("cineveo.lat");
+    const isHubbyCx = (u: string) => u.includes("hubby.cx");
     // nixplay.lat direct MP4/HLS URLs (e.g. /movie/..., /series/...) — their own server,
     // no Cloudflare proxy, ExoPlayer can reach it directly without custom headers.
     const isNixplayDirect = (u: string) => {
@@ -536,6 +538,10 @@ export default function Flix2PlayerScreen() {
               setWebViewBaseUrl(CF_WORKER_URL);
             }
           }
+        } else if (isHubbyCx(rawFlix2Url)) {
+          // hubby.cx — Xtream Codes direto (MP4/TS/MKV), sem redirect
+          cdnLabel = "hubby";
+          setWebViewBaseUrl("https://hubby.cx");
         } else if (isCineveoUrl(rawFlix2Url)) {
           cdnLabel = "cineveo";
           setWebViewBaseUrl("https://cineveo.lat");
