@@ -1455,7 +1455,7 @@ router.get("/tmdb-search", async (req, res) => {
     // Limpa o título automaticamente (remove tags de qualidade, ano, etc.)
     const q = cleanTmdbQuery(rawQ);
 
-    const TMDB_KEY = process.env.TMDB_API_KEY ?? "";
+    const TMDB_KEY = process.env.TMDB_API_KEY ?? "8f0beb08cf016ec8de49e454e09879ec";
     const TMDB_BASE = "https://api.themoviedb.org/3";
     // Optional lang override — caller passes "pt-BR", "en-US", "ja-JP", etc.
     const TMDB_LANG = (req.query["lang"] as string | undefined)?.trim() || "pt-BR";

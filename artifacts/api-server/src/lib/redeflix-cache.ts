@@ -9,7 +9,7 @@ const LISTS: Record<string, string> = {
   dorama: "https://redeflixapi.store/list-dorama-ids.txt",
 };
 
-const TMDB_KEY = process.env["TMDB_API_KEY"] ?? "";
+const TMDB_KEY = process.env["TMDB_API_KEY"] ?? "8f0beb08cf016ec8de49e454e09879ec";
 const TMDB_BASE = "https://api.themoviedb.org/3";
 
 // Persist IDs to disk so server restarts don't lose state

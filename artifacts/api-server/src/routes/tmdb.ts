@@ -2,6 +2,8 @@ import { Router } from "express";
 import { tmdb } from "../lib/tmdb";
 
 const router = Router();
+const TMDB_FALLBACK = "8f0beb08cf016ec8de49e454e09879ec";
+const getKey = () => process.env.TMDB_API_KEY ?? TMDB_FALLBACK;
 
 const handle = (fn: (req: any, res: any) => Promise<any>) =>
   async (req: any, res: any) => {
@@ -225,35 +227,35 @@ router.get("/genres", handle(async () => {
 }));
 
 router.get("/now-playing", handle(async () => {
-  const key = process.env.TMDB_API_KEY ?? "";
+  const key = getKey();
   const res = await fetch(`https://api.themoviedb.org/3/movie/now_playing?api_key=${key}&language=pt-BR`);
   const data: any = await res.json();
   return data.results ?? [];
 }));
 
 router.get("/upcoming", handle(async () => {
-  const key = process.env.TMDB_API_KEY ?? "";
+  const key = getKey();
   const res = await fetch(`https://api.themoviedb.org/3/movie/upcoming?api_key=${key}&language=pt-BR`);
   const data: any = await res.json();
   return data.results ?? [];
 }));
 
 router.get("/on-the-air", handle(async () => {
-  const key = process.env.TMDB_API_KEY ?? "";
+  const key = getKey();
   const res = await fetch(`https://api.themoviedb.org/3/tv/on_the_air?api_key=${key}&language=pt-BR`);
   const data: any = await res.json();
   return data.results ?? [];
 }));
 
 router.get("/airing-today", handle(async () => {
-  const key = process.env.TMDB_API_KEY ?? "";
+  const key = getKey();
   const res = await fetch(`https://api.themoviedb.org/3/tv/airing_today?api_key=${key}&language=pt-BR`);
   const data: any = await res.json();
   return data.results ?? [];
 }));
 
 router.get("/popular-people", handle(async () => {
-  const key = process.env.TMDB_API_KEY ?? "";
+  const key = getKey();
   const res = await fetch(`https://api.themoviedb.org/3/person/popular?api_key=${key}&language=pt-BR`);
   const data: any = await res.json();
   return data.results ?? [];
@@ -262,7 +264,7 @@ router.get("/popular-people", handle(async () => {
 router.get("/search-person", handle(async (req) => {
   const q = String(req.query.q ?? "");
   if (!q.trim()) return [];
-  const key = process.env.TMDB_API_KEY ?? "";
+  const key = getKey();
   const res = await fetch(`https://api.themoviedb.org/3/search/person?api_key=${key}&language=pt-BR&query=${encodeURIComponent(q)}&include_adult=false`);
   const data: any = await res.json();
   return data.results ?? [];
@@ -270,14 +272,14 @@ router.get("/search-person", handle(async (req) => {
 
 router.get("/person/:id", handle(async (req) => {
   const id = Number(req.params.id);
-  const key = process.env.TMDB_API_KEY ?? "";
+  const key = getKey();
   const res = await fetch(`https://api.themoviedb.org/3/person/${id}?api_key=${key}&language=pt-BR&append_to_response=movie_credits,tv_credits,images`);
   return res.json();
 }));
 
 router.get("/person/:id/movie_credits", handle(async (req) => {
   const id = Number(req.params.id);
-  const key = process.env.TMDB_API_KEY ?? "";
+  const key = getKey();
   const res = await fetch(`https://api.themoviedb.org/3/person/${id}/movie_credits?api_key=${key}&language=pt-BR`);
   const data: any = await res.json();
   return (data.cast ?? []).sort((a: any, b: any) => (b.popularity ?? 0) - (a.popularity ?? 0));
@@ -285,7 +287,7 @@ router.get("/person/:id/movie_credits", handle(async (req) => {
 
 router.get("/person/:id/tv_credits", handle(async (req) => {
   const id = Number(req.params.id);
-  const key = process.env.TMDB_API_KEY ?? "";
+  const key = getKey();
   const res = await fetch(`https://api.themoviedb.org/3/person/${id}/tv_credits?api_key=${key}&language=pt-BR`);
   const data: any = await res.json();
   return (data.cast ?? []).sort((a: any, b: any) => (b.popularity ?? 0) - (a.popularity ?? 0));

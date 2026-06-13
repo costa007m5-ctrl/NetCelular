@@ -1,9 +1,10 @@
 const TMDB_BASE = "https://api.themoviedb.org/3";
 const LANGUAGE = "pt-BR";
+// Fallback key mirrors the one embedded in the mobile client (already public)
+const FALLBACK_KEY = "8f0beb08cf016ec8de49e454e09879ec";
 
 function getKey(): string {
-  const key = process.env["TMDB_API_KEY"] ?? "";
-  return key;
+  return process.env["TMDB_API_KEY"] ?? FALLBACK_KEY;
 }
 
 function buildUrl(path: string, params: Record<string, string> = {}): string {
@@ -181,7 +182,7 @@ export const tmdb = {
 
   images: {
     logos: async (type: "collection" | "tv" | "movie", id: number): Promise<{ file_path: string; iso_639_1: string | null; vote_average: number }[]> => {
-      const key = process.env["TMDB_API_KEY"];
+      const key = getKey();
       if (!key) return [];
       const url = `${TMDB_BASE}/${type}/${id}/images?api_key=${key}&include_image_language=en,pt,null`;
       const res = await fetch(url);
