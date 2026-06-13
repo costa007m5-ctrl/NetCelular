@@ -3029,6 +3029,29 @@ router.get("/flix2/debug-url", async (req, res) => {
 const EPISODES_CACHE = new Map<string, { episodes: any[]; cachedAt: number }>();
 const EPISODES_CACHE_TTL_MS = 30 * 60 * 1000;
 
+// ── GET /flix2/admin-series-info?seriesId=<id> ────────────────────────────────
+// Raw proxy of Xtream Codes get_series_info for the admin panel.
+// Returns the full Xtream JSON (episodes keyed by season) so the admin UI
+// can build stream URLs using ep.id and ep.container_extension.
+router.get("/flix2/admin-series-info", async (req, res) => {
+  const { seriesId } = req.query as Record<string, string>;
+  if (!seriesId) { res.status(400).json({ error: "seriesId obrigatório" }); return; }
+  try {
+    const url = `${FLIX2_SERVER}/player_api.php?username=${FLIX2_USER}&password=${FLIX2_PASS}&action=get_series_info&series_id=${seriesId}`;
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 20000);
+    let r: Response;
+    try {
+      r = await fetch(url, { signal: ctrl.signal });
+    } finally { clearTimeout(tid); }
+    if (!r.ok) { res.status(502).json({ error: `upstream HTTP ${r.status}` }); return; }
+    const data = await r.json();
+    res.json(data);
+  } catch (err: any) {
+    res.status(502).json({ error: err?.message ?? "proxy error" });
+  }
+});
+
 // ── GET /flix2/series-episodes?seriesId=<id> ──────────────────────────────────
 // Fetches per-episode stream URLs for a series from nixplay.lat.
 // Fast path: if FULL_CATALOG_CACHE is warm, finds episodes inline (0ms).

@@ -192,7 +192,8 @@ export default function Admin2Screen() {
     setSeriesEpLoading(true);
     setSeriesEpisodes([]);
     try {
-      const res = await fetch(`${API_BASE}&action=get_series_info&series_id=${seriesId}`, { signal: mkSignal(20000) });
+      const apiBase = getApiBase();
+      const res = await fetch(`${apiBase}/r2/flix2/admin-series-info?seriesId=${seriesId}`, { signal: mkSignal(20000) });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       const eps = json.episodes ?? {};
@@ -200,8 +201,11 @@ export default function Admin2Screen() {
         .map(([s, epArr]) => ({ season: s, eps: epArr as SeriesEpisode[] }))
         .sort((a, b) => Number(a.season) - Number(b.season));
       setSeriesEpisodes(seasons);
-    } catch {}
-    finally { setSeriesEpLoading(false); }
+    } catch (err: any) {
+      console.error("[admin2] fetchSeriesEpisodes error:", err?.message ?? err);
+    } finally {
+      setSeriesEpLoading(false);
+    }
   }, []);
 
   // ── Load filmes on first visit ──────────────────────────────────────────────
