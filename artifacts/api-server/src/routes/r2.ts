@@ -2154,10 +2154,22 @@ const XTREAM_PAGE_SIZE = 20;
 const FLIX2_INDEX_CACHE = new Map<string, { index: Record<string, string>; builtAt: number }>();
 
 // Map a Xtream Codes VOD stream item to the existing app format
+// Normalize poster/backdrop URLs coming from the Xtream server:
+//   • Upgrade http:// → https:// (Android blocks mixed-content images)
+//   • Fix double slash //t/p/ → /t/p/ (common TMDB URL malformation from Xtream)
+function normalizeXtreamImageUrl(url: string | null | undefined): string {
+  if (!url) return "";
+  return url
+    .replace(/^http:\/\//i, "https://")
+    .replace(/\/\/t\/p\//g, "/t/p/");
+}
+
 function mapXtreamVod(item: any): any {
   const streamId = item.stream_id ?? item.num;
   const ext = item.container_extension || "mp4";
   const backdropArr: string[] = item.backdrop_path ?? [];
+  const poster   = normalizeXtreamImageUrl(item.stream_icon ?? "");
+  const backdrop = normalizeXtreamImageUrl(backdropArr[0] ?? item.stream_icon ?? "");
   return {
     id:        String(streamId),
     tmdb_id:   Number(item.tmdb) || 0,
@@ -2165,8 +2177,8 @@ function mapXtreamVod(item: any): any {
     type:      "filme",
     year:      item.releaseDate ? (parseInt(item.releaseDate) || 0) : 0,
     rating:    String(item.rating ?? item.rating_5based ?? "0"),
-    poster:    item.stream_icon ?? "",
-    backdrop:  backdropArr[0] ?? item.stream_icon ?? "",
+    poster,
+    backdrop,
     synopsis:  item.plot ?? "",
     // Xtream Codes VOD stream format: /movie/{user}/{pass}/{id}.{ext}
     stream_url: `${FLIX2_SERVER}/movie/${FLIX2_USER}/${FLIX2_PASS}/${streamId}.${ext}`,
@@ -2177,6 +2189,8 @@ function mapXtreamVod(item: any): any {
 function mapXtreamSeries(item: any): any {
   const seriesId = item.series_id ?? item.num;
   const backdropArr: string[] = item.backdrop_path ?? [];
+  const poster   = normalizeXtreamImageUrl(item.cover ?? "");
+  const backdrop = normalizeXtreamImageUrl(backdropArr[0] ?? item.cover ?? "");
   return {
     id:        String(seriesId),
     tmdb_id:   Number(item.tmdb) || 0,
@@ -2184,8 +2198,8 @@ function mapXtreamSeries(item: any): any {
     type:      "serie",
     year:      item.releaseDate ? (parseInt(item.releaseDate) || 0) : 0,
     rating:    String(item.rating ?? item.rating_5based ?? "0"),
-    poster:    item.cover ?? "",
-    backdrop:  backdropArr[0] ?? item.cover ?? "",
+    poster,
+    backdrop,
     synopsis:  item.plot ?? "",
     stream_url: null, // episodes fetched separately via /flix2/series-episodes
   };
