@@ -427,10 +427,13 @@ export default function DetailScreen() {
                 season: ep.season, episode: ep.episode,
               });
             }
-          } else if (fi?.id && type === "tv") {
+          } else if ((fi?.id ?? fi?.series_id) && (type === "tv" || resolvedType === "tv")) {
+            // fi.id is set when the item was mapped by mapXtreamSeries;
+            // fi.series_id is set when it's a raw Xtream catalog item (lookup returns raw items).
+            const seriesIdForEp = fi?.id ?? fi?.series_id;
             try {
               const epData = await r2Route<{ found: boolean; episodes: Array<{ season: number; episode: number; stream_url: string }> }>(
-                `/flix2/series-episodes?seriesId=${fi.id}`
+                `/flix2/series-episodes?seriesId=${seriesIdForEp}`
               );
               if (epData.found) {
                 for (const ep of epData.episodes) {
@@ -2149,7 +2152,7 @@ export default function DetailScreen() {
                           watched={watched}
                           current={current}
                           colors={colors}
-                          fallbackImage={details?.backdrop_path ?? details?.poster_path ?? null}
+                          fallbackImage={null}
                           onPress={undefined}
                           onR2Press={srcSettings.r2 && r2Ep && !isDriveItem(r2Ep) && !isFlixItem(r2Ep) ? () => goToR2Player(r2Ep, selectedSeason, ep.episode_number) : undefined}
                           onFlixPress={(() => {
