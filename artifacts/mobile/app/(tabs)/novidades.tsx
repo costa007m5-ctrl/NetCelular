@@ -1293,10 +1293,15 @@ export default function NovidadesScreen() {
     return pool.filter((i) => { if (seen.has(i.id)) return false; seen.add(i.id); return true; }).slice(0, 12);
   }, [allMovies, allSeries]);
 
-  // cinemaMovies: backdrop-heavy movies from the middle of catalog (distinct from trendMovies)
+  // cinemaMovies: most recent movies (2024+) with images — Flix 2.0 sorts newest first
   const cinemaMovies = useMemo(() => {
-    const mid = Math.floor(allMovies.length / 3);
-    return allMovies.slice(mid).filter((i) => !!(i.backdropPath || i.posterPath)).slice(0, 8);
+    const CURRENT_Y = new Date().getFullYear();
+    const recent = allMovies.filter(
+      (i) => i.year >= CURRENT_Y - 1 && !!(i.backdropPath || i.posterPath)
+    );
+    // If not enough 2024/2025 items, fall back to top of catalog with images
+    if (recent.length >= 4) return recent.slice(0, 8);
+    return allMovies.filter((i) => !!(i.backdropPath || i.posterPath)).slice(0, 8);
   }, [allMovies]);
 
   // ── Local paginator — keeps initial modal items small, loads rest lazily ──
