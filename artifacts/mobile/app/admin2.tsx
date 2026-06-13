@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  FlatList,
   Modal,
   Platform,
   Pressable,
@@ -497,10 +498,35 @@ export default function Admin2Screen() {
                     {vodCatFilter ? ` · ${vodCats.find(c => c.category_id === vodCatFilter)?.category_name}` : ""}
                   </Text>
 
-                  <ScrollView contentContainerStyle={s.grid}>
-                    {vodPageItems.map((item) => (
+                  <FlatList
+                    data={vodPageItems}
+                    keyExtractor={(item) => String(item.stream_id)}
+                    numColumns={3}
+                    style={{ flex: 1 }}
+                    contentContainerStyle={s.flatGrid}
+                    columnWrapperStyle={s.flatRow}
+                    initialNumToRender={18}
+                    maxToRenderPerBatch={18}
+                    windowSize={5}
+                    removeClippedSubviews
+                    onEndReachedThreshold={0.4}
+                    onEndReached={() => {
+                      if (vodPageItems.length < filteredVod.length) setVodPage((p) => p + 1);
+                    }}
+                    ListFooterComponent={
+                      vodPageItems.length < filteredVod.length ? (
+                        <Pressable
+                          onPress={() => setVodPage((p) => p + 1)}
+                          style={[s.loadMoreBtn, { borderColor: HUBBY_COLOR, marginTop: 4 }]}
+                        >
+                          <Text style={{ color: HUBBY_COLOR, fontWeight: "700" }}>
+                            + Carregar mais ({filteredVod.length - vodPageItems.length} restantes)
+                          </Text>
+                        </Pressable>
+                      ) : <View style={{ height: 80 }} />
+                    }
+                    renderItem={({ item }) => (
                       <Pressable
-                        key={item.stream_id}
                         style={[s.card, { backgroundColor: colors.card, borderColor: colors.border }]}
                         onPress={() => setSelectedVod(item)}
                       >
@@ -522,19 +548,8 @@ export default function Admin2Screen() {
                           </Text>
                         </View>
                       </Pressable>
-                    ))}
-
-                    {vodPageItems.length < filteredVod.length && (
-                      <Pressable
-                        onPress={() => setVodPage((p) => p + 1)}
-                        style={[s.loadMoreBtn, { borderColor: HUBBY_COLOR }]}
-                      >
-                        <Text style={{ color: HUBBY_COLOR, fontWeight: "700" }}>
-                          + Carregar mais ({filteredVod.length - vodPageItems.length} restantes)
-                        </Text>
-                      </Pressable>
                     )}
-                  </ScrollView>
+                  />
                 </>
               )}
             </View>
@@ -607,10 +622,35 @@ export default function Admin2Screen() {
                     {filteredSeries.length.toLocaleString()} resultados
                   </Text>
 
-                  <ScrollView contentContainerStyle={s.grid}>
-                    {seriesPageItems.map((item) => (
+                  <FlatList
+                    data={seriesPageItems}
+                    keyExtractor={(item) => String(item.series_id)}
+                    numColumns={3}
+                    style={{ flex: 1 }}
+                    contentContainerStyle={s.flatGrid}
+                    columnWrapperStyle={s.flatRow}
+                    initialNumToRender={18}
+                    maxToRenderPerBatch={18}
+                    windowSize={5}
+                    removeClippedSubviews
+                    onEndReachedThreshold={0.4}
+                    onEndReached={() => {
+                      if (seriesPageItems.length < filteredSeries.length) setSeriesPage((p) => p + 1);
+                    }}
+                    ListFooterComponent={
+                      seriesPageItems.length < filteredSeries.length ? (
+                        <Pressable
+                          onPress={() => setSeriesPage((p) => p + 1)}
+                          style={[s.loadMoreBtn, { borderColor: HUBBY_COLOR, marginTop: 4 }]}
+                        >
+                          <Text style={{ color: HUBBY_COLOR, fontWeight: "700" }}>
+                            + Carregar mais ({filteredSeries.length - seriesPageItems.length} restantes)
+                          </Text>
+                        </Pressable>
+                      ) : <View style={{ height: 80 }} />
+                    }
+                    renderItem={({ item }) => (
                       <Pressable
-                        key={item.series_id}
                         style={[s.card, { backgroundColor: colors.card, borderColor: colors.border }]}
                         onPress={() => {
                           setSelectedSeries(item);
@@ -635,19 +675,8 @@ export default function Admin2Screen() {
                           ) : null}
                         </View>
                       </Pressable>
-                    ))}
-
-                    {seriesPageItems.length < filteredSeries.length && (
-                      <Pressable
-                        onPress={() => setSeriesPage((p) => p + 1)}
-                        style={[s.loadMoreBtn, { borderColor: HUBBY_COLOR }]}
-                      >
-                        <Text style={{ color: HUBBY_COLOR, fontWeight: "700" }}>
-                          + Carregar mais ({filteredSeries.length - seriesPageItems.length} restantes)
-                        </Text>
-                      </Pressable>
                     )}
-                  </ScrollView>
+                  />
                 </>
               )}
             </View>
@@ -1158,9 +1187,15 @@ const s = StyleSheet.create({
   grid: {
     padding: 12, flexDirection: "row", flexWrap: "wrap", gap: 10,
   },
+  flatGrid: {
+    padding: 10, paddingBottom: 20,
+  },
+  flatRow: {
+    gap: 8, marginBottom: 8,
+  },
   card: {
-    width: "31%", borderRadius: 10, overflow: "hidden",
-    borderWidth: StyleSheet.hairlineWidth,
+    flex: 1, borderRadius: 10, overflow: "hidden",
+    borderWidth: StyleSheet.hairlineWidth, maxWidth: "33%",
   },
   cardPoster: { width: "100%", aspectRatio: 2 / 3, backgroundColor: "#111" },
   cardInfo: { padding: 8, gap: 2 },
