@@ -395,9 +395,16 @@ export default function DetailScreen() {
 
         // ── Fase 2: flix2/lookup (pode levar 5-20s, corre em background) ──
         // Roda SEMPRE (mesmo com R2/Drive) para descobrir fontes complementares.
-        // Só pula se o registro já tem um item flix2 explícito.
-        const alreadyHasFlix = registryItems.some(isFlixItem);
-        if (alreadyHasFlix) return;
+        // Só pula se o registro já tem itens flix2 COM episódios específicos (episode != null).
+        // Itens flix2 de nível de série (episode=null) NÃO contam — eles não fornecem
+        // botões individuais por episódio, então ainda precisamos do lookup de episódios.
+        // Problema real: quando tmdbId=0, o filtro i.tmdbId===0 pode trazer outras séries
+        // sem TMDB ID (ex: "Pasárgada") que têm flix2Url mas episode=null, causando
+        // alreadyHasFlix=true e bloqueando o lookup da série correta.
+        const alreadyHasFlixEpisodes = registryItems.some(
+          (i) => isFlixItem(i) && i.episode != null
+        );
+        if (alreadyHasFlixEpisodes) return;
 
         if (!cancelled) setFlix2Loading(true);
         try {
