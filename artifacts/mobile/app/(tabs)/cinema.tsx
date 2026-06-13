@@ -51,88 +51,61 @@ const MONTH_COLORS: string[] = [
 ];
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
-interface CatalogItem {
+interface CinemaItem {
   id: string | number;
   title: string;
   tmdb_id: number;
-  type: string;
   year: number;
+  release_date?: string;
   poster: string;
   backdrop?: string;
-  added_at: number;
-  added_date?: string;
-  rating?: number;
-  overview?: string;
+  rating?: string;
+  synopsis?: string;
+  added_at?: number;
 }
 
-function toContent(item: CatalogItem): ContentItem {
+interface MonthGroup {
+  key: string;   // "2026-06"
+  label: string; // "Junho 2026"
+  items: CinemaItem[];
+}
+
+interface CinemaData {
+  ok: boolean;
+  warming?: boolean;
+  total: number;
+  topRated: CinemaItem[];
+  months: MonthGroup[];
+}
+
+function toContent(item: CinemaItem): ContentItem {
   return {
     id: String(item.id),
     tmdbId: Number(item.tmdb_id) || 0,
-    title: item.title ?? "",
-    year: item.year || 0,
-    rating: item.rating ?? 0,
+    title:  item.title ?? "",
+    year:   item.year || 0,
+    rating: parseFloat(item.rating ?? "0") || 0,
     posterPath:   item.poster ?? "",
     backdropPath: item.backdrop ?? item.poster ?? "",
-    description:  item.overview ?? "",
+    description:  item.synopsis ?? "",
     genres: [],
     type: "movie",
     mediaType: "movie",
   };
 }
 
-/** Normalise added_at to milliseconds */
-function toMs(ts: number): number {
-  return ts > 1e12 ? ts : ts * 1000;
-}
-
-function monthKeyFromItem(item: CatalogItem): string {
-  if (item.added_date) return item.added_date.slice(0, 7);
-  const d = new Date(toMs(item.added_at));
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-}
-
-async function fetchCinema(): Promise<{ items: CatalogItem[]; topRated: CatalogItem[] }> {
+async function fetchCinema(retryOnWarm = true): Promise<CinemaData> {
   try {
-    const res = await r2Route<{ ok: boolean; items: CatalogItem[] }>(
-      "/flix2/catalog-full?type=movies"
-    );
-    if (!res.ok) return { items: [], topRated: [] };
-    const all = (res.items ?? []).filter((i) => i.title && i.poster);
-    // 2026 items: added_at in 2026 or year >= 2026
-    const jan2026ms = new Date("2026-01-01").getTime();
-    const items2026 = all.filter((i) => {
-      const ms = toMs(i.added_at);
-      return ms >= jan2026ms || i.year >= 2026;
-    });
-    // Top rated from entire catalog
-    const topRated = [...all]
-      .filter((i) => (i.rating ?? 0) >= 6)
-      .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0))
-      .slice(0, 25);
-    return { items: items2026, topRated };
+    const res = await r2Route<CinemaData>("/flix2/cinema-2026");
+    if (res.warming && retryOnWarm) {
+      // Server is warming the catalog — wait 3s and retry once
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      return fetchCinema(false);
+    }
+    return res;
   } catch {
-    return { items: [], topRated: [] };
+    return { ok: false, total: 0, topRated: [], months: [] };
   }
-}
-
-function getMonthLabel(key: string): string {
-  const [year, monthStr] = key.split("-");
-  const month = parseInt(monthStr, 10);
-  return `${MONTH_PT[month] ?? key} ${year}`;
-}
-
-function groupByMonth(items: CatalogItem[]): { key: string; label: string; items: CatalogItem[] }[] {
-  const map: Record<string, CatalogItem[]> = {};
-  for (const item of items) {
-    const k = monthKeyFromItem(item);
-    if (!k) continue;
-    if (!map[k]) map[k] = [];
-    map[k].push(item);
-  }
-  return Object.entries(map)
-    .sort(([a], [b]) => b.localeCompare(a))
-    .map(([key, arr]) => ({ key, label: getMonthLabel(key), items: arr }));
 }
 
 // ─── Skeleton ─────────────────────────────────────────────────────────────────
@@ -561,9 +534,9 @@ export default function CinemaScreen() {
   const shimmer = useRef(new Animated.Value(0)).current;
   const [loading, setLoading]       = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [cinemaData, setCinemaData] = useState<{
-    items: CatalogItem[]; topRated: CatalogItem[];
-  }>({ items: [], topRated: [] });
+  const [cinemaData, setCinemaData] = useState<CinemaData>({
+    ok: false, total: 0, topRated: [], months: [],
+  });
   const [modal, setModal] = useState<{
     visible: boolean; title: string; items: ContentItem[]; accent: string;
   }>({ visible: false, title: "", items: [], accent: GOLD });
@@ -601,17 +574,25 @@ export default function CinemaScreen() {
     });
   }, [router]);
 
-  const allContent      = useMemo(() => cinemaData.items.map(toContent),    [cinemaData.items]);
-  const topRatedContent = useMemo(() => cinemaData.topRated.map(toContent), [cinemaData.topRated]);
+  // Flat list of all 2026 items for banner + stats
+  const allContent = useMemo(
+    () => cinemaData.months.flatMap((g) => g.items).map(toContent),
+    [cinemaData.months]
+  );
 
-  // Items with backdrop for rotating banner
-  const bannerItems = useMemo(() =>
-    allContent.filter((i) => i.backdropPath).slice(0, 8),
+  const topRatedContent = useMemo(
+    () => cinemaData.topRated.map(toContent),
+    [cinemaData.topRated]
+  );
+
+  // Items with backdrop for rotating banner (prefer items with real backdrops)
+  const bannerItems = useMemo(
+    () => allContent.filter((i) => i.backdropPath && i.backdropPath !== i.posterPath).slice(0, 8),
     [allContent]
   );
 
-  // Month groupings
-  const monthGroups = useMemo(() => groupByMonth(cinemaData.items), [cinemaData.items]);
+  // Months come pre-grouped from server
+  const monthGroups = cinemaData.months;
 
   const openModal = (title: string, items: ContentItem[], accent = GOLD) =>
     setModal({ visible: true, title, items, accent });

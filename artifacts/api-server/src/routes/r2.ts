@@ -2173,17 +2173,19 @@ function mapXtreamVod(item: any): any {
   const backdrop = normalizeXtreamImageUrl(backdropArr[0] ?? item.stream_icon ?? "");
   // `added` is a Unix timestamp (string) from Xtream — when this VOD was added to the server
   const addedTs = item.added ? Number(item.added) : 0;
+  const releaseDate: string = item.releaseDate ?? "";
   return {
-    id:        String(streamId),
-    tmdb_id:   Number(item.tmdb) || 0,
-    title:     item.name ?? "",
-    type:      "filme",
-    year:      item.releaseDate ? (parseInt(item.releaseDate) || 0) : 0,
-    rating:    String(item.rating ?? item.rating_5based ?? "0"),
+    id:           String(streamId),
+    tmdb_id:      Number(item.tmdb) || 0,
+    title:        item.name ?? "",
+    type:         "filme",
+    year:         releaseDate ? (parseInt(releaseDate) || 0) : 0,
+    release_date: releaseDate,   // full "YYYY-MM-DD" string from Xtream/TMDB
+    rating:       String(item.rating ?? item.rating_5based ?? "0"),
     poster,
     backdrop,
-    synopsis:  item.plot ?? "",
-    added_at:  addedTs,
+    synopsis:     item.plot ?? "",
+    added_at:     addedTs,
     // Xtream Codes VOD stream format: /movie/{user}/{pass}/{id}.{ext}
     stream_url: `${FLIX2_SERVER}/movie/${FLIX2_USER}/${FLIX2_PASS}/${streamId}.${ext}`,
   };
@@ -3528,6 +3530,93 @@ router.get("/flix2/whats-new", (req, res) => {
     ),
     ...result,
   });
+});
+
+// ── GET /flix2/cinema-2026 ────────────────────────────────────────────────────
+// Returns all 2026 movies from the catalog, using the Xtream releaseDate field
+// (populated from TMDB) for accurate year/month grouping.
+// Response: { ok, total, topRated: [...], months: [{key, label, items:[...]}] }
+router.get("/flix2/cinema-2026", (req, res) => {
+  const MONTH_PT: Record<number, string> = {
+    1: "Janeiro", 2: "Fevereiro", 3: "Março", 4: "Abril",
+    5: "Maio", 6: "Junho", 7: "Julho", 8: "Agosto",
+    9: "Setembro", 10: "Outubro", 11: "Novembro", 12: "Dezembro",
+  };
+
+  const cached = FULL_CATALOG_CACHE.get("movies");
+  if (!cached) {
+    // Catalog not warmed yet — trigger a full warm-up asynchronously
+    flix2FetchPage("movies", 1).then(async (first) => {
+      if (!first.success) return;
+      const totalPages: number = first.pagination?.total_pages ?? 1;
+      const allItems: any[] = [...(first.data ?? [])];
+      const BATCH = 15;
+      for (let start = 2; start <= totalPages; start += BATCH) {
+        const batch = Array.from(
+          { length: Math.min(BATCH, totalPages - start + 1) },
+          (_, i) => flix2FetchPage("movies", start + i)
+        );
+        const results = await Promise.allSettled(batch);
+        for (const r of results) {
+          if (r.status === "fulfilled" && r.value.success) allItems.push(...(r.value.data ?? []));
+        }
+      }
+      FULL_CATALOG_CACHE.set("movies", { data: allItems, cachedAt: Date.now() });
+    }).catch(() => {});
+    res.json({ ok: false, warming: true, total: 0, topRated: [], months: [] });
+    return;
+  }
+
+  // Jan 1 2026 in Unix seconds (items added in 2026)
+  const JAN_2026 = 1767225600; // new Date("2026-01-01").getTime() / 1000
+
+  // Filter: items added to the Xtream catalog in 2026
+  const items2026 = cached.data.filter((i: any) =>
+    i.title && i.poster && (i.added_at ?? 0) >= JAN_2026
+  );
+
+  // Group by the month the item was added (added_at)
+  const monthMap: Record<string, any[]> = {};
+  for (const item of items2026) {
+    const ts = (item.added_at ?? 0) * 1000; // to ms
+    const d  = new Date(ts);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    if (!monthMap[key]) monthMap[key] = [];
+    monthMap[key].push({
+      id:       item.id,
+      title:    item.title,
+      tmdb_id:  item.tmdb_id,
+      year:     item.year,
+      poster:   item.poster,
+      backdrop: item.backdrop ?? "",
+      rating:   item.rating ?? "0",
+      synopsis: item.synopsis ?? "",
+      added_at: item.added_at ?? 0,
+    });
+  }
+
+  const months = Object.entries(monthMap)
+    .sort(([a], [b]) => b.localeCompare(a))
+    .map(([key, items]) => {
+      const [yearStr, monthStr] = key.split("-");
+      const monthNum = parseInt(monthStr, 10);
+      const label = `${MONTH_PT[monthNum] ?? monthStr} ${yearStr}`;
+      return { key, label, items };
+    });
+
+  // Top rated: from the full catalog (not just 2026), sorted by rating
+  const topRated = [...cached.data]
+    .filter((i: any) => i.title && i.poster && parseFloat(i.rating ?? "0") >= 6)
+    .sort((a: any, b: any) => parseFloat(b.rating ?? "0") - parseFloat(a.rating ?? "0"))
+    .slice(0, 25)
+    .map((i: any) => ({
+      id: i.id, title: i.title, tmdb_id: i.tmdb_id,
+      year: i.year, release_date: i.release_date ?? "",
+      poster: i.poster, backdrop: i.backdrop ?? "",
+      rating: i.rating ?? "0",
+    }));
+
+  res.json({ ok: true, total: items2026.length, topRated, months });
 });
 
 // ── GET /flix2/catalog-diff ───────────────────────────────────────────────────
