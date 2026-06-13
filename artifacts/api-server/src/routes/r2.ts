@@ -3071,14 +3071,20 @@ router.get("/flix2/series-episodes", async (req, res) => {
   if (!seriesId) { res.status(400).json({ error: "seriesId obrigatório" }); return; }
 
   // ── Path A: serve from episodes cache (instant) ──────────────────────────
+  // Only return from cache when episodes are present — an empty cache entry means
+  // a previous live-API call also returned nothing, so skip and try live again.
   const epCached = EPISODES_CACHE.get(seriesId);
-  if (epCached && Date.now() - epCached.cachedAt < EPISODES_CACHE_TTL_MS) {
+  if (epCached && epCached.episodes.length > 0 && Date.now() - epCached.cachedAt < EPISODES_CACHE_TTL_MS) {
     CACHE_STATS.episodes.hits++;
-    res.json({ found: epCached.episodes.length > 0, episodes: epCached.episodes, info: null, fromCache: true });
+    res.json({ found: true, episodes: epCached.episodes, info: null, fromCache: true });
     return;
   }
 
   // ── Path B: look up in FULL_CATALOG_CACHE (inline episodes, instant) ─────
+  // Note: mapXtreamSeries items have stream_url=null and NO episodes array —
+  // episodes are fetched separately via get_series_info (Path D).
+  // Only return early from this path if the item actually has episode stream_urls;
+  // otherwise fall through to the live-API path.
   for (const cType of ["series", "animes"]) {
     const full = FULL_CATALOG_CACHE.get(cType);
     if (!full || Date.now() - full.cachedAt >= FULL_CATALOG_TTL_MS) continue;
@@ -3097,11 +3103,15 @@ router.get("/flix2/series-episodes", async (req, res) => {
         });
       }
     }
-    eps.sort((a, b) => a.season - b.season || a.episode - b.episode);
-    EPISODES_CACHE.set(seriesId, { episodes: eps, cachedAt: Date.now() });
-    CACHE_STATS.episodes.hits++;
-    res.json({ found: eps.length > 0, episodes: eps, info: null, fromCache: true });
-    return;
+    if (eps.length > 0) {
+      eps.sort((a, b) => a.season - b.season || a.episode - b.episode);
+      EPISODES_CACHE.set(seriesId, { episodes: eps, cachedAt: Date.now() });
+      CACHE_STATS.episodes.hits++;
+      res.json({ found: true, episodes: eps, info: null, fromCache: true });
+      return;
+    }
+    // Item found but no episodes in cache data — fall through to live API (Path D).
+    break;
   }
 
   // ── Path C: WARM_PARTIAL_CACHE (mid-warm-up) ─────────────────────────────
