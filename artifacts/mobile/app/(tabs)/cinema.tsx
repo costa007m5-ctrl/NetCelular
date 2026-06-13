@@ -6,7 +6,6 @@ import React, {
   useState,
 } from "react";
 import {
-  ActivityIndicator,
   Animated,
   Dimensions,
   FlatList,
@@ -32,146 +31,286 @@ import { r2Route } from "@/lib/r2-direct";
 
 const { width: W, height: H } = Dimensions.get("window");
 const GOLD   = "#c9a227";
+const GOLD2  = "#f0c040";
 const RED    = "#e50914";
 const AMBER  = "#f59e0b";
-const BLUE   = "#3b82f6";
-const GREEN  = "#22c55e";
-const PURPLE = "#8b5cf6";
-const TEAL   = "#0891b2";
-const ORANGE = "#f97316";
+const DARK   = "#0a0804";
 
-const IMG_W500 = "https://image.tmdb.org/t/p/w342";
-const IMG_ORIG = "https://image.tmdb.org/t/p/w780";
+// ─── Portuguese month labels ──────────────────────────────────────────────────
+const MONTH_PT: Record<number, string> = {
+  1: "Janeiro", 2: "Fevereiro", 3: "Março", 4: "Abril",
+  5: "Maio", 6: "Junho", 7: "Julho", 8: "Agosto",
+  9: "Setembro", 10: "Outubro", 11: "Novembro", 12: "Dezembro",
+};
 
-function flix2ToContent(item: any): ContentItem {
+const MONTH_COLORS: string[] = [
+  "#c9a227", "#e50914", "#3b82f6", "#22c55e",
+  "#8b5cf6", "#f97316", "#0891b2", "#ec4899",
+  "#dc2626", "#6366f1", "#f59e0b", "#10b981",
+];
+
+// ─── Data ─────────────────────────────────────────────────────────────────────
+interface WhatsNewItem {
+  id: string;
+  title: string;
+  tmdb_id: number;
+  type: string;
+  year: number;
+  poster: string;
+  backdrop?: string;
+  added_at: number;
+  added_date: string;
+  rating?: number;
+  overview?: string;
+}
+
+function wn2Content(item: WhatsNewItem): ContentItem {
   return {
-    id: String(item.tmdb_id || item.id),
+    id: String(item.id),
     tmdbId: Number(item.tmdb_id) || 0,
-    title: item.title ?? item.name ?? "",
-    year: parseInt(((item.release_date ?? item.first_air_date) || "0").slice(0, 4)) || 0,
-    rating: item.vote_average ?? item.rating ?? 0,
-    posterPath:   item.poster   ? (item.poster.startsWith("http") ? item.poster : `${IMG_W500}${item.poster}`)   : "",
-    backdropPath: item.backdrop ? (item.backdrop.startsWith("http") ? item.backdrop : `${IMG_ORIG}${item.backdrop}`) : "",
-    description: item.overview ?? item.description ?? "",
-    genres: item.genre_ids ?? [],
+    title: item.title ?? "",
+    year: item.year || 0,
+    rating: item.rating ?? 0,
+    posterPath:   item.poster ?? "",
+    backdropPath: item.backdrop ?? item.poster ?? "",
+    description:  item.overview ?? "",
+    genres: [],
     type: "movie",
     mediaType: "movie",
   };
 }
 
-async function fetchCinema2026(): Promise<ContentItem[]> {
+async function fetchCinema(): Promise<WhatsNewItem[]> {
   try {
-    const res = await r2Route<{ success: boolean; data: any[] }>(
-      "/flix2/catalog-full?type=movies"
+    const res = await r2Route<{ ok: boolean; movies: WhatsNewItem[] }>(
+      "/flix2/whats-new?days=180"
     );
-    if (!res.success) return [];
-
-    const currentYear = new Date().getFullYear();
-    const items = (res.data ?? [])
-      .filter((i: any) => i.title && (i.poster || i.backdrop))
-      .map(flix2ToContent);
-
-    // First try: current year
-    const current = items.filter((i) => i.year === currentYear);
-    if (current.length >= 20) return current;
-
-    // Fallback: current year + previous year
-    const recent = items.filter((i) => i.year >= currentYear - 1 && i.year > 0);
-    if (recent.length >= 20) return recent;
-
-    // Last fallback: top of catalog (most recently added, regardless of year)
-    return items.slice(0, 300);
+    if (!res.ok) return [];
+    return (res.movies ?? []).filter((i) => i.title && i.poster);
   } catch {
     return [];
   }
 }
 
-// ─── Genre filter config ──────────────────────────────────────────────────────
-const GENRE_FILTERS = [
-  { id: null,   label: "Todos",    color: GOLD,   icon: "film" as const },
-  { id: 28,     label: "Ação",     color: RED,    icon: "zap" as const },
-  { id: 18,     label: "Drama",    color: BLUE,   icon: "heart" as const },
-  { id: 35,     label: "Comédia",  color: ORANGE, icon: "smile" as const },
-  { id: 27,     label: "Terror",   color: PURPLE, icon: "eye" as const },
-  { id: 878,    label: "Sci-Fi",   color: TEAL,   icon: "cpu" as const },
-  { id: 53,     label: "Suspense", color: "#dc2626", icon: "alert-circle" as const },
-  { id: 12,     label: "Aventura", color: GREEN,  icon: "compass" as const },
-  { id: 10749,  label: "Romance",  color: "#ec4899", icon: "sun" as const },
-  { id: 16,     label: "Animação", color: AMBER,  icon: "star" as const },
-  { id: 80,     label: "Crime",    color: "#6366f1", icon: "shield" as const },
-];
+function getMonthKey(dateStr: string): string {
+  return dateStr?.slice(0, 7) ?? "";
+}
+
+function getMonthLabel(key: string): string {
+  const [year, monthStr] = key.split("-");
+  const month = parseInt(monthStr, 10);
+  return `${MONTH_PT[month] ?? key} ${year}`;
+}
+
+function groupByMonth(items: WhatsNewItem[]): { key: string; label: string; items: WhatsNewItem[] }[] {
+  const map: Record<string, WhatsNewItem[]> = {};
+  for (const item of items) {
+    const k = getMonthKey(item.added_date);
+    if (!k) continue;
+    if (!map[k]) map[k] = [];
+    map[k].push(item);
+  }
+  return Object.entries(map)
+    .sort(([a], [b]) => b.localeCompare(a))
+    .map(([key, items]) => ({ key, label: getMonthLabel(key), items }));
+}
 
 // ─── Skeleton ─────────────────────────────────────────────────────────────────
-function SkeletonGrid({ shimmer }: { shimmer: Animated.Value }) {
+function SkeletonBanner({ shimmer }: { shimmer: Animated.Value }) {
   const bg = shimmer.interpolate({
     inputRange: [0, 1],
-    outputRange: ["rgba(255,255,255,0.04)", "rgba(255,255,255,0.10)"],
+    outputRange: ["rgba(201,162,39,0.04)", "rgba(201,162,39,0.10)"],
   });
-  const CARD_W = (W - 48) / 2;
-  const CARD_H = CARD_W * 1.5;
   return (
-    <View style={{ flexDirection: "row", flexWrap: "wrap", paddingHorizontal: 16, gap: 12, marginTop: 8 }}>
-      {Array.from({ length: 6 }).map((_, i) => (
-        <Animated.View key={i} style={{
-          width: CARD_W, height: CARD_H, borderRadius: 14,
-          backgroundColor: bg as any,
-        }} />
+    <View style={{ paddingHorizontal: 16, marginBottom: 16 }}>
+      <Animated.View style={{ height: 240, borderRadius: 20, backgroundColor: bg as any }} />
+    </View>
+  );
+}
+
+function SkeletonRow({ shimmer }: { shimmer: Animated.Value }) {
+  const bg = shimmer.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["rgba(201,162,39,0.04)", "rgba(201,162,39,0.09)"],
+  });
+  return (
+    <View style={{ flexDirection: "row", paddingHorizontal: 16, gap: 10, marginBottom: 28 }}>
+      {[0, 1, 2, 3].map((i) => (
+        <Animated.View key={i} style={{ width: 120, height: 180, borderRadius: 12, backgroundColor: bg as any }} />
       ))}
     </View>
   );
 }
 
-// ─── HeroCard ─────────────────────────────────────────────────────────────────
-function HeroCard({ item, onPress }: { item: ContentItem; onPress: () => void }) {
+// ─── RotatingBanner ───────────────────────────────────────────────────────────
+function RotatingBanner({
+  items, onPress,
+}: {
+  items: ContentItem[]; onPress: (item: ContentItem) => void;
+}) {
+  const [idx, setIdx] = useState(0);
+  const fade   = useRef(new Animated.Value(1)).current;
+  const slideX = useRef(new Animated.Value(0)).current;
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [paused, setPaused] = useState(false);
+
+  const BANNER_H = 260;
+  const ITEMS    = items.slice(0, 8);
+
+  const goTo = useCallback((next: number) => {
+    Animated.parallel([
+      Animated.timing(fade,   { toValue: 0, duration: 280, useNativeDriver: true }),
+      Animated.timing(slideX, { toValue: -20, duration: 280, useNativeDriver: true }),
+    ]).start(() => {
+      setIdx(next);
+      slideX.setValue(20);
+      Animated.parallel([
+        Animated.timing(fade,   { toValue: 1, duration: 300, useNativeDriver: true }),
+        Animated.timing(slideX, { toValue: 0, duration: 300, useNativeDriver: true }),
+      ]).start();
+    });
+  }, [fade, slideX]);
+
+  const advance = useCallback(() => {
+    setIdx((prev) => {
+      const next = (prev + 1) % ITEMS.length;
+      goTo(next);
+      return prev;
+    });
+  }, [goTo, ITEMS.length]);
+
+  useEffect(() => {
+    if (paused || ITEMS.length <= 1) return;
+    timerRef.current = setInterval(advance, 5000);
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [paused, advance, ITEMS.length]);
+
+  if (!ITEMS.length) return null;
+  const item = ITEMS[idx];
+  const imgUri = item.backdropPath || item.posterPath;
+
+  return (
+    <View style={sty.bannerWrap}>
+      <Pressable
+        onPressIn={() => setPaused(true)}
+        onPressOut={() => setPaused(false)}
+        onPress={() => onPress(item)}
+      >
+        <Animated.View style={[sty.bannerCard, { opacity: fade, transform: [{ translateX: slideX }] }]}>
+          {imgUri ? (
+            <Image source={{ uri: imgUri }} style={StyleSheet.absoluteFill}
+              contentFit="cover" cachePolicy="memory-disk" transition={200} />
+          ) : (
+            <LinearGradient colors={["#1a1208", "#0a0804"]} style={StyleSheet.absoluteFill} />
+          )}
+          {/* Letterbox bars */}
+          <View style={sty.lbTop} />
+          <View style={sty.lbBot} />
+          {/* Gradient overlay */}
+          <LinearGradient
+            colors={["transparent", `${GOLD}10`, "rgba(0,0,0,0.97)"]}
+            locations={[0.15, 0.55, 1]} style={StyleSheet.absoluteFill} />
+          {/* Gold top strip */}
+          <LinearGradient
+            colors={[GOLD2, GOLD, `${GOLD}00`]}
+            start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+            style={sty.goldStrip} />
+
+          {/* Film perforations decoration */}
+          <View style={sty.perfLeft}>
+            {Array.from({ length: 6 }).map((_, i) => (
+              <View key={i} style={sty.perfHole} />
+            ))}
+          </View>
+          <View style={sty.perfRight}>
+            {Array.from({ length: 6 }).map((_, i) => (
+              <View key={i} style={sty.perfHole} />
+            ))}
+          </View>
+
+          {/* Content */}
+          <View style={sty.bannerContent}>
+            <View style={sty.bannerTopRow}>
+              <View style={sty.cinemaBadge}>
+                <Feather name="film" size={9} color={GOLD} />
+                <Text style={sty.cinemaBadgeText}>EM CARTAZ 2026</Text>
+              </View>
+              {item.rating > 0 && (
+                <View style={sty.ratingBadge}>
+                  <Feather name="star" size={9} color={AMBER} />
+                  <Text style={sty.ratingBadgeText}>{item.rating.toFixed(1)}</Text>
+                </View>
+              )}
+            </View>
+            <Text style={sty.bannerTitle} numberOfLines={2}>{item.title}</Text>
+            {item.description ? (
+              <Text style={sty.bannerDesc} numberOfLines={2}>{item.description}</Text>
+            ) : null}
+            <View style={sty.bannerBtns}>
+              <TouchableOpacity onPress={() => onPress(item)} activeOpacity={0.85} style={sty.btnPlay}>
+                <Feather name="play" size={14} color="#000" />
+                <Text style={sty.btnPlayText}>Assistir</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => onPress(item)} activeOpacity={0.85} style={sty.btnInfo}>
+                <Feather name="info" size={14} color="#fff" />
+                <Text style={sty.btnInfoText}>Detalhes</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Animated.View>
+      </Pressable>
+
+      {/* Progress dots */}
+      <View style={sty.dotsRow}>
+        {ITEMS.map((_, i) => (
+          <TouchableOpacity key={i} onPress={() => goTo(i)} activeOpacity={0.8}
+            style={[sty.dot, i === idx && sty.dotActive]}>
+            {i === idx && (
+              <LinearGradient colors={[GOLD2, GOLD]}
+                start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+                style={StyleSheet.absoluteFill} />
+            )}
+          </TouchableOpacity>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+// ─── PosterCard ───────────────────────────────────────────────────────────────
+function PosterCard({ item, onPress }: { item: ContentItem; onPress: () => void }) {
   const scale = useRef(new Animated.Value(1)).current;
   const [err, setErr] = useState(false);
-  const imgUri = item.backdropPath || item.posterPath;
-  const pi = () => Animated.spring(scale, { toValue: 0.97, useNativeDriver: true, speed: 28 }).start();
-  const po = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 24 }).start();
+  const pi = () => Animated.spring(scale, { toValue: 0.92, useNativeDriver: true, speed: 30 }).start();
+  const po = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 26 }).start();
   return (
-    <Pressable onPress={onPress} onPressIn={pi} onPressOut={po} style={sty.heroPad}>
-      <Animated.View style={[sty.heroCard, { transform: [{ scale }] }]}>
-        {!err && imgUri ? (
-          <Image source={{ uri: imgUri }} style={StyleSheet.absoluteFill}
-            contentFit="cover" cachePolicy="memory-disk" transition={300}
-            onError={() => setErr(true)} />
-        ) : (
-          <LinearGradient colors={["#1a1208", "#0a0804"]} style={StyleSheet.absoluteFill} />
-        )}
-        {/* Letterbox bars */}
-        <View style={sty.heroBarTop} />
-        <View style={sty.heroBarBot} />
-        <LinearGradient
-          colors={["transparent", `${GOLD}18`, "rgba(0,0,0,0.96)"]}
-          locations={[0.2, 0.6, 1]} style={StyleSheet.absoluteFill} />
-        {/* Gold top stripe */}
-        <View style={sty.heroGoldStripe} />
-        <View style={sty.heroContent}>
-          <View style={sty.heroBadgeRow}>
-            <View style={sty.heroBadge}>
-              <Feather name="film" size={9} color={GOLD} />
-              <Text style={sty.heroBadgeText}>DESTAQUE 2026</Text>
-            </View>
-            {item.rating > 0 && (
-              <View style={sty.heroRating}>
-                <Feather name="star" size={9} color={AMBER} />
-                <Text style={sty.heroRatingText}>{item.rating.toFixed(1)}</Text>
+    <Pressable onPress={onPress} onPressIn={pi} onPressOut={po}>
+      <Animated.View style={{ width: 120, marginRight: 10, transform: [{ scale }] }}>
+        <View style={sty.pCard}>
+          {!err && item.posterPath ? (
+            <Image source={{ uri: item.posterPath }} style={StyleSheet.absoluteFill}
+              contentFit="cover" cachePolicy="memory-disk" transition={220}
+              onError={() => setErr(true)} />
+          ) : (
+            <LinearGradient colors={["#1a1208", "#0a0804"]} style={StyleSheet.absoluteFill}>
+              <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+                <Feather name="film" size={22} color={`${GOLD}18`} />
               </View>
-            )}
+            </LinearGradient>
+          )}
+          <LinearGradient colors={["transparent", "rgba(0,0,0,0.88)"]}
+            locations={[0.5, 1]} style={StyleSheet.absoluteFill} />
+          <View style={sty.pNewBadge}>
+            <Text style={sty.pNewText}>2026</Text>
           </View>
-          <Text style={sty.heroTitle} numberOfLines={2}>{item.title}</Text>
-          {item.description ? (
-            <Text style={sty.heroDesc} numberOfLines={2}>{item.description}</Text>
-          ) : null}
-          <View style={sty.heroActions}>
-            <TouchableOpacity onPress={onPress} activeOpacity={0.85} style={sty.heroPlayBtn}>
-              <Feather name="play" size={14} color="#000" />
-              <Text style={sty.heroPlayText}>Assistir</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={onPress} activeOpacity={0.85} style={sty.heroInfoBtn}>
-              <Feather name="info" size={14} color="#fff" />
-              <Text style={sty.heroInfoText}>Detalhes</Text>
-            </TouchableOpacity>
+          {item.rating > 0 && (
+            <View style={sty.pRating}>
+              <Feather name="star" size={7} color={AMBER} />
+              <Text style={sty.pRatingText}>{item.rating.toFixed(1)}</Text>
+            </View>
+          )}
+          <View style={sty.pInfo}>
+            <Text style={sty.pTitle} numberOfLines={2}>{item.title}</Text>
           </View>
         </View>
       </Animated.View>
@@ -179,48 +318,164 @@ function HeroCard({ item, onPress }: { item: ContentItem; onPress: () => void })
   );
 }
 
-// ─── GridCard ─────────────────────────────────────────────────────────────────
-function GridCard({ item, onPress }: { item: ContentItem; onPress: () => void }) {
-  const scale = useRef(new Animated.Value(1)).current;
-  const [err, setErr] = useState(false);
-  const CARD_W = (W - 48) / 2;
-  const CARD_H = CARD_W * 1.5;
-  const pi = () => Animated.spring(scale, { toValue: 0.93, useNativeDriver: true, speed: 30 }).start();
-  const po = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 26 }).start();
+// ─── MonthSection ─────────────────────────────────────────────────────────────
+function MonthSection({
+  label, items, accentColor, onItemPress, onSeeAll,
+}: {
+  label: string; items: ContentItem[];
+  accentColor: string; onItemPress: (i: ContentItem) => void;
+  onSeeAll?: () => void;
+}) {
+  const [month, ...rest] = label.split(" ");
   return (
-    <Pressable onPress={onPress} onPressIn={pi} onPressOut={po} style={{ flex: 1 }}>
-      <Animated.View style={{ transform: [{ scale }] }}>
-        <View style={[sty.gridCard, { width: CARD_W, height: CARD_H }]}>
-          {!err && item.posterPath ? (
-            <Image source={{ uri: item.posterPath }} style={StyleSheet.absoluteFill}
-              contentFit="cover" cachePolicy="memory-disk" transition={250}
-              onError={() => setErr(true)} />
-          ) : (
-            <LinearGradient colors={["#1a1208", "#0a0804"]} style={StyleSheet.absoluteFill}>
-              <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-                <Feather name="film" size={28} color="rgba(201,162,39,0.15)" />
-              </View>
-            </LinearGradient>
-          )}
-          <LinearGradient colors={["transparent", "rgba(0,0,0,0.9)"]}
-            locations={[0.5, 1]} style={StyleSheet.absoluteFill} />
-          {item.year > 0 && (
-            <View style={sty.gridYear}>
-              <Text style={sty.gridYearText}>{item.year}</Text>
-            </View>
-          )}
-          {item.rating > 0 && (
-            <View style={sty.gridRating}>
-              <Feather name="star" size={8} color={AMBER} />
-              <Text style={sty.gridRatingText}>{item.rating.toFixed(1)}</Text>
-            </View>
-          )}
-          <View style={sty.gridInfo}>
-            <Text style={sty.gridTitle} numberOfLines={2}>{item.title}</Text>
+    <View style={sty.monthSec}>
+      {/* Section header */}
+      <View style={[sty.monthHead, { overflow: "hidden" }]}>
+        <LinearGradient
+          colors={[`${accentColor}28`, "transparent"]}
+          start={{ x: 0, y: 0 }} end={{ x: 0.7, y: 0 }}
+          style={StyleSheet.absoluteFill} />
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <View style={[sty.monthBar, { backgroundColor: accentColor }]} />
+          <View style={[sty.monthIconWrap, { backgroundColor: `${accentColor}18` }]}>
+            <Feather name="calendar" size={12} color={accentColor} />
+          </View>
+          <Text style={[sty.monthName, { color: accentColor }]}>{month}</Text>
+          {rest.length > 0 && <Text style={sty.monthYear}>{rest.join(" ")}</Text>}
+          <View style={[sty.monthBadge, { backgroundColor: `${accentColor}20`, borderColor: `${accentColor}40` }]}>
+            <Text style={[sty.monthBadgeText, { color: accentColor }]}>{items.length}</Text>
           </View>
         </View>
-      </Animated.View>
+        {onSeeAll && (
+          <TouchableOpacity onPress={onSeeAll} activeOpacity={0.7} style={sty.seeAll}>
+            <Text style={sty.seeAllText}>Ver tudo</Text>
+            <Feather name="chevron-right" size={12} color="rgba(255,255,255,0.3)" />
+          </TouchableOpacity>
+        )}
+      </View>
+      {/* Horizontal scroll */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ paddingHorizontal: 16 }}
+        decelerationRate="fast">
+        {items.slice(0, 12).map((item) => (
+          <PosterCard key={item.id} item={item} onPress={() => onItemPress(item)} />
+        ))}
+        {items.length > 12 && (
+          <Pressable onPress={onSeeAll} style={sty.morePill}>
+            <LinearGradient colors={[`${accentColor}25`, `${accentColor}08`]}
+              style={StyleSheet.absoluteFill} />
+            <Feather name="plus" size={18} color={accentColor} />
+            <Text style={[sty.morePillText, { color: accentColor }]}>+{items.length - 12}</Text>
+          </Pressable>
+        )}
+      </ScrollView>
+    </View>
+  );
+}
+
+// ─── CinemaModalCard ─────────────────────────────────────────────────────────
+function CinemaModalCard({ item, cardW, cardH, onPress }: {
+  item: ContentItem; cardW: number; cardH: number; onPress: () => void;
+}) {
+  const [err, setErr] = useState(false);
+  return (
+    <Pressable onPress={onPress} style={{ width: cardW, marginBottom: 8 }}>
+      <View style={{ width: cardW, height: cardH, borderRadius: 10, overflow: "hidden", backgroundColor: "#111" }}>
+        {!err && item.posterPath ? (
+          <Image source={{ uri: item.posterPath }} style={StyleSheet.absoluteFill}
+            contentFit="cover" cachePolicy="memory-disk" onError={() => setErr(true)} />
+        ) : (
+          <LinearGradient colors={["#1a1208", "#0a0804"]} style={StyleSheet.absoluteFill} />
+        )}
+        <LinearGradient colors={["transparent", "rgba(0,0,0,0.9)"]} locations={[0.5, 1]}
+          style={StyleSheet.absoluteFill} />
+        <View style={{ position: "absolute", bottom: 0, left: 0, right: 0, padding: 7 }}>
+          <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700", lineHeight: 14 }}
+            numberOfLines={2}>{item.title}</Text>
+        </View>
+      </View>
     </Pressable>
+  );
+}
+
+// ─── Ver Tudo Modal ───────────────────────────────────────────────────────────
+function VerTudoModal({ visible, title, items, accentColor = GOLD, onClose, onItemPress }: {
+  visible: boolean; title: string; items: ContentItem[];
+  accentColor?: string; onClose: () => void; onItemPress: (i: ContentItem) => void;
+}) {
+  const slideY   = useRef(new Animated.Value(H)).current;
+  const backdrop = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(slideY,   { toValue: visible ? 0 : H, duration: visible ? 340 : 300, useNativeDriver: true }),
+      Animated.timing(backdrop, { toValue: visible ? 1 : 0, duration: visible ? 280 : 240, useNativeDriver: true }),
+    ]).start();
+  }, [visible]);
+
+  const CARD_W = (W - 48) / 3;
+  const CARD_H = CARD_W * 1.5;
+
+  return (
+    <View pointerEvents={visible ? "auto" : "none"} style={StyleSheet.absoluteFill}>
+      <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.7)", opacity: backdrop }]}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+      </Animated.View>
+      <Animated.View style={[sty.modal, { transform: [{ translateY: slideY }] }]}>
+        <LinearGradient colors={["#0a0804", "#060402"]} style={StyleSheet.absoluteFill} />
+        <View style={[sty.modalHandle, { backgroundColor: `${accentColor}60` }]} />
+        <View style={sty.modalHeader}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+            <View style={[sty.modalAccent, { backgroundColor: accentColor }]} />
+            <Text style={sty.modalTitle}>{title}</Text>
+            <View style={[sty.monthBadge, { backgroundColor: `${accentColor}20`, borderColor: `${accentColor}40` }]}>
+              <Text style={[sty.monthBadgeText, { color: accentColor }]}>{items.length}</Text>
+            </View>
+          </View>
+          <TouchableOpacity onPress={onClose} activeOpacity={0.7} style={{ padding: 6 }}>
+            <Feather name="x" size={18} color="rgba(255,255,255,0.7)" />
+          </TouchableOpacity>
+        </View>
+        <FlatList
+          data={items} keyExtractor={(i, idx) => `${i.id}_${idx}`}
+          numColumns={3}
+          style={{ flex: 1 }}
+          columnWrapperStyle={{ gap: 8, paddingHorizontal: 16 }}
+          contentContainerStyle={{ paddingBottom: 120, paddingTop: 8 }}
+          showsVerticalScrollIndicator={false}
+          initialNumToRender={15}
+          renderItem={({ item }) => (
+            <CinemaModalCard
+              item={item} cardW={CARD_W} cardH={CARD_H}
+              onPress={() => { onItemPress(item); onClose(); }}
+            />
+          )}
+        />
+      </Animated.View>
+    </View>
+  );
+}
+
+// ─── StatsStrip ───────────────────────────────────────────────────────────────
+function StatsStrip({ total, months }: { total: number; months: number }) {
+  return (
+    <View style={sty.statsStrip}>
+      <LinearGradient
+        colors={[`${GOLD}20`, `${GOLD}08`]}
+        start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+        style={StyleSheet.absoluteFill} />
+      <View style={sty.statItem}>
+        <Feather name="film" size={14} color={GOLD} />
+        <Text style={sty.statVal}>{total}</Text>
+        <Text style={sty.statLbl}>filmes de 2026</Text>
+      </View>
+      <View style={sty.statDivider} />
+      <View style={sty.statItem}>
+        <Feather name="calendar" size={14} color={GOLD} />
+        <Text style={sty.statVal}>{months}</Text>
+        <Text style={sty.statLbl}>{months === 1 ? "mês" : "meses"} com lançamentos</Text>
+      </View>
+    </View>
   );
 }
 
@@ -235,12 +490,14 @@ export default function CinemaScreen() {
   const shimmer = useRef(new Animated.Value(0)).current;
   const [loading, setLoading]       = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [items, setItems]           = useState<ContentItem[]>([]);
-  const [genreFilter, setGenreFilter] = useState<number | null>(null);
+  const [rawItems, setRawItems]     = useState<WhatsNewItem[]>([]);
+  const [modal, setModal]           = useState<{
+    visible: boolean; title: string; items: ContentItem[]; accent: string;
+  }>({ visible: false, title: "", items: [], accent: GOLD });
 
   const load = useCallback(async () => {
-    const data = await fetchCinema2026();
-    setItems(data);
+    const data = await fetchCinema();
+    setRawItems(data);
   }, []);
 
   useEffect(() => {
@@ -249,10 +506,7 @@ export default function CinemaScreen() {
       Animated.timing(shimmer, { toValue: 0, duration: 900, useNativeDriver: true }),
     ]));
     if (Platform.OS === "web") loop.start();
-    load().then(() => {
-      loop.stop();
-      setLoading(false);
-    });
+    load().then(() => { loop.stop(); setLoading(false); });
     return () => loop.stop();
   }, [load]);
 
@@ -274,20 +528,20 @@ export default function CinemaScreen() {
     });
   }, [router]);
 
-  const filtered = useMemo(() => {
-    if (genreFilter === null) return items;
-    return items.filter((i) => (i.genres ?? []).includes(genreFilter));
-  }, [items, genreFilter]);
+  const allContent = useMemo(() => rawItems.map(wn2Content), [rawItems]);
 
-  const hero    = filtered[0] ?? null;
-  const gridItems = filtered.slice(1);
+  // Items with backdrop for rotating banner
+  const bannerItems = useMemo(() =>
+    allContent.filter((i) => i.backdropPath).slice(0, 8),
+    [allContent]
+  );
 
-  // Stats
-  const currentYear = new Date().getFullYear();
-  const year2026 = items.filter((i) => i.year === currentYear).length;
-  const year2025 = items.filter((i) => i.year === currentYear - 1).length;
+  // Month groupings
+  const monthGroups = useMemo(() => groupByMonth(rawItems), [rawItems]);
 
-  const CARD_W = (W - 48) / 2;
+  const openModal = (title: string, items: ContentItem[], accent = GOLD) =>
+    setModal({ visible: true, title, items, accent });
+  const closeModal = () => setModal((m) => ({ ...m, visible: false }));
 
   return (
     <View style={[sty.root, { backgroundColor: colors.background }]}>
@@ -296,150 +550,94 @@ export default function CinemaScreen() {
       {/* ═══ HEADER ══════════════════════════════════════════════════════════ */}
       <View style={[sty.header, { paddingTop: topPad + 8 }]}>
         <LinearGradient
-          colors={["rgba(0,0,0,0.97)", "rgba(0,0,0,0.65)", "transparent"]}
+          colors={["rgba(10,8,4,0.98)", "rgba(10,8,4,0.7)", "transparent"]}
           style={StyleSheet.absoluteFill} />
         <View style={sty.headerInner}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <View style={sty.headerIconWrap}>
+            {/* Film reel icon */}
+            <View style={sty.reelWrap}>
               <Feather name="film" size={16} color={GOLD} />
             </View>
             <Text style={sty.logoGold}>CINEMA</Text>
             <View style={sty.yearBadge}>
-              <Text style={sty.yearBadgeText}>{currentYear}</Text>
+              <Text style={sty.yearBadgeText}>2026</Text>
             </View>
           </View>
-          <View style={{ flexDirection: "row", gap: 4 }}>
-            <TouchableOpacity style={sty.iconBtn}
-              onPress={() => router.push("/(tabs)/list")} activeOpacity={0.75}>
-              <Feather name="bookmark" size={20} color="rgba(255,255,255,0.82)" />
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity style={sty.iconBtn}
+            onPress={() => router.push("/(tabs)/list")} activeOpacity={0.75}>
+            <Feather name="bookmark" size={20} color="rgba(255,255,255,0.8)" />
+          </TouchableOpacity>
         </View>
       </View>
 
-      {/* ═══ CONTENT ══════════════════════════════════════════════════════════ */}
-      <FlatList
-        data={gridItems}
-        keyExtractor={(item, idx) => `${item.id}_${idx}`}
-        numColumns={2}
-        columnWrapperStyle={{ gap: 12, paddingHorizontal: 16, marginBottom: 12 }}
+      {/* ═══ MAIN SCROLL ══════════════════════════════════════════════════════ */}
+      <ScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh}
             tintColor={GOLD} colors={[GOLD]} progressViewOffset={topPad + 50} />
         }
-        initialNumToRender={8}
-        maxToRenderPerBatch={6}
-        windowSize={5}
-        removeClippedSubviews={Platform.OS !== "web"}
-        renderItem={({ item }) => (
-          <GridCard item={item} onPress={() => goTo(item)} />
-        )}
-        ListHeaderComponent={
-          <View>
-            {/* Spacer for header */}
-            <View style={{ height: topPad + 58 }} />
+        contentContainerStyle={{ paddingBottom: 150 }}
+      >
+        {/* Spacer for header */}
+        <View style={{ height: topPad + 58 }} />
 
-            {/* ── GENRE PILLS ──────────────────────────────────────────── */}
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ paddingHorizontal: 16, gap: 8, paddingBottom: 4 }}
-              style={{ flexGrow: 0, marginBottom: 14 }}>
-              {GENRE_FILTERS.map((g) => {
-                const active = genreFilter === g.id;
-                return (
-                  <TouchableOpacity key={String(g.id)} onPress={() => setGenreFilter(g.id)}
-                    activeOpacity={0.8}
-                    style={[sty.pill, active && { backgroundColor: g.color, borderColor: g.color }]}>
-                    <Feather name={g.icon} size={11} color={active ? "#fff" : "rgba(255,255,255,0.5)"} />
-                    <Text style={[sty.pillText, active && { color: "#fff" }]}>{g.label}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
+        {loading ? (
+          <>
+            <SkeletonBanner shimmer={shimmer} />
+            <SkeletonRow shimmer={shimmer} />
+            <SkeletonRow shimmer={shimmer} />
+          </>
+        ) : (
+          <>
+            {/* ── ROTATING BANNER ───────────────────────────────────────── */}
+            {bannerItems.length > 0 && (
+              <RotatingBanner items={bannerItems} onPress={goTo} />
+            )}
 
-            {/* ── STATS ────────────────────────────────────────────────── */}
-            {!loading && items.length > 0 && (
-              <View style={sty.statsRow}>
-                {year2026 > 0 && (
-                  <View style={sty.statChip}>
-                    <LinearGradient colors={[`${GOLD}25`, `${GOLD}08`]} style={StyleSheet.absoluteFill} />
-                    <Feather name="film" size={11} color={GOLD} />
-                    <Text style={sty.statChipText}>
-                      <Text style={{ color: GOLD, fontWeight: "800" }}>{year2026}</Text> filmes de {currentYear}
-                    </Text>
-                  </View>
-                )}
-                {year2025 > 0 && (
-                  <View style={[sty.statChip, { borderColor: `${BLUE}30` }]}>
-                    <LinearGradient colors={[`${BLUE}20`, `${BLUE}06`]} style={StyleSheet.absoluteFill} />
-                    <Feather name="clock" size={11} color={BLUE} />
-                    <Text style={sty.statChipText}>
-                      <Text style={{ color: BLUE, fontWeight: "800" }}>{year2025}</Text> filmes de {currentYear - 1}
-                    </Text>
-                  </View>
-                )}
-                <View style={[sty.statChip, { borderColor: `${GREEN}30` }]}>
-                  <LinearGradient colors={[`${GREEN}20`, `${GREEN}06`]} style={StyleSheet.absoluteFill} />
-                  <Feather name="layers" size={11} color={GREEN} />
-                  <Text style={sty.statChipText}>
-                    <Text style={{ color: GREEN, fontWeight: "800" }}>{filtered.length}</Text> total
-                  </Text>
-                </View>
+            {/* ── STATS STRIP ──────────────────────────────────────────── */}
+            {allContent.length > 0 && (
+              <StatsStrip total={allContent.length} months={monthGroups.length} />
+            )}
+
+            {/* ── MONTH CAROUSELS ───────────────────────────────────────── */}
+            {monthGroups.map((group, groupIdx) => {
+              const accent = MONTH_COLORS[groupIdx % MONTH_COLORS.length];
+              const contentItems = group.items.map(wn2Content);
+              return (
+                <MonthSection
+                  key={group.key}
+                  label={group.label}
+                  items={contentItems}
+                  accentColor={accent}
+                  onItemPress={goTo}
+                  onSeeAll={contentItems.length > 12
+                    ? () => openModal(group.label, contentItems, accent)
+                    : undefined}
+                />
+              );
+            })}
+
+            {/* ── EMPTY STATE ───────────────────────────────────────────── */}
+            {allContent.length === 0 && (
+              <View style={sty.emptyState}>
+                <Feather name="film" size={48} color={`${GOLD}20`} />
+                <Text style={sty.emptyTitle}>Nenhum filme encontrado</Text>
+                <Text style={sty.emptySub}>Puxe para baixo para atualizar</Text>
               </View>
             )}
+          </>
+        )}
+      </ScrollView>
 
-            {loading ? (
-              <SkeletonGrid shimmer={shimmer} />
-            ) : (
-              <>
-                {/* ── HERO ───────────────────────────────────────────────── */}
-                {hero && (
-                  <View style={{ marginBottom: 16 }}>
-                    <HeroCard item={hero} onPress={() => goTo(hero)} />
-                  </View>
-                )}
-
-                {/* ── GRID HEADER ────────────────────────────────────────── */}
-                {gridItems.length > 0 && (
-                  <View style={sty.gridHeaderRow}>
-                    <View style={[sty.accentBar, { backgroundColor: GOLD }]} />
-                    <Text style={[sty.gridHeaderText, { color: GOLD }]}>CATÁLOGO</Text>
-                    <Text style={sty.gridHeaderSub}> COMPLETO</Text>
-                    <View style={[sty.badge, { backgroundColor: `${GOLD}20`, borderColor: `${GOLD}40`, marginLeft: 8 }]}>
-                      <Text style={[sty.badgeText, { color: GOLD }]}>{filtered.length}</Text>
-                    </View>
-                  </View>
-                )}
-              </>
-            )}
-          </View>
-        }
-        ListEmptyComponent={
-          !loading ? (
-            <View style={sty.emptyState}>
-              <Feather name="film" size={48} color={`${GOLD}20`} />
-              <Text style={sty.emptyTitle}>Nenhum filme encontrado</Text>
-              <Text style={sty.emptySub}>
-                {genreFilter !== null ? "Tente outro gênero" : "Puxe para baixo para atualizar"}
-              </Text>
-              {genreFilter !== null && (
-                <TouchableOpacity onPress={() => setGenreFilter(null)} style={sty.resetBtn} activeOpacity={0.8}>
-                  <Text style={sty.resetBtnText}>Ver todos os filmes</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          ) : null
-        }
-        ListFooterComponent={
-          !loading && filtered.length > 0 ? (
-            <View style={sty.footer}>
-              <View style={sty.footerLine} />
-              <Text style={sty.footerText}>{filtered.length} filmes · fim do catálogo</Text>
-              <View style={sty.footerLine} />
-            </View>
-          ) : null
-        }
-        contentContainerStyle={{ paddingBottom: 140 }}
+      {/* ─── Modal ─────────────────────────────────────────────────────────── */}
+      <VerTudoModal
+        visible={modal.visible}
+        title={modal.title}
+        items={modal.items}
+        accentColor={modal.accent}
+        onClose={closeModal}
+        onItemPress={goTo}
       />
     </View>
   );
@@ -450,148 +648,182 @@ const sty = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#000" },
 
   header: {
-    position: "absolute", top: 0, left: 0, right: 0, zIndex: 100,
-    paddingBottom: 12,
+    position: "absolute", top: 0, left: 0, right: 0, zIndex: 100, paddingBottom: 12,
   },
   headerInner: {
     flexDirection: "row", alignItems: "center",
     justifyContent: "space-between", paddingHorizontal: 16,
   },
-  headerIconWrap: {
-    width: 32, height: 32, borderRadius: 10, alignItems: "center", justifyContent: "center",
+  reelWrap: {
+    width: 34, height: 34, borderRadius: 10,
+    alignItems: "center", justifyContent: "center",
     backgroundColor: `${GOLD}20`, borderWidth: 1, borderColor: `${GOLD}40`,
   },
   logoGold: { color: GOLD, fontSize: 22, fontWeight: "900", letterSpacing: 2.5 },
-  yearBadge: {
-    backgroundColor: GOLD, borderRadius: 8,
-    paddingHorizontal: 8, paddingVertical: 3,
-  },
+  yearBadge: { backgroundColor: GOLD, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
   yearBadgeText: { color: "#000", fontSize: 12, fontWeight: "900" },
   iconBtn: { padding: 6 },
 
-  pill: {
-    flexDirection: "row", alignItems: "center", gap: 5,
-    paddingHorizontal: 14, paddingVertical: 8, borderRadius: 22,
-    backgroundColor: "rgba(255,255,255,0.06)",
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
-  },
-  pillText: { color: "rgba(255,255,255,0.5)", fontSize: 12, fontWeight: "700" },
-
-  statsRow: {
-    flexDirection: "row", flexWrap: "wrap",
-    gap: 8, paddingHorizontal: 16, marginBottom: 16,
-  },
-  statChip: {
-    flexDirection: "row", alignItems: "center", gap: 6,
-    paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10,
-    overflow: "hidden", borderWidth: 1, borderColor: `${GOLD}30`,
-  },
-  statChipText: { color: "rgba(255,255,255,0.6)", fontSize: 12 },
-
-  heroPad: { paddingHorizontal: 16, marginBottom: 8 },
-  heroCard: {
-    height: 220, borderRadius: 20, overflow: "hidden",
+  // ── Rotating Banner
+  bannerWrap: { paddingHorizontal: 16, marginBottom: 4 },
+  bannerCard: {
+    height: 260, borderRadius: 20, overflow: "hidden",
     backgroundColor: "#111",
-    borderWidth: 1, borderColor: `${GOLD}25`,
+    borderWidth: 1, borderColor: `${GOLD}30`,
   },
-  heroBarTop: {
+  lbTop: {
     position: "absolute", top: 0, left: 0, right: 0,
-    height: 18, backgroundColor: "rgba(0,0,0,0.7)", zIndex: 1,
+    height: 16, backgroundColor: "rgba(0,0,0,0.75)", zIndex: 1,
   },
-  heroBarBot: {
+  lbBot: {
     position: "absolute", bottom: 0, left: 0, right: 0,
-    height: 18, backgroundColor: "rgba(0,0,0,0.7)", zIndex: 1,
+    height: 16, backgroundColor: "rgba(0,0,0,0.75)", zIndex: 1,
   },
-  heroGoldStripe: {
-    position: "absolute", top: 0, left: 0, right: 0,
-    height: 2, backgroundColor: GOLD, zIndex: 2,
+  goldStrip: { position: "absolute", top: 0, left: 0, right: 0, height: 2, zIndex: 2 },
+
+  // Film perforations
+  perfLeft: {
+    position: "absolute", left: 0, top: 16, bottom: 16, width: 12,
+    alignItems: "center", justifyContent: "space-around",
+    zIndex: 2,
   },
-  heroContent: {
-    position: "absolute", bottom: 18, left: 0, right: 0,
-    padding: 18, zIndex: 3,
+  perfRight: {
+    position: "absolute", right: 0, top: 16, bottom: 16, width: 12,
+    alignItems: "center", justifyContent: "space-around",
+    zIndex: 2,
   },
-  heroBadgeRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 7 },
-  heroBadge: {
+  perfHole: {
+    width: 6, height: 10, borderRadius: 2,
+    backgroundColor: "rgba(0,0,0,0.7)",
+    borderWidth: 1, borderColor: "rgba(201,162,39,0.2)",
+  },
+
+  bannerContent: { position: "absolute", bottom: 16, left: 16, right: 16, zIndex: 3 },
+  bannerTopRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 7 },
+  cinemaBadge: {
     flexDirection: "row", alignItems: "center", gap: 5,
-    backgroundColor: `${GOLD}22`, borderWidth: 1, borderColor: `${GOLD}55`,
+    backgroundColor: `${GOLD}22`, borderWidth: 1, borderColor: `${GOLD}60`,
     borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3,
   },
-  heroBadgeText: { color: GOLD, fontSize: 9, fontWeight: "900", letterSpacing: 1 },
-  heroRating: {
+  cinemaBadgeText: { color: GOLD, fontSize: 9, fontWeight: "900", letterSpacing: 1 },
+  ratingBadge: {
     flexDirection: "row", alignItems: "center", gap: 3,
-    backgroundColor: "rgba(0,0,0,0.5)", borderRadius: 6,
+    backgroundColor: "rgba(0,0,0,0.55)", borderRadius: 6,
     paddingHorizontal: 6, paddingVertical: 3,
   },
-  heroRatingText: { color: AMBER, fontSize: 10, fontWeight: "800" },
-  heroTitle: { color: "#fff", fontSize: 22, fontWeight: "900", marginBottom: 5, lineHeight: 26 },
-  heroDesc:  { color: "rgba(255,255,255,0.5)", fontSize: 12, lineHeight: 17, marginBottom: 12 },
-  heroActions: { flexDirection: "row", gap: 10 },
-  heroPlayBtn: {
+  ratingBadgeText: { color: AMBER, fontSize: 10, fontWeight: "800" },
+  bannerTitle: { color: "#fff", fontSize: 24, fontWeight: "900", lineHeight: 28, marginBottom: 6 },
+  bannerDesc: { color: "rgba(255,255,255,0.5)", fontSize: 12, lineHeight: 17, marginBottom: 12 },
+  bannerBtns: { flexDirection: "row", gap: 10 },
+  btnPlay: {
     flexDirection: "row", alignItems: "center", gap: 7,
     backgroundColor: GOLD, borderRadius: 22,
     paddingHorizontal: 20, paddingVertical: 10,
   },
-  heroPlayText: { color: "#000", fontSize: 13, fontWeight: "900" },
-  heroInfoBtn: {
+  btnPlayText: { color: "#000", fontSize: 13, fontWeight: "900" },
+  btnInfo: {
     flexDirection: "row", alignItems: "center", gap: 7,
     backgroundColor: "rgba(255,255,255,0.15)",
     borderRadius: 22, paddingHorizontal: 16, paddingVertical: 10,
     borderWidth: 1, borderColor: "rgba(255,255,255,0.2)",
   },
-  heroInfoText: { color: "#fff", fontSize: 13, fontWeight: "700" },
+  btnInfoText: { color: "#fff", fontSize: 13, fontWeight: "700" },
 
-  gridHeaderRow: {
-    flexDirection: "row", alignItems: "center", gap: 8,
-    paddingHorizontal: 16, marginBottom: 12,
+  // Progress dots
+  dotsRow: {
+    flexDirection: "row", justifyContent: "center",
+    alignItems: "center", gap: 6, marginTop: 10, marginBottom: 4,
   },
-  accentBar: { width: 3, height: 18, borderRadius: 2 },
-  gridHeaderText: { fontSize: 15, fontWeight: "900", letterSpacing: 0.5 },
-  gridHeaderSub:  { fontSize: 15, fontWeight: "900", color: "#fff", letterSpacing: 0.5 },
-  badge: {
+  dot: {
+    width: 20, height: 4, borderRadius: 2,
+    backgroundColor: "rgba(201,162,39,0.25)",
+    overflow: "hidden",
+  },
+  dotActive: { width: 32 },
+
+  // ── Stats Strip
+  statsStrip: {
+    flexDirection: "row", alignItems: "center",
+    marginHorizontal: 16, marginVertical: 14,
+    paddingHorizontal: 18, paddingVertical: 12,
+    borderRadius: 14, overflow: "hidden",
+    borderWidth: 1, borderColor: `${GOLD}25`,
+  },
+  statItem:    { flex: 1, flexDirection: "row", alignItems: "center", gap: 7 },
+  statDivider: { width: 1, height: 28, backgroundColor: `${GOLD}25`, marginHorizontal: 12 },
+  statVal:     { color: GOLD, fontSize: 17, fontWeight: "900" },
+  statLbl:     { color: "rgba(255,255,255,0.45)", fontSize: 11 },
+
+  // ── Month Section
+  monthSec: { marginBottom: 6 },
+  monthHead: {
+    flexDirection: "row", alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16, paddingVertical: 12,
+  },
+  monthBar:  { width: 3, height: 18, borderRadius: 2 },
+  monthIconWrap: {
+    width: 24, height: 24, borderRadius: 7,
+    alignItems: "center", justifyContent: "center",
+  },
+  monthName: { fontSize: 15, fontWeight: "900", letterSpacing: 0.3 },
+  monthYear: { color: "#fff", fontSize: 15, fontWeight: "900" },
+  monthBadge: {
     paddingHorizontal: 7, paddingVertical: 2,
     borderRadius: 8, borderWidth: 1,
   },
-  badgeText: { fontSize: 10, fontWeight: "800" },
+  monthBadgeText: { fontSize: 10, fontWeight: "800" },
+  seeAll: { flexDirection: "row", alignItems: "center", gap: 3 },
+  seeAllText: { color: "rgba(255,255,255,0.33)", fontSize: 12 },
 
-  gridCard: {
-    borderRadius: 14, overflow: "hidden", backgroundColor: "#111",
+  // ── Poster Card
+  pCard: {
+    width: 120, height: 180, borderRadius: 13,
+    overflow: "hidden", backgroundColor: "#111",
   },
-  gridYear: {
-    position: "absolute", top: 8, left: 8,
-    backgroundColor: `${GOLD}22`, borderRadius: 5,
+  pNewBadge: {
+    position: "absolute", top: 7, left: 7,
+    backgroundColor: `${GOLD}22`, borderRadius: 4,
     paddingHorizontal: 5, paddingVertical: 2,
-    borderWidth: 1, borderColor: `${GOLD}40`,
+    borderWidth: 1, borderColor: `${GOLD}50`,
   },
-  gridYearText: { color: GOLD, fontSize: 9, fontWeight: "800" },
-  gridRating: {
-    position: "absolute", top: 8, right: 8,
+  pNewText: { color: GOLD, fontSize: 8, fontWeight: "900" },
+  pRating: {
+    position: "absolute", top: 7, right: 7,
     flexDirection: "row", alignItems: "center", gap: 2,
-    backgroundColor: "rgba(0,0,0,0.7)", borderRadius: 5,
+    backgroundColor: "rgba(0,0,0,0.7)", borderRadius: 4,
     paddingHorizontal: 4, paddingVertical: 2,
   },
-  gridRatingText: { color: AMBER, fontSize: 8, fontWeight: "700" },
-  gridInfo: {
-    position: "absolute", bottom: 0, left: 0, right: 0, padding: 10,
-  },
-  gridTitle: { color: "#fff", fontSize: 12, fontWeight: "700", lineHeight: 16 },
+  pRatingText: { color: AMBER, fontSize: 8, fontWeight: "700" },
+  pInfo: { position: "absolute", bottom: 0, left: 0, right: 0, padding: 9 },
+  pTitle: { color: "#fff", fontSize: 11, fontWeight: "700", lineHeight: 14 },
 
-  emptyState: {
-    alignItems: "center", justifyContent: "center",
-    paddingVertical: 80, gap: 12,
+  morePill: {
+    width: 70, height: 180, borderRadius: 13, overflow: "hidden",
+    alignItems: "center", justifyContent: "center", gap: 6,
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
+    backgroundColor: "rgba(255,255,255,0.03)",
+    marginRight: 10,
   },
+  morePillText: { fontSize: 14, fontWeight: "900" },
+
+  emptyState: { alignItems: "center", paddingVertical: 80, gap: 12 },
   emptyTitle: { color: "rgba(255,255,255,0.3)", fontSize: 16, fontWeight: "700" },
   emptySub:   { color: "rgba(255,255,255,0.18)", fontSize: 13 },
-  resetBtn: {
-    marginTop: 8, paddingHorizontal: 20, paddingVertical: 10,
-    backgroundColor: `${GOLD}20`, borderRadius: 22,
-    borderWidth: 1, borderColor: `${GOLD}40`,
-  },
-  resetBtnText: { color: GOLD, fontSize: 13, fontWeight: "700" },
 
-  footer: {
-    flexDirection: "row", alignItems: "center",
-    paddingHorizontal: 16, paddingVertical: 20, gap: 12,
+  modal: {
+    position: "absolute", left: 0, right: 0, bottom: 0, height: H * 0.88,
+    borderTopLeftRadius: 24, borderTopRightRadius: 24, overflow: "hidden",
   },
-  footerLine: { flex: 1, height: 1, backgroundColor: "rgba(201,162,39,0.15)" },
-  footerText: { color: "rgba(201,162,39,0.35)", fontSize: 11, fontWeight: "600" },
+  modalHandle: {
+    width: 36, height: 4, borderRadius: 2,
+    alignSelf: "center", marginTop: 12, marginBottom: 4,
+  },
+  modalHeader: {
+    flexDirection: "row", alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 18, paddingVertical: 12,
+  },
+  modalAccent: { width: 3, height: 18, borderRadius: 2 },
+  modalTitle:  { color: "#fff", fontSize: 16, fontWeight: "800" },
 });

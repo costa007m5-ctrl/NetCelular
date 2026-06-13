@@ -289,6 +289,31 @@ function DateDivider({ label, accentColor = RED, count }: { label: string; accen
   );
 }
 
+// ─── ModalGridCard ────────────────────────────────────────────────────────────
+function ModalGridCard({ item, cardW, cardH, onPress }: {
+  item: ContentItem; cardW: number; cardH: number; onPress: () => void;
+}) {
+  const [err, setErr] = useState(false);
+  return (
+    <Pressable onPress={onPress} style={{ width: cardW, marginBottom: 8 }}>
+      <View style={{ width: cardW, height: cardH, borderRadius: 10, overflow: "hidden", backgroundColor: "#111" }}>
+        {!err && item.posterPath ? (
+          <Image source={{ uri: item.posterPath }} style={StyleSheet.absoluteFill}
+            contentFit="cover" cachePolicy="memory-disk" onError={() => setErr(true)} />
+        ) : (
+          <LinearGradient colors={["#1a0a14", "#08060e"]} style={StyleSheet.absoluteFill} />
+        )}
+        <LinearGradient colors={["transparent", "rgba(0,0,0,0.88)"]} locations={[0.5, 1]}
+          style={StyleSheet.absoluteFill} />
+        <View style={{ position: "absolute", bottom: 0, left: 0, right: 0, padding: 7 }}>
+          <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700", lineHeight: 14 }}
+            numberOfLines={2}>{item.title}</Text>
+        </View>
+      </View>
+    </Pressable>
+  );
+}
+
 // ─── Ver Mais Modal ───────────────────────────────────────────────────────────
 function VerMaisModal({ visible, title, items, accentColor = RED, onClose, onItemPress }: {
   visible: boolean; title: string; items: ContentItem[];
@@ -369,28 +394,12 @@ function VerMaisModal({ visible, title, items, accentColor = RED, onClose, onIte
           initialNumToRender={15}
           maxToRenderPerBatch={9}
           windowSize={5}
-          renderItem={({ item }) => {
-            const [err, setErr] = useState(false);
-            return (
-              <Pressable onPress={() => { onItemPress(item); onClose(); }}
-                style={{ width: CARD_W, marginBottom: 8 }}>
-                <View style={{ width: CARD_W, height: CARD_H, borderRadius: 10, overflow: "hidden", backgroundColor: "#111" }}>
-                  {!err && item.posterPath ? (
-                    <Image source={{ uri: item.posterPath }} style={StyleSheet.absoluteFill}
-                      contentFit="cover" cachePolicy="memory-disk" onError={() => setErr(true)} />
-                  ) : (
-                    <LinearGradient colors={["#1a0a14", "#08060e"]} style={StyleSheet.absoluteFill} />
-                  )}
-                  <LinearGradient colors={["transparent", "rgba(0,0,0,0.88)"]} locations={[0.5, 1]}
-                    style={StyleSheet.absoluteFill} />
-                  <View style={{ position: "absolute", bottom: 0, left: 0, right: 0, padding: 7 }}>
-                    <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700", lineHeight: 14 }}
-                      numberOfLines={2}>{item.title}</Text>
-                  </View>
-                </View>
-              </Pressable>
-            );
-          }}
+          renderItem={({ item }) => (
+            <ModalGridCard
+              item={item} cardW={CARD_W} cardH={CARD_H}
+              onPress={() => { onItemPress(item); onClose(); }}
+            />
+          )}
         />
       </Animated.View>
     </Modal>
