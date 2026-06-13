@@ -1045,6 +1045,79 @@ function ScrollTopFab({ scrollRef, visible }: { scrollRef: any; visible: boolean
   );
 }
 
+// ─── CinemaCard / CinemaRow ───────────────────────────────────────────────────
+function CinemaCard({ item, onPress }: { item: ContentItem; onPress: () => void }) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const [imgErr, setImgErr] = useState(false);
+  const imgUri = item.backdropPath || item.posterPath;
+  const W = Dimensions.get("window").width;
+  const cardW = W - 32;
+
+  const pi = () => Animated.spring(scale, { toValue: 0.96, useNativeDriver: true, speed: 28, bounciness: 0 }).start();
+  const po = () => Animated.spring(scale, { toValue: 1,    useNativeDriver: true, speed: 24, bounciness: 0 }).start();
+
+  return (
+    <Pressable onPress={onPress} onPressIn={pi} onPressOut={po}
+      style={{ width: cardW, marginHorizontal: 16 }}>
+      <Animated.View style={[sty.cinCard, { width: cardW, transform: [{ scale }] }]}>
+        {!imgErr && imgUri ? (
+          <Image source={{ uri: imgUri }} style={StyleSheet.absoluteFill}
+            contentFit="cover" cachePolicy="memory-disk" transition={300}
+            onError={() => setImgErr(true)} />
+        ) : (
+          <LinearGradient colors={["#080410","#040208"]} style={StyleSheet.absoluteFill} />
+        )}
+        {/* Letterbox bars */}
+        <View style={sty.cinBarTop} />
+        <View style={sty.cinBarBot} />
+        {/* Gradient overlay */}
+        <LinearGradient
+          colors={["transparent","rgba(0,0,0,0.15)","rgba(0,0,0,0.92)"]}
+          locations={[0.25, 0.55, 1]}
+          style={StyleSheet.absoluteFill}
+        />
+        {/* Badge */}
+        <View style={sty.cinBadge}>
+          <Feather name="film" size={9} color="#c9a227" />
+          <Text style={sty.cinBadgeText}>DO CINEMA</Text>
+        </View>
+        {/* Info */}
+        <View style={sty.cinInfo}>
+          <Text style={sty.cinTitle} numberOfLines={1}>{item.title}</Text>
+          <View style={sty.cinMeta}>
+            {item.year > 0 && <Text style={sty.cinYear}>{item.year}</Text>}
+            {item.year > 0 && item.rating > 0 && <View style={sty.cinDot} />}
+            {item.rating > 0 && (
+              <>
+                <Feather name="star" size={9} color={AMBER} />
+                <Text style={sty.cinRating}>{item.rating.toFixed(1)}</Text>
+              </>
+            )}
+          </View>
+        </View>
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+function CinemaRow({ items, onPress }: { items: ContentItem[]; onPress: (i: ContentItem) => void }) {
+  const W = Dimensions.get("window").width;
+  const snapInterval = W - 32 + 16; // card width + gap between cards
+  return (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      snapToInterval={snapInterval}
+      decelerationRate="fast"
+      contentContainerStyle={{ paddingHorizontal: 16, gap: 16 }}
+    >
+      {items.slice(0, 8).map((item) => (
+        <CinemaCard key={item.id} item={item} onPress={() => onPress(item)} />
+      ))}
+    </ScrollView>
+  );
+}
+
 // ─── Row helpers ──────────────────────────────────────────────────────────────
 function PosterRow({ items, onPress, showTitle=false, isNew=false, isNewFn }: {
   items:ContentItem[]; onPress:(i:ContentItem)=>void; showTitle?:boolean; isNew?:boolean;
@@ -1220,6 +1293,20 @@ export default function NovidadesScreen() {
     return pool.filter((i) => { if (seen.has(i.id)) return false; seen.add(i.id); return true; }).slice(0, 12);
   }, [allMovies, allSeries]);
 
+  // cinemaMovies: backdrop-heavy movies from the middle of catalog (distinct from trendMovies)
+  const cinemaMovies = useMemo(() => {
+    const mid = Math.floor(allMovies.length / 3);
+    return allMovies.slice(mid).filter((i) => !!(i.backdropPath || i.posterPath)).slice(0, 8);
+  }, [allMovies]);
+
+  // ── Local paginator — keeps initial modal items small, loads rest lazily ──
+  const makeFlix2Pager = useCallback(
+    (fullArr: ContentItem[], pageSize = 60) =>
+      (page: number): Promise<ContentItem[]> =>
+        Promise.resolve(fullArr.slice(page * pageSize, (page + 1) * pageSize)),
+    []
+  );
+
   // ── R2 / Drive catalog ────────────────────────────────────────────────────
   const { r2Movies, r2Series, r2All } = useR2Catalog();
 
@@ -1230,6 +1317,9 @@ export default function NovidadesScreen() {
     const seen = new Set<string>();
     return all.filter((i) => { if (seen.has(i.id)) return false; seen.add(i.id); return true; });
   }, [r2Series, onAir]);
+
+  // Combined series pool used by "Séries no Ar" modal paginator
+  const combinedSeries = useMemo(() => [...r2Series, ...allSeries], [r2Series, allSeries]);
 
   // Mix R2 items into the hero banner (max 2 r2 slots at front)
   const mergedHeroItems = useMemo(() => {
@@ -1438,8 +1528,8 @@ export default function NovidadesScreen() {
                     <SectionHeader title="Tendência Hoje" icon="trending-up"
                       badge={allMovies.length > 0 ? String(allMovies.length) : "AO VIVO"} accentColor={RED}
                       subtitle="O que o mundo está assistindo agora"
-                      onSeeAll={() => openModal("Tendência Hoje", allMovies.slice(0, 400), RED,
-                          (pg) => fetchOnePage("movies", pg),
+                      onSeeAll={() => openModal("Tendência Hoje", allMovies.slice(0, 60), RED,
+                          makeFlix2Pager(allMovies),
                           [
                             { id: 28,    label: "Ação" },
                             { id: 12,    label: "Aventura" },
@@ -1453,7 +1543,7 @@ export default function NovidadesScreen() {
                             { id: 53,    label: "Suspense" },
                             { id: 10749, label: "Romance" },
                           ],
-                          3,
+                          0,
                         )} />
                     <WideRow items={trendMovies} onPress={goTo}
                       isNewFn={(i) => i.year >= 2023}
@@ -1469,6 +1559,18 @@ export default function NovidadesScreen() {
                     label="MAIS POPULAR DA SEMANA"
                     onPress={() => goTo(spotlight1)}
                     accentColor={RED} />
+                </AnimatedSection>
+              )}
+
+              {/* ── 4b. DO CINEMA ────────────────────────────────────────── */}
+              {cinemaMovies.length > 0 && (
+                <AnimatedSection anim={s[10]}>
+                  <View style={sty.sec}>
+                    <SectionHeader title="Do Cinema" icon="film"
+                      badge="TELA GRANDE" accentColor="#c9a227"
+                      subtitle="As maiores produções do cinema mundial" />
+                    <CinemaRow items={cinemaMovies} onPress={goTo} />
+                  </View>
                 </AnimatedSection>
               )}
 
@@ -1494,8 +1596,8 @@ export default function NovidadesScreen() {
                     <SectionHeader title="Estreando Agora" icon="zap"
                       badge={allSeries.length > 0 ? String(allSeries.length) : "NOVO"} accentColor={BLUE}
                       subtitle="Novos filmes chegando ao catálogo"
-                      onSeeAll={() => openModal("Estreando Agora", allSeries.slice(0, 400), BLUE,
-                          (pg) => fetchOnePage("series", pg),
+                      onSeeAll={() => openModal("Estreando Agora", allSeries.slice(0, 60), BLUE,
+                          makeFlix2Pager(allSeries),
                           [
                             { id: 10759, label: "Ação" },
                             { id: 16,    label: "Animação" },
@@ -1508,7 +1610,7 @@ export default function NovidadesScreen() {
                             { id: 10765, label: "Sci-Fi" },
                             { id: 53,    label: "Suspense" },
                           ],
-                          3,
+                          0,
                         )} />
                     <FeaturedRow items={nowPlaying} onPress={goTo} accentColor={BLUE}
                       isNewFn={(i) => i.year >= 2023} />
@@ -1523,8 +1625,8 @@ export default function NovidadesScreen() {
                     <SectionHeader title="Séries no Ar" icon="tv"
                       badge={allSeries.length + r2Series.length > 0 ? String(allSeries.length + r2Series.length) : "AO AR"} accentColor={GREEN}
                       subtitle="Episódios novos toda semana"
-                      onSeeAll={() => openModal("Séries no Ar", [...r2Series, ...allSeries.slice(0, 400)], GREEN,
-                          (pg) => fetchOnePage("series", pg),
+                      onSeeAll={() => openModal("Séries no Ar", combinedSeries.slice(0, 60), GREEN,
+                          makeFlix2Pager(combinedSeries),
                           [
                             { id: 10759, label: "Ação" },
                             { id: 16,    label: "Animação" },
@@ -1537,7 +1639,7 @@ export default function NovidadesScreen() {
                             { id: 10765, label: "Sci-Fi" },
                             { id: 53,    label: "Suspense" },
                           ],
-                          3,
+                          0,
                         )} />
                     <MoodRow items={mergedOnAir} onPress={goTo}
                       labels={["NOVO EP.","HOJE","NOVO EP.","AMANHÃ","NOVO EP.","HOJE"]}
@@ -1555,7 +1657,7 @@ export default function NovidadesScreen() {
                       <SectionHeader title="Animes em Alta" icon="star"
                         badge={allAnimes.length > 0 ? String(allAnimes.length) : "ANIME"} accentColor={ORANGE}
                         subtitle="Os mais assistidos agora"
-                        onSeeAll={() => openModal("Animes em Alta", allAnimes.slice(0, 400), ORANGE,
+                        onSeeAll={() => openModal("Animes em Alta", allAnimes.slice(0, 60), ORANGE,
                           (pg) => fetchOnePage("animes", pg),
                           [
                             { id: 28,    label: "Ação" },
@@ -1569,7 +1671,7 @@ export default function NovidadesScreen() {
                             { id: 53,    label: "Thriller" },
                             { id: 16,    label: "Animação" },
                           ],
-                          3,
+                          0,
                         )} />
                       <MoodRow items={trendAnimes.slice(0, 6)} onPress={goTo}
                         labels={["NOVO","EM ALTA","NOVO","POPULAR","NOVO","EM ALTA"]}
@@ -1663,6 +1765,27 @@ const sty = StyleSheet.create({
   wRating:   { position:"absolute", top:9, right:9, flexDirection:"row", alignItems:"center", gap:3,
     backgroundColor:"rgba(245,158,11,0.2)", borderRadius:5, paddingHorizontal:5, paddingVertical:3 },
   wRatingText:{ color:AMBER, fontSize:8, fontWeight:"700" },
+
+  // CinemaCard
+  cinCard: {
+    height:210, borderRadius:16, overflow:"hidden", backgroundColor:"#080410",
+    ...Platform.select({
+      ios:     { shadowColor:"#000", shadowOffset:{width:0,height:10}, shadowOpacity:0.65, shadowRadius:20 },
+      android: { elevation:14 },
+    }),
+  },
+  cinBarTop:     { position:"absolute", top:0, left:0, right:0, height:16, backgroundColor:"#000", zIndex:1 },
+  cinBarBot:     { position:"absolute", bottom:0, left:0, right:0, height:16, backgroundColor:"#000", zIndex:1 },
+  cinBadge:      { position:"absolute", top:22, left:14, flexDirection:"row", alignItems:"center", gap:5,
+    backgroundColor:"rgba(0,0,0,0.72)", borderWidth:1, borderColor:"rgba(201,162,39,0.55)",
+    borderRadius:7, paddingHorizontal:9, paddingVertical:4, zIndex:2 },
+  cinBadgeText:  { color:"#c9a227", fontSize:9, fontWeight:"900", letterSpacing:1.4 },
+  cinInfo:       { position:"absolute", bottom:22, left:14, right:14, zIndex:2 },
+  cinTitle:      { color:"#fff", fontSize:20, fontWeight:"900", letterSpacing:-0.4, lineHeight:25 },
+  cinMeta:       { flexDirection:"row", alignItems:"center", gap:6, marginTop:5 },
+  cinYear:       { color:"rgba(255,255,255,0.5)", fontSize:12, fontWeight:"500" },
+  cinDot:        { width:3, height:3, borderRadius:2, backgroundColor:"rgba(255,255,255,0.35)" },
+  cinRating:     { color:AMBER, fontSize:11, fontWeight:"700" },
 
   // FeaturedCard
   fCard: {
