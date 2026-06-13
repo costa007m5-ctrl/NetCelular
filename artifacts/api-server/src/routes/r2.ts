@@ -2434,7 +2434,8 @@ async function warmCatalogType(type: string): Promise<void> {
 // Fetches up to 200 pages (4000 movies) with pt-BR titles + original titles.
 // Safe to call concurrently — guarded by TMDB_2026_WARMING flag.
 export async function warmTmdb2026(): Promise<void> {
-  const TMDB_KEY = process.env.TMDB_API_KEY;
+  // Use env var if set, otherwise fall back to the embedded key (already public in mobile client)
+  const TMDB_KEY = process.env.TMDB_API_KEY ?? "8f0beb08cf016ec8de49e454e09879ec";
   if (!TMDB_KEY) return;
   if (TMDB_2026_WARMING) return;
   if (Date.now() - TMDB_2026_WARMED_AT < TMDB_2026_TTL_MS) return;
@@ -3645,13 +3646,12 @@ router.get("/flix2/cinema-2026", async (req, res) => {
   }
 
   // ── 2. Ensure TMDB 2026 map is warm ───────────────────────────────────────
-  if (TMDB_2026_MAP.size === 0 && process.env.TMDB_API_KEY) {
-    // Key is present but map hasn't warmed yet — trigger async warm and ask client to retry
+  if (TMDB_2026_MAP.size === 0) {
+    // Trigger async warm and ask client to retry — warmTmdb2026 always has a key now
     warmTmdb2026().catch(() => {});
     res.json({ ok: false, warming: true, total: 0, topRated: [], months: [] });
     return;
   }
-  // If TMDB_API_KEY is absent, fall through and use added_at >= Jan 2026 as fallback
 
   // ── 3. Filter Xtream catalog by TMDB 2026 title match ────────────────────
   const JAN_2026 = 1767225600; // fallback: added_at >= Jan 1 2026
