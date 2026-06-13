@@ -224,6 +224,99 @@ router.get("/genres", handle(async () => {
   return { movies: movies.genres, tv: tv.genres };
 }));
 
+router.get("/now-playing", handle(async () => {
+  const key = process.env.TMDB_API_KEY ?? "";
+  const res = await fetch(`https://api.themoviedb.org/3/movie/now_playing?api_key=${key}&language=pt-BR`);
+  const data: any = await res.json();
+  return data.results ?? [];
+}));
+
+router.get("/upcoming", handle(async () => {
+  const key = process.env.TMDB_API_KEY ?? "";
+  const res = await fetch(`https://api.themoviedb.org/3/movie/upcoming?api_key=${key}&language=pt-BR`);
+  const data: any = await res.json();
+  return data.results ?? [];
+}));
+
+router.get("/on-the-air", handle(async () => {
+  const key = process.env.TMDB_API_KEY ?? "";
+  const res = await fetch(`https://api.themoviedb.org/3/tv/on_the_air?api_key=${key}&language=pt-BR`);
+  const data: any = await res.json();
+  return data.results ?? [];
+}));
+
+router.get("/airing-today", handle(async () => {
+  const key = process.env.TMDB_API_KEY ?? "";
+  const res = await fetch(`https://api.themoviedb.org/3/tv/airing_today?api_key=${key}&language=pt-BR`);
+  const data: any = await res.json();
+  return data.results ?? [];
+}));
+
+router.get("/popular-people", handle(async () => {
+  const key = process.env.TMDB_API_KEY ?? "";
+  const res = await fetch(`https://api.themoviedb.org/3/person/popular?api_key=${key}&language=pt-BR`);
+  const data: any = await res.json();
+  return data.results ?? [];
+}));
+
+router.get("/search-person", handle(async (req) => {
+  const q = String(req.query.q ?? "");
+  if (!q.trim()) return [];
+  const key = process.env.TMDB_API_KEY ?? "";
+  const res = await fetch(`https://api.themoviedb.org/3/search/person?api_key=${key}&language=pt-BR&query=${encodeURIComponent(q)}&include_adult=false`);
+  const data: any = await res.json();
+  return data.results ?? [];
+}));
+
+router.get("/person/:id", handle(async (req) => {
+  const id = Number(req.params.id);
+  const key = process.env.TMDB_API_KEY ?? "";
+  const res = await fetch(`https://api.themoviedb.org/3/person/${id}?api_key=${key}&language=pt-BR&append_to_response=movie_credits,tv_credits,images`);
+  return res.json();
+}));
+
+router.get("/person/:id/movie_credits", handle(async (req) => {
+  const id = Number(req.params.id);
+  const key = process.env.TMDB_API_KEY ?? "";
+  const res = await fetch(`https://api.themoviedb.org/3/person/${id}/movie_credits?api_key=${key}&language=pt-BR`);
+  const data: any = await res.json();
+  return (data.cast ?? []).sort((a: any, b: any) => (b.popularity ?? 0) - (a.popularity ?? 0));
+}));
+
+router.get("/person/:id/tv_credits", handle(async (req) => {
+  const id = Number(req.params.id);
+  const key = process.env.TMDB_API_KEY ?? "";
+  const res = await fetch(`https://api.themoviedb.org/3/person/${id}/tv_credits?api_key=${key}&language=pt-BR`);
+  const data: any = await res.json();
+  return (data.cast ?? []).sort((a: any, b: any) => (b.popularity ?? 0) - (a.popularity ?? 0));
+}));
+
+router.get("/discover-country", handle(async (req) => {
+  const type    = String(req.query.type ?? "movie");
+  const country = String(req.query.country ?? "US");
+  const page    = Number(req.query.page ?? 1);
+  const LANG_MAP: Record<string, string> = { BR: "pt", US: "en", KR: "ko", JP: "ja", GB: "en", FR: "fr", IT: "it", ES: "es" };
+  const lang = LANG_MAP[country] ?? "en";
+  const path = type === "tv" ? "tv" : "movie";
+  const key  = process.env.TMDB_API_KEY ?? "";
+  const res  = await fetch(`https://api.themoviedb.org/3/discover/${path}?api_key=${key}&language=pt-BR&with_original_language=${lang}&page=${page}&include_adult=false&sort_by=popularity.desc`);
+  return res.json();
+}));
+
+router.get("/discover-lang", handle(async (req) => {
+  const type    = String(req.query.type ?? "movie");
+  const lang    = String(req.query.lang ?? "en");
+  const genreId = Number(req.query.genre_id ?? 0);
+  const page    = Number(req.query.page ?? 1);
+  const sortBy  = String(req.query.sort_by ?? "popularity.desc");
+  const path    = type === "tv" ? "tv" : "movie";
+  const key     = process.env.TMDB_API_KEY ?? "";
+  let url = `https://api.themoviedb.org/3/discover/${path}?api_key=${key}&language=pt-BR&with_original_language=${lang}&page=${page}&include_adult=false&sort_by=${encodeURIComponent(sortBy)}`;
+  if (genreId > 0) url += `&with_genres=${genreId}`;
+  const res = await fetch(url);
+  return res.json();
+}));
+
 router.get("/redeflix/ids", handle(async () => {
   const [movieIds, tvIds] = await Promise.all([
     tmdb.redeflix.listMovieIds(),

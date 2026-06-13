@@ -2152,7 +2152,12 @@ const XTREAM_PAGE_SIZE = 20;
 // ── TMDB 2026 title index (for Cinema tab filtering) ─────────────────────────
 // Maps normalized title → { date: "YYYY-MM-DD", ptTitle, enTitle }
 // Populated by warmTmdb2026() at startup; refreshed every 12 h.
-interface Tmdb2026Entry { date: string; ptTitle: string; enTitle: string; vote: number; }
+interface Tmdb2026Entry {
+  date: string; ptTitle: string; enTitle: string; vote: number;
+  backdropPath: string | null; posterPath: string | null; overview: string;
+}
+const TMDB_IMG_SRV = (path: string | null, size = "w780") =>
+  path ? `https://image.tmdb.org/t/p/${size}${path}` : null;
 const TMDB_2026_MAP      = new Map<string, Tmdb2026Entry>();
 let   TMDB_2026_WARMED_AT = 0;
 let   TMDB_2026_WARMING   = false;
@@ -2448,11 +2453,14 @@ export async function warmTmdb2026(): Promise<void> {
 
     const addPage = (data: any) => {
       for (const m of data.results ?? []) {
-        const date    = String(m.release_date ?? "");
-        const ptTitle = String(m.title ?? "");
-        const enTitle = String(m.original_title ?? "");
-        const vote    = Number(m.vote_average ?? 0);
-        const entry: Tmdb2026Entry = { date, ptTitle, enTitle, vote };
+        const date         = String(m.release_date ?? "");
+        const ptTitle      = String(m.title ?? "");
+        const enTitle      = String(m.original_title ?? "");
+        const vote         = Number(m.vote_average ?? 0);
+        const backdropPath = m.backdrop_path ?? null;
+        const posterPath   = m.poster_path ?? null;
+        const overview     = String(m.overview ?? "");
+        const entry: Tmdb2026Entry = { date, ptTitle, enTitle, vote, backdropPath, posterPath, overview };
         if (ptTitle) TMDB_2026_MAP.set(normTitle(ptTitle), entry);
         if (enTitle) TMDB_2026_MAP.set(normTitle(enTitle), entry);
       }
@@ -3653,9 +3661,9 @@ router.get("/flix2/cinema-2026", async (req, res) => {
     const key = normTitle(item.title);
     const tmdbEntry = TMDB_2026_MAP.get(key);
     if (tmdbEntry) {
-      items2026.push({ ...item, _tmdbDate: tmdbEntry.date, _tmdbVote: tmdbEntry.vote });
+      items2026.push({ ...item, _tmdbDate: tmdbEntry.date, _tmdbVote: tmdbEntry.vote, _tmdbEntry: tmdbEntry });
     } else if (TMDB_2026_MAP.size === 0 && (item.added_at ?? 0) >= JAN_2026) {
-      items2026.push({ ...item, _tmdbDate: "", _tmdbVote: 0 });
+      items2026.push({ ...item, _tmdbDate: "", _tmdbVote: 0, _tmdbEntry: null });
     }
   }
 
@@ -3678,10 +3686,10 @@ router.get("/flix2/cinema-2026", async (req, res) => {
       title:    item.title,
       tmdb_id:  item.tmdb_id,
       year:     2026,
-      poster:   item.poster,
-      backdrop: item.backdrop ?? "",
+      poster:   TMDB_IMG_SRV(item._tmdbEntry?.posterPath, "w342") ?? item.poster,
+      backdrop: TMDB_IMG_SRV(item._tmdbEntry?.backdropPath, "w780") ?? item.backdrop ?? "",
       rating:   item._tmdbVote > 0 ? String(item._tmdbVote.toFixed(1)) : (item.rating ?? "0"),
-      synopsis: item.synopsis ?? "",
+      synopsis: item._tmdbEntry?.overview || item.synopsis || "",
       added_at: item.added_at ?? 0,
       release_date: item._tmdbDate ?? "",
     });
@@ -3704,9 +3712,10 @@ router.get("/flix2/cinema-2026", async (req, res) => {
     .map((i) => ({
       id: i.id, title: i.title, tmdb_id: i.tmdb_id,
       year: 2026, release_date: i._tmdbDate ?? "",
-      poster: i.poster, backdrop: i.backdrop ?? "",
+      poster: TMDB_IMG_SRV(i._tmdbEntry?.posterPath, "w342") ?? i.poster,
+      backdrop: TMDB_IMG_SRV(i._tmdbEntry?.backdropPath, "w780") ?? i.backdrop ?? "",
       rating: i._tmdbVote > 0 ? String(i._tmdbVote.toFixed(1)) : (i.rating ?? "0"),
-      synopsis: i.synopsis ?? "",
+      synopsis: i._tmdbEntry?.overview || i.synopsis || "",
     }));
 
   res.json({ ok: true, total: items2026.length, topRated, months });
