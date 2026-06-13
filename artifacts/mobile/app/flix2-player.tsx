@@ -566,32 +566,34 @@ export default function Flix2PlayerScreen() {
               cdnUrl: capturedCdnUrl.slice(0, 100),
             });
           } else {
-            // Nível 2: server-side resolve
+            // Nível 2: check-link server-side — usa redirect:"manual" e retorna location
+            // (o servidor faz HEAD ao hubby.cx e captura o 302 → URL fontedecanais com token)
+            let serverResolved = false;
             try {
               const apiBase = await getApiBase();
               const ctrl = new AbortController();
               const tid = setTimeout(() => ctrl.abort(), 8_000);
               const resp = await fetch(
-                `${apiBase}/stream/resolve-url?url=${encodeURIComponent(rawFlix2Url)}`,
+                `${apiBase}/admin/check-link?url=${encodeURIComponent(rawFlix2Url)}`,
                 { signal: ctrl.signal }
               );
               clearTimeout(tid);
               if (resp.ok) {
                 const data = await resp.json();
-                if (data.url && data.url !== rawFlix2Url) {
-                  playerUrl = data.url;
+                if (data.location && data.location !== rawFlix2Url) {
+                  // URL fontedecanais direta (HTTP) — WebView carrega sem redirect
+                  playerUrl = data.location;
                   cdnLabel = "fontedecanais";
                   setWebViewBaseUrl("https://hubby.cx");
-                  appLog.info("player.flix2", "hubby.cx → fontedecanais via servidor", {
-                    resolved: data.url.slice(0, 100),
+                  serverResolved = true;
+                  appLog.info("player.flix2", "hubby.cx → fontedecanais via check-link", {
+                    resolved: data.location.slice(0, 100),
                   });
                 }
               }
             } catch {}
-            if (!capturedCdnUrl) {
-              // Último recurso: API stream proxy — o servidor acessa hubby.cx diretamente
-              // (HTTP 200) e transmite o vídeo via HTTPS limpa, sem redirect HTTPS→HTTP
-              // que o elemento <video> do Android bloqueia.
+            if (!serverResolved) {
+              // Último recurso: API stream proxy
               const apiBase2 = await getApiBase();
               playerUrl = `${apiBase2}/stream/proxy?url=${encodeURIComponent(rawFlix2Url)}`;
               cdnLabel = "hubby-proxy";
@@ -599,11 +601,28 @@ export default function Flix2PlayerScreen() {
             }
           }
         } else if (isHubbyCx(rawFlix2Url)) {
-          // Web ou sem WebView — usa API stream proxy (servidor acessa hubby.cx)
+          // Web ou sem WebView — resolve redirect via check-link; fallback: stream proxy
           const apiBase3 = await getApiBase();
-          playerUrl = `${apiBase3}/stream/proxy?url=${encodeURIComponent(rawFlix2Url)}`;
-          cdnLabel = "hubby-proxy";
-          setWebViewBaseUrl(apiBase3.replace(/\/api$/, ""));
+          let resolvedForWeb = false;
+          try {
+            const ctrl3 = new AbortController();
+            setTimeout(() => ctrl3.abort(), 8_000);
+            const r3 = await fetch(`${apiBase3}/admin/check-link?url=${encodeURIComponent(rawFlix2Url)}`, { signal: ctrl3.signal });
+            if (r3.ok) {
+              const d3 = await r3.json();
+              if (d3.location && d3.location !== rawFlix2Url) {
+                playerUrl = d3.location;
+                cdnLabel = "fontedecanais";
+                setWebViewBaseUrl("https://hubby.cx");
+                resolvedForWeb = true;
+              }
+            }
+          } catch {}
+          if (!resolvedForWeb) {
+            playerUrl = `${apiBase3}/stream/proxy?url=${encodeURIComponent(rawFlix2Url)}`;
+            cdnLabel = "hubby-proxy";
+            setWebViewBaseUrl(apiBase3.replace(/\/api$/, ""));
+          }
         } else if (isCineveoUrl(rawFlix2Url)) {
           cdnLabel = "cineveo";
           setWebViewBaseUrl("https://cineveo.lat");

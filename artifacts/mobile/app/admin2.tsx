@@ -307,13 +307,29 @@ export default function Admin2Screen() {
   // pois o elemento <video> no Android WebView não consegue seguir HTTPS→HTTP.
   const openPlayer = useCallback(async (url: string, title: string) => {
     let playUrl = url;
-    // hubby.cx: o elemento <video> no Android não consegue seguir redirect HTTPS→HTTP.
-    // O servidor consegue acessar hubby.cx diretamente (HTTP 200) — usa o stream proxy
-    // que devolve uma URL HTTPS limpa sem redirect para o WebView.
     const isHubbyCxStream = url.includes("hubby.cx/movie/") || url.includes("hubby.cx/series/") || url.includes("hubby.cx/live/");
     if (isHubbyCxStream) {
+      // Para hubby.cx: resolve o redirect via check-link para obter a URL fontedecanais
+      // com token. O <video> consegue carregar HTTP diretamente (sem redirect HTTPS→HTTP).
+      // Fallback: stream proxy do servidor.
       const base = getApiBase();
-      playUrl = `${base}/stream/proxy?url=${encodeURIComponent(url)}`;
+      try {
+        const ctrl = new AbortController();
+        setTimeout(() => ctrl.abort(), 8000);
+        const res = await fetch(`${base}/admin/check-link?url=${encodeURIComponent(url)}`, { signal: ctrl.signal });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.location && data.location !== url) {
+            playUrl = data.location; // URL fontedecanais direta (HTTP) — sem redirect
+          } else {
+            playUrl = `${base}/stream/proxy?url=${encodeURIComponent(url)}`;
+          }
+        } else {
+          playUrl = `${base}/stream/proxy?url=${encodeURIComponent(url)}`;
+        }
+      } catch {
+        playUrl = `${base}/stream/proxy?url=${encodeURIComponent(url)}`;
+      }
     }
     setPlayerUrl(playUrl);
     setPlayerTitle(title);
@@ -726,7 +742,14 @@ export default function Admin2Screen() {
                         <Text style={[s.microBtnTxt, { color: colors.mutedForeground }]}>Copiar URL</Text>
                       </Pressable>
                       <Pressable
-                        onPress={() => { setVideoInput(r.url); setHSection("teste"); openPlayer(r.url, "Teste de Vídeo"); }}
+                        onPress={() => {
+                          // Se o teste revelou um redirect (ex: hubby.cx → fontedecanais),
+                          // usa a URL final resolvida — o WebView consegue carregar HTTP diretamente.
+                          const playUrl = r.redirectUrl ?? r.url;
+                          setVideoInput(playUrl);
+                          setHSection("teste");
+                          openPlayer(playUrl, "Teste de Vídeo");
+                        }}
                         style={[s.microBtn, { borderColor: HUBBY_COLOR }]}
                       >
                         <Feather name="play" size={12} color={HUBBY_COLOR} />
