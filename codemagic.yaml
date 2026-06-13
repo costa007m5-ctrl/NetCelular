@@ -27,6 +27,7 @@ workflows:
   android-release:
     name: NETPLAY — Android Release
     max_build_duration: 60
+    instance_type: linux_x2
     environment:
       node: 20.19.4
 
@@ -119,7 +120,7 @@ workflows:
   ios-release:
     name: NETPLAY — iOS Release
     max_build_duration: 90
-    instance_type: mac_mini_m2
+    instance_type: mac_mini_m4
     environment:
       node: 20.19.4
       xcode: 16.2
@@ -195,6 +196,7 @@ workflows:
   eas-build:
     name: NETPLAY — EAS Build
     max_build_duration: 60
+    instance_type: linux_x2
     environment:
       node: 20.19.4
       vars:
