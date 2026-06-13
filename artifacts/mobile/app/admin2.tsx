@@ -17,6 +17,7 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import WebViewVideoPlayer from "@/components/WebViewVideoPlayer";
+import { getApiBase } from "@/lib/api";
 
 // ─── Xtream Codes ────────────────────────────────────────────────────────────
 const HUBBY_HOST = "https://hubby.cx";
@@ -227,28 +228,36 @@ export default function Admin2Screen() {
   const vodPageItems = filteredVod.slice(0, vodPage * PAGE_SIZE);
   const seriesPageItems = filteredSeries.slice(0, seriesPage * PAGE_SIZE);
 
-  // ─── Link tester ────────────────────────────────────────────────────────────
+  // ─── Link tester (via API proxy — avoids browser CORS) ─────────────────────
   const testLink = useCallback(async (url: string) => {
     if (!url.trim()) return;
     setLinkTesting(true);
-    const t = Date.now();
     const result: LinkResult = {
       url: url.trim(),
       status: null, contentType: null, ok: false, latency: null,
     };
     try {
+      const base = getApiBase();
       const ctrl = new AbortController();
-      setTimeout(() => ctrl.abort(), 10000);
-      const res = await fetch(url.trim(), { method: "HEAD", signal: ctrl.signal });
-      result.status = res.status;
-      result.contentType = res.headers.get("content-type");
-      result.ok = res.ok || res.status === 302 || res.status === 301;
-      result.latency = Date.now() - t;
-      const redir = res.headers.get("location");
-      if (redir) result.redirectUrl = redir;
+      setTimeout(() => ctrl.abort(), 15000);
+      const res = await fetch(
+        `${base}/admin/check-link?url=${encodeURIComponent(url.trim())}`,
+        { signal: ctrl.signal }
+      );
+      const json = await res.json().catch(() => null);
+      if (json) {
+        result.status = json.status;
+        result.contentType = json.contentType;
+        result.ok = !!json.ok;
+        result.latency = json.latency ?? null;
+        if (json.location) result.redirectUrl = json.location;
+        if (json.error) result.error = json.error;
+      } else {
+        result.error = `API HTTP ${res.status}`;
+        result.latency = null;
+      }
     } catch (e: any) {
       result.error = e.message ?? "Falha na requisição";
-      result.latency = Date.now() - t;
     }
     setLinkResults((prev) => [result, ...prev.slice(0, 9)]);
     setLinkTesting(false);
@@ -286,26 +295,18 @@ export default function Admin2Screen() {
         <View style={{ width: 40 }} />
       </View>
 
-      {/* Main tab bar */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-        <View style={[s.tabsRow, { borderBottomColor: colors.border }]}>
-          {(["hubby"] as const).map((tab) => {
-            const isActive = activeTab === tab;
-            return (
-              <Pressable
-                key={tab}
-                onPress={() => setActiveTab(tab)}
-                style={[s.tab, isActive && { borderBottomColor: HUBBY_COLOR, borderBottomWidth: 2 }]}
-              >
-                <Feather name="server" size={14} color={isActive ? HUBBY_COLOR : colors.mutedForeground} />
-                <Text style={[s.tabTxt, { color: isActive ? HUBBY_COLOR : colors.mutedForeground }]}>
-                  Hubby
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </ScrollView>
+      {/* Main tab bar — plain View (no ScrollView, avoids flex-expand bug on web) */}
+      <View style={[s.tabsRow, { borderBottomColor: colors.border }]}>
+        <Pressable
+          onPress={() => setActiveTab("hubby")}
+          style={[s.tab, activeTab === "hubby" && { borderBottomColor: HUBBY_COLOR, borderBottomWidth: 2 }]}
+        >
+          <Feather name="server" size={14} color={activeTab === "hubby" ? HUBBY_COLOR : colors.mutedForeground} />
+          <Text style={[s.tabTxt, { color: activeTab === "hubby" ? HUBBY_COLOR : colors.mutedForeground }]}>
+            Hubby
+          </Text>
+        </Pressable>
+      </View>
 
       {/* ── HUBBY TAB ──────────────────────────────────────────────────────── */}
       {activeTab === "hubby" && (

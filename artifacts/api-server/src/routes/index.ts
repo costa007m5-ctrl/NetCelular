@@ -7,6 +7,7 @@ import streamRouter from "./stream";
 import liveTvRouter from "./live-tv";
 import castRouter from "./cast";
 import appLogsRouter from "./app-logs";
+import adminRouter from "./admin";
 
 const router: IRouter = Router();
 
@@ -18,5 +19,6 @@ router.use("/stream", streamRouter);
 router.use("/live", liveTvRouter);
 router.use(castRouter);
 router.use(appLogsRouter);
+router.use(adminRouter);
 
 export default router;
