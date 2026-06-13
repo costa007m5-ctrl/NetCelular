@@ -2100,6 +2100,11 @@ export default function HomeScreen() {
     const s = raw.series.filter((i: any) => hasId(i) && i.title).map(flix2ToContent);
     const a = raw.animes.filter((i: any) => hasId(i) && i.title).map(flix2ToContent);
 
+    // Deduplicate: remove from animes any item already in movies or series
+    // (Xtream APIs often have the same title in multiple categories)
+    const seriesAndMovieIds = new Set([...m, ...s].map((i) => i.id));
+    const aDeduped = a.filter((i) => !seriesAndMovieIds.has(i.id));
+
     if (m.length) {
       setMovies(m);
       setHeroItems(m.filter((x) => x.backdropPath || x.posterPath).slice(0, 6));
@@ -2111,9 +2116,9 @@ export default function HomeScreen() {
       setTop10Series(s.slice(0, 10));
       setTotals((t) => ({ ...t, series: s.length }));
     }
-    if (a.length) {
-      setAnimes(a);
-      setTotals((t) => ({ ...t, animes: a.length }));
+    if (aDeduped.length) {
+      setAnimes(aDeduped);
+      setTotals((t) => ({ ...t, animes: aDeduped.length }));
     }
 
     const availableIds = new Set<number>();

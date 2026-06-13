@@ -73,31 +73,34 @@ function flix2ToContent(item: any): ContentItem {
   };
 }
 
-async function fetchFromApi(type: "movies" | "series" | "animes", pages = 3): Promise<any[]> {
-  const calls = Array.from({ length: pages }, (_, i) =>
-    r2Route<{ success: boolean; data: any[] }>(`/flix2/catalog?type=${type}&page=${i + 1}`)
-  );
-  const results = await Promise.allSettled(calls);
-  const raw: any[] = [];
-  for (const r of results) {
-    if (r.status === "fulfilled" && r.value.success) {
-      raw.push(...(r.value.data ?? []).filter((i: any) => i.tmdb_id > 0 && i.poster));
-    }
+// Same permissive filter used in Home: accept tmdb_id=0 if there's an id + title
+const hasId = (i: any) => i.tmdb_id > 0 || (i.id != null && String(i.id).length > 0);
+
+async function fetchFromApi(type: "movies" | "series" | "animes"): Promise<any[]> {
+  try {
+    // Use catalog-full (same as Home) — returns all items, not just tmdb_id > 0
+    const res = await r2Route<{ success: boolean; data: any[] }>(
+      `/flix2/catalog-full?type=${type}`
+    );
+    if (!res.success) return [];
+    return (res.data ?? []).filter((i: any) => hasId(i) && i.title);
+  } catch {
+    return [];
   }
-  return raw;
 }
 
 async function fetchCatalog(
   type: "movies" | "series" | "animes",
-  pages = 3,
   onRefresh?: (items: ContentItem[]) => void
 ): Promise<ContentItem[]> {
   // 1. Try cache first — instant display
   const cached = await getCached(type);
   if (cached) {
-    const items = cached.map(flix2ToContent);
-    // Background revalidation — fetch fresh without blocking UI
-    fetchFromApi(type, pages).then((raw) => {
+    const items = cached
+      .filter((i: any) => hasId(i) && i.title)
+      .map(flix2ToContent);
+    // Background revalidation — silent refresh
+    fetchFromApi(type).then((raw) => {
       if (raw.length) {
         setCached(type, raw);
         onRefresh?.(raw.map(flix2ToContent));
@@ -105,8 +108,8 @@ async function fetchCatalog(
     }).catch(() => {});
     return items;
   }
-  // 2. Cache miss — fetch normally and store
-  const raw = await fetchFromApi(type, pages);
+  // 2. Cache miss — fetch and store
+  const raw = await fetchFromApi(type);
   if (raw.length) setCached(type, raw);
   return raw.map(flix2ToContent);
 }
@@ -1217,20 +1220,24 @@ export default function NovidadesScreen() {
 
   // ── apply fetched items to state ─────────────────────────────────────────
   const applyData = useCallback((movies: ContentItem[], series: ContentItem[], animes: ContentItem[]) => {
+    // Deduplicate animes: remove items already present in movies or series
+    const movAndSerIds = new Set([...movies, ...series].map((i) => i.id));
+    const animesDeduped = animes.filter((i) => !movAndSerIds.has(i.id));
+
     if (movies.length > 0) {
       setAllMovies(movies);
       setHeroItems(movies.filter((x) => x.backdropPath || x.posterPath).slice(0, 6));
     }
     if (series.length > 0) setAllSeries(series);
-    if (animes.length > 0) setAllAnimes(animes);
+    if (animesDeduped.length > 0) setAllAnimes(animesDeduped);
   }, []);
 
   // ── Fetch all data — cache-first + background revalidation ────────────────
   const loadAll = useCallback(async () => {
     const [movRes, serRes, aniRes] = await Promise.allSettled([
-      fetchCatalog("movies", 3, (fresh) => setAllMovies(fresh)),
-      fetchCatalog("series", 3, (fresh) => setAllSeries(fresh)),
-      fetchCatalog("animes", 3, (fresh) => setAllAnimes(fresh)),
+      fetchCatalog("movies", (fresh) => setAllMovies(fresh)),
+      fetchCatalog("series", (fresh) => setAllSeries(fresh)),
+      fetchCatalog("animes", (fresh) => setAllAnimes(fresh)),
     ]);
 
     const movies = movRes.status === "fulfilled" ? movRes.value : [];
