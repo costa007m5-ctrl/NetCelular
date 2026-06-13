@@ -8,12 +8,14 @@ import liveTvRouter from "./live-tv";
 import castRouter from "./cast";
 import appLogsRouter from "./app-logs";
 import adminRouter from "./admin";
+import tmdbRouter from "./tmdb";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
 router.use("/drive", driveRouter);
 router.use("/r2", r2Router);
+router.use("/tmdb", tmdbRouter);
 router.use("/push", pushRouter);
 router.use("/stream", streamRouter);
 router.use("/live", liveTvRouter);

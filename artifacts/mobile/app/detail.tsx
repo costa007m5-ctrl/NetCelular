@@ -432,20 +432,61 @@ export default function DetailScreen() {
             // fi.series_id is set when it's a raw Xtream catalog item (lookup returns raw items).
             const seriesIdForEp = fi?.id ?? fi?.series_id;
             try {
-              const epData = await r2Route<{ found: boolean; episodes: Array<{ season: number; episode: number; stream_url: string }> }>(
-                `/flix2/series-episodes?seriesId=${seriesIdForEp}`
-              );
-              if (epData.found) {
-                for (const ep of epData.episodes) {
-                  if (!ep?.stream_url) continue;
-                  flixItems.push({
-                    id: `flix2-auto-${tmdbId}-s${ep.season}e${ep.episode}`, r2Key: "",
-                    flix2Url: ep.stream_url, tmdbId, tmdbType: type,
-                    title: fi.title ?? "",
-                    label: `T${String(ep.season).padStart(2, "0")} E${String(ep.episode).padStart(2, "0")} · Flix 2.0`,
-                    season: ep.season, episode: ep.episode,
-                  });
-                }
+              const epData = await r2Route<{
+                found: boolean;
+                episodes: Array<{ season: number; episode: number; stream_url: string }>;
+                tryClientDirect?: boolean;
+                directUrl?: string;
+                streamBase?: string;
+              }>(`/flix2/series-episodes?seriesId=${seriesIdForEp}`);
+
+              let episodeList = epData.found ? epData.episodes : [];
+
+              // ── Client-side direct fallback ──────────────────────────────────
+              // The server couldn't fetch episodes (datacenter IP blocked by Xtream
+              // provider). Retry directly from the user's device — residential IPs
+              // are usually not blocked.
+              if (!epData.found && epData.tryClientDirect && epData.directUrl && epData.streamBase) {
+                try {
+                  const ctrl = new AbortController();
+                  const tid = setTimeout(() => ctrl.abort(), 15000);
+                  let directRes: Response | null = null;
+                  try { directRes = await fetch(epData.directUrl, { signal: ctrl.signal }); }
+                  finally { clearTimeout(tid); }
+                  if (directRes?.ok) {
+                    const directData = await directRes.json() as any;
+                    if (directData?.episodes && typeof directData.episodes === "object") {
+                      const clientEps: Array<{ season: number; episode: number; stream_url: string; title?: string }> = [];
+                      for (const [seasonStr, eps] of Object.entries(directData.episodes as Record<string, any[]>)) {
+                        if (!Array.isArray(eps)) continue;
+                        const season = Number(seasonStr);
+                        for (const ep of eps) {
+                          if (!ep?.id) continue;
+                          const ext = ep.container_extension ?? "mp4";
+                          clientEps.push({
+                            season,
+                            episode: Number(ep.episode_num ?? ep.episode ?? 1),
+                            stream_url: `${epData.streamBase}${ep.id}.${ext}`,
+                            title: ep.title ?? ep.name ?? undefined,
+                          });
+                        }
+                      }
+                      clientEps.sort((a, b) => a.season - b.season || a.episode - b.episode);
+                      if (clientEps.length > 0) episodeList = clientEps;
+                    }
+                  }
+                } catch {}
+              }
+
+              for (const ep of episodeList) {
+                if (!ep?.stream_url) continue;
+                flixItems.push({
+                  id: `flix2-auto-${tmdbId}-s${ep.season}e${ep.episode}`, r2Key: "",
+                  flix2Url: ep.stream_url, tmdbId, tmdbType: type,
+                  title: fi.title ?? "",
+                  label: `T${String(ep.season).padStart(2, "0")} E${String(ep.episode).padStart(2, "0")} · Flix 2.0`,
+                  season: ep.season, episode: ep.episode,
+                });
               }
             } catch {}
           }
@@ -767,7 +808,18 @@ export default function DetailScreen() {
           ).catch(() => null),
         ]);
 
+        // ── 0. Prefer pt-BR; fall back to en-US when server lacks TMDB key ─────
+        let enEps: any[] = [];
+        if (enRes?.ok) {
+          try { enEps = (await enRes.json()).episodes ?? []; } catch {}
+        }
+
         let episodes: TmdbEpisode[] = ptData.episodes ?? [];
+        // If the server-side TMDB route failed (no API key configured),
+        // use the en-US episodes (fetched directly with the hardcoded key) as base.
+        if (episodes.length === 0 && enEps.length > 0) {
+          episodes = enEps as TmdbEpisode[];
+        }
 
         // ── 1. Deduplicate by episode_number ──────────────────────────────────
         const seen = new Set<number>();
@@ -788,12 +840,6 @@ export default function DetailScreen() {
           }
           return true;
         });
-
-        // ── 3. Merge en-US: still_path fallback + English name/overview ───────
-        let enEps: any[] = [];
-        if (enRes?.ok) {
-          try { enEps = (await enRes.json()).episodes ?? []; } catch {}
-        }
 
         const GENERIC = /^Episódio\s*\d+$/i;
         const isGenericName = (n?: string) => !n || GENERIC.test(n);

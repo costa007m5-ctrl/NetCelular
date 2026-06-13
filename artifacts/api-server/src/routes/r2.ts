@@ -3165,12 +3165,24 @@ router.get("/flix2/series-episodes", async (req, res) => {
     allEpisodes.sort((a, b) => a.season - b.season || a.episode - b.episode);
     if (allEpisodes.length > 0) {
       EPISODES_CACHE.set(seriesId, { episodes: allEpisodes, cachedAt: Date.now() });
+      CACHE_STATS.episodes.misses++;
+      res.json({ found: true, episodes: allEpisodes, info: data?.info ?? null });
+      return;
     }
+
+    // Server got a response but it had no episodes (redirect/HTML/blocked).
+    // Tell the client to retry directly from the device — residential IPs are
+    // not blocked by most Xtream providers while datacenter IPs (Replit) are.
     CACHE_STATS.episodes.misses++;
-    res.json({ found: allEpisodes.length > 0, episodes: allEpisodes, info: data?.info ?? null });
+    const directUrl = `${FLIX2_SERVER}/player_api.php?username=${FLIX2_USER}&password=${FLIX2_PASS}&action=get_series_info&series_id=${seriesId}`;
+    const streamBase = `${FLIX2_SERVER}/series/${FLIX2_USER}/${FLIX2_PASS}/`;
+    res.json({ found: false, episodes: [], tryClientDirect: true, directUrl, streamBase });
   } catch (err: any) {
+    // Timeout, network error, or JSON parse failure — same hint: try from client.
     CACHE_STATS.episodes.misses++;
-    res.status(502).json({ error: err?.message ?? "proxy error" });
+    const directUrl = `${FLIX2_SERVER}/player_api.php?username=${FLIX2_USER}&password=${FLIX2_PASS}&action=get_series_info&series_id=${seriesId}`;
+    const streamBase = `${FLIX2_SERVER}/series/${FLIX2_USER}/${FLIX2_PASS}/`;
+    res.json({ found: false, episodes: [], tryClientDirect: true, directUrl, streamBase });
   }
 });
 
