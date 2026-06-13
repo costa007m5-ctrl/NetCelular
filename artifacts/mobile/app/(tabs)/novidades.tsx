@@ -1163,11 +1163,21 @@ export default function NovidadesScreen() {
   const [allSeries,   setAllSeries]   = useState<ContentItem[]>([]);
   const [allAnimes,   setAllAnimes]   = useState<ContentItem[]>([]);
 
-  // derived slices — reduced to 4 per section for performance
-  const trendMovies    = useMemo(() => allMovies.slice(0, 4),   [allMovies]);
-  const nowPlaying     = useMemo(() => allMovies.slice(6, 10),  [allMovies]);
-  const onAir          = useMemo(() => allSeries.slice(0, 4),   [allSeries]);
-  const trendAnimes    = useMemo(() => allAnimes.slice(0, 6),   [allAnimes]);
+  // derived slices — each row skips items already shown in earlier rows
+  // Hero takes the first ~6 movies with backdrops (roughly allMovies[0-5])
+  // nonHeroMovies filters them out so no carousel repeats the hero items
+  const heroIds = useMemo(
+    () => new Set(heroItems.map((i) => i.id)),
+    [heroItems]
+  );
+  const nonHeroMovies = useMemo(
+    () => allMovies.filter((i) => !heroIds.has(i.id)),
+    [allMovies, heroIds]
+  );
+  const trendMovies = useMemo(() => nonHeroMovies.slice(0, 4),  [nonHeroMovies]);
+  const nowPlaying  = useMemo(() => nonHeroMovies.slice(6, 10), [nonHeroMovies]);
+  const onAir       = useMemo(() => allSeries.slice(0, 4),      [allSeries]);
+  const trendAnimes = useMemo(() => allAnimes.slice(0, 6),      [allAnimes]);
 
   // ── R2 / Drive catalog ────────────────────────────────────────────────────
   const { r2Movies, r2Series, r2All } = useR2Catalog();
@@ -1265,9 +1275,10 @@ export default function NovidadesScreen() {
     });
   }, [router]);
 
-  // Derived spotlights — use different positions so they don't repeat carousel items
-  const spotlight1    = allMovies[12] ?? allMovies[0] ?? null;
-  const countdownItem = allMovies[14] ?? allMovies[5] ?? null;
+  // Derived spotlights — pulled from nonHeroMovies so they never repeat the hero banner
+  // trendMovies=[0-3], gap[4-5], nowPlaying=[6-9] → spotlights start at index 10+
+  const spotlight1    = nonHeroMovies[10] ?? nonHeroMovies[0] ?? null;
+  const countdownItem = nonHeroMovies[14] ?? nonHeroMovies[5] ?? null;
 
   return (
     <View style={[sty.root, { backgroundColor: colors.background }]}>

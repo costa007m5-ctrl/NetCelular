@@ -2296,10 +2296,12 @@ export default function HomeScreen() {
     });
   }, [router]);
 
-  // ── derived slices — reduced to 4 per carousel for performance ────────────
-  const emAltaMovies   = useMemo(() => movies.slice(0, 4),  [movies]);
-  const emAltaSeries   = useMemo(() => series.slice(0, 4),  [series]);
-  const emAltaAnimes   = useMemo(() => animes.slice(0, 4),  [animes]);
+  // ── derived slices — offset past Top 10 so each row shows unique content ──
+  // Hero  = movies[0-5], Top10Movies = movies[0-9], Top10Series = series[0-9]
+  // → "Em Alta" rows start AFTER the Top 10 to avoid any repetition
+  const emAltaMovies   = useMemo(() => movies.slice(10, 16),  [movies]);
+  const emAltaSeries   = useMemo(() => series.slice(10, 16),  [series]);
+  const emAltaAnimes   = useMemo(() => animes.slice(0,  6),   [animes]);
 
   const stats = useMemo(() => [
     { label: "Filmes",  value: totals.movies > 0 ? totals.movies.toLocaleString("pt-BR") : "–", icon: "film" as const,  color: RED },
