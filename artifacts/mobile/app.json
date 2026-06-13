@@ -20,12 +20,15 @@
       "bundleIdentifier": "com.netplay.app",
       "infoPlist": {
         "NSUserNotificationsUsageDescription": "Receba novidades e lançamentos do NETPLAY em primeira mão.",
-        "UIBackgroundModes": ["audio", "fetch"]
+        "UIBackgroundModes": [
+          "audio",
+          "fetch"
+        ]
       }
     },
     "android": {
       "package": "com.netplay.app",
-      "versionCode": 4,
+      "versionCode": 8,
       "usesCleartextTraffic": true,
       "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
