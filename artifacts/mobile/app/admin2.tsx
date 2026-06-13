@@ -964,13 +964,27 @@ export default function Admin2Screen() {
 
           <View style={{ flex: 1 }}>
             {playerVisible && playerUrl ? (
-              <WebViewVideoPlayer
-                uri={playerUrl}
-                baseUrl={HUBBY_HOST}
-                shouldPlay
-                style={{ flex: 1 }}
-                onError={(err) => console.warn("[Admin2 Player]", err)}
-              />
+              Platform.OS === "web" ? (
+                // Web: use native HTML5 video — react-native-webview not supported in browser
+                <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#000" }}>
+                  {/* @ts-ignore — web-only JSX element */}
+                  <video
+                    src={playerUrl}
+                    controls
+                    autoPlay
+                    style={{ width: "100%", height: "100%", maxHeight: 400, backgroundColor: "#000" }}
+                    onError={(e: any) => console.warn("[Admin2 Web Player]", e)}
+                  />
+                </View>
+              ) : (
+                <WebViewVideoPlayer
+                  uri={playerUrl}
+                  baseUrl={HUBBY_HOST}
+                  shouldPlay
+                  style={{ flex: 1 }}
+                  onError={(err) => console.warn("[Admin2 Player]", err)}
+                />
+              )
             ) : null}
           </View>
 
