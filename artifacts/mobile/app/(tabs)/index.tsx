@@ -2256,7 +2256,8 @@ export default function HomeScreen() {
       pathname: "/detail",
       params: {
         type: item.mediaType ?? (item.type === "movie" ? "movie" : "tv"),
-        id: String(item.tmdbId || item.id),
+        id: String(item.tmdbId),
+        flix2Id: String(item.id ?? ""),
         title: item.title,
         poster: item.posterPath ?? "",
       },

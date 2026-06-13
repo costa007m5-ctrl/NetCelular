@@ -223,7 +223,7 @@ export default function DetailScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
-  const params = useLocalSearchParams<{ type: string; id: string; title?: string; tab?: string; poster?: string }>();
+  const params = useLocalSearchParams<{ type: string; id: string; flix2Id?: string; title?: string; tab?: string; poster?: string }>();
 
   const type = (params.type ?? "movie") as "movie" | "tv";
   const tmdbId = Number(params.id ?? 0);
@@ -293,7 +293,8 @@ export default function DetailScreen() {
     // Allow items without a TMDB ID (tmdbId=0) to proceed — they can still be found
     // in Flix 2.0 by title. TMDB-specific calls (details, similar, etc.) have their
     // own guards and will skip automatically when tmdbId=0.
-    if (!tmdbId && !(params.title ?? "").trim()) { setR2Loading(false); setFlix2Loading(false); return; }
+    const hasIdent = tmdbId || (params.title ?? "").trim() || (params.flix2Id ?? "").trim();
+    if (!hasIdent) { setR2Loading(false); setFlix2Loading(false); return; }
     setFlix2Loading(false);  // reset ao navegar para novo título
     let cancelled = false;
     const loadR2 = async () => {
@@ -396,8 +397,9 @@ export default function DetailScreen() {
         if (!cancelled) setFlix2Loading(true);
         try {
           const flix2Type = type === "movie" ? "movies" : "all";
+          const flix2StreamId = params.flix2Id ? `&streamId=${encodeURIComponent(params.flix2Id)}` : "";
           const flix2Raw = await r2Route<{ found: boolean; item: any }>(
-            `/flix2/lookup?tmdbId=${tmdbId}&type=${flix2Type}&title=${encodeURIComponent(params.title ?? "")}`
+            `/flix2/lookup?tmdbId=${tmdbId}&type=${flix2Type}&title=${encodeURIComponent(params.title ?? "")}${flix2StreamId}`
           );
           if (cancelled || !flix2Raw.found) return;
           const fi = flix2Raw.item;

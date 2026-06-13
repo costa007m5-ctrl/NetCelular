@@ -2622,12 +2622,41 @@ router.get("/flix2/search", async (req, res) => {
 // Find a Flix 2.0 catalog item by TMDB ID, falling back to title match.
 // Checks a pre-built R2 index file first (fast), falls back to live page scan.
 router.get("/flix2/lookup", async (req, res) => {
-  const { tmdbId, type = "all", title = "" } = req.query as Record<string, string>;
+  const { tmdbId, type = "all", title = "", streamId = "" } = req.query as Record<string, string>;
   const id = Number(tmdbId);
   const normTitle = title ? normalizeTitleForSearch(title) : "";
+  const streamIdNum = streamId ? Number(streamId) : 0;
 
-  // Require at least a valid tmdbId OR a title to search by
-  if (!id && !normTitle) { res.json({ found: false, item: null }); return; }
+  // Require at least a valid tmdbId, title, OR direct streamId to search by
+  if (!id && !normTitle && !streamIdNum) { res.json({ found: false, item: null }); return; }
+
+  // ── Shortcut: direct streamId lookup — find the item whose Xtream stream_id matches ──
+  // This is the fastest path for Flix2-only items (tmdbId=0) since we know the exact id.
+  if (streamIdNum) {
+    const typesToTry = type === "all" ? ["movies", "series", "animes"] : [type];
+    for (const t of typesToTry) {
+      const raw = XTREAM_RAW_CACHE.get(t);
+      if (raw) {
+        const hit = raw.items.find((i: any) => Number(i.stream_id ?? i.id) === streamIdNum);
+        if (hit) {
+          CACHE_STATS.lookup.hits++;
+          res.json({ found: true, item: hit });
+          return;
+        }
+      }
+      // Also check full catalog cache
+      const full = FULL_CATALOG_CACHE.get(t);
+      if (full) {
+        const hit = full.data.find((i: any) => Number(i.stream_id ?? i.id) === streamIdNum);
+        if (hit) {
+          CACHE_STATS.lookup.hits++;
+          res.json({ found: true, item: hit });
+          return;
+        }
+      }
+    }
+    // If streamId lookup found nothing (cache not warm yet), fall through to title/tmdbId match
+  }
 
   function matchItem(i: any): boolean {
     // TMDB ID match (only when id > 0)
