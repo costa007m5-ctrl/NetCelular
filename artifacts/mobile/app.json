@@ -2,7 +2,7 @@
   "expo": {
     "name": "NETPLAY",
     "slug": "netplay",
-    "owner": "netplaybr",
+    "owner": "grupo-streaming-bras3",
     "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -110,7 +110,7 @@
     },
     "extra": {
       "eas": {
-        "projectId": "aa86cc57-e8c0-4ce7-806c-0d1e5e345991"
+        "projectId": "74c4fc8a-acbd-4271-a504-044f907db234"
       },
       "apiDomain": "net-celular--happylion157.replit.app"
     }
