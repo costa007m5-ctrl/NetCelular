@@ -2153,8 +2153,11 @@ const XTREAM_PAGE_SIZE = 20;
 // Maps normalized title → { date: "YYYY-MM-DD", ptTitle, enTitle }
 // Populated by warmTmdb2026() at startup; refreshed every 12 h.
 interface Tmdb2026Entry {
+  tmdbId: number;
   date: string; ptTitle: string; enTitle: string; vote: number;
-  backdropPath: string | null; posterPath: string | null; overview: string;
+  backdropPath: string | null; posterPath: string | null;
+  overview: string;     // pt-BR (may be empty for untranslated films)
+  overviewEn: string;   // en-US fallback
 }
 const TMDB_IMG_SRV = (path: string | null, size = "w780") =>
   path ? `https://image.tmdb.org/t/p/${size}${path}` : null;
@@ -2452,33 +2455,68 @@ export async function warmTmdb2026(): Promise<void> {
     const first = await fetch(`${base}&page=1`).then((r) => r.json() as any);
     const total  = Math.min(Number(first.total_pages) || 1, 200);
 
-    const addPage = (data: any) => {
+    // temp map by tmdbId so we can back-fill English overviews
+    const byId = new Map<number, Tmdb2026Entry>();
+
+    const addPage = (data: any, lang: "pt" | "en") => {
       for (const m of data.results ?? []) {
-        const date         = String(m.release_date ?? "");
-        const ptTitle      = String(m.title ?? "");
-        const enTitle      = String(m.original_title ?? "");
-        const vote         = Number(m.vote_average ?? 0);
-        const backdropPath = m.backdrop_path ?? null;
-        const posterPath   = m.poster_path ?? null;
-        const overview     = String(m.overview ?? "");
-        const entry: Tmdb2026Entry = { date, ptTitle, enTitle, vote, backdropPath, posterPath, overview };
-        if (ptTitle) TMDB_2026_MAP.set(normTitle(ptTitle), entry);
-        if (enTitle) TMDB_2026_MAP.set(normTitle(enTitle), entry);
+        const id = Number(m.id ?? 0);
+        if (!id) continue;
+        const overviewText = String(m.overview ?? "");
+
+        if (lang === "pt") {
+          const date         = String(m.release_date ?? "");
+          const ptTitle      = String(m.title ?? "");
+          const enTitle      = String(m.original_title ?? "");
+          const vote         = Number(m.vote_average ?? 0);
+          const backdropPath = m.backdrop_path ?? null;
+          const posterPath   = m.poster_path ?? null;
+          const entry: Tmdb2026Entry = {
+            tmdbId: id, date, ptTitle, enTitle, vote,
+            backdropPath, posterPath,
+            overview: overviewText, overviewEn: "",
+          };
+          byId.set(id, entry);
+          if (ptTitle) TMDB_2026_MAP.set(normTitle(ptTitle), entry);
+          if (enTitle && normTitle(enTitle) !== normTitle(ptTitle))
+            TMDB_2026_MAP.set(normTitle(enTitle), entry);
+        } else {
+          // Back-fill English overview for movies that had empty pt-BR overview
+          const existing = byId.get(id);
+          if (existing && !existing.overview && overviewText) {
+            existing.overviewEn = overviewText;
+          }
+        }
       }
     };
-    addPage(first);
+    addPage(first, "pt");
 
-    // Fetch remaining pages in batches of 20 (stays within TMDB rate limit)
+    // Fetch remaining pt-BR pages in batches of 20
     const BATCH = 20;
     for (let s = 2; s <= total; s += BATCH) {
       const pages = Array.from({ length: Math.min(BATCH, total - s + 1) }, (_, i) => s + i);
       await Promise.all(pages.map((p) =>
-        fetch(`${base}&page=${p}`).then((r) => r.json()).then(addPage).catch(() => {})
+        fetch(`${base}&page=${p}`).then((r) => r.json()).then((d) => addPage(d, "pt")).catch(() => {})
+      ));
+    }
+
+    // Second pass: fetch same pages in English to back-fill empty pt-BR overviews
+    const baseEn = `https://api.themoviedb.org/3/discover/movie?api_key=${TMDB_KEY}`
+                 + `&primary_release_year=2026&language=en-US`
+                 + `&primary_release_date.lte=${new Date().toISOString().slice(0, 10)}`
+                 + `&sort_by=popularity.desc`;
+    const firstEn = await fetch(`${baseEn}&page=1`).then((r) => r.json() as any).catch(() => ({ results: [] }));
+    addPage(firstEn, "en");
+    const totalEn = Math.min(Number(firstEn.total_pages) || 1, total);
+    for (let s = 2; s <= totalEn; s += BATCH) {
+      const pages = Array.from({ length: Math.min(BATCH, totalEn - s + 1) }, (_, i) => s + i);
+      await Promise.all(pages.map((p) =>
+        fetch(`${baseEn}&page=${p}`).then((r) => r.json()).then((d) => addPage(d, "en")).catch(() => {})
       ));
     }
 
     TMDB_2026_WARMED_AT = Date.now();
-    console.log(`[tmdb2026] warmed ${TMDB_2026_MAP.size} title entries (${total} pages)`);
+    console.log(`[tmdb2026] warmed ${TMDB_2026_MAP.size} title entries (${total} pages, en fallback applied)`);
   } catch (e) {
     console.error("[tmdb2026] warm error:", e);
   } finally {
@@ -3656,19 +3694,19 @@ router.get("/flix2/cinema-2026", async (req, res) => {
   // ── 3. Filter Xtream catalog by TMDB 2026 title match ────────────────────
   const JAN_2026 = 1767225600; // fallback: added_at >= Jan 1 2026
 
-  // seenTmdbKeys prevents duplicate entries when multiple Xtream items share the same TMDB title
-  const seenTmdbKeys = new Set<string>();
+  // seenTmdbIds prevents duplicate entries when multiple Xtream items share the same TMDB film
+  const seenTmdbIds = new Set<number>();
   const items2026: Array<any & { _tmdbDate: string; _tmdbVote: number }> = [];
   for (const item of cached.data) {
-    if (!item.title || !item.poster) continue;
+    if (!item.title) continue;
     const key = normTitle(item.title);
     const tmdbEntry = TMDB_2026_MAP.get(key);
     if (tmdbEntry) {
-      if (seenTmdbKeys.has(key)) continue; // skip duplicate Xtream items for same TMDB film
-      seenTmdbKeys.add(key);
+      // Require TMDB to have a poster — filters out false title matches (e.g. old films with same name)
+      if (!tmdbEntry.posterPath) continue;
+      if (seenTmdbIds.has(tmdbEntry.tmdbId)) continue;
+      seenTmdbIds.add(tmdbEntry.tmdbId);
       items2026.push({ ...item, _tmdbDate: tmdbEntry.date, _tmdbVote: tmdbEntry.vote, _tmdbEntry: tmdbEntry });
-    } else if (TMDB_2026_MAP.size === 0 && (item.added_at ?? 0) >= JAN_2026) {
-      items2026.push({ ...item, _tmdbDate: "", _tmdbVote: 0, _tmdbEntry: null });
     }
   }
 
@@ -3686,15 +3724,16 @@ router.get("/flix2/cinema-2026", async (req, res) => {
     // Only keep keys within 2026
     if (!key.startsWith("2026")) continue;
     if (!monthMap[key]) monthMap[key] = [];
+    const synopsis2026 = item._tmdbEntry?.overview || item._tmdbEntry?.overviewEn || item.synopsis || "";
     monthMap[key].push({
       id:       item.id,
-      title:    item.title,
-      tmdb_id:  item.tmdb_id,
+      title:    item._tmdbEntry?.ptTitle || item.title,
+      tmdb_id:  item._tmdbEntry?.tmdbId || item.tmdb_id,
       year:     2026,
       poster:   TMDB_IMG_SRV(item._tmdbEntry?.posterPath, "w342") ?? item.poster,
       backdrop: TMDB_IMG_SRV(item._tmdbEntry?.backdropPath, "w780") ?? item.backdrop ?? "",
       rating:   item._tmdbVote > 0 ? String(item._tmdbVote.toFixed(1)) : (item.rating ?? "0"),
-      synopsis: item._tmdbEntry?.overview || item.synopsis || "",
+      synopsis: synopsis2026,
       added_at: item.added_at ?? 0,
       release_date: item._tmdbDate ?? "",
     });
@@ -3715,12 +3754,14 @@ router.get("/flix2/cinema-2026", async (req, res) => {
     .sort((a, b) => (b._tmdbVote ?? 0) - (a._tmdbVote ?? 0))
     .slice(0, 20)
     .map((i) => ({
-      id: i.id, title: i.title, tmdb_id: i.tmdb_id,
+      id: i.id,
+      title: i._tmdbEntry?.ptTitle || i.title,
+      tmdb_id: i._tmdbEntry?.tmdbId || i.tmdb_id,
       year: 2026, release_date: i._tmdbDate ?? "",
       poster: TMDB_IMG_SRV(i._tmdbEntry?.posterPath, "w342") ?? i.poster,
       backdrop: TMDB_IMG_SRV(i._tmdbEntry?.backdropPath, "w780") ?? i.backdrop ?? "",
       rating: i._tmdbVote > 0 ? String(i._tmdbVote.toFixed(1)) : (i.rating ?? "0"),
-      synopsis: i._tmdbEntry?.overview || i.synopsis || "",
+      synopsis: i._tmdbEntry?.overview || i._tmdbEntry?.overviewEn || i.synopsis || "",
     }));
 
   res.json({ ok: true, total: items2026.length, topRated, months });
