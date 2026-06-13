@@ -94,13 +94,14 @@ function toContent(item: CinemaItem): ContentItem {
   };
 }
 
-async function fetchCinema(retryOnWarm = true): Promise<CinemaData> {
+async function fetchCinema(attempt = 0): Promise<CinemaData> {
   try {
     const res = await r2Route<CinemaData>("/flix2/cinema-2026");
-    if (res.warming && retryOnWarm) {
-      // Server is warming the catalog — wait 3s and retry once
-      await new Promise((resolve) => setTimeout(resolve, 3000));
-      return fetchCinema(false);
+    if (res.warming && attempt < 6) {
+      // Server is still warming — retry with backoff (2s, 4s, 6s, 8s, 10s, 12s)
+      const delay = (attempt + 1) * 2000;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      return fetchCinema(attempt + 1);
     }
     return res;
   } catch {

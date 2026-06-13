@@ -3645,12 +3645,13 @@ router.get("/flix2/cinema-2026", async (req, res) => {
   }
 
   // ── 2. Ensure TMDB 2026 map is warm ───────────────────────────────────────
-  if (TMDB_2026_MAP.size === 0) {
-    // Trigger async warm; respond with warming=true so client retries
+  if (TMDB_2026_MAP.size === 0 && process.env.TMDB_API_KEY) {
+    // Key is present but map hasn't warmed yet — trigger async warm and ask client to retry
     warmTmdb2026().catch(() => {});
     res.json({ ok: false, warming: true, total: 0, topRated: [], months: [] });
     return;
   }
+  // If TMDB_API_KEY is absent, fall through and use added_at >= Jan 2026 as fallback
 
   // ── 3. Filter Xtream catalog by TMDB 2026 title match ────────────────────
   const JAN_2026 = 1767225600; // fallback: added_at >= Jan 1 2026
