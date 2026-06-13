@@ -403,6 +403,11 @@ export default function Flix2PlayerScreen() {
     const isTeraboxUrl = (u: string) => TERABOX_HOSTS.some((h) => u.includes(h));
     // Direct CDN URLs (hubby.cx Xtream Codes or fontedecanais) — play without redirect
     const isFonteUrl = (u: string) => ["72yrci50ppqp71.com", "fontedecanais.me", "hubby.cx"].some((r) => u.includes(r));
+    // Fontedecanais suporta HTTPS:443 — upgrade http:// com :80 → https:// sem porta.
+    const fonteToHttps = (u: string) =>
+      u.startsWith("http://")
+        ? u.replace(/^http:\/\//, "https://").replace(/:80(\/|$|\?)/, (_, s: string) => s ?? "")
+        : u;
     const isCineveoUrl = (u: string) => u.includes("cineveo.lat");
     const isHubbyCx = (u: string) => u.includes("hubby.cx");
     // nixplay.lat direct MP4/HLS URLs (e.g. /movie/..., /series/...) — their own server,
@@ -499,12 +504,12 @@ export default function Flix2PlayerScreen() {
           }
 
           if (capturedCdnUrl) {
-            // Dispositivo resolveu o redirect — URL CDN capturada, toca direto
-            playerUrl = capturedCdnUrl;
+            // Dispositivo resolveu o redirect — upgrade http→https (fontedecanais:443)
+            playerUrl = fonteToHttps(capturedCdnUrl);
             cdnLabel = "fontedecanais";
             setWebViewBaseUrl("https://nixplay.lat");
             appLog.info("player.flix2", "nixplay → CDN resolvido pelo dispositivo", {
-              cdnUrl: capturedCdnUrl.slice(0, 100),
+              cdnUrl: playerUrl.slice(0, 100),
             });
           } else {
             // Nível 2: servidor resolve (funciona se nixplay não bloquear o IP do servidor)
@@ -521,12 +526,12 @@ export default function Flix2PlayerScreen() {
               if (resolveResp.ok) {
                 const data = await resolveResp.json();
                 if (data.url && data.url !== rawFlix2Url && isFonteUrl(data.url)) {
-                  playerUrl = data.url;
+                  playerUrl = fonteToHttps(data.url);
                   cdnLabel = "fontedecanais";
                   setWebViewBaseUrl("https://nixplay.lat");
                   serverResolved = true;
                   appLog.info("player.flix2", "nixplay → fontedecanais via servidor", {
-                    resolved: data.url.slice(0, 100),
+                    resolved: playerUrl.slice(0, 100),
                   });
                 }
               }
@@ -559,11 +564,11 @@ export default function Flix2PlayerScreen() {
           }
 
           if (capturedCdnUrl) {
-            playerUrl = capturedCdnUrl;
+            playerUrl = fonteToHttps(capturedCdnUrl);
             cdnLabel = "fontedecanais";
             setWebViewBaseUrl("https://hubby.cx");
             appLog.info("player.flix2", "hubby.cx → CDN resolvido pelo dispositivo", {
-              cdnUrl: capturedCdnUrl.slice(0, 100),
+              cdnUrl: playerUrl.slice(0, 100),
             });
           } else {
             // Nível 2: check-link server-side — usa redirect:"manual" e retorna location
@@ -581,13 +586,13 @@ export default function Flix2PlayerScreen() {
               if (resp.ok) {
                 const data = await resp.json();
                 if (data.location && data.location !== rawFlix2Url) {
-                  // URL fontedecanais direta (HTTP) — WebView carrega sem redirect
-                  playerUrl = data.location;
+                  // URL fontedecanais — upgrade http→https (porta 443 funciona)
+                  playerUrl = fonteToHttps(data.location);
                   cdnLabel = "fontedecanais";
                   setWebViewBaseUrl("https://hubby.cx");
                   serverResolved = true;
                   appLog.info("player.flix2", "hubby.cx → fontedecanais via check-link", {
-                    resolved: data.location.slice(0, 100),
+                    resolved: playerUrl.slice(0, 100),
                   });
                 }
               }
@@ -627,6 +632,8 @@ export default function Flix2PlayerScreen() {
           cdnLabel = "cineveo";
           setWebViewBaseUrl("https://cineveo.lat");
         } else if (isFonteUrl(rawFlix2Url)) {
+          // URL direta fontedecanais — upgrade http→https (porta 443 funciona)
+          playerUrl = fonteToHttps(rawFlix2Url);
           cdnLabel = "fontedecanais";
           setWebViewBaseUrl("https://nixplay.lat");
         }

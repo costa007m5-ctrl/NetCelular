@@ -21,6 +21,14 @@ import { getApiBase } from "@/lib/api";
 
 // ─── Xtream Codes ────────────────────────────────────────────────────────────
 const HUBBY_HOST = "https://hubby.cx";
+
+// Fontedecanais serve HTTPS:443, mas o redirect do hubby.cx no dispositivo gera
+// http:// com :80 explícito. Faz upgrade de protocolo + remove porta :80.
+// Confirmado pelo usuário: URL https:// do mesmo CDN funciona na web.
+function fonteToHttps(url: string): string {
+  if (!url.startsWith("http://")) return url;
+  return url.replace(/^http:\/\//, "https://").replace(/:80(\/|$|\?)/, (_, s) => s ?? "");
+}
 const HUBBY_USER = "wowserver-vods";
 const HUBBY_PASS = "fUT3Phipaq10huqAPastEmlbr";
 const API_BASE = `${HUBBY_HOST}/player_api.php?username=${HUBBY_USER}&password=${HUBBY_PASS}`;
@@ -304,8 +312,8 @@ export default function Admin2Screen() {
   }, []);
 
   // ─── Open player ────────────────────────────────────────────────────────────
-  // Para URLs hubby.cx: resolve o redirect 302 via API antes de abrir o player,
-  // pois o elemento <video> no Android WebView não consegue seguir HTTPS→HTTP.
+  // O servidor fontedecanais aceita HTTPS na porta 443, mas o redirect do hubby.cx
+  // no dispositivo gera http:// com :80. Basta upgrade de protocolo — sem proxy.
   const openPlayer = useCallback(async (url: string, title: string) => {
     const base = getApiBase();
     let playUrl = url;
@@ -321,7 +329,7 @@ export default function Admin2Screen() {
         if (res.ok) {
           const data = await res.json();
           if (data.location && data.location !== url) {
-            playUrl = data.location;
+            playUrl = fonteToHttps(data.location);
           } else {
             playUrl = `${base}/stream/proxy?url=${encodeURIComponent(url)}`;
           }
@@ -333,10 +341,16 @@ export default function Admin2Screen() {
       }
     }
 
-    // Android 13+ ignora mixedContentMode="always" — <video> não carrega HTTP em
-    // páginas HTTPS. Wrap qualquer URL http:// no stream proxy para servir via HTTPS.
+    // O servidor fontedecanais suporta HTTPS:443 — upgrade direto http→https + remove :80.
+    // Android 13+ ignora mixedContentMode="always"; proxy de servidor só como último recurso.
     if (Platform.OS !== "web" && playUrl.startsWith("http://")) {
-      playUrl = `${base}/stream/proxy?url=${encodeURIComponent(playUrl)}`;
+      const upgraded = fonteToHttps(playUrl);
+      // Se a URL parece ser de um CDN conhecido que suporta HTTPS, usa direto.
+      // Caso contrário, stream proxy como segurança.
+      const knownHttpsCdn = ["72yrci50ppqp71.com", "fontedecanais.me", "cineveo.lat"].some(
+        (h) => upgraded.includes(h)
+      );
+      playUrl = knownHttpsCdn ? upgraded : `${base}/stream/proxy?url=${encodeURIComponent(playUrl)}`;
     }
 
     setPlayerError(null);
