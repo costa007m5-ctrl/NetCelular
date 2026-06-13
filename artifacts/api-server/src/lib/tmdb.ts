@@ -2,7 +2,7 @@ const TMDB_BASE = "https://api.themoviedb.org/3";
 const LANGUAGE = "pt-BR";
 
 function getKey(): string {
-  const key = process.env["TMDB_API_KEY"] ?? "8f0beb08cf016ec8de49e454e09879ec";
+  const key = process.env["TMDB_API_KEY"] ?? "";
   return key;
 }
 

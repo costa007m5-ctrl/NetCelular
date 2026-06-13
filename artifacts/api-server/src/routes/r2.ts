@@ -50,8 +50,8 @@ function normalizeTeraboxUrl(url: string): string {
 
 function getClient(): S3Client {
   const accountId     = process.env["R2_ACCOUNT_ID"]       ?? "9827b92a6b3a621e8c6f50274e68f37b";
-  const accessKeyId   = process.env["R2_ACCESS_KEY_ID"]    ?? "9e96806804e8815dfd9580ec062fa0c5";
-  const secretAccessKey = process.env["R2_SECRET_ACCESS_KEY"] ?? "854a8ee198112f783b99b870ac9f3299340a88176d5a8c198e35269e8cd3cd3a";
+  const accessKeyId   = process.env["R2_ACCESS_KEY_ID"]    ?? "";
+  const secretAccessKey = process.env["R2_SECRET_ACCESS_KEY"] ?? "";
   return new S3Client({
     region: "auto",
     endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
@@ -1454,7 +1454,7 @@ router.get("/tmdb-search", async (req, res) => {
     // Limpa o título automaticamente (remove tags de qualidade, ano, etc.)
     const q = cleanTmdbQuery(rawQ);
 
-    const TMDB_KEY = process.env.TMDB_API_KEY ?? "8f0beb08cf016ec8de49e454e09879ec";
+    const TMDB_KEY = process.env.TMDB_API_KEY ?? "";
     const TMDB_BASE = "https://api.themoviedb.org/3";
     // Optional lang override — caller passes "pt-BR", "en-US", "ja-JP", etc.
     const TMDB_LANG = (req.query["lang"] as string | undefined)?.trim() || "pt-BR";
