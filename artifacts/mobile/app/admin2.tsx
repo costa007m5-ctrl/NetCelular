@@ -192,19 +192,24 @@ export default function Admin2Screen() {
     setSeriesEpLoading(true);
     setSeriesEpisodes([]);
     try {
+      // Estratégia: API proxy primeiro (funciona em todos os ambientes sem problema
+      // de redirect HTTP). Fallback direto ao Xtream apenas no native se proxy falhar.
       let json: any;
-      if (Platform.OS !== "web") {
-        // Native APK: sem restrição CORS — chama Xtream diretamente
+      let proxyOk = false;
+      try {
+        const apiBase = getApiBase();
+        const res = await fetch(`${apiBase}/r2/flix2/admin-series-info?seriesId=${seriesId}`, { signal: mkSignal(15000) });
+        if (res.ok) { json = await res.json(); proxyOk = true; }
+      } catch {}
+
+      if (!proxyOk && Platform.OS !== "web") {
+        // Fallback nativo: chama Xtream diretamente (sem CORS no native)
         const res = await fetch(`${API_BASE}&action=get_series_info&series_id=${seriesId}`, { signal: mkSignal(20000) });
         if (!res.ok) throw new Error(`Xtream HTTP ${res.status}`);
         json = await res.json();
-      } else {
-        // Web: usa proxy do API server para evitar CORS
-        const apiBase = getApiBase();
-        const res = await fetch(`${apiBase}/r2/flix2/admin-series-info?seriesId=${seriesId}`, { signal: mkSignal(20000) });
-        if (!res.ok) throw new Error(`API HTTP ${res.status}`);
-        json = await res.json();
       }
+
+      if (!json) throw new Error("Sem dados do servidor");
       const eps = json.episodes ?? {};
       const seasons: { season: string; eps: SeriesEpisode[] }[] = Object.entries(eps)
         .map(([s, epArr]) => ({ season: s, eps: epArr as SeriesEpisode[] }))
@@ -251,40 +256,44 @@ export default function Admin2Screen() {
     };
     try {
       const t = Date.now();
-      if (Platform.OS !== "web") {
-        // Native APK: HEAD direto, sem proxy (sem CORS). Segue redirect automaticamente.
-        const ctrl = new AbortController();
-        setTimeout(() => ctrl.abort(), 15000);
-        const res = await fetch(url.trim(), {
-          method: "HEAD",
-          signal: ctrl.signal,
-          headers: { "User-Agent": "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36" },
-        });
-        result.status = res.status;
-        result.contentType = res.headers.get("content-type");
-        result.ok = res.ok;
-        result.latency = Date.now() - t;
-      } else {
-        // Web: proxy pelo API server para evitar CORS
-        const base = getApiBase();
-        const ctrl = new AbortController();
-        setTimeout(() => ctrl.abort(), 15000);
+      // Sempre usa proxy do API server (evita problema de redirect HTTPS→HTTP no Android).
+      // Fallback: HEAD direto apenas no native se o proxy não estiver disponível.
+      const base = getApiBase();
+      const ctrl = new AbortController();
+      setTimeout(() => ctrl.abort(), 15000);
+      let usedProxy = false;
+      try {
         const res = await fetch(
           `${base}/admin/check-link?url=${encodeURIComponent(url.trim())}`,
           { signal: ctrl.signal }
         );
         const json = await res.json().catch(() => null);
         if (json) {
+          usedProxy = true;
           result.status = json.status;
           result.contentType = json.contentType;
           result.ok = !!json.ok;
           result.latency = json.latency ?? null;
           if (json.location) result.redirectUrl = json.location;
           if (json.error) result.error = json.error;
-        } else {
-          result.error = `API HTTP ${res.status}`;
-          result.latency = null;
         }
+      } catch {}
+
+      if (!usedProxy && Platform.OS !== "web") {
+        // Fallback nativo direto
+        const ctrl2 = new AbortController();
+        setTimeout(() => ctrl2.abort(), 15000);
+        const res = await fetch(url.trim(), {
+          method: "GET",
+          signal: ctrl2.signal,
+          headers: { "User-Agent": "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36" },
+        });
+        result.status = res.status;
+        result.contentType = res.headers.get("content-type");
+        result.ok = res.ok;
+        result.latency = Date.now() - t;
+      } else if (!usedProxy) {
+        result.error = "Proxy indisponível";
       }
     } catch (e: any) {
       result.error = e.message ?? "Falha na requisição";
