@@ -192,10 +192,19 @@ export default function Admin2Screen() {
     setSeriesEpLoading(true);
     setSeriesEpisodes([]);
     try {
-      const apiBase = getApiBase();
-      const res = await fetch(`${apiBase}/r2/flix2/admin-series-info?seriesId=${seriesId}`, { signal: mkSignal(20000) });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
+      let json: any;
+      if (Platform.OS !== "web") {
+        // Native APK: sem restrição CORS — chama Xtream diretamente
+        const res = await fetch(`${API_BASE}&action=get_series_info&series_id=${seriesId}`, { signal: mkSignal(20000) });
+        if (!res.ok) throw new Error(`Xtream HTTP ${res.status}`);
+        json = await res.json();
+      } else {
+        // Web: usa proxy do API server para evitar CORS
+        const apiBase = getApiBase();
+        const res = await fetch(`${apiBase}/r2/flix2/admin-series-info?seriesId=${seriesId}`, { signal: mkSignal(20000) });
+        if (!res.ok) throw new Error(`API HTTP ${res.status}`);
+        json = await res.json();
+      }
       const eps = json.episodes ?? {};
       const seasons: { season: string; eps: SeriesEpisode[] }[] = Object.entries(eps)
         .map(([s, epArr]) => ({ season: s, eps: epArr as SeriesEpisode[] }))
@@ -241,24 +250,41 @@ export default function Admin2Screen() {
       status: null, contentType: null, ok: false, latency: null,
     };
     try {
-      const base = getApiBase();
-      const ctrl = new AbortController();
-      setTimeout(() => ctrl.abort(), 15000);
-      const res = await fetch(
-        `${base}/admin/check-link?url=${encodeURIComponent(url.trim())}`,
-        { signal: ctrl.signal }
-      );
-      const json = await res.json().catch(() => null);
-      if (json) {
-        result.status = json.status;
-        result.contentType = json.contentType;
-        result.ok = !!json.ok;
-        result.latency = json.latency ?? null;
-        if (json.location) result.redirectUrl = json.location;
-        if (json.error) result.error = json.error;
+      const t = Date.now();
+      if (Platform.OS !== "web") {
+        // Native APK: HEAD direto, sem proxy (sem CORS). Segue redirect automaticamente.
+        const ctrl = new AbortController();
+        setTimeout(() => ctrl.abort(), 15000);
+        const res = await fetch(url.trim(), {
+          method: "HEAD",
+          signal: ctrl.signal,
+          headers: { "User-Agent": "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36" },
+        });
+        result.status = res.status;
+        result.contentType = res.headers.get("content-type");
+        result.ok = res.ok;
+        result.latency = Date.now() - t;
       } else {
-        result.error = `API HTTP ${res.status}`;
-        result.latency = null;
+        // Web: proxy pelo API server para evitar CORS
+        const base = getApiBase();
+        const ctrl = new AbortController();
+        setTimeout(() => ctrl.abort(), 15000);
+        const res = await fetch(
+          `${base}/admin/check-link?url=${encodeURIComponent(url.trim())}`,
+          { signal: ctrl.signal }
+        );
+        const json = await res.json().catch(() => null);
+        if (json) {
+          result.status = json.status;
+          result.contentType = json.contentType;
+          result.ok = !!json.ok;
+          result.latency = json.latency ?? null;
+          if (json.location) result.redirectUrl = json.location;
+          if (json.error) result.error = json.error;
+        } else {
+          result.error = `API HTTP ${res.status}`;
+          result.latency = null;
+        }
       }
     } catch (e: any) {
       result.error = e.message ?? "Falha na requisição";
