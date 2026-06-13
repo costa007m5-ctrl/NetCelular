@@ -11,6 +11,7 @@ import {
 import { Upload } from "@aws-sdk/lib-storage";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { Readable, PassThrough } from "stream";
+import { readFileSync, writeFileSync } from "fs";
 import { tmdb } from "../lib/tmdb";
 import multer from "multer";
 import crypto from "crypto";
@@ -2170,6 +2171,8 @@ function mapXtreamVod(item: any): any {
   const backdropArr: string[] = item.backdrop_path ?? [];
   const poster   = normalizeXtreamImageUrl(item.stream_icon ?? "");
   const backdrop = normalizeXtreamImageUrl(backdropArr[0] ?? item.stream_icon ?? "");
+  // `added` is a Unix timestamp (string) from Xtream — when this VOD was added to the server
+  const addedTs = item.added ? Number(item.added) : 0;
   return {
     id:        String(streamId),
     tmdb_id:   Number(item.tmdb) || 0,
@@ -2180,6 +2183,7 @@ function mapXtreamVod(item: any): any {
     poster,
     backdrop,
     synopsis:  item.plot ?? "",
+    added_at:  addedTs,
     // Xtream Codes VOD stream format: /movie/{user}/{pass}/{id}.{ext}
     stream_url: `${FLIX2_SERVER}/movie/${FLIX2_USER}/${FLIX2_PASS}/${streamId}.${ext}`,
   };
@@ -2191,6 +2195,8 @@ function mapXtreamSeries(item: any): any {
   const backdropArr: string[] = item.backdrop_path ?? [];
   const poster   = normalizeXtreamImageUrl(item.cover ?? "");
   const backdrop = normalizeXtreamImageUrl(backdropArr[0] ?? item.cover ?? "");
+  // `last_modified` changes whenever a new episode is added; fall back to `added`
+  const addedTs = item.last_modified ? Number(item.last_modified) : (item.added ? Number(item.added) : 0);
   return {
     id:        String(seriesId),
     tmdb_id:   Number(item.tmdb) || 0,
@@ -2201,6 +2207,7 @@ function mapXtreamSeries(item: any): any {
     poster,
     backdrop,
     synopsis:  item.plot ?? "",
+    added_at:  addedTs,
     stream_url: null, // episodes fetched separately via /flix2/series-episodes
   };
 }
@@ -2391,6 +2398,8 @@ async function warmCatalogType(type: string): Promise<void> {
       itemCount: deduped.length, startedAt: getWarmState(type).startedAt, completedAt: Date.now(),
     });
     console.log(`[flix2] cache warm: type=${type} items=${deduped.length}`);
+    // Snapshot diff: runs after every warm-up to track new/updated content
+    try { computeAndSaveDiff(type, deduped); } catch {}
   } catch (e: any) {
     const msg = e?.message ?? String(e);
     console.warn(`[flix2] cache warm failed for ${type}:`, msg);
@@ -3358,6 +3367,209 @@ router.post("/flix2/build-index", async (req, res) => {
   })().catch((e) => {
     job.status = "error";
     job.error = e?.message ?? "Unknown error";
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ── WHAT'S NEW / CATALOG DIFF ─────────────────────────────────────────────────
+// Detects new and updated content by comparing catalog snapshots across warm-ups.
+//
+// How it works:
+//  1. After every warm-up, a snapshot `{id, title, tmdb_id, added_at}[]` is
+//     written to /tmp/flix2-snapshot-{type}.json.
+//  2. On the NEXT warm-up the new catalog is diffed against the saved snapshot:
+//     - "added"   = ID not present in the previous snapshot.
+//     - "updated" = ID present in both but added_at (last_modified) changed.
+//  3. The diff result is kept in CATALOG_DIFF_CACHE (in-memory, reset on restart).
+//  4. GET /flix2/whats-new  — filter by added_at in the last N days (fast).
+//  5. GET /flix2/catalog-diff — returns the snapshot diff (added / updated).
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface SnapshotEntry {
+  id:       string;
+  title:    string;
+  tmdb_id:  number;
+  added_at: number;
+  type:     string;
+}
+
+interface CatalogDiff {
+  type:        string;
+  snapshotAge: number | null; // ms since snapshot was taken
+  added:       SnapshotEntry[];
+  updated:     SnapshotEntry[];
+  computedAt:  number;
+}
+
+const CATALOG_DIFF_CACHE = new Map<string, CatalogDiff>();
+const SNAPSHOT_DIR = "/tmp";
+
+function snapshotPath(type: string): string {
+  return `${SNAPSHOT_DIR}/flix2-snapshot-${type}.json`;
+}
+
+function loadSnapshot(type: string): Map<string, SnapshotEntry> {
+  try {
+    const raw = readFileSync(snapshotPath(type), "utf-8");
+    const entries: SnapshotEntry[] = JSON.parse(raw);
+    return new Map(entries.map((e) => [e.id, e]));
+  } catch {
+    return new Map();
+  }
+}
+
+function saveSnapshot(type: string, entries: SnapshotEntry[]): void {
+  try {
+    writeFileSync(snapshotPath(type), JSON.stringify(entries), "utf-8");
+  } catch {}
+}
+
+// Called after warmCatalogType completes with a fresh catalog.
+// Loads the previous snapshot, computes diff, saves new snapshot.
+function computeAndSaveDiff(type: string, freshItems: any[]): void {
+  const prev = loadSnapshot(type);
+  const hasPrev = prev.size > 0;
+
+  const added:   SnapshotEntry[] = [];
+  const updated: SnapshotEntry[] = [];
+  const newSnapshot: SnapshotEntry[] = [];
+
+  for (const item of freshItems) {
+    const entry: SnapshotEntry = {
+      id:       String(item.id),
+      title:    item.title ?? "",
+      tmdb_id:  Number(item.tmdb_id) || 0,
+      added_at: Number(item.added_at) || 0,
+      type,
+    };
+    newSnapshot.push(entry);
+
+    if (!hasPrev) continue; // no previous snapshot — skip diff on first run
+
+    const old = prev.get(entry.id);
+    if (!old) {
+      added.push(entry);
+    } else if (entry.added_at > 0 && old.added_at > 0 && entry.added_at !== old.added_at) {
+      updated.push(entry);
+    }
+  }
+
+  // Sort newest first
+  const byNewest = (a: SnapshotEntry, b: SnapshotEntry) => b.added_at - a.added_at;
+  added.sort(byNewest);
+  updated.sort(byNewest);
+
+  let snapshotAge: number | null = null;
+  try {
+    const raw = readFileSync(snapshotPath(type), "utf-8");
+    const entries: SnapshotEntry[] = JSON.parse(raw);
+    if (entries.length > 0) snapshotAge = Date.now() - (entries[0]?.added_at ?? 0);
+  } catch {}
+
+  CATALOG_DIFF_CACHE.set(type, { type, snapshotAge, added, updated, computedAt: Date.now() });
+  saveSnapshot(type, newSnapshot);
+}
+
+// ── GET /flix2/whats-new ──────────────────────────────────────────────────────
+// Returns content added/updated in the last N days, sorted newest-first.
+// Query params:
+//   days=7        — how many days back to look (default 7, max 90)
+//   types=series,movies,animes — comma-separated (default all three)
+//   limit=100     — max items per type (default 100)
+router.get("/flix2/whats-new", (req, res) => {
+  const {
+    days:   daysStr   = "7",
+    types:  typesStr  = "movies,series,animes",
+    limit:  limitStr  = "100",
+  } = req.query as Record<string, string>;
+
+  const days    = Math.min(Math.max(Number(daysStr)  || 7,  1), 90);
+  const limit   = Math.min(Math.max(Number(limitStr) || 100, 1), 500);
+  const types   = typesStr.split(",").map((t) => t.trim()).filter((t) => FLIX2_TYPES.includes(t));
+  const since   = Date.now() - days * 24 * 60 * 60 * 1000;
+  const sinceUnix = Math.floor(since / 1000); // Xtream timestamps are in seconds
+
+  const result: Record<string, any[]> = {};
+  let total = 0;
+
+  for (const type of (types.length ? types : FLIX2_TYPES)) {
+    const cached = FULL_CATALOG_CACHE.get(type);
+    if (!cached) { result[type] = []; continue; }
+
+    const items = cached.data
+      .filter((i: any) => i.added_at && i.added_at >= sinceUnix)
+      .sort((a: any, b: any) => b.added_at - a.added_at)
+      .slice(0, limit)
+      .map((i: any) => ({
+        id:       i.id,
+        title:    i.title,
+        tmdb_id:  i.tmdb_id,
+        type:     i.type,
+        year:     i.year,
+        poster:   i.poster,
+        added_at: i.added_at,
+        added_date: i.added_at ? new Date(i.added_at * 1000).toISOString().slice(0, 10) : null,
+      }));
+
+    result[type] = items;
+    total += items.length;
+  }
+
+  res.json({
+    ok:    true,
+    since: new Date(since).toISOString(),
+    days,
+    total,
+    cached: Object.fromEntries(
+      (types.length ? types : FLIX2_TYPES).map((t) => {
+        const c = FULL_CATALOG_CACHE.get(t);
+        return [t, c ? { warm: true, items: c.data.length, cachedAt: c.cachedAt } : { warm: false }];
+      })
+    ),
+    ...result,
+  });
+});
+
+// ── GET /flix2/catalog-diff ───────────────────────────────────────────────────
+// Returns the diff computed between the last two catalog snapshots.
+// "added"   = titles that appeared since the previous snapshot.
+// "updated" = titles that existed but had their last_modified timestamp change
+//             (new episode added, metadata refresh, etc.)
+// Query params:
+//   types=series,movies,animes  (default all)
+router.get("/flix2/catalog-diff", (req, res) => {
+  const { types: typesStr = "movies,series,animes" } = req.query as Record<string, string>;
+  const types = typesStr.split(",").map((t) => t.trim()).filter((t) => FLIX2_TYPES.includes(t));
+
+  const diffs: Record<string, any> = {};
+  let totalAdded = 0;
+  let totalUpdated = 0;
+
+  for (const type of (types.length ? types : FLIX2_TYPES)) {
+    const diff = CATALOG_DIFF_CACHE.get(type);
+    if (!diff) {
+      diffs[type] = { ready: false, message: "Snapshot not yet computed — wait for warm-up to complete." };
+      continue;
+    }
+    diffs[type] = {
+      ready:        true,
+      computedAt:   new Date(diff.computedAt).toISOString(),
+      addedCount:   diff.added.length,
+      updatedCount: diff.updated.length,
+      added:        diff.added,
+      updated:      diff.updated,
+    };
+    totalAdded   += diff.added.length;
+    totalUpdated += diff.updated.length;
+  }
+
+  res.json({
+    ok:           true,
+    totalAdded,
+    totalUpdated,
+    note:         "Diff is computed on each catalog warm-up (every 30 min). " +
+                  "First run after server start shows no diff — needs two snapshots.",
+    types:        diffs,
   });
 });
 
