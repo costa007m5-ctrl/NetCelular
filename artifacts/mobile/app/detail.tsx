@@ -246,6 +246,11 @@ export default function DetailScreen() {
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [collectionData, setCollectionData] = useState<{ id: number; name: string; parts: any[] } | null>(null);
   const [loadingCollection, setLoadingCollection] = useState(false);
+  // resolvedTmdbId starts as tmdbId (from params) but may be updated when a
+  // Flix2-only item (tmdbId=0) is matched to a TMDB title-search result.
+  // All effects that need a TMDB ID (episodes, new-ep badge) use this instead of tmdbId.
+  const [resolvedTmdbId, setResolvedTmdbId] = useState(tmdbId);
+  const [resolvedType, setResolvedType] = useState<"movie" | "tv">(type);
   const [trailerKey, setTrailerKey] = useState<string | null>(null);
   const [showTrailerModal, setShowTrailerModal] = useState(false);
   const [trailerPlaying, setTrailerPlaying] = useState(true);
@@ -567,6 +572,22 @@ export default function DetailScreen() {
             ]);
             setDetails(det);
             setSimilar(sim.map(tmdbItemToContent));
+            // Propagate the resolved TMDB ID so episodes/seasons effects can run
+            setResolvedTmdbId(hit.id);
+            setResolvedType(hitType);
+            // Build seasons list for TV shows
+            if (hitType === "tv") {
+              const numSeasons = (det as any).number_of_seasons ?? 1;
+              setSeasons(Array.from({ length: numSeasons }, (_, i) => ({
+                id: i + 1,
+                season_number: i + 1,
+                name: `Temporada ${i + 1}`,
+                overview: "",
+                episode_count: 0,
+                poster_path: null,
+                air_date: "",
+              })));
+            }
             // Also grab logo + trailer with found id
             fetch(
               `https://api.themoviedb.org/3/${hitType}/${hit.id}/images?api_key=${TMDB_KEY}&include_image_language=pt,en,null`
@@ -697,15 +718,15 @@ export default function DetailScreen() {
   }, [tmdbId, type]);
 
   useEffect(() => {
-    if (type !== "tv" || !tmdbId) return;
-    db.newEpisodes.get(tmdbId).then((ep) => {
+    if (resolvedType !== "tv" || !resolvedTmdbId) return;
+    db.newEpisodes.get(resolvedTmdbId).then((ep) => {
       if (ep) {
         const now = new Date();
         const expires = new Date(ep.expires_at);
         if (expires > now) setNewEpisodeInfo(ep);
       }
     }).catch(() => {});
-  }, [tmdbId, type]);
+  }, [resolvedTmdbId, resolvedType]);
 
   // Translate a single text (en→pt-BR) via Google Translate unofficial endpoint
   const gtranslate = async (text: string): Promise<string> => {
@@ -729,7 +750,7 @@ export default function DetailScreen() {
   // 3. Translate English text → Portuguese when pt-BR data is missing
   // 4. Deduplicate by episode_number; remove ep.0 (specials) and future episodes
   useEffect(() => {
-    if (type !== "tv" || !tmdbId) return;
+    if (resolvedType !== "tv" || !resolvedTmdbId) return;
     setLoadingEpisodes(true);
     const TMDB_KEY_LOCAL = "8f0beb08cf016ec8de49e454e09879ec";
 
@@ -737,9 +758,9 @@ export default function DetailScreen() {
       try {
         // Always fetch both locales in parallel — en-US needed for still_path + real names
         const [ptData, enRes] = await Promise.all([
-          tmdbApi.tmdb.tvSeason(tmdbId, selectedSeason),
+          tmdbApi.tmdb.tvSeason(resolvedTmdbId, selectedSeason),
           fetch(
-            `https://api.themoviedb.org/3/tv/${tmdbId}/season/${selectedSeason}?api_key=${TMDB_KEY_LOCAL}&language=en-US`
+            `https://api.themoviedb.org/3/tv/${resolvedTmdbId}/season/${selectedSeason}?api_key=${TMDB_KEY_LOCAL}&language=en-US`
           ).catch(() => null),
         ]);
 
@@ -817,7 +838,7 @@ export default function DetailScreen() {
     };
 
     loadEps();
-  }, [tmdbId, type, selectedSeason]);
+  }, [resolvedTmdbId, resolvedType, selectedSeason]);
 
   const toggleList = async () => {
     if (!userId || !details) return;
