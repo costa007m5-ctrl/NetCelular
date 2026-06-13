@@ -209,19 +209,20 @@ function PosterCard({
 
 // ─── WideCard ─────────────────────────────────────────────────────────────────
 function WideCard({
-  item, onPress, badge, accentColor = RED,
+  item, onPress, badge, accentColor = RED, isNew = false,
 }: {
-  item: ContentItem; onPress: () => void; badge?: string; accentColor?: string;
+  item: ContentItem; onPress: () => void; badge?: string; accentColor?: string; isNew?: boolean;
 }) {
   const scale = useRef(new Animated.Value(1)).current;
   const [err, setErr] = useState(false);
+  const imgUri = item.backdropPath || item.posterPath;
   const pi = () => Animated.spring(scale, { toValue: 0.94, useNativeDriver: true, speed: 28 }).start();
   const po = () => Animated.spring(scale, { toValue: 1,    useNativeDriver: true, speed: 24 }).start();
   return (
     <Pressable onPress={onPress} onPressIn={pi} onPressOut={po}>
       <Animated.View style={[sty.wCard, { transform: [{ scale }] }]}>
-        {!err && item.backdropPath ? (
-          <Image source={{ uri: item.backdropPath }} style={StyleSheet.absoluteFill}
+        {!err && imgUri ? (
+          <Image source={{ uri: imgUri }} style={StyleSheet.absoluteFill}
             contentFit="cover" cachePolicy="memory-disk" transition={280}
             onError={() => setErr(true)} />
         ) : (
@@ -229,7 +230,12 @@ function WideCard({
         )}
         <LinearGradient colors={["transparent","rgba(0,0,0,0.92)"]} locations={[0.25,1]}
           style={StyleSheet.absoluteFill} />
-        {badge && (
+        {isNew && (
+          <View style={[sty.wBadge, { backgroundColor: RED, left: 8, top: 8 }]}>
+            <Text style={sty.wBadgeText}>NOVO</Text>
+          </View>
+        )}
+        {badge && !isNew && (
           <View style={[sty.wBadge, { backgroundColor: accentColor }]}>
             <Text style={sty.wBadgeText}>{badge}</Text>
           </View>
@@ -251,19 +257,20 @@ function WideCard({
 
 // ─── FeaturedCard ─────────────────────────────────────────────────────────────
 function FeaturedCard({
-  item, onPress, accentColor = RED,
+  item, onPress, accentColor = RED, isNew = false,
 }: {
-  item: ContentItem; onPress: () => void; accentColor?: string;
+  item: ContentItem; onPress: () => void; accentColor?: string; isNew?: boolean;
 }) {
   const scale = useRef(new Animated.Value(1)).current;
   const [err, setErr] = useState(false);
+  const imgUri = item.posterPath || item.backdropPath;
   const pi = () => Animated.spring(scale, { toValue: 0.93, useNativeDriver: true, speed: 28 }).start();
   const po = () => Animated.spring(scale, { toValue: 1,    useNativeDriver: true, speed: 24 }).start();
   return (
     <Pressable onPress={onPress} onPressIn={pi} onPressOut={po}>
       <Animated.View style={[sty.fCard, { transform: [{ scale }] }]}>
-        {!err && item.posterPath ? (
-          <Image source={{ uri: item.posterPath }} style={StyleSheet.absoluteFill}
+        {!err && imgUri ? (
+          <Image source={{ uri: imgUri }} style={StyleSheet.absoluteFill}
             contentFit="cover" cachePolicy="memory-disk" transition={280}
             onError={() => setErr(true)} />
         ) : (
@@ -272,6 +279,11 @@ function FeaturedCard({
         <LinearGradient
           colors={["transparent", `${accentColor}18`, "rgba(0,0,0,0.96)"]}
           locations={[0.38, 0.68, 1]} style={StyleSheet.absoluteFill} />
+        {isNew && (
+          <View style={sty.newBadge}>
+            <Text style={sty.newBadgeText}>NOVO</Text>
+          </View>
+        )}
         <View style={sty.fInfo}>
           {item.rating > 0 && (
             <View style={[sty.fRateBadge, { backgroundColor: `${AMBER}20`, borderColor: `${AMBER}50` }]}>
@@ -1048,29 +1060,33 @@ function PosterRow({ items, onPress, showTitle=false, isNew=false }: {
   );
 }
 
-function WideRow({ items, onPress, badgeFn, accentColor }: {
+function WideRow({ items, onPress, badgeFn, accentColor, isNewFn }: {
   items:ContentItem[]; onPress:(i:ContentItem)=>void;
   badgeFn?:(i:ContentItem)=>string|undefined; accentColor?:string;
+  isNewFn?:(i:ContentItem)=>boolean;
 }) {
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false}
       contentContainerStyle={{ paddingHorizontal:16, gap:10 }} decelerationRate="fast">
-      {items.slice(0,4).map((item) => (
+      {items.slice(0,6).map((item) => (
         <WideCard key={item.id} item={item} onPress={()=>onPress(item)}
-          badge={badgeFn?.(item)} accentColor={accentColor} />
+          badge={badgeFn?.(item)} accentColor={accentColor}
+          isNew={isNewFn?.(item) ?? false} />
       ))}
     </ScrollView>
   );
 }
 
-function FeaturedRow({ items, onPress, accentColor=RED }: {
+function FeaturedRow({ items, onPress, accentColor=RED, isNewFn }: {
   items:ContentItem[]; onPress:(i:ContentItem)=>void; accentColor?:string;
+  isNewFn?:(i:ContentItem)=>boolean;
 }) {
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false}
       contentContainerStyle={{ paddingHorizontal:16, gap:10 }} decelerationRate="fast">
-      {items.slice(0,4).map((item) => (
-        <FeaturedCard key={item.id} item={item} onPress={()=>onPress(item)} accentColor={accentColor} />
+      {items.slice(0,6).map((item) => (
+        <FeaturedCard key={item.id} item={item} onPress={()=>onPress(item)}
+          accentColor={accentColor} isNew={isNewFn?.(item) ?? false} />
       ))}
     </ScrollView>
   );
@@ -1149,7 +1165,7 @@ export default function NovidadesScreen() {
   const headerOp  = useRef(new Animated.Value(0)).current;
   const shimmer   = useRef(new Animated.Value(0)).current;
   const scrollFab = useRef(new Animated.Value(0)).current;
-  const s         = useRef(makeAnims(9)).current;
+  const s         = useRef(makeAnims(11)).current;
   // headerOp: 1, shimmer: 1, scrollFab: 1, s[0..37]: 38 = 41 values at module level
   // + glow anims inside SpotlightBanner (×3) = 44
   // + blink inside CountdownBanner = 45
@@ -1177,10 +1193,31 @@ export default function NovidadesScreen() {
     () => allMovies.filter((i) => !heroIds.has(i.id)),
     [allMovies, heroIds]
   );
-  const trendMovies = useMemo(() => nonHeroMovies.slice(0, 4),  [nonHeroMovies]);
-  const nowPlaying  = useMemo(() => nonHeroMovies.slice(6, 10), [nonHeroMovies]);
-  const onAir       = useMemo(() => allSeries.slice(0, 4),      [allSeries]);
-  const trendAnimes = useMemo(() => allAnimes.slice(0, 6),      [allAnimes]);
+  const CURRENT_YEAR = new Date().getFullYear();
+
+  // trendMovies: prefer items with backdrop (WideRow uses backdrop image)
+  const trendMovies = useMemo(() => {
+    const withBg = nonHeroMovies.filter((i) => !!(i.backdropPath || i.posterPath));
+    return withBg.slice(0, 6);
+  }, [nonHeroMovies]);
+
+  // nowPlaying: items with poster, not already in trendMovies
+  const trendIds = useMemo(() => new Set(trendMovies.map((i) => i.id)), [trendMovies]);
+  const nowPlaying  = useMemo(() => {
+    return nonHeroMovies.filter((i) => !trendIds.has(i.id) && !!(i.posterPath || i.backdropPath)).slice(0, 6);
+  }, [nonHeroMovies, trendIds]);
+
+  const onAir       = useMemo(() => allSeries.slice(0, 4),  [allSeries]);
+  const trendAnimes = useMemo(() => allAnimes.slice(0, 6),  [allAnimes]);
+
+  // lancamentos: recently released content (last 2 years) with images — mixed films + series
+  const lancamentos = useMemo(() => {
+    const pool = [...allMovies, ...allSeries].filter(
+      (i) => i.year >= CURRENT_YEAR - 1 && !!(i.posterPath || i.backdropPath)
+    );
+    const seen = new Set<string>();
+    return pool.filter((i) => { if (seen.has(i.id)) return false; seen.add(i.id); return true; }).slice(0, 8);
+  }, [allMovies, allSeries, CURRENT_YEAR]);
 
   // ── R2 / Drive catalog ────────────────────────────────────────────────────
   const { r2Movies, r2Series, r2All } = useR2Catalog();
@@ -1418,7 +1455,8 @@ export default function NovidadesScreen() {
                           3,
                         )} />
                     <WideRow items={trendMovies} onPress={goTo}
-                      badgeFn={(i) => i.rating >= 8 ? "DESTAQUE" : undefined} />
+                      isNewFn={(i) => i.year >= CURRENT_YEAR - 1}
+                      badgeFn={(i) => i.rating >= 8 && i.year < CURRENT_YEAR - 1 ? "DESTAQUE" : undefined} />
                   </View>
                 </AnimatedSection>
               )}
@@ -1435,30 +1473,44 @@ export default function NovidadesScreen() {
 
               <SectionDivider label="LANÇAMENTOS" accentColor={BLUE} />
 
-              {/* ── 6. LANÇAMENTOS DA SEMANA ────────────────────────────── */}
+              {/* ── 5b. LANÇAMENTOS NA PLATAFORMA ───────────────────────── */}
+              {lancamentos.length > 0 && (
+                <AnimatedSection anim={s[9]}>
+                  <View style={sty.sec}>
+                    <SectionHeader title="Lançamentos" icon="star"
+                      badge="NOVO" accentColor={RED}
+                      subtitle="Estreando agora na plataforma"
+                      onSeeAll={() => openModal("Lançamentos na Plataforma", lancamentos, RED)} />
+                    <PosterRow items={lancamentos.slice(0, 6)} onPress={goTo} isNew showTitle />
+                  </View>
+                </AnimatedSection>
+              )}
+
+              {/* ── 6. SÉRIES EM EXIBIÇÃO (ESTREANDO AGORA) ─────────────── */}
               {nowPlaying.length > 0 && (
                 <AnimatedSection anim={s[4]}>
                   <View style={sty.sec}>
                     <SectionHeader title="Estreando Agora" icon="zap"
-                      badge={allMovies.length > 0 ? String(allMovies.length) : "NOVO"} accentColor={BLUE}
-                      subtitle="Chegando aos cinemas esta semana"
-                      onSeeAll={() => openModal("Estreando Agora", allMovies, BLUE,
-                          (pg) => fetchOnePage("movies", pg),
+                      badge={allSeries.length > 0 ? String(allSeries.length) : "NOVO"} accentColor={BLUE}
+                      subtitle="Novos filmes chegando ao catálogo"
+                      onSeeAll={() => openModal("Estreando Agora", allSeries, BLUE,
+                          (pg) => fetchOnePage("series", pg),
                           [
-                            { id: 28,    label: "Ação" },
-                            { id: 12,    label: "Aventura" },
+                            { id: 10759, label: "Ação" },
                             { id: 16,    label: "Animação" },
                             { id: 35,    label: "Comédia" },
                             { id: 80,    label: "Crime" },
                             { id: 18,    label: "Drama" },
+                            { id: 10751, label: "Família" },
                             { id: 14,    label: "Fantasia" },
-                            { id: 878,   label: "Ficção Científica" },
-                            { id: 27,    label: "Terror" },
+                            { id: 9648,  label: "Mistério" },
+                            { id: 10765, label: "Sci-Fi" },
                             { id: 53,    label: "Suspense" },
                           ],
                           3,
                         )} />
-                    <FeaturedRow items={nowPlaying} onPress={goTo} accentColor={BLUE} />
+                    <FeaturedRow items={nowPlaying} onPress={goTo} accentColor={BLUE}
+                      isNewFn={(i) => i.year >= CURRENT_YEAR - 1} />
                   </View>
                 </AnimatedSection>
               )}
