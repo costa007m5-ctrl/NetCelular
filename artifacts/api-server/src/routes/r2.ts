@@ -3655,12 +3655,16 @@ router.get("/flix2/cinema-2026", async (req, res) => {
   // ── 3. Filter Xtream catalog by TMDB 2026 title match ────────────────────
   const JAN_2026 = 1767225600; // fallback: added_at >= Jan 1 2026
 
+  // seenTmdbKeys prevents duplicate entries when multiple Xtream items share the same TMDB title
+  const seenTmdbKeys = new Set<string>();
   const items2026: Array<any & { _tmdbDate: string; _tmdbVote: number }> = [];
   for (const item of cached.data) {
     if (!item.title || !item.poster) continue;
     const key = normTitle(item.title);
     const tmdbEntry = TMDB_2026_MAP.get(key);
     if (tmdbEntry) {
+      if (seenTmdbKeys.has(key)) continue; // skip duplicate Xtream items for same TMDB film
+      seenTmdbKeys.add(key);
       items2026.push({ ...item, _tmdbDate: tmdbEntry.date, _tmdbVote: tmdbEntry.vote, _tmdbEntry: tmdbEntry });
     } else if (TMDB_2026_MAP.size === 0 && (item.added_at ?? 0) >= JAN_2026) {
       items2026.push({ ...item, _tmdbDate: "", _tmdbVote: 0, _tmdbEntry: null });

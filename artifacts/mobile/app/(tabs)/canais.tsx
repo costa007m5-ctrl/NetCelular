@@ -1,6 +1,9 @@
-import React, { useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Animated,
+  Dimensions,
+  FlatList,
   Image,
   Platform,
   Pressable,
@@ -9,131 +12,191 @@ import {
   Text,
   View,
 } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
+import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Feather } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
 import {
-  MAIN_PLATFORMS,
-  NICHE_PLATFORMS,
-  SPECIFIC_PLATFORMS,
-  StreamingPlatform,
-} from "@/constants/streamings";
+  liveTvApi,
+  LiveChannel,
+  LiveCategory,
+  getAccent,
+  CATEGORY_LABELS,
+} from "@/lib/live-tv-api";
 
-const TMDB_IMG = (path: string | null, size = "w300") =>
-  path ? `https://image.tmdb.org/t/p/${size}${path}` : null;
+const { width: W } = Dimensions.get("window");
+const CARD_W = (W - 16 * 2 - 10 * 2) / 3;
+const TAB_CLEAR = Platform.OS === "web" ? 100 : 110;
 
-const TAB_BAR_CLEARANCE = Platform.OS === "web" ? 100 : 110;
+// ── Category Pill ─────────────────────────────────────────────────────────────
+function CategoryPill({
+  label,
+  active,
+  onPress,
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable onPress={onPress} style={[styles.pill, active && styles.pillActive]}>
+      <Text style={[styles.pillText, active && styles.pillTextActive]}>{label}</Text>
+    </Pressable>
+  );
+}
 
-function PlatformCard({ platform }: { platform: StreamingPlatform }) {
+// ── Channel Card ──────────────────────────────────────────────────────────────
+function ChannelCard({ channel }: { channel: LiveChannel }) {
   const router = useRouter();
   const scale = useRef(new Animated.Value(1)).current;
-  const [logoError, setLogoError] = React.useState(false);
-
-  const logoUrl = TMDB_IMG(platform.logoPath);
+  const [imgErr, setImgErr] = useState(false);
+  const accent = getAccent(channel.id);
 
   const onPressIn = () =>
-    Animated.spring(scale, { toValue: 0.94, useNativeDriver: true, speed: 30 }).start();
+    Animated.spring(scale, { toValue: 0.93, useNativeDriver: true, speed: 40 }).start();
   const onPressOut = () =>
-    Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 20 }).start();
+    Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 30 }).start();
   const onPress = () =>
-    router.push({ pathname: "/streaming", params: { platform: platform.id } } as never);
+    router.push({
+      pathname: "/channel-detail" as never,
+      params: {
+        channelId: channel.id,
+        channelName: channel.name,
+        channelImage: channel.image,
+        channelUrl: channel.url,
+      },
+    } as never);
 
   return (
     <Pressable onPress={onPress} onPressIn={onPressIn} onPressOut={onPressOut}>
-      <Animated.View style={[styles.card, { transform: [{ scale }] }]}>
-        <LinearGradient
-          colors={platform.bgGradient as [string, string, string]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={StyleSheet.absoluteFill}
-        />
-        <View style={[styles.cardAccentBar, { backgroundColor: platform.brandColor }]} />
-
-        <View style={styles.cardInner}>
-          {logoUrl && !logoError ? (
+      <Animated.View style={[styles.card, { width: CARD_W, transform: [{ scale }] }]}>
+        <View style={[styles.cardBg, { borderColor: accent + "33" }]}>
+          <View style={[styles.liveTag]}>
+            <View style={[styles.liveDot, { backgroundColor: accent }]} />
+            <Text style={[styles.liveText, { color: accent }]}>AO VIVO</Text>
+          </View>
+          {channel.image && !imgErr ? (
             <Image
-              source={{ uri: logoUrl }}
-              style={styles.logo}
+              source={{ uri: channel.image }}
+              style={styles.channelLogo}
               resizeMode="contain"
-              onError={() => setLogoError(true)}
+              onError={() => setImgErr(true)}
             />
           ) : (
-            <View style={styles.textLogoWrap}>
-              <Text style={[styles.textLogoMain, { color: platform.brandColor }]}>
-                {platform.name.split(" ")[0].toUpperCase()}
-              </Text>
-              {platform.name.split(" ").length > 1 && (
-                <Text style={[styles.textLogoSub, { color: platform.brandColor + "BB" }]}>
-                  {platform.name.split(" ").slice(1).join(" ").toUpperCase()}
-                </Text>
-              )}
+            <View style={[styles.channelLogoFallback, { backgroundColor: accent + "22" }]}>
+              <Feather name="tv" size={26} color={accent} />
             </View>
           )}
-
-          <View style={styles.cardText}>
-            <Text style={styles.cardName} numberOfLines={1}>
-              {platform.name}
-            </Text>
-            {platform.tagline ? (
-              <Text style={styles.cardTagline} numberOfLines={1}>
-                {platform.tagline}
-              </Text>
-            ) : null}
-          </View>
-
-          <View style={[styles.chevron, { borderColor: platform.brandColor + "55" }]}>
-            <Text style={[styles.chevronText, { color: platform.brandColor }]}>›</Text>
-          </View>
         </View>
+        <Text style={styles.cardName} numberOfLines={2}>
+          {channel.name}
+        </Text>
       </Animated.View>
     </Pressable>
   );
 }
 
-function SectionHeader({ title }: { title: string }) {
-  return (
-    <View style={styles.sectionHeader}>
-      <Text style={styles.sectionTitle}>{title}</Text>
-      <View style={styles.sectionLine} />
-    </View>
-  );
-}
-
+// ── Main Screen ────────────────────────────────────────────────────────────────
 export default function CanaisScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === "web" ? 67 : insets.top;
 
+  const [channels, setChannels] = useState<LiveChannel[]>([]);
+  const [categories, setCategories] = useState<LiveCategory[]>([]);
+  const [selectedCat, setSelectedCat] = useState<number>(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    liveTvApi
+      .getChannels()
+      .then((data) => {
+        setChannels(data.channels ?? []);
+        // Build category list: "Todos" first, then the rest sorted by id
+        const cats = [{ id: 0, name: "Todos" }, ...(data.categories ?? []).filter((c) => c.id !== 0).sort((a, b) => a.id - b.id)];
+        setCategories(cats);
+      })
+      .catch((e) => setError(e?.message ?? "Erro ao carregar canais"))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const filtered =
+    selectedCat === 0
+      ? channels
+      : channels.filter((ch) => ch.categories?.includes(selectedCat));
+
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       <StatusBar style="light" />
 
+      {/* Header */}
       <View style={[styles.header, { paddingTop: topInset + 12 }]}>
-        <Text style={styles.headerTitle}>Canais</Text>
-        <Text style={styles.headerSub}>Catálogos completos das principais plataformas</Text>
+        <View style={styles.headerRow}>
+          <Feather name="tv" size={22} color="#e50914" />
+          <Text style={styles.headerTitle}>Canais ao Vivo</Text>
+          {!loading && (
+            <View style={styles.countBadge}>
+              <Text style={styles.countText}>{filtered.length}</Text>
+            </View>
+          )}
+        </View>
+        <Text style={styles.headerSub}>Transmissões em tempo real</Text>
       </View>
 
-      <ScrollView
-        contentContainerStyle={{ paddingBottom: TAB_BAR_CLEARANCE }}
-        showsVerticalScrollIndicator={false}
-      >
-        <SectionHeader title="Principais" />
-        {MAIN_PLATFORMS.map((p) => (
-          <PlatformCard key={p.id} platform={p} />
-        ))}
+      {/* Category filter pills */}
+      {categories.length > 0 && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.pillsRow}
+          contentContainerStyle={styles.pillsContent}
+        >
+          {categories.map((cat) => (
+            <CategoryPill
+              key={cat.id}
+              label={cat.name}
+              active={selectedCat === cat.id}
+              onPress={() => setSelectedCat(cat.id)}
+            />
+          ))}
+        </ScrollView>
+      )}
 
-        <SectionHeader title="Especializados" />
-        {SPECIFIC_PLATFORMS.map((p) => (
-          <PlatformCard key={p.id} platform={p} />
-        ))}
+      {/* States */}
+      {loading && (
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color="#e50914" />
+          <Text style={styles.loadingText}>Carregando canais…</Text>
+        </View>
+      )}
 
-        <SectionHeader title="Nicho & Esporte" />
-        {NICHE_PLATFORMS.map((p) => (
-          <PlatformCard key={p.id} platform={p} />
-        ))}
-      </ScrollView>
+      {error && !loading && (
+        <View style={styles.center}>
+          <Feather name="wifi-off" size={48} color="rgba(255,255,255,0.2)" />
+          <Text style={styles.errorText}>{error}</Text>
+        </View>
+      )}
+
+      {/* Channel grid */}
+      {!loading && !error && (
+        <FlatList
+          data={filtered}
+          keyExtractor={(item) => item.id}
+          numColumns={3}
+          columnWrapperStyle={styles.row}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: TAB_CLEAR, paddingTop: 8 }}
+          showsVerticalScrollIndicator={false}
+          renderItem={({ item }) => <ChannelCard channel={item} />}
+          ListEmptyComponent={
+            <View style={styles.center}>
+              <Text style={styles.emptyText}>Nenhum canal nesta categoria</Text>
+            </View>
+          }
+        />
+      )}
     </View>
   );
 }
@@ -143,113 +206,141 @@ const styles = StyleSheet.create({
 
   header: {
     paddingHorizontal: 20,
-    paddingBottom: 16,
+    paddingBottom: 14,
     borderBottomWidth: 1,
     borderBottomColor: "rgba(255,255,255,0.07)",
   },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
   headerTitle: {
-    fontSize: 28,
+    fontSize: 24,
     fontWeight: "800",
     color: "#fff",
-    letterSpacing: -0.5,
-  },
-  headerSub: {
-    fontSize: 13,
-    color: "rgba(255,255,255,0.45)",
-    marginTop: 2,
-  },
-
-  sectionHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 20,
-    paddingTop: 24,
-    paddingBottom: 10,
-    gap: 10,
-  },
-  sectionTitle: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "rgba(255,255,255,0.5)",
-    letterSpacing: 1.2,
-    textTransform: "uppercase",
-  },
-  sectionLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: "rgba(255,255,255,0.08)",
-  },
-
-  card: {
-    marginHorizontal: 16,
-    marginBottom: 10,
-    borderRadius: 16,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-  },
-  cardAccentBar: {
-    position: "absolute",
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: 3,
-  },
-  cardInner: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 14,
-    paddingLeft: 20,
-    paddingRight: 16,
-    gap: 14,
-  },
-
-  logo: {
-    width: 72,
-    height: 36,
-  },
-  textLogoWrap: {
-    width: 72,
-    alignItems: "flex-start",
-  },
-  textLogoMain: {
-    fontSize: 17,
-    fontWeight: "900",
-    letterSpacing: -0.5,
-  },
-  textLogoSub: {
-    fontSize: 9,
-    fontWeight: "700",
-    letterSpacing: 1,
-    marginTop: -2,
-  },
-
-  cardText: {
+    letterSpacing: -0.4,
     flex: 1,
   },
-  cardName: {
-    fontSize: 16,
+  countBadge: {
+    backgroundColor: "#e50914",
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  countText: {
+    fontSize: 11,
     fontWeight: "700",
     color: "#fff",
   },
-  cardTagline: {
+  headerSub: {
     fontSize: 12,
-    color: "rgba(255,255,255,0.45)",
-    marginTop: 2,
+    color: "rgba(255,255,255,0.4)",
+    marginTop: 3,
   },
 
-  chevron: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+  pillsRow: { maxHeight: 46 },
+  pillsContent: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    gap: 8,
+    flexDirection: "row",
+  },
+  pill: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.08)",
     borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+  },
+  pillActive: {
+    backgroundColor: "#e50914",
+    borderColor: "#e50914",
+  },
+  pillText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "rgba(255,255,255,0.55)",
+  },
+  pillTextActive: {
+    color: "#fff",
+  },
+
+  row: { gap: 10, marginBottom: 10 },
+
+  card: { alignItems: "center" },
+  cardBg: {
+    width: "100%",
+    aspectRatio: 1.4,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderWidth: 1,
+    overflow: "hidden",
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+  },
+  liveTag: {
+    position: "absolute",
+    top: 5,
+    left: 5,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    backgroundColor: "rgba(0,0,0,0.7)",
+    borderRadius: 6,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+  },
+  liveDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+  },
+  liveText: {
+    fontSize: 8,
+    fontWeight: "800",
+    letterSpacing: 0.5,
+  },
+  channelLogo: {
+    width: "80%",
+    height: "60%",
+  },
+  channelLogoFallback: {
+    width: "100%",
+    height: "100%",
     alignItems: "center",
     justifyContent: "center",
   },
-  chevronText: {
-    fontSize: 18,
-    fontWeight: "700",
-    lineHeight: 22,
-    marginLeft: 2,
+  cardName: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: "rgba(255,255,255,0.7)",
+    textAlign: "center",
+    marginTop: 5,
+    lineHeight: 13,
+  },
+
+  center: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+    paddingTop: 60,
+  },
+  loadingText: {
+    color: "rgba(255,255,255,0.4)",
+    fontSize: 14,
+  },
+  errorText: {
+    color: "rgba(255,255,255,0.4)",
+    fontSize: 14,
+    textAlign: "center",
+    paddingHorizontal: 40,
+  },
+  emptyText: {
+    color: "rgba(255,255,255,0.3)",
+    fontSize: 14,
   },
 });
