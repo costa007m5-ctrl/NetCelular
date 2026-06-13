@@ -9,6 +9,7 @@ import {
   Animated,
   Dimensions,
   FlatList,
+  Modal,
   Platform,
   Pressable,
   RefreshControl,
@@ -50,8 +51,8 @@ const MONTH_COLORS: string[] = [
 ];
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
-interface WhatsNewItem {
-  id: string;
+interface CatalogItem {
+  id: string | number;
   title: string;
   tmdb_id: number;
   type: string;
@@ -59,12 +60,12 @@ interface WhatsNewItem {
   poster: string;
   backdrop?: string;
   added_at: number;
-  added_date: string;
+  added_date?: string;
   rating?: number;
   overview?: string;
 }
 
-function wn2Content(item: WhatsNewItem): ContentItem {
+function toContent(item: CatalogItem): ContentItem {
   return {
     id: String(item.id),
     tmdbId: Number(item.tmdb_id) || 0,
@@ -80,20 +81,39 @@ function wn2Content(item: WhatsNewItem): ContentItem {
   };
 }
 
-async function fetchCinema(): Promise<WhatsNewItem[]> {
-  try {
-    const res = await r2Route<{ ok: boolean; movies: WhatsNewItem[] }>(
-      "/flix2/whats-new?days=180"
-    );
-    if (!res.ok) return [];
-    return (res.movies ?? []).filter((i) => i.title && i.poster);
-  } catch {
-    return [];
-  }
+/** Normalise added_at to milliseconds */
+function toMs(ts: number): number {
+  return ts > 1e12 ? ts : ts * 1000;
 }
 
-function getMonthKey(dateStr: string): string {
-  return dateStr?.slice(0, 7) ?? "";
+function monthKeyFromItem(item: CatalogItem): string {
+  if (item.added_date) return item.added_date.slice(0, 7);
+  const d = new Date(toMs(item.added_at));
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+async function fetchCinema(): Promise<{ items: CatalogItem[]; topRated: CatalogItem[] }> {
+  try {
+    const res = await r2Route<{ ok: boolean; items: CatalogItem[] }>(
+      "/flix2/catalog-full?type=movies"
+    );
+    if (!res.ok) return { items: [], topRated: [] };
+    const all = (res.items ?? []).filter((i) => i.title && i.poster);
+    // 2026 items: added_at in 2026 or year >= 2026
+    const jan2026ms = new Date("2026-01-01").getTime();
+    const items2026 = all.filter((i) => {
+      const ms = toMs(i.added_at);
+      return ms >= jan2026ms || i.year >= 2026;
+    });
+    // Top rated from entire catalog
+    const topRated = [...all]
+      .filter((i) => (i.rating ?? 0) >= 6)
+      .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0))
+      .slice(0, 25);
+    return { items: items2026, topRated };
+  } catch {
+    return { items: [], topRated: [] };
+  }
 }
 
 function getMonthLabel(key: string): string {
@@ -102,17 +122,17 @@ function getMonthLabel(key: string): string {
   return `${MONTH_PT[month] ?? key} ${year}`;
 }
 
-function groupByMonth(items: WhatsNewItem[]): { key: string; label: string; items: WhatsNewItem[] }[] {
-  const map: Record<string, WhatsNewItem[]> = {};
+function groupByMonth(items: CatalogItem[]): { key: string; label: string; items: CatalogItem[] }[] {
+  const map: Record<string, CatalogItem[]> = {};
   for (const item of items) {
-    const k = getMonthKey(item.added_date);
+    const k = monthKeyFromItem(item);
     if (!k) continue;
     if (!map[k]) map[k] = [];
     map[k].push(item);
   }
   return Object.entries(map)
     .sort(([a], [b]) => b.localeCompare(a))
-    .map(([key, items]) => ({ key, label: getMonthLabel(key), items }));
+    .map(([key, arr]) => ({ key, label: getMonthLabel(key), items: arr }));
 }
 
 // ─── Skeleton ─────────────────────────────────────────────────────────────────
@@ -318,6 +338,45 @@ function PosterCard({ item, onPress }: { item: ContentItem; onPress: () => void 
   );
 }
 
+// ─── MaisAssistidosRow ────────────────────────────────────────────────────────
+function MaisAssistidosRow({ items, onItemPress }: {
+  items: ContentItem[]; onItemPress: (i: ContentItem) => void;
+}) {
+  if (!items.length) return null;
+  return (
+    <View style={{ marginBottom: 8 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8,
+        paddingHorizontal: 16, paddingVertical: 12, overflow: "hidden" }}>
+        <LinearGradient
+          colors={["rgba(229,9,20,0.18)", "transparent"]}
+          start={{ x: 0, y: 0 }} end={{ x: 0.7, y: 0 }}
+          style={StyleSheet.absoluteFill} />
+        <View style={{ width: 3, height: 18, borderRadius: 2, backgroundColor: RED }} />
+        <View style={{ width: 24, height: 24, borderRadius: 7,
+          alignItems: "center", justifyContent: "center",
+          backgroundColor: "rgba(229,9,20,0.18)" }}>
+          <Feather name="trending-up" size={12} color={RED} />
+        </View>
+        <Text style={{ fontSize: 15, fontWeight: "900", color: RED }}>Mais Assistidos</Text>
+        <Text style={{ fontSize: 15, fontWeight: "900", color: "#fff" }}>Hoje</Text>
+        <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8,
+          backgroundColor: "rgba(229,9,20,0.18)", borderWidth: 1,
+          borderColor: "rgba(229,9,20,0.4)" }}>
+          <Text style={{ fontSize: 10, fontWeight: "800", color: RED }}>
+            {items.length}
+          </Text>
+        </View>
+      </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ paddingHorizontal: 16 }} decelerationRate="fast">
+        {items.map((item) => (
+          <PosterCard key={item.id} item={item} onPress={() => onItemPress(item)} />
+        ))}
+      </ScrollView>
+    </View>
+  );
+}
+
 // ─── MonthSection ─────────────────────────────────────────────────────────────
 function MonthSection({
   label, items, accentColor, onItemPress, onSeeAll,
@@ -403,56 +462,68 @@ function VerTudoModal({ visible, title, items, accentColor = GOLD, onClose, onIt
   visible: boolean; title: string; items: ContentItem[];
   accentColor?: string; onClose: () => void; onItemPress: (i: ContentItem) => void;
 }) {
-  const slideY   = useRef(new Animated.Value(H)).current;
-  const backdrop = useRef(new Animated.Value(0)).current;
+  const slideY = useRef(new Animated.Value(H)).current;
 
   useEffect(() => {
-    Animated.parallel([
-      Animated.timing(slideY,   { toValue: visible ? 0 : H, duration: visible ? 340 : 300, useNativeDriver: true }),
-      Animated.timing(backdrop, { toValue: visible ? 1 : 0, duration: visible ? 280 : 240, useNativeDriver: true }),
-    ]).start();
+    Animated.timing(slideY, {
+      toValue: visible ? 0 : H,
+      duration: visible ? 340 : 280,
+      useNativeDriver: true,
+    }).start();
   }, [visible]);
 
   const CARD_W = (W - 48) / 3;
   const CARD_H = CARD_W * 1.5;
 
   return (
-    <View pointerEvents={visible ? "auto" : "none"} style={StyleSheet.absoluteFill}>
-      <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.7)", opacity: backdrop }]}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-      </Animated.View>
-      <Animated.View style={[sty.modal, { transform: [{ translateY: slideY }] }]}>
-        <LinearGradient colors={["#0a0804", "#060402"]} style={StyleSheet.absoluteFill} />
-        <View style={[sty.modalHandle, { backgroundColor: `${accentColor}60` }]} />
-        <View style={sty.modalHeader}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-            <View style={[sty.modalAccent, { backgroundColor: accentColor }]} />
-            <Text style={sty.modalTitle}>{title}</Text>
-            <View style={[sty.monthBadge, { backgroundColor: `${accentColor}20`, borderColor: `${accentColor}40` }]}>
-              <Text style={[sty.monthBadgeText, { color: accentColor }]}>{items.length}</Text>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="none"
+      onRequestClose={onClose}
+      statusBarTranslucent
+    >
+      <View style={StyleSheet.absoluteFill}>
+        {/* Backdrop */}
+        <Pressable style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.72)" }]}
+          onPress={onClose} />
+        {/* Sheet */}
+        <Animated.View style={[sty.modal, { transform: [{ translateY: slideY }] }]}>
+          <LinearGradient colors={["#0a0804", "#060402"]} style={StyleSheet.absoluteFill} />
+          <View style={[sty.modalHandle, { backgroundColor: `${accentColor}60` }]} />
+          <View style={sty.modalHeader}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+              <View style={[sty.modalAccent, { backgroundColor: accentColor }]} />
+              <Text style={sty.modalTitle}>{title}</Text>
+              <View style={[sty.monthBadge, { backgroundColor: `${accentColor}20`, borderColor: `${accentColor}40` }]}>
+                <Text style={[sty.monthBadgeText, { color: accentColor }]}>{items.length}</Text>
+              </View>
             </View>
+            <TouchableOpacity onPress={onClose} activeOpacity={0.7} style={{ padding: 6 }}>
+              <Feather name="x" size={18} color="rgba(255,255,255,0.7)" />
+            </TouchableOpacity>
           </View>
-          <TouchableOpacity onPress={onClose} activeOpacity={0.7} style={{ padding: 6 }}>
-            <Feather name="x" size={18} color="rgba(255,255,255,0.7)" />
-          </TouchableOpacity>
-        </View>
-        <FlatList
-          data={items} keyExtractor={(i, idx) => `${i.id}_${idx}`}
-          numColumns={3}
-          style={{ flex: 1 }}
-          columnWrapperStyle={{ gap: 8, paddingHorizontal: 16 }}
-          contentContainerStyle={{ paddingBottom: 120, paddingTop: 8 }}
-          showsVerticalScrollIndicator={false}
-          initialNumToRender={15}
-          renderItem={({ item }) => (
-            <CinemaModalCard
-              item={item} cardW={CARD_W} cardH={CARD_H}
-              onPress={() => { onItemPress(item); onClose(); }}
-            />
-          )}
-        />
-      </Animated.View>
-    </View>
+          <FlatList
+            data={items}
+            keyExtractor={(item, idx) => `modal_${item.id}_${idx}`}
+            numColumns={3}
+            style={{ flex: 1 }}
+            columnWrapperStyle={{ gap: 8, paddingHorizontal: 16 }}
+            contentContainerStyle={{ paddingBottom: 120, paddingTop: 8 }}
+            showsVerticalScrollIndicator={false}
+            initialNumToRender={12}
+            maxToRenderPerBatch={9}
+            windowSize={5}
+            renderItem={({ item }) => (
+              <CinemaModalCard
+                item={item} cardW={CARD_W} cardH={CARD_H}
+                onPress={() => { onItemPress(item); onClose(); }}
+              />
+            )}
+          />
+        </Animated.View>
+      </View>
+    </Modal>
   );
 }
 
@@ -490,14 +561,16 @@ export default function CinemaScreen() {
   const shimmer = useRef(new Animated.Value(0)).current;
   const [loading, setLoading]       = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [rawItems, setRawItems]     = useState<WhatsNewItem[]>([]);
-  const [modal, setModal]           = useState<{
+  const [cinemaData, setCinemaData] = useState<{
+    items: CatalogItem[]; topRated: CatalogItem[];
+  }>({ items: [], topRated: [] });
+  const [modal, setModal] = useState<{
     visible: boolean; title: string; items: ContentItem[]; accent: string;
   }>({ visible: false, title: "", items: [], accent: GOLD });
 
   const load = useCallback(async () => {
     const data = await fetchCinema();
-    setRawItems(data);
+    setCinemaData(data);
   }, []);
 
   useEffect(() => {
@@ -528,7 +601,8 @@ export default function CinemaScreen() {
     });
   }, [router]);
 
-  const allContent = useMemo(() => rawItems.map(wn2Content), [rawItems]);
+  const allContent      = useMemo(() => cinemaData.items.map(toContent),    [cinemaData.items]);
+  const topRatedContent = useMemo(() => cinemaData.topRated.map(toContent), [cinemaData.topRated]);
 
   // Items with backdrop for rotating banner
   const bannerItems = useMemo(() =>
@@ -537,7 +611,7 @@ export default function CinemaScreen() {
   );
 
   // Month groupings
-  const monthGroups = useMemo(() => groupByMonth(rawItems), [rawItems]);
+  const monthGroups = useMemo(() => groupByMonth(cinemaData.items), [cinemaData.items]);
 
   const openModal = (title: string, items: ContentItem[], accent = GOLD) =>
     setModal({ visible: true, title, items, accent });
@@ -600,10 +674,13 @@ export default function CinemaScreen() {
               <StatsStrip total={allContent.length} months={monthGroups.length} />
             )}
 
+            {/* ── MAIS ASSISTIDOS HOJE ─────────────────────────────────── */}
+            <MaisAssistidosRow items={topRatedContent} onItemPress={goTo} />
+
             {/* ── MONTH CAROUSELS ───────────────────────────────────────── */}
             {monthGroups.map((group, groupIdx) => {
               const accent = MONTH_COLORS[groupIdx % MONTH_COLORS.length];
-              const contentItems = group.items.map(wn2Content);
+              const contentItems = group.items.map(toContent);
               return (
                 <MonthSection
                   key={group.key}
