@@ -23,13 +23,13 @@ function NativeTabLayout({ isAdmin }: { isAdmin: boolean }) {
         <Icon sf={{ default: "sparkles", selected: "sparkles" }} />
         <Label>Novidades</Label>
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="cinema">
+        <Icon sf={{ default: "film", selected: "film.fill" }} />
+        <Label>Cinema</Label>
+      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="franquias">
         <Icon sf={{ default: "star", selected: "star.fill" }} />
         <Label>Franquias</Label>
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="descobrir">
-        <Icon sf={{ default: "dot.radiowaves.left.and.right", selected: "dot.radiowaves.left.and.right" }} />
-        <Label>Ao Vivo</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="profile">
         <Icon sf={{ default: "person", selected: "person.fill" }} />
@@ -122,19 +122,19 @@ function ClassicTabLayout({ isAdmin }: { isAdmin: boolean }) {
         }}
       />
       <Tabs.Screen
+        name="cinema"
+        options={{
+          title: "Cinema",
+          tabBarIcon: ({ color }) =>
+            isIOS ? <SymbolView name="film" tintColor={color} size={22} /> : <Feather name="film" size={22} color={color} />,
+        }}
+      />
+      <Tabs.Screen
         name="franquias"
         options={{
           title: "Franquias",
           tabBarIcon: ({ color }) =>
             isIOS ? <SymbolView name="star" tintColor={color} size={22} /> : <Feather name="star" size={22} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="descobrir"
-        options={{
-          title: "Ao Vivo",
-          tabBarIcon: ({ color }) =>
-            isIOS ? <SymbolView name="dot.radiowaves.left.and.right" tintColor={color} size={22} /> : <Feather name="wifi" size={22} color={color} />,
         }}
       />
       <Tabs.Screen
@@ -146,6 +146,7 @@ function ClassicTabLayout({ isAdmin }: { isAdmin: boolean }) {
         }}
       />
       {/* Hidden screens — accessible via router.push */}
+      <Tabs.Screen name="descobrir" options={{ href: null }} />
       <Tabs.Screen name="downloads" options={{ href: null }} />
       <Tabs.Screen name="list" options={{ href: null }} />
     </Tabs>
