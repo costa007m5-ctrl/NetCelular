@@ -538,8 +538,64 @@ export default function Flix2PlayerScreen() {
               setWebViewBaseUrl(CF_WORKER_URL);
             }
           }
+        } else if (isHubbyCx(rawFlix2Url) && WebView) {
+          // hubby.cx → 302 para fontedecanais — resolve device-side via WebView oculto
+          // (igual ao nixplay: IP do device tem acesso, servidor/datacenter é bloqueado)
+          let capturedCdnUrl: string | null = null;
+          try {
+            capturedCdnUrl = await new Promise<string>((resolve, reject) => {
+              resolverCallbackRef.current = resolve;
+              resolverTimerRef.current = setTimeout(() => {
+                resolverCallbackRef.current = null;
+                reject(new Error("timeout"));
+              }, 10_000);
+              setResolverUrl(rawFlix2Url);
+            });
+          } catch {
+            // timeout → tenta server-side como segundo nível
+          } finally {
+            if (resolverTimerRef.current) { clearTimeout(resolverTimerRef.current); resolverTimerRef.current = null; }
+            setResolverUrl(null);
+          }
+
+          if (capturedCdnUrl) {
+            playerUrl = capturedCdnUrl;
+            cdnLabel = "fontedecanais";
+            setWebViewBaseUrl("https://hubby.cx");
+            appLog.info("player.flix2", "hubby.cx → CDN resolvido pelo dispositivo", {
+              cdnUrl: capturedCdnUrl.slice(0, 100),
+            });
+          } else {
+            // Nível 2: server-side resolve
+            try {
+              const apiBase = await getApiBase();
+              const ctrl = new AbortController();
+              const tid = setTimeout(() => ctrl.abort(), 8_000);
+              const resp = await fetch(
+                `${apiBase}/api/stream/resolve-url?url=${encodeURIComponent(rawFlix2Url)}`,
+                { signal: ctrl.signal }
+              );
+              clearTimeout(tid);
+              if (resp.ok) {
+                const data = await resp.json();
+                if (data.url && data.url !== rawFlix2Url) {
+                  playerUrl = data.url;
+                  cdnLabel = "fontedecanais";
+                  setWebViewBaseUrl("https://hubby.cx");
+                  appLog.info("player.flix2", "hubby.cx → fontedecanais via servidor", {
+                    resolved: data.url.slice(0, 100),
+                  });
+                }
+              }
+            } catch {}
+            if (!capturedCdnUrl) {
+              // Último recurso: tenta direto (pode funcionar em alguns configs)
+              cdnLabel = "hubby";
+              setWebViewBaseUrl("https://hubby.cx");
+            }
+          }
         } else if (isHubbyCx(rawFlix2Url)) {
-          // hubby.cx — Xtream Codes direto (MP4/TS/MKV), sem redirect
+          // Web sem WebView disponível — tenta proxy
           cdnLabel = "hubby";
           setWebViewBaseUrl("https://hubby.cx");
         } else if (isCineveoUrl(rawFlix2Url)) {
@@ -1530,8 +1586,8 @@ export default function Flix2PlayerScreen() {
           style={{ width: 0, height: 0, opacity: 0, position: "absolute", pointerEvents: "none" }}
           onShouldStartLoadWithRequest={(req: any) => {
             const u: string = req.url ?? "";
-            // Ignore the original nixplay URL and about:/data: frames
-            if (!u || u.includes("nixplay.lat") || u.startsWith("about:") || u.startsWith("data:")) {
+            // Ignore the original nixplay/hubby.cx URL and about:/data: frames
+            if (!u || u.includes("nixplay.lat") || u.includes("hubby.cx") || u.startsWith("about:") || u.startsWith("data:")) {
               return true; // let it continue
             }
             // We got the redirect destination — capture it and stop loading

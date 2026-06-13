@@ -2168,7 +2168,8 @@ function mapXtreamVod(item: any): any {
     poster:    item.stream_icon ?? "",
     backdrop:  backdropArr[0] ?? item.stream_icon ?? "",
     synopsis:  item.plot ?? "",
-    stream_url: `${FLIX2_SERVER}/${FLIX2_USER}/${FLIX2_PASS}/${streamId}.${ext}`,
+    // Xtream Codes VOD stream format: /movie/{user}/{pass}/{id}.{ext}
+    stream_url: `${FLIX2_SERVER}/movie/${FLIX2_USER}/${FLIX2_PASS}/${streamId}.${ext}`,
   };
 }
 
