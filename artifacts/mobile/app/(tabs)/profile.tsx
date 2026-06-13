@@ -924,6 +924,14 @@ export default function ProfileScreen() {
               iconColor="#fbbf24"
               accent
               onPress={() => router.push("/admin")}
+            />
+            <Row
+              icon="server"
+              label="Admin 2.0 — Hubby"
+              iconBg="#3b82f620"
+              iconColor="#3b82f6"
+              accent
+              onPress={() => router.push("/admin2")}
               last
             />
           </Section>
