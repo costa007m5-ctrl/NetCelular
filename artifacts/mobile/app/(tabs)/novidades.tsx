@@ -1046,15 +1046,16 @@ function ScrollTopFab({ scrollRef, visible }: { scrollRef: any; visible: boolean
 }
 
 // ─── Row helpers ──────────────────────────────────────────────────────────────
-function PosterRow({ items, onPress, showTitle=false, isNew=false }: {
+function PosterRow({ items, onPress, showTitle=false, isNew=false, isNewFn }: {
   items:ContentItem[]; onPress:(i:ContentItem)=>void; showTitle?:boolean; isNew?:boolean;
+  isNewFn?:(i:ContentItem)=>boolean;
 }) {
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false}
       contentContainerStyle={{ paddingHorizontal:16 }} decelerationRate="fast">
-      {items.slice(0,4).map((item) => (
+      {items.slice(0,8).map((item) => (
         <PosterCard key={item.id} item={item} onPress={()=>onPress(item)}
-          showTitle={showTitle} isNew={isNew} />
+          showTitle={showTitle} isNew={isNew || (isNewFn?.(item) ?? false)} />
       ))}
     </ScrollView>
   );
@@ -1210,14 +1211,14 @@ export default function NovidadesScreen() {
   const onAir       = useMemo(() => allSeries.slice(0, 4),  [allSeries]);
   const trendAnimes = useMemo(() => allAnimes.slice(0, 6),  [allAnimes]);
 
-  // lancamentos: recently released content (last 2 years) with images — mixed films + series
+  // lancamentos: recently released content (from 2022 onwards) with images — mixed films + series
   const lancamentos = useMemo(() => {
     const pool = [...allMovies, ...allSeries].filter(
-      (i) => i.year >= CURRENT_YEAR - 1 && !!(i.posterPath || i.backdropPath)
+      (i) => i.year >= 2022 && !!(i.posterPath || i.backdropPath)
     );
     const seen = new Set<string>();
-    return pool.filter((i) => { if (seen.has(i.id)) return false; seen.add(i.id); return true; }).slice(0, 8);
-  }, [allMovies, allSeries, CURRENT_YEAR]);
+    return pool.filter((i) => { if (seen.has(i.id)) return false; seen.add(i.id); return true; }).slice(0, 12);
+  }, [allMovies, allSeries]);
 
   // ── R2 / Drive catalog ────────────────────────────────────────────────────
   const { r2Movies, r2Series, r2All } = useR2Catalog();
@@ -1437,7 +1438,7 @@ export default function NovidadesScreen() {
                     <SectionHeader title="Tendência Hoje" icon="trending-up"
                       badge={allMovies.length > 0 ? String(allMovies.length) : "AO VIVO"} accentColor={RED}
                       subtitle="O que o mundo está assistindo agora"
-                      onSeeAll={() => openModal("Tendência Hoje", allMovies, RED,
+                      onSeeAll={() => openModal("Tendência Hoje", allMovies.slice(0, 400), RED,
                           (pg) => fetchOnePage("movies", pg),
                           [
                             { id: 28,    label: "Ação" },
@@ -1455,8 +1456,8 @@ export default function NovidadesScreen() {
                           3,
                         )} />
                     <WideRow items={trendMovies} onPress={goTo}
-                      isNewFn={(i) => i.year >= CURRENT_YEAR - 1}
-                      badgeFn={(i) => i.rating >= 8 && i.year < CURRENT_YEAR - 1 ? "DESTAQUE" : undefined} />
+                      isNewFn={(i) => i.year >= 2023}
+                      badgeFn={(i) => i.rating >= 8 && i.year < 2023 ? "DESTAQUE" : undefined} />
                   </View>
                 </AnimatedSection>
               )}
@@ -1493,7 +1494,7 @@ export default function NovidadesScreen() {
                     <SectionHeader title="Estreando Agora" icon="zap"
                       badge={allSeries.length > 0 ? String(allSeries.length) : "NOVO"} accentColor={BLUE}
                       subtitle="Novos filmes chegando ao catálogo"
-                      onSeeAll={() => openModal("Estreando Agora", allSeries, BLUE,
+                      onSeeAll={() => openModal("Estreando Agora", allSeries.slice(0, 400), BLUE,
                           (pg) => fetchOnePage("series", pg),
                           [
                             { id: 10759, label: "Ação" },
@@ -1510,7 +1511,7 @@ export default function NovidadesScreen() {
                           3,
                         )} />
                     <FeaturedRow items={nowPlaying} onPress={goTo} accentColor={BLUE}
-                      isNewFn={(i) => i.year >= CURRENT_YEAR - 1} />
+                      isNewFn={(i) => i.year >= 2023} />
                   </View>
                 </AnimatedSection>
               )}
@@ -1522,7 +1523,7 @@ export default function NovidadesScreen() {
                     <SectionHeader title="Séries no Ar" icon="tv"
                       badge={allSeries.length + r2Series.length > 0 ? String(allSeries.length + r2Series.length) : "AO AR"} accentColor={GREEN}
                       subtitle="Episódios novos toda semana"
-                      onSeeAll={() => openModal("Séries no Ar", [...r2Series, ...allSeries], GREEN,
+                      onSeeAll={() => openModal("Séries no Ar", [...r2Series, ...allSeries.slice(0, 400)], GREEN,
                           (pg) => fetchOnePage("series", pg),
                           [
                             { id: 10759, label: "Ação" },
@@ -1554,7 +1555,7 @@ export default function NovidadesScreen() {
                       <SectionHeader title="Animes em Alta" icon="star"
                         badge={allAnimes.length > 0 ? String(allAnimes.length) : "ANIME"} accentColor={ORANGE}
                         subtitle="Os mais assistidos agora"
-                        onSeeAll={() => openModal("Animes em Alta", allAnimes, ORANGE,
+                        onSeeAll={() => openModal("Animes em Alta", allAnimes.slice(0, 400), ORANGE,
                           (pg) => fetchOnePage("animes", pg),
                           [
                             { id: 28,    label: "Ação" },
