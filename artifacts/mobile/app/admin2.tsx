@@ -303,11 +303,22 @@ export default function Admin2Screen() {
   }, []);
 
   // ─── Open player ────────────────────────────────────────────────────────────
-  const openPlayer = (url: string, title: string) => {
-    setPlayerUrl(url);
+  // Para URLs hubby.cx: resolve o redirect 302 via API antes de abrir o player,
+  // pois o elemento <video> no Android WebView não consegue seguir HTTPS→HTTP.
+  const openPlayer = useCallback(async (url: string, title: string) => {
+    let playUrl = url;
+    // hubby.cx: o elemento <video> no Android não consegue seguir redirect HTTPS→HTTP.
+    // O servidor consegue acessar hubby.cx diretamente (HTTP 200) — usa o stream proxy
+    // que devolve uma URL HTTPS limpa sem redirect para o WebView.
+    const isHubbyCxStream = url.includes("hubby.cx/movie/") || url.includes("hubby.cx/series/") || url.includes("hubby.cx/live/");
+    if (isHubbyCxStream) {
+      const base = getApiBase();
+      playUrl = `${base}/stream/proxy?url=${encodeURIComponent(url)}`;
+    }
+    setPlayerUrl(playUrl);
     setPlayerTitle(title);
     setPlayerVisible(true);
-  };
+  }, []);
 
   const copyText = (t: string) => {
     if (Platform.OS === "web") {

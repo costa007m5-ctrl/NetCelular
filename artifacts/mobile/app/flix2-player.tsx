@@ -514,7 +514,7 @@ export default function Flix2PlayerScreen() {
               const resolveCtrl = new AbortController();
               const resolveTimeout = setTimeout(() => resolveCtrl.abort(), 8_000);
               const resolveResp = await fetch(
-                `${apiBase}/api/stream/resolve-url?url=${encodeURIComponent(rawFlix2Url)}`,
+                `${apiBase}/stream/resolve-url?url=${encodeURIComponent(rawFlix2Url)}`,
                 { signal: resolveCtrl.signal }
               );
               clearTimeout(resolveTimeout);
@@ -572,7 +572,7 @@ export default function Flix2PlayerScreen() {
               const ctrl = new AbortController();
               const tid = setTimeout(() => ctrl.abort(), 8_000);
               const resp = await fetch(
-                `${apiBase}/api/stream/resolve-url?url=${encodeURIComponent(rawFlix2Url)}`,
+                `${apiBase}/stream/resolve-url?url=${encodeURIComponent(rawFlix2Url)}`,
                 { signal: ctrl.signal }
               );
               clearTimeout(tid);
@@ -589,15 +589,21 @@ export default function Flix2PlayerScreen() {
               }
             } catch {}
             if (!capturedCdnUrl) {
-              // Último recurso: tenta direto (pode funcionar em alguns configs)
-              cdnLabel = "hubby";
-              setWebViewBaseUrl("https://hubby.cx");
+              // Último recurso: API stream proxy — o servidor acessa hubby.cx diretamente
+              // (HTTP 200) e transmite o vídeo via HTTPS limpa, sem redirect HTTPS→HTTP
+              // que o elemento <video> do Android bloqueia.
+              const apiBase2 = await getApiBase();
+              playerUrl = `${apiBase2}/stream/proxy?url=${encodeURIComponent(rawFlix2Url)}`;
+              cdnLabel = "hubby-proxy";
+              setWebViewBaseUrl(apiBase2.replace(/\/api$/, ""));
             }
           }
         } else if (isHubbyCx(rawFlix2Url)) {
-          // Web sem WebView disponível — tenta proxy
-          cdnLabel = "hubby";
-          setWebViewBaseUrl("https://hubby.cx");
+          // Web ou sem WebView — usa API stream proxy (servidor acessa hubby.cx)
+          const apiBase3 = await getApiBase();
+          playerUrl = `${apiBase3}/stream/proxy?url=${encodeURIComponent(rawFlix2Url)}`;
+          cdnLabel = "hubby-proxy";
+          setWebViewBaseUrl(apiBase3.replace(/\/api$/, ""));
         } else if (isCineveoUrl(rawFlix2Url)) {
           cdnLabel = "cineveo";
           setWebViewBaseUrl("https://cineveo.lat");

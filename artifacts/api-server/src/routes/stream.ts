@@ -265,6 +265,28 @@ function isNixplayUrl(url: string): boolean {
   try { return new URL(url).hostname === "nixplay.lat"; } catch { return false; }
 }
 
+function isHubbyCxStreamUrl(url: string): boolean {
+  try {
+    const h = new URL(url).hostname;
+    return h === "hubby.cx" || h.endsWith(".hubby.cx");
+  } catch { return false; }
+}
+
+async function resolveHubbyCxCdn(hubbyCxUrl: string, signal: AbortSignal): Promise<string> {
+  const resp = await fetch(hubbyCxUrl, {
+    method: "HEAD",
+    redirect: "manual",
+    signal,
+    headers: {
+      "User-Agent": UA,
+      "Referer": "https://hubby.cx/",
+    },
+  });
+  const location = resp.headers.get("location");
+  if (location && location !== hubbyCxUrl) return location;
+  return hubbyCxUrl;
+}
+
 async function resolveNixplayCdn(nixplayUrl: string, signal: AbortSignal): Promise<string> {
   const cached = NIXPLAY_CDN_CACHE.get(nixplayUrl);
   if (cached && Date.now() - cached.cachedAt < NIXPLAY_CDN_TTL_MS) {
@@ -537,19 +559,25 @@ router.get("/resolve-url", async (req: Request, res: ExpressResponse) => {
   let decodedUrl: string;
   try { decodedUrl = decodeURIComponent(rawUrl); } catch { decodedUrl = rawUrl; }
 
-  if (!isNixplayUrl(decodedUrl)) {
-    res.json({ url: decodedUrl });
-    return;
-  }
-
+  const ctrl = new AbortController();
+  const timeout = setTimeout(() => ctrl.abort(), 10_000);
   try {
-    const ctrl = new AbortController();
-    const timeout = setTimeout(() => ctrl.abort(), 10_000);
-    const cdnUrl = await resolveNixplayCdn(decodedUrl, ctrl.signal);
+    let cdnUrl: string;
+    if (isNixplayUrl(decodedUrl)) {
+      cdnUrl = await resolveNixplayCdn(decodedUrl, ctrl.signal);
+    } else if (isHubbyCxStreamUrl(decodedUrl)) {
+      cdnUrl = await resolveHubbyCxCdn(decodedUrl, ctrl.signal);
+    } else {
+      clearTimeout(timeout);
+      res.set("Access-Control-Allow-Origin", "*");
+      res.json({ url: decodedUrl });
+      return;
+    }
     clearTimeout(timeout);
     res.set("Access-Control-Allow-Origin", "*");
     res.json({ url: cdnUrl });
   } catch (e: any) {
+    clearTimeout(timeout);
     console.log(`[resolve-url] failed: ${e?.message}`);
     res.status(502).json({ error: "Failed to resolve URL", detail: e?.message });
   }
