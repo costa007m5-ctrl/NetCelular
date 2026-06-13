@@ -2725,28 +2725,18 @@ router.get("/flix2/lookup", async (req, res) => {
       // to check pages not yet in partial cache.
     }
 
-    // ── Path 3: live page scan fallback (cache idle or partial not enough) ────
-    // Limited scan — full coverage only available once cache warms up (~2-5min post-startup).
+    // ── Path 3: trigger xtreamFetchAll then search entire raw cache ──────────
+    // flix2FetchPage(t, 1) internally calls xtreamFetchAll which fetches ALL items
+    // in ONE HTTP request and stores them in XTREAM_RAW_CACHE.
+    // Once that completes we can search all items directly — no page-limit needed.
     try {
-      const first = await flix2FetchPage(t, 1);
-      if (!first.success) continue;
-      const found = first.data.find((i: any) => matchItem(i));
-      if (found) { CACHE_STATS.lookup.hits++; res.json({ found: true, item: found }); return; }
-
-      const totalPages = Math.min(first.pagination?.total_pages ?? 1, t === "movies" ? 50 : 200);
-      const BATCH = 10;
-      for (let start = 2; start <= totalPages; start += BATCH) {
-        const batch = Array.from(
-          { length: Math.min(BATCH, totalPages - start + 1) },
-          (_, i) => flix2FetchPage(t, start + i)
-        );
-        const pages = await Promise.allSettled(batch);
-        for (const p of pages) {
-          if (p.status === "fulfilled" && p.value.success) {
-            const item = p.value.data.find((i: any) => matchItem(i));
-            if (item) { CACHE_STATS.lookup.hits++; res.json({ found: true, item }); return; }
-          }
-        }
+      await flix2FetchPage(t, 1); // triggers xtreamFetchAll → populates XTREAM_RAW_CACHE
+      const rawCache = XTREAM_RAW_CACHE.get(t);
+      if (rawCache && rawCache.items.length > 0) {
+        const hit = rawCache.items.find((i: any) => matchItem(i));
+        if (hit) { CACHE_STATS.lookup.hits++; res.json({ found: true, item: hit }); return; }
+        // All raw items searched — item genuinely not in catalog for this type
+        continue;
       }
     } catch {}
   }
