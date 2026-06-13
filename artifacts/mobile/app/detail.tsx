@@ -536,7 +536,75 @@ export default function DetailScreen() {
 
   // Load details
   useEffect(() => {
-    if (!tmdbId) { setLoading(false); return; }
+    if (!tmdbId) {
+      // tmdbId=0 — try to find metadata via TMDB search by title (Flix2-only items)
+      const titleQ = (params.title ?? "").trim();
+      if (!titleQ) { setLoading(false); return; }
+      setLoading(true);
+      setLogoUrl(null);
+      const TMDB_KEY = "8f0beb08cf016ec8de49e454e09879ec";
+      const mediaType = type === "movie" ? "movie" : "tv";
+      fetch(
+        `https://api.themoviedb.org/3/search/multi?query=${encodeURIComponent(titleQ)}&api_key=${TMDB_KEY}&language=pt-BR`
+      )
+        .then((r) => r.json())
+        .then(async (data) => {
+          const results: any[] = data.results ?? [];
+          const hit =
+            results.find((r: any) => r.media_type === mediaType) ??
+            results[0];
+          if (!hit?.id) return;
+          const hitType: "movie" | "tv" =
+            hit.media_type === "movie" ? "movie" : "tv";
+          try {
+            const [det, sim] = await Promise.all([
+              hitType === "movie"
+                ? tmdbApi.tmdb.movie(hit.id)
+                : tmdbApi.tmdb.tv(hit.id),
+              hitType === "movie"
+                ? tmdbApi.tmdb.movieSimilar(hit.id)
+                : tmdbApi.tmdb.tvSimilar(hit.id),
+            ]);
+            setDetails(det);
+            setSimilar(sim.map(tmdbItemToContent));
+            // Also grab logo + trailer with found id
+            fetch(
+              `https://api.themoviedb.org/3/${hitType}/${hit.id}/images?api_key=${TMDB_KEY}&include_image_language=pt,en,null`
+            )
+              .then((r) => r.json())
+              .then((img) => {
+                const logos: any[] = img.logos ?? [];
+                const best =
+                  logos.find((l) => l.iso_639_1 === "en") ??
+                  logos.find((l) => l.iso_639_1 === "pt") ??
+                  logos[0] ??
+                  null;
+                if (best?.file_path)
+                  setLogoUrl(`https://image.tmdb.org/t/p/w500${best.file_path}`);
+              })
+              .catch(() => {});
+            fetch(
+              `https://api.themoviedb.org/3/${hitType}/${hit.id}/videos?api_key=${TMDB_KEY}&language=pt-BR`
+            )
+              .then((r) => r.json())
+              .then((vd) => {
+                const vids: any[] = vd.results ?? [];
+                const trailer =
+                  vids.find((v) => v.site === "YouTube" && v.type === "Trailer" && v.official) ??
+                  vids.find((v) => v.site === "YouTube" && v.type === "Trailer") ??
+                  vids.find((v) => v.site === "YouTube" && v.type === "Teaser") ??
+                  vids.find((v) => v.site === "YouTube");
+                if (trailer?.key) setTrailerKey(trailer.key);
+              })
+              .catch(() => {});
+          } catch (e) {
+            console.warn("[detail] TMDB title search fallback error:", e);
+          }
+        })
+        .catch(() => {})
+        .finally(() => setLoading(false));
+      return;
+    }
     setLoading(true);
     setLogoUrl(null);
     const TMDB_KEY = "8f0beb08cf016ec8de49e454e09879ec";
