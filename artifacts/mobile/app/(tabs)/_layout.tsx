@@ -23,13 +23,13 @@ function NativeTabLayout({ isAdmin }: { isAdmin: boolean }) {
         <Icon sf={{ default: "sparkles", selected: "sparkles" }} />
         <Label>Novidades</Label>
       </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="canais">
-        <Icon sf={{ default: "tv", selected: "tv.fill" }} />
-        <Label>Canais</Label>
-      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="cinema">
         <Icon sf={{ default: "film", selected: "film.fill" }} />
         <Label>Cinema</Label>
+      </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="franquias">
+        <Icon sf={{ default: "star", selected: "star.fill" }} />
+        <Label>Franquias</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="profile">
         <Icon sf={{ default: "person", selected: "person.fill" }} />
@@ -122,19 +122,19 @@ function ClassicTabLayout({ isAdmin }: { isAdmin: boolean }) {
         }}
       />
       <Tabs.Screen
-        name="canais"
-        options={{
-          title: "Canais",
-          tabBarIcon: ({ color }) =>
-            isIOS ? <SymbolView name="tv" tintColor={color} size={22} /> : <Feather name="tv" size={22} color={color} />,
-        }}
-      />
-      <Tabs.Screen
         name="cinema"
         options={{
           title: "Cinema",
           tabBarIcon: ({ color }) =>
             isIOS ? <SymbolView name="film" tintColor={color} size={22} /> : <Feather name="film" size={22} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="franquias"
+        options={{
+          title: "Franquias",
+          tabBarIcon: ({ color }) =>
+            isIOS ? <SymbolView name="star" tintColor={color} size={22} /> : <Feather name="star" size={22} color={color} />,
         }}
       />
       <Tabs.Screen
@@ -149,7 +149,6 @@ function ClassicTabLayout({ isAdmin }: { isAdmin: boolean }) {
       <Tabs.Screen name="descobrir" options={{ href: null }} />
       <Tabs.Screen name="downloads" options={{ href: null }} />
       <Tabs.Screen name="list" options={{ href: null }} />
-      <Tabs.Screen name="franquias" options={{ href: null }} />
     </Tabs>
   );
 }
