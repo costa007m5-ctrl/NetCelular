@@ -134,6 +134,7 @@ export default function Admin2Screen() {
   const [playerVisible, setPlayerVisible] = useState(false);
   const [playerUrl, setPlayerUrl] = useState("");
   const [playerTitle, setPlayerTitle] = useState("");
+  const [playerError, setPlayerError] = useState<string | null>(null);
 
   // ── Link tester ─────────────────────────────────────────────────────────────
   const [linkInput, setLinkInput] = useState("");
@@ -306,13 +307,13 @@ export default function Admin2Screen() {
   // Para URLs hubby.cx: resolve o redirect 302 via API antes de abrir o player,
   // pois o elemento <video> no Android WebView não consegue seguir HTTPS→HTTP.
   const openPlayer = useCallback(async (url: string, title: string) => {
+    const base = getApiBase();
     let playUrl = url;
     const isHubbyCxStream = url.includes("hubby.cx/movie/") || url.includes("hubby.cx/series/") || url.includes("hubby.cx/live/");
     if (isHubbyCxStream) {
-      // Para hubby.cx: resolve o redirect via check-link para obter a URL fontedecanais
-      // com token. O <video> consegue carregar HTTP diretamente (sem redirect HTTPS→HTTP).
-      // Fallback: stream proxy do servidor.
-      const base = getApiBase();
+      // Para hubby.cx: tenta check-link para obter URL fontedecanais via redirect.
+      // O servidor (IP datacenter) recebe 200 direto do hubby.cx — sem redirect.
+      // Fallback: stream proxy (HTTPS) que serve o vídeo via servidor.
       try {
         const ctrl = new AbortController();
         setTimeout(() => ctrl.abort(), 8000);
@@ -320,7 +321,7 @@ export default function Admin2Screen() {
         if (res.ok) {
           const data = await res.json();
           if (data.location && data.location !== url) {
-            playUrl = data.location; // URL fontedecanais direta (HTTP) — sem redirect
+            playUrl = data.location;
           } else {
             playUrl = `${base}/stream/proxy?url=${encodeURIComponent(url)}`;
           }
@@ -331,6 +332,14 @@ export default function Admin2Screen() {
         playUrl = `${base}/stream/proxy?url=${encodeURIComponent(url)}`;
       }
     }
+
+    // Android 13+ ignora mixedContentMode="always" — <video> não carrega HTTP em
+    // páginas HTTPS. Wrap qualquer URL http:// no stream proxy para servir via HTTPS.
+    if (Platform.OS !== "web" && playUrl.startsWith("http://")) {
+      playUrl = `${base}/stream/proxy?url=${encodeURIComponent(playUrl)}`;
+    }
+
+    setPlayerError(null);
     setPlayerUrl(playUrl);
     setPlayerTitle(title);
     setPlayerVisible(true);
@@ -743,12 +752,12 @@ export default function Admin2Screen() {
                       </Pressable>
                       <Pressable
                         onPress={() => {
-                          // Se o teste revelou um redirect (ex: hubby.cx → fontedecanais),
-                          // usa a URL final resolvida — o WebView consegue carregar HTTP diretamente.
-                          const playUrl = r.redirectUrl ?? r.url;
-                          setVideoInput(playUrl);
+                          // Sempre usa r.url (original, ex: hubby.cx). openPlayer envia para
+                          // stream proxy (HTTPS) — servidor acessa hubby.cx diretamente (200,
+                          // sem token expirado). Evitar r.redirectUrl cujo token expira em ~60s.
+                          setVideoInput(r.url);
                           setHSection("teste");
-                          openPlayer(playUrl, "Teste de Vídeo");
+                          openPlayer(r.url, "Teste de Vídeo");
                         }}
                         style={[s.microBtn, { borderColor: HUBBY_COLOR }]}
                       >
@@ -1050,13 +1059,24 @@ export default function Admin2Screen() {
                   />
                 </View>
               ) : (
-                <WebViewVideoPlayer
-                  uri={playerUrl}
-                  baseUrl={HUBBY_HOST}
-                  shouldPlay
-                  style={{ flex: 1 }}
-                  onError={(err) => console.warn("[Admin2 Player]", err)}
-                />
+                <>
+                  <WebViewVideoPlayer
+                    uri={playerUrl}
+                    baseUrl={HUBBY_HOST}
+                    shouldPlay
+                    style={{ flex: 1 }}
+                    onError={(err) => {
+                      console.warn("[Admin2 Player]", err);
+                      setPlayerError(typeof err === "string" ? err : JSON.stringify(err));
+                    }}
+                  />
+                  {playerError ? (
+                    <View style={{ position: "absolute", bottom: 80, left: 16, right: 16, backgroundColor: "#c00", borderRadius: 8, padding: 10 }}>
+                      <Text style={{ color: "#fff", fontSize: 12, fontWeight: "700" }}>⚠ Erro no player</Text>
+                      <Text style={{ color: "#fdd", fontSize: 11, marginTop: 4 }}>{playerError}</Text>
+                    </View>
+                  ) : null}
+                </>
               )
             ) : null}
           </View>
