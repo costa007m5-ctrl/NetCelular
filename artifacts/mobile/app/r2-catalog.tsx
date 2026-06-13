@@ -6864,7 +6864,23 @@ function Flix2Panel() {
 }
 
 function Flix2Card({ item, onRegister }: { item: Flix2Item; onRegister: () => void }) {
+  const router = useRouter();
   const isMovie = item.type === "filme";
+  const hasStream = !!item.stream_url;
+
+  const playDirect = () => {
+    if (!item.stream_url) return;
+    router.push({
+      pathname: "/flix2-player" as any,
+      params: {
+        flix2Url: item.stream_url,
+        title: item.title,
+        tmdbId: String(item.tmdb_id ?? 0),
+        type: isMovie ? "movie" : "tv",
+      },
+    });
+  };
+
   return (
     <View style={{ flexDirection: "row", gap: 12, paddingVertical: 12,
       borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)", alignItems: "flex-start" }}>
@@ -6883,15 +6899,21 @@ function Flix2Card({ item, onRegister }: { item: Flix2Item; onRegister: () => vo
       <View style={{ flex: 1 }}>
         <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14, lineHeight: 19 }} numberOfLines={2}>{item.title}</Text>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 3 }}>
-          <Text style={{ color: FLIX2_COLOR, fontSize: 11, fontWeight: "700" }}>{item.year}</Text>
-          <View style={{ width: 3, height: 3, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.2)" }} />
+          {item.year ? <Text style={{ color: FLIX2_COLOR, fontSize: 11, fontWeight: "700" }}>{item.year}</Text> : null}
+          {item.year ? <View style={{ width: 3, height: 3, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.2)" }} /> : null}
           <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 11 }}>
-            {isMovie ? "Filme" : item.type === "anime" ? "Anime" : `Série · ${item.episodes_count} ep`}
+            {isMovie ? "Filme" : item.type === "anime" ? "Anime" : "Série"}
           </Text>
           {item.tmdb_id > 0 && (
             <>
               <View style={{ width: 3, height: 3, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.2)" }} />
               <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 10 }}>TMDB {item.tmdb_id}</Text>
+            </>
+          )}
+          {hasStream && (
+            <>
+              <View style={{ width: 3, height: 3, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.2)" }} />
+              <Text style={{ color: "#22c55e", fontSize: 10, fontWeight: "700" }}>hubby.cx</Text>
             </>
           )}
         </View>
@@ -6901,14 +6923,28 @@ function Flix2Card({ item, onRegister }: { item: Flix2Item; onRegister: () => vo
         {item.synopsis ? (
           <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 11, marginTop: 5, lineHeight: 16 }} numberOfLines={2}>{item.synopsis}</Text>
         ) : null}
-        <Pressable onPress={onRegister}
-          style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8, paddingHorizontal: 12, paddingVertical: 7,
-            borderRadius: 8, backgroundColor: `${FLIX2_COLOR}20`, borderWidth: 1, borderColor: `${FLIX2_COLOR}44`, alignSelf: "flex-start" }}>
-          <Feather name="plus-circle" size={13} color={FLIX2_COLOR} />
-          <Text style={{ color: FLIX2_COLOR, fontSize: 12, fontWeight: "700" }}>
-            {isMovie ? "Registrar" : `Registrar (${item.episodes_count} ep)`}
-          </Text>
-        </Pressable>
+
+        {/* Action buttons */}
+        <View style={{ flexDirection: "row", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+          {/* Play button — only for movies (VOD with direct stream_url) */}
+          {isMovie && hasStream && (
+            <Pressable onPress={playDirect}
+              style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 7,
+                borderRadius: 8, backgroundColor: "#22c55e20", borderWidth: 1, borderColor: "#22c55e44" }}>
+              <Feather name="play" size={13} color="#22c55e" />
+              <Text style={{ color: "#22c55e", fontSize: 12, fontWeight: "700" }}>Assistir</Text>
+            </Pressable>
+          )}
+          {/* Register button — always visible for registration into R2 registry */}
+          <Pressable onPress={onRegister}
+            style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 7,
+              borderRadius: 8, backgroundColor: `${FLIX2_COLOR}20`, borderWidth: 1, borderColor: `${FLIX2_COLOR}44` }}>
+            <Feather name="plus-circle" size={13} color={FLIX2_COLOR} />
+            <Text style={{ color: FLIX2_COLOR, fontSize: 12, fontWeight: "700" }}>
+              {isMovie ? "Registrar" : `Registrar (${item.episodes_count ?? "?"} ep)`}
+            </Text>
+          </Pressable>
+        </View>
       </View>
     </View>
   );

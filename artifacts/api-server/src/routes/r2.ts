@@ -2148,6 +2148,11 @@ const XTREAM_RAW_CACHE = new Map<string, { items: any[]; cachedAt: number }>();
 const XTREAM_RAW_TTL_MS = 30 * 60 * 1000;
 const XTREAM_PAGE_SIZE = 20;
 
+// ── In-memory Flix2 index (tmdb_id → stream_url mapping) ──────────────────────
+// Built by /flix2/build-index and checked by /flix2/lookup before hitting R2.
+// R2 is just an optional persistence layer — this works without R2 credentials.
+const FLIX2_INDEX_CACHE = new Map<string, { index: Record<string, string>; builtAt: number }>();
+
 // Map a Xtream Codes VOD stream item to the existing app format
 function mapXtreamVod(item: any): any {
   const streamId = item.stream_id ?? item.num;
@@ -2650,7 +2655,20 @@ router.get("/flix2/lookup", async (req, res) => {
   const bucket = getBucket();
 
   for (const t of typesToCheck) {
-    // ── Path 1: pre-built R2 index (fastest — stream_url stored directly) ────
+    // ── Path 0: in-memory FLIX2_INDEX_CACHE (built by build-index, no R2 needed) ──
+    const memIdx = FLIX2_INDEX_CACHE.get(t);
+    if (memIdx) {
+      const byId = id > 0 ? memIdx.index[String(id)] : undefined;
+      const byTitle = normTitle ? memIdx.index[`title:${normTitle}`] : undefined;
+      const entry = byId ?? byTitle;
+      if (entry && !entry.startsWith("flix2id:")) {
+        CACHE_STATS.lookup.hits++;
+        res.json({ found: true, item: { tmdb_id: id, stream_url: entry, type: t, title: title || undefined } });
+        return;
+      }
+    }
+
+    // ── Path 1: pre-built R2 index (optional persistence — fastest when R2 available) ──
     try {
       const resp = await client.send(new GetObjectCommand({ Bucket: bucket, Key: `__flix2-index-${t}.json` }));
       const raw = await resp.Body?.transformToString();
@@ -3147,18 +3165,24 @@ setInterval(() => {
 }, 300_000);
 
 // ── GET /flix2/index-status ────────────────────────────────────────────────────
-// Returns metadata about existing R2 index files (count + last modified age).
+// Returns metadata about the Flix2 index (in-memory first, R2 as fallback).
 router.get("/flix2/index-status", async (req, res) => {
-  const client = getClient();
-  const bucket = getBucket();
   const types = ["movies", "series", "animes"];
   const result: Record<string, { exists: boolean; count: number; ageMs: number | null }> = {};
 
   await Promise.all(types.map(async (t) => {
+    // ── In-memory index (no R2 needed) ────────────────────────────────────────
+    const mem = FLIX2_INDEX_CACHE.get(t);
+    if (mem) {
+      result[t] = { exists: true, count: Object.keys(mem.index).length, ageMs: Date.now() - mem.builtAt };
+      return;
+    }
+    // ── R2 fallback (optional) ─────────────────────────────────────────────────
     try {
+      const client = getClient();
+      const bucket = getBucket();
       const head = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: `__flix2-index-${t}.json` }));
       const ageMs = head.LastModified ? Date.now() - head.LastModified.getTime() : null;
-      // Also fetch count from the object
       const obj = await client.send(new GetObjectCommand({ Bucket: bucket, Key: `__flix2-index-${t}.json` }));
       const raw = await obj.Body?.transformToString();
       const count = raw ? Object.keys(JSON.parse(raw)).length : 0;
@@ -3204,33 +3228,27 @@ router.post("/flix2/build-index", async (req, res) => {
 
   // Run the build in the background
   (async () => {
-    const client = getClient();
-    const bucket = getBucket();
-    const BATCH = 15;
-
     for (const t of typesToIndex) {
       job.currentType = t;
       job.pagesScanned = 0;
-      job.totalPages = 0;
+      job.totalPages = 1;
       // Record<string, string>: tmdb_id (as string number) for normal items,
       // "title:<normalized>" for items that have no valid TMDB ID.
       const index: Record<string, string> = {};
 
       try {
-        const first = await flix2FetchPage(t, 1);
-        if (!first.success) { job.summary[t] = -1; job.typesDone.push(t); continue; }
+        // ── Use xtreamFetchAll to get ALL items in one shot (no pagination needed) ──
+        const allItems = await xtreamFetchAll(t);
 
         const indexItem = (item: any) => {
           const tmdbId = Number(item?.tmdb_id);
           if (tmdbId > 0) {
-            // Items with valid TMDB ID — key = tmdb_id
             if (item.stream_url) {
               index[String(tmdbId)] = item.stream_url;
             } else if (item.id) {
               index[String(tmdbId)] = `flix2id:${item.id}`;
             }
           } else if (item?.title) {
-            // Items without TMDB ID — key = "title:<normalized>" for searchability
             const titleKey = `title:${normalizeTitleForSearch(item.title)}`;
             if (titleKey !== "title:" && !index[titleKey]) {
               const val = item.stream_url || (item.id ? `flix2id:${item.id}` : "");
@@ -3239,34 +3257,26 @@ router.post("/flix2/build-index", async (req, res) => {
           }
         };
 
-        for (const item of first.data) { indexItem(item); }
-        const totalPages = first.pagination?.total_pages ?? 1;
-        job.totalPages = totalPages;
+        for (const item of allItems) { indexItem(item); }
         job.pagesScanned = 1;
 
-        for (let start = 2; start <= totalPages; start += BATCH) {
-          const batch = Array.from(
-            { length: Math.min(BATCH, totalPages - start + 1) },
-            (_, i) => flix2FetchPage(t, start + i)
-          );
-          const pages = await Promise.allSettled(batch);
-          for (const p of pages) {
-            if (p.status === "fulfilled" && p.value.success) {
-              for (const item of p.value.data) { indexItem(item); }
-            }
-          }
-          job.pagesScanned = Math.min(start + BATCH - 1, totalPages);
-        }
-
-        await client.send(new PutObjectCommand({
-          Bucket: bucket,
-          Key: `__flix2-index-${t}.json`,
-          Body: JSON.stringify(index),
-          ContentType: "application/json",
-        }));
-
+        // ── Always store in memory (no R2 required) ──
+        FLIX2_INDEX_CACHE.set(t, { index, builtAt: Date.now() });
         job.summary[t] = Object.keys(index).length;
         job.typesDone.push(t);
+
+        // ── Try R2 write (optional — swallow error if not configured) ──
+        try {
+          const client = getClient();
+          const bucket = getBucket();
+          await client.send(new PutObjectCommand({
+            Bucket: bucket,
+            Key: `__flix2-index-${t}.json`,
+            Body: JSON.stringify(index),
+            ContentType: "application/json",
+          }));
+        } catch { /* R2 not configured — index lives in memory */ }
+
       } catch (e: any) {
         job.summary[t] = -1;
         job.typesDone.push(t);
