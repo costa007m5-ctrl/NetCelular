@@ -23,7 +23,7 @@ const SUPABASE_ANON_KEY =
 
 // Domínio de produção permanente — sempre usado como fallback final se nenhum outro funcionar.
 // Este domínio é estável (não muda entre sessões Replit como os domínios dev).
-const PRODUCTION_DOMAIN = "net-celular--cleverbdeer769.replit.app";
+const PRODUCTION_DOMAIN = "net-celular--happylion157.replit.app";
 
 let _dynamicDomain: string | null = null;
 
