@@ -585,11 +585,13 @@ export default function CinemaScreen() {
     [cinemaData.topRated]
   );
 
-  // Items with backdrop for rotating banner (prefer items with real backdrops)
-  const bannerItems = useMemo(
-    () => allContent.filter((i) => i.backdropPath && i.backdropPath !== i.posterPath).slice(0, 8),
-    [allContent]
-  );
+  // Banner: use topRated first (best rated), fall back to first items with a poster
+  const bannerItems = useMemo(() => {
+    const pool = topRatedContent.length >= 4
+      ? topRatedContent
+      : allContent.filter((i) => !!i.posterPath);
+    return pool.slice(0, 8);
+  }, [topRatedContent, allContent]);
 
   // Months come pre-grouped from server
   const monthGroups = cinemaData.months;

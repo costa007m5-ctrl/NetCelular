@@ -2149,6 +2149,22 @@ const XTREAM_RAW_CACHE = new Map<string, { items: any[]; cachedAt: number }>();
 const XTREAM_RAW_TTL_MS = 30 * 60 * 1000;
 const XTREAM_PAGE_SIZE = 20;
 
+// ── TMDB 2026 title index (for Cinema tab filtering) ─────────────────────────
+// Maps normalized title → { date: "YYYY-MM-DD", ptTitle, enTitle }
+// Populated by warmTmdb2026() at startup; refreshed every 12 h.
+interface Tmdb2026Entry { date: string; ptTitle: string; enTitle: string; vote: number; }
+const TMDB_2026_MAP      = new Map<string, Tmdb2026Entry>();
+let   TMDB_2026_WARMED_AT = 0;
+let   TMDB_2026_WARMING   = false;
+const TMDB_2026_TTL_MS   = 12 * 60 * 60 * 1000; // 12 hours
+
+function normTitle(s: string): string {
+  return s.toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")   // strip accents
+    .replace(/[^a-z0-9 ]/g, " ")
+    .replace(/\s+/g, " ").trim();
+}
+
 // ── In-memory Flix2 index (tmdb_id → stream_url mapping) ──────────────────────
 // Built by /flix2/build-index and checked by /flix2/lookup before hitting R2.
 // R2 is just an optional persistence layer — this works without R2 credentials.
@@ -2409,6 +2425,58 @@ async function warmCatalogType(type: string): Promise<void> {
   }
 }
 
+// ── warmTmdb2026 — builds TMDB_2026_MAP from TMDB Discover API ────────────────
+// Fetches up to 200 pages (4000 movies) with pt-BR titles + original titles.
+// Safe to call concurrently — guarded by TMDB_2026_WARMING flag.
+export async function warmTmdb2026(): Promise<void> {
+  const TMDB_KEY = process.env.TMDB_API_KEY;
+  if (!TMDB_KEY) return;
+  if (TMDB_2026_WARMING) return;
+  if (Date.now() - TMDB_2026_WARMED_AT < TMDB_2026_TTL_MS) return;
+
+  TMDB_2026_WARMING = true;
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const base  = `https://api.themoviedb.org/3/discover/movie?api_key=${TMDB_KEY}`
+                + `&primary_release_year=2026&language=pt-BR`
+                + `&primary_release_date.lte=${today}`
+                + `&sort_by=popularity.desc`;
+
+    // Fetch page 1 to learn total_pages
+    const first = await fetch(`${base}&page=1`).then((r) => r.json() as any);
+    const total  = Math.min(Number(first.total_pages) || 1, 200);
+
+    const addPage = (data: any) => {
+      for (const m of data.results ?? []) {
+        const date    = String(m.release_date ?? "");
+        const ptTitle = String(m.title ?? "");
+        const enTitle = String(m.original_title ?? "");
+        const vote    = Number(m.vote_average ?? 0);
+        const entry: Tmdb2026Entry = { date, ptTitle, enTitle, vote };
+        if (ptTitle) TMDB_2026_MAP.set(normTitle(ptTitle), entry);
+        if (enTitle) TMDB_2026_MAP.set(normTitle(enTitle), entry);
+      }
+    };
+    addPage(first);
+
+    // Fetch remaining pages in batches of 20 (stays within TMDB rate limit)
+    const BATCH = 20;
+    for (let s = 2; s <= total; s += BATCH) {
+      const pages = Array.from({ length: Math.min(BATCH, total - s + 1) }, (_, i) => s + i);
+      await Promise.all(pages.map((p) =>
+        fetch(`${base}&page=${p}`).then((r) => r.json()).then(addPage).catch(() => {})
+      ));
+    }
+
+    TMDB_2026_WARMED_AT = Date.now();
+    console.log(`[tmdb2026] warmed ${TMDB_2026_MAP.size} title entries (${total} pages)`);
+  } catch (e) {
+    console.error("[tmdb2026] warm error:", e);
+  } finally {
+    TMDB_2026_WARMING = false;
+  }
+}
+
 // Exported so index.ts can trigger startup warm-up (non-blocking).
 export async function warmAllCatalogCaches(): Promise<void> {
   // series and movies in parallel (2 HTTP requests simultaneously).
@@ -2417,6 +2485,7 @@ export async function warmAllCatalogCaches(): Promise<void> {
   await Promise.all([
     warmCatalogType("series"),
     warmCatalogType("movies"),
+    warmTmdb2026(),
   ]);
   await warmCatalogType("animes");
 }
@@ -3533,19 +3602,19 @@ router.get("/flix2/whats-new", (req, res) => {
 });
 
 // ── GET /flix2/cinema-2026 ────────────────────────────────────────────────────
-// Returns all 2026 movies from the catalog, using the Xtream releaseDate field
-// (populated from TMDB) for accurate year/month grouping.
-// Response: { ok, total, topRated: [...], months: [{key, label, items:[...]}] }
-router.get("/flix2/cinema-2026", (req, res) => {
+// Returns only genuine 2026-release movies using TMDB title matching.
+// Falls back to added_at>=Jan2026 if TMDB map is still warming.
+// Response: { ok, warming?, total, topRated:[...], months:[{key,label,items:[...]}] }
+router.get("/flix2/cinema-2026", async (req, res) => {
   const MONTH_PT: Record<number, string> = {
     1: "Janeiro", 2: "Fevereiro", 3: "Março", 4: "Abril",
     5: "Maio", 6: "Junho", 7: "Julho", 8: "Agosto",
     9: "Setembro", 10: "Outubro", 11: "Novembro", 12: "Dezembro",
   };
 
+  // ── 1. Ensure Xtream catalog is warm ──────────────────────────────────────
   const cached = FULL_CATALOG_CACHE.get("movies");
   if (!cached) {
-    // Catalog not warmed yet — trigger a full warm-up asynchronously
     flix2FetchPage("movies", 1).then(async (first) => {
       if (!first.success) return;
       const totalPages: number = first.pagination?.total_pages ?? 1;
@@ -3567,31 +3636,54 @@ router.get("/flix2/cinema-2026", (req, res) => {
     return;
   }
 
-  // Jan 1 2026 in Unix seconds (items added in 2026)
-  const JAN_2026 = 1767225600; // new Date("2026-01-01").getTime() / 1000
+  // ── 2. Ensure TMDB 2026 map is warm ───────────────────────────────────────
+  if (TMDB_2026_MAP.size === 0) {
+    // Trigger async warm; respond with warming=true so client retries
+    warmTmdb2026().catch(() => {});
+    res.json({ ok: false, warming: true, total: 0, topRated: [], months: [] });
+    return;
+  }
 
-  // Filter: items added to the Xtream catalog in 2026
-  const items2026 = cached.data.filter((i: any) =>
-    i.title && i.poster && (i.added_at ?? 0) >= JAN_2026
-  );
+  // ── 3. Filter Xtream catalog by TMDB 2026 title match ────────────────────
+  const JAN_2026 = 1767225600; // fallback: added_at >= Jan 1 2026
 
-  // Group by the month the item was added (added_at)
+  const items2026: Array<any & { _tmdbDate: string; _tmdbVote: number }> = [];
+  for (const item of cached.data) {
+    if (!item.title || !item.poster) continue;
+    const key = normTitle(item.title);
+    const tmdbEntry = TMDB_2026_MAP.get(key);
+    if (tmdbEntry) {
+      items2026.push({ ...item, _tmdbDate: tmdbEntry.date, _tmdbVote: tmdbEntry.vote });
+    } else if (TMDB_2026_MAP.size === 0 && (item.added_at ?? 0) >= JAN_2026) {
+      items2026.push({ ...item, _tmdbDate: "", _tmdbVote: 0 });
+    }
+  }
+
+  // ── 4. Group by TMDB release month ────────────────────────────────────────
   const monthMap: Record<string, any[]> = {};
   for (const item of items2026) {
-    const ts = (item.added_at ?? 0) * 1000; // to ms
-    const d  = new Date(ts);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    // Use TMDB release_date for grouping; fall back to added_at month
+    let key: string;
+    if (item._tmdbDate && item._tmdbDate.length >= 7) {
+      key = item._tmdbDate.slice(0, 7); // "2026-04"
+    } else {
+      const d = new Date((item.added_at ?? 0) * 1000);
+      key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    }
+    // Only keep keys within 2026
+    if (!key.startsWith("2026")) continue;
     if (!monthMap[key]) monthMap[key] = [];
     monthMap[key].push({
       id:       item.id,
       title:    item.title,
       tmdb_id:  item.tmdb_id,
-      year:     item.year,
+      year:     2026,
       poster:   item.poster,
       backdrop: item.backdrop ?? "",
-      rating:   item.rating ?? "0",
+      rating:   item._tmdbVote > 0 ? String(item._tmdbVote.toFixed(1)) : (item.rating ?? "0"),
       synopsis: item.synopsis ?? "",
       added_at: item.added_at ?? 0,
+      release_date: item._tmdbDate ?? "",
     });
   }
 
@@ -3604,16 +3696,17 @@ router.get("/flix2/cinema-2026", (req, res) => {
       return { key, label, items };
     });
 
-  // Top rated: from the full catalog (not just 2026), sorted by rating
-  const topRated = [...cached.data]
-    .filter((i: any) => i.title && i.poster && parseFloat(i.rating ?? "0") >= 6)
-    .sort((a: any, b: any) => parseFloat(b.rating ?? "0") - parseFloat(a.rating ?? "0"))
-    .slice(0, 25)
-    .map((i: any) => ({
+  // ── 5. Top rated: best-rated 2026 items only ─────────────────────────────
+  const topRated = [...items2026]
+    .filter((i) => (i._tmdbVote ?? 0) >= 5)
+    .sort((a, b) => (b._tmdbVote ?? 0) - (a._tmdbVote ?? 0))
+    .slice(0, 20)
+    .map((i) => ({
       id: i.id, title: i.title, tmdb_id: i.tmdb_id,
-      year: i.year, release_date: i.release_date ?? "",
+      year: 2026, release_date: i._tmdbDate ?? "",
       poster: i.poster, backdrop: i.backdrop ?? "",
-      rating: i.rating ?? "0",
+      rating: i._tmdbVote > 0 ? String(i._tmdbVote.toFixed(1)) : (i.rating ?? "0"),
+      synopsis: i.synopsis ?? "",
     }));
 
   res.json({ ok: true, total: items2026.length, topRated, months });
