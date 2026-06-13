@@ -2340,38 +2340,24 @@ async function warmCatalogType(type: string): Promise<void> {
   WARM_PROGRESS.set(type, { status: "running", pagesLoaded: 0, totalPages: 0, itemCount: 0, startedAt: Date.now(), completedAt: null });
 
   try {
-    const first = await flix2FetchPage(type, 1);
-    if (!first.success) {
-      WARM_PROGRESS.set(type, { ...getWarmState(type), status: "error", errorMsg: "catalog unavailable" });
+    // Use xtreamFetchAll directly — ONE HTTP request brings ALL items at once.
+    // This is much faster than iterating through pagination batches, and makes
+    // WARM_PARTIAL_CACHE fully populated immediately so lookups work right away.
+    const allRaw = await xtreamFetchAll(type);
+    if (!allRaw.length) {
+      WARM_PROGRESS.set(type, { ...getWarmState(type), status: "error", errorMsg: "catalog unavailable or empty" });
       return;
     }
-    const totalPages: number = first.pagination?.total_pages ?? 1;
-    const allItems: any[] = [...(first.data ?? [])];
-    WARM_PROGRESS.set(type, { ...getWarmState(type), pagesLoaded: 1, totalPages });
 
-    const BATCH = 15;
-    for (let start = 2; start <= totalPages; start += BATCH) {
-      const batch = Array.from(
-        { length: Math.min(BATCH, totalPages - start + 1) },
-        (_, i) => flix2FetchPage(type, start + i)
-      );
-      const results = await Promise.allSettled(batch);
-      let batchLoaded = 0;
-      for (const r of results) {
-        if (r.status === "fulfilled" && r.value.success) {
-          allItems.push(...(r.value.data ?? []));
-          batchLoaded++;
-        }
-      }
-      const prev = getWarmState(type);
-      WARM_PROGRESS.set(type, { ...prev, pagesLoaded: prev.pagesLoaded + batchLoaded });
-      // Snapshot for partial-cache lookups — allows lookup to find items mid-warm-up
-      WARM_PARTIAL_CACHE.set(type, allItems);
-    }
+    // Immediately expose ALL raw items to the partial cache so /flix2/lookup can find anything
+    WARM_PARTIAL_CACHE.set(type, allRaw);
+    const totalPages = Math.max(1, Math.ceil(allRaw.length / XTREAM_PAGE_SIZE));
+    WARM_PROGRESS.set(type, { ...getWarmState(type), pagesLoaded: totalPages, totalPages });
 
+    // Deduplicate by tmdb_id (when > 0) or by flix2 item id
     const seenTmdb = new Set<number>();
     const seenFlix2 = new Set<string>();
-    const deduped = allItems.filter((item) => {
+    const deduped = allRaw.filter((item) => {
       const id = Number(item.tmdb_id);
       if (id > 0) {
         if (seenTmdb.has(id)) return false;
@@ -2383,8 +2369,9 @@ async function warmCatalogType(type: string): Promise<void> {
       seenFlix2.add(key);
       return true;
     });
+
     FULL_CATALOG_CACHE.set(type, { data: deduped, cachedAt: Date.now() });
-    WARM_PARTIAL_CACHE.delete(type); // full cache is set, partial no longer needed
+    WARM_PARTIAL_CACHE.delete(type);
     WARM_PROGRESS.set(type, {
       status: "done", pagesLoaded: totalPages, totalPages,
       itemCount: deduped.length, startedAt: getWarmState(type).startedAt, completedAt: Date.now(),
@@ -2399,10 +2386,14 @@ async function warmCatalogType(type: string): Promise<void> {
 
 // Exported so index.ts can trigger startup warm-up (non-blocking).
 export async function warmAllCatalogCaches(): Promise<void> {
-  // Warm series and animes first (fewer pages), then movies (821 pages).
-  await warmCatalogType("series");
+  // series and movies in parallel (2 HTTP requests simultaneously).
+  // xtreamFetchAll("series") also populates XTREAM_RAW_CACHE["animes"] as a side effect,
+  // so warmCatalogType("animes") will be served from cache and complete instantly.
+  await Promise.all([
+    warmCatalogType("series"),
+    warmCatalogType("movies"),
+  ]);
   await warmCatalogType("animes");
-  await warmCatalogType("movies");
 }
 
 // ── GET /flix2/warm-status — real-time warm-up progress for admin UI ─────────
