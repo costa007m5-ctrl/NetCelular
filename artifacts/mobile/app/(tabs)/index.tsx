@@ -2140,22 +2140,19 @@ export default function HomeScreen() {
 
   // ── fetch fresh from API and store in cache ────────────────────────────────
   const fetchAndCache = useCallback(async (): Promise<{ movies: any[]; series: any[]; animes: any[] }> => {
-    const fetchPages = async (type: string, pages = 2) => {
-      const calls = Array.from({ length: pages }, (_, i) =>
-        r2Route<{ success: boolean; pagination: any; data: any[] }>(`/flix2/catalog?type=${type}&page=${i + 1}`)
-      );
-      const results = await Promise.allSettled(calls);
-      const items: any[] = [];
-      for (const r of results) {
-        if (r.status === "fulfilled" && r.value.success) items.push(...(r.value.data ?? []));
+    const fetchAll = async (type: string) => {
+      try {
+        const res = await r2Route<{ success: boolean; data: any[] }>(`/flix2/catalog-full?type=${type}`);
+        return res.success ? (res.data ?? []) : [];
+      } catch {
+        return [];
       }
-      return items;
     };
 
     const [movRaw, serRaw, aniRaw] = await Promise.all([
-      fetchPages("movies", 1),
-      fetchPages("series", 1),
-      fetchPages("animes", 1),
+      fetchAll("movies"),
+      fetchAll("series"),
+      fetchAll("animes"),
     ]);
 
     // Só sobrescreve se o novo fetch tem >= items que o cache atual
@@ -2259,8 +2256,9 @@ export default function HomeScreen() {
       pathname: "/detail",
       params: {
         type: item.mediaType ?? (item.type === "movie" ? "movie" : "tv"),
-        id: String(item.tmdbId ?? item.id),
+        id: String(item.tmdbId || item.id),
         title: item.title,
+        poster: item.posterPath ?? "",
       },
     });
   }, [router]);

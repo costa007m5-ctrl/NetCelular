@@ -223,7 +223,7 @@ export default function DetailScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
-  const params = useLocalSearchParams<{ type: string; id: string; title?: string; tab?: string }>();
+  const params = useLocalSearchParams<{ type: string; id: string; title?: string; tab?: string; poster?: string }>();
 
   const type = (params.type ?? "movie") as "movie" | "tv";
   const tmdbId = Number(params.id ?? 0);
@@ -1109,7 +1109,7 @@ export default function DetailScreen() {
     { key: "details", label: "DETALHES" },
   ];
 
-  if (!tmdbId) {
+  if (!tmdbId && !(params.title ?? "").trim()) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <Pressable onPress={() => router.back()} style={styles.backBtnAbs}>
@@ -1122,7 +1122,7 @@ export default function DetailScreen() {
     );
   }
 
-  const backdropUri = details ? TMDB_IMG(details.backdrop_path, "w1280") : null;
+  const backdropUri = details ? TMDB_IMG(details.backdrop_path, "w1280") : (params.poster || null);
   const title = details?.title ?? details?.name ?? params.title ?? "Carregando...";
   const year = (details?.release_date ?? details?.first_air_date ?? "").slice(0, 4);
   const rating = details?.vote_average ? Math.round(details.vote_average * 10) / 10 : null;

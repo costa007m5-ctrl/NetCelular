@@ -121,7 +121,7 @@ export default function AcervoGenreScreen() {
       pathname: "/detail",
       params: {
         type: item.type,
-        id: String(item.tmdbId),
+        id: String(item.tmdbId || item.id),
         title: item.title,
       },
     });

@@ -376,8 +376,9 @@ export default function LiveTvScreen() {
       pathname: "/detail",
       params: {
         type: item.mediaType ?? (item.type === "movie" ? "movie" : "tv"),
-        id: String(item.tmdbId ?? item.id),
+        id: String(item.tmdbId || item.id),
         title: item.title,
+        poster: item.posterPath ?? "",
       },
     });
   }, [router]);
