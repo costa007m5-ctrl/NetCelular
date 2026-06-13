@@ -66,7 +66,7 @@ video{width:100%;height:100%;object-fit:contain;display:block}
 </style>
 </head>
 <body>
-<video id="v" playsinline webkit-playsinline preload="auto" crossorigin="anonymous"></video>
+<video id="v" playsinline webkit-playsinline preload="auto"></video>
 <script>
 (function(){
   var v = document.getElementById('v');

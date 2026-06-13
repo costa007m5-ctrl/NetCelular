@@ -2016,7 +2016,7 @@ router.post("/drive/scan-folder", async (req, res) => {
 router.post("/flix2/register", async (req, res) => {
   try {
     const { flix2Url, tmdbId, tmdbType, title, label, season, episode } = req.body ?? {};
-    if (!flix2Url || !tmdbId || !tmdbType || !title) {
+    if (!flix2Url || tmdbId == null || !tmdbType || !title) {
       res.status(400).json({ error: "flix2Url, tmdbId, tmdbType e title são obrigatórios" }); return;
     }
     const client = getClient();
