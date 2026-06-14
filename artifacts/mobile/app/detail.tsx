@@ -941,11 +941,45 @@ export default function DetailScreen() {
               _enOverview: undefined,
             };
           });
-          const translated = await Promise.all(translateQueue);
-          setEpisodeList(translated as TmdbEpisode[]);
+          merged = await Promise.all(translateQueue);
         } else {
-          setEpisodeList(merged.map(({ _enName, _enOverview, ...ep }) => ep) as TmdbEpisode[]);
+          merged = merged.map(({ _enName, _enOverview, ...ep }) => ep) as typeof merged;
         }
+
+        // ── 5. Batch-fetch episode stills for episodes that still have null still_path ──
+        // TMDB pt-BR often returns null still_path for older seasons of Brazilian shows.
+        // Fetch /tv/{id}/season/{s}/episode/{e}/images for each missing ep in parallel,
+        // then merge the best-rated still into the episode before updating state once.
+        const needsStills = merged.filter((ep: any) => !ep.still_path);
+        if (needsStills.length > 0 && needsStills.length <= 30 && resolvedTmdbId) {
+          const stillResults = await Promise.allSettled(
+            needsStills.map((ep: any) =>
+              fetch(
+                `https://api.themoviedb.org/3/tv/${resolvedTmdbId}/season/${selectedSeason}/episode/${ep.episode_number}/images?api_key=${TMDB_KEY_LOCAL}`
+              )
+                .then((r) => (r.ok ? r.json() : null))
+                .catch(() => null)
+            )
+          );
+          const stillsMap: Record<number, string> = {};
+          needsStills.forEach((ep: any, idx: number) => {
+            const res = stillResults[idx];
+            if (res.status === "fulfilled" && res.value) {
+              const stills: any[] = res.value.stills ?? [];
+              const best = stills.sort((a: any, b: any) => b.vote_average - a.vote_average)[0];
+              if (best?.file_path) stillsMap[ep.episode_number] = best.file_path;
+            }
+          });
+          if (Object.keys(stillsMap).length > 0) {
+            merged = merged.map((ep: any) =>
+              ep.still_path || !stillsMap[ep.episode_number]
+                ? ep
+                : { ...ep, still_path: stillsMap[ep.episode_number] }
+            );
+          }
+        }
+
+        setEpisodeList(merged as TmdbEpisode[]);
       } catch {
         setEpisodeList([]);
       } finally {
@@ -2326,7 +2360,7 @@ export default function DetailScreen() {
                           watched={watched}
                           current={current}
                           colors={colors}
-                          fallbackImage={null}
+                          fallbackImage={details?.backdrop_path ?? details?.poster_path ?? null}
                           onPress={undefined}
                           onR2Press={srcSettings.r2 && r2Ep && !isDriveItem(r2Ep) && !isFlixItem(r2Ep) ? () => goToR2Player(r2Ep, selectedSeason, ep.episode_number) : undefined}
                           onFlixPress={(() => {
