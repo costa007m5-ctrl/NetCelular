@@ -134,7 +134,8 @@ export default function StingOverlay({ videoReady, onDone, tmdbId, mediaType }: 
         if (!AudioModule) return;
         await AudioModule.setAudioModeAsync({ playsInSilentModeIOS: true });
         const { sound } = await AudioModule.Sound.createAsync(
-          require("@/assets/sting_audio.aac"),
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          require("../assets/sting_audio.aac"),
           { shouldPlay: true, volume: 1.0, isLooping: false },
         );
         soundRef.current = sound;

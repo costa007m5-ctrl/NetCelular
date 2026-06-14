@@ -1,15 +1,17 @@
 /**
  * StingAnimation — NETPLAY opening sting, programmatic React Native animation.
  *
- * Sequence (10 s total):
- *  0-2.5 s  — Neon semicircular arch rings fly inward (tunnel effect)
- *  2-3.5 s  — Content title logo materializes with bloom glow
- *  3.5-5 s  — Progress bar appears
- *  5-7 s    — NETPLAY text fades + slides in
- *  7-10 s   — Tagline appears; full logo hold
+ * Layout zones:
+ *   TOP (0 → HORIZON_Y)   — animated semicircular arch rings + content title logo
+ *   BOTTOM (HORIZON_Y → H) — NETPLAY brand logo + tagline
+ *   FOOTER                 — progress bar with percentage counter
  *
- * logoUrl: stylized title logo from TMDB (PNG with transparent background).
- *          Falls back to nothing if unavailable.
+ * Sequence (10 s total):
+ *  0-2.5 s  — Neon arch rings fly inward (tunnel effect)
+ *  2-3.5 s  — Content title logo materialises with bloom glow + scale-up
+ *  3.5 s    — Progress bar + % counter appear
+ *  5 s      — NETPLAY brand appears below horizon
+ *  7 s      — Tagline appears
  */
 
 import React, { useEffect, useRef, useState } from "react";
@@ -47,9 +49,9 @@ function Ring({ radius, index }: RingProps) {
   const opacity = useSharedValue(0);
 
   useEffect(() => {
-    const phase    = index / NUM_RINGS;
-    const firstMs  = phase * CYCLE_MS;
-    const resetMs  = 25;
+    const phase   = index / NUM_RINGS;
+    const firstMs = phase * CYCLE_MS;
+    const resetMs = 25;
 
     scale.value   = 1 - phase;
     opacity.value = 1 - phase > 0.05 ? 0.82 : 0;
@@ -103,38 +105,36 @@ function Ring({ radius, index }: RingProps) {
   );
 }
 
-// ── Content title logo ────────────────────────────────────────────────────────
+// ── Content title logo (inside arch rings area) ───────────────────────────────
 function ContentLogo({ showAt, logoUrl, logoW, logoH }: {
   showAt: number; logoUrl?: string; logoW: number; logoH: number;
 }) {
   const opacity    = useSharedValue(0);
-  const scale      = useSharedValue(0.3);
-  const translateY = useSharedValue(10);
+  const scale      = useSharedValue(0.75);
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
     const t = setTimeout(() => {
       setVisible(true);
-      opacity.value    = withTiming(1, { duration: 600, easing: Easing.out(Easing.quad) });
-      scale.value      = withSequence(
-        withTiming(1.06, { duration: 550, easing: Easing.out(Easing.cubic) }),
+      // Scale-up like Disney+ castle — starts smaller, blooms to full size
+      scale.value = withSequence(
+        withTiming(1.08, { duration: 550, easing: Easing.out(Easing.cubic) }),
         withTiming(1.0,  { duration: 350, easing: Easing.inOut(Easing.quad) }),
       );
-      translateY.value = withTiming(0, { duration: 600, easing: Easing.out(Easing.cubic) });
+      opacity.value = withTiming(1, { duration: 600, easing: Easing.out(Easing.quad) });
     }, showAt);
     return () => clearTimeout(t);
   }, []);
 
   const animStyle = useAnimatedStyle(() => ({
     opacity: opacity.value,
-    transform: [{ scale: scale.value }, { translateY: translateY.value }],
+    transform: [{ scale: scale.value }],
   }));
 
   if (!visible || !logoUrl) return null;
 
   return (
     <Animated.View style={[styles.logoWrap, animStyle]}>
-      {/* White glow behind logo so it pops on dark BG */}
       <View style={[styles.logoGlow, { width: logoW * 1.4, height: logoH * 2 }]} />
       <Image
         source={{ uri: logoUrl }}
@@ -145,75 +145,89 @@ function ContentLogo({ showAt, logoUrl, logoW, logoH }: {
   );
 }
 
-// ── NETPLAY brand text ────────────────────────────────────────────────────────
-function BrandText({ showAt, brandSize }: { showAt: number; brandSize: number }) {
+// ── NETPLAY brand (below horizon line) ───────────────────────────────────────
+function BrandBlock({ showAt, W }: { showAt: number; W: number }) {
   const opacity    = useSharedValue(0);
-  const translateY = useSharedValue(14);
+  const translateY = useSharedValue(20);
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
     const t = setTimeout(() => {
       setVisible(true);
-      opacity.value    = withTiming(1, { duration: 700, easing: Easing.out(Easing.quad) });
-      translateY.value = withTiming(0, { duration: 700, easing: Easing.out(Easing.cubic) });
+      opacity.value    = withTiming(1, { duration: 800, easing: Easing.out(Easing.quad) });
+      translateY.value = withTiming(0, { duration: 800, easing: Easing.out(Easing.cubic) });
     }, showAt);
     return () => clearTimeout(t);
   }, []);
 
-  const style = useAnimatedStyle(() => ({
+  const animStyle = useAnimatedStyle(() => ({
     opacity: opacity.value,
     transform: [{ translateY: translateY.value }],
   }));
 
+  const brandSize = Math.round(Math.min(W * 0.13, 48));
+  const tagSize   = Math.round(Math.min(W * 0.028, 12));
+
   if (!visible) return null;
   return (
-    <Animated.View style={[{ alignItems: "center" }, style]}>
-      <Text style={{ fontSize: brandSize, fontWeight: "900", letterSpacing: 3 }}>
+    <Animated.View style={[{ alignItems: "center", gap: 6 }, animStyle]}>
+      {/* NETPLAY logotype */}
+      <Text style={{ fontSize: brandSize, fontWeight: "900", letterSpacing: 6 }}>
         <Text style={{ color: RED }}>NET</Text>
         <Text style={{ color: "#ffffff" }}>PLAY</Text>
+      </Text>
+      {/* Decorative line */}
+      <View style={{
+        width: brandSize * 3.2, height: 1.5,
+        backgroundColor: RED,
+        shadowColor: RED_GLOW, shadowRadius: 8, shadowOpacity: 0.9,
+        shadowOffset: { width: 0, height: 0 },
+      }} />
+      {/* Tagline */}
+      <Text style={{
+        fontSize: tagSize, fontWeight: "500", letterSpacing: 3,
+        color: "rgba(255,255,255,0.45)", textAlign: "center",
+        marginTop: 2,
+      }}>
+        CATÁLOGO PREMIUM • ENTRETENIMENTO
       </Text>
     </Animated.View>
   );
 }
 
-// ── Tagline ───────────────────────────────────────────────────────────────────
-function Tagline({ showAt, tagSize }: { showAt: number; tagSize: number }) {
-  const opacity = useSharedValue(0);
-  const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    const t = setTimeout(() => {
-      setVisible(true);
-      opacity.value = withTiming(1, { duration: 900, easing: Easing.out(Easing.quad) });
-    }, showAt);
-    return () => clearTimeout(t);
-  }, []);
-
-  const style = useAnimatedStyle(() => ({ opacity: opacity.value }));
-  if (!visible) return null;
-  return (
-    <Animated.Text style={[{
-      fontSize: tagSize, fontWeight: "500", letterSpacing: 3.5,
-      color: "rgba(255,255,255,0.5)", textAlign: "center",
-    }, style]}>
-      CATÁLOGO PREMIUM • ENTRETENIMENTO
-    </Animated.Text>
-  );
-}
-
-// ── Progress bar ──────────────────────────────────────────────────────────────
-function ProgressBar({ totalMs, showAt, barW }: { totalMs: number; showAt: number; barW: number }) {
-  const fill   = useSharedValue(0);
-  const wrapOp = useSharedValue(0);
-  const [visible, setVisible] = useState(false);
+// ── Progress bar with percentage counter ──────────────────────────────────────
+function ProgressBar({ totalMs, showAt, barW }: {
+  totalMs: number; showAt: number; barW: number;
+}) {
+  const fill    = useSharedValue(0);
+  const wrapOp  = useSharedValue(0);
+  const [visible,  setVisible]  = useState(false);
+  const [percent,  setPercent]  = useState(0);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => {
       setVisible(true);
       wrapOp.value = withTiming(1, { duration: 350 });
       fill.value   = withTiming(1, { duration: totalMs - showAt, easing: Easing.linear });
+
+      // JS-side percentage counter (updates ~10 fps)
+      const duration = totalMs - showAt;
+      const start    = Date.now();
+      intervalRef.current = setInterval(() => {
+        const elapsed = Date.now() - start;
+        const pct = Math.min(99, Math.round((elapsed / duration) * 100));
+        setPercent(pct);
+        if (pct >= 99) {
+          if (intervalRef.current) clearInterval(intervalRef.current);
+        }
+      }, 100);
     }, showAt);
-    return () => clearTimeout(t);
+
+    return () => {
+      clearTimeout(t);
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
   }, []);
 
   const wrapStyle = useAnimatedStyle(() => ({ opacity: wrapOp.value }));
@@ -222,17 +236,21 @@ function ProgressBar({ totalMs, showAt, barW }: { totalMs: number; showAt: numbe
   if (!visible) return null;
   return (
     <Animated.View style={[styles.progressWrap, wrapStyle]}>
+      {/* Percentage number */}
+      <Text style={styles.percentText}>{percent}%</Text>
+      {/* Track */}
       <View style={[styles.progressTrack, { width: barW }]}>
         <Animated.View style={[styles.progressFill, fillStyle]} />
       </View>
+      <Text style={styles.loadingLabel}>CARREGANDO</Text>
     </Animated.View>
   );
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
 interface StingAnimationProps {
-  onEnd:     () => void;
-  logoUrl?:  string;
+  onEnd:    () => void;
+  logoUrl?: string;
 }
 
 export default function StingAnimation({ onEnd, logoUrl }: StingAnimationProps) {
@@ -245,68 +263,75 @@ export default function StingAnimation({ onEnd, logoUrl }: StingAnimationProps) 
     return () => clearTimeout(t);
   }, []);
 
-  const HORIZON_Y  = H * 0.55;
-  // Logo: wide format (content logos are usually 3:1 to 5:1 ratio)
-  const LOGO_W     = Math.round(Math.min(W * 0.65, 280));
-  const LOGO_H     = Math.round(LOGO_W * 0.38); // ~3:1 ratio container
-  const BRAND_SIZE = Math.round(Math.min(W * 0.09, 34));
-  const TAG_SIZE   = Math.round(Math.min(W * 0.026, 11));
+  // Arch rings occupy top 52% of screen; NETPLAY lives below
+  const HORIZON_Y = H * 0.52;
+  const LOGO_W    = Math.round(Math.min(W * 0.68, 300));
+  const LOGO_H    = Math.round(LOGO_W * 0.38);
 
   return (
-    <View style={{ flex: 1, backgroundColor: "#080000", overflow: "hidden" }}>
+    <View style={{ flex: 1, backgroundColor: "#060000", overflow: "hidden" }}>
 
-      {/* ── Radial centre glow ─────────────────────────────────────────────── */}
-      <View style={{
-        position: "absolute",
-        width: W * 1.4, height: W * 1.4, borderRadius: W * 0.7,
-        left: W / 2 - W * 0.7, top: HORIZON_Y - W * 0.7,
-        shadowColor: "#500000", shadowRadius: 130, shadowOpacity: 0.8,
-        shadowOffset: { width: 0, height: 0 },
-      }} />
-
-      {/* ── Top dark vignette ─────────────────────────────────────────────── */}
-      <View style={{
-        position: "absolute", top: 0, left: 0, right: 0, height: H * 0.32,
-        backgroundColor: "rgba(0,0,0,0.6)",
-      }} />
-
-      {/* ── Arch rings ────────────────────────────────────────────────────── */}
+      {/* ── Arch rings zone (top half, overflow hidden) ──────────────────── */}
       <View style={{
         position: "absolute", top: 0, left: 0, right: 0,
         height: HORIZON_Y, overflow: "hidden",
       }}>
+        {/* Centre radial glow */}
+        <View style={{
+          position: "absolute",
+          width: W * 1.2, height: W * 1.2, borderRadius: W * 0.6,
+          left: W / 2 - W * 0.6, top: HORIZON_Y - W * 0.6,
+          shadowColor: "#600000", shadowRadius: 120, shadowOpacity: 0.7,
+          shadowOffset: { width: 0, height: 0 },
+        }} />
+
+        {/* Arch ring pivot at horizon centre */}
         <View style={{ position: "absolute", bottom: 0, left: W / 2 }}>
           {RING_RADII.map((r, i) => <Ring key={i} radius={r} index={i} />)}
         </View>
+
+        {/* Top vignette */}
+        <View style={{
+          position: "absolute", top: 0, left: 0, right: 0, height: HORIZON_Y * 0.35,
+          backgroundColor: "rgba(0,0,0,0.55)",
+        }} />
+
+        {/* Content title logo — centred in arch area */}
+        <View style={{
+          position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
+          alignItems: "center", justifyContent: "center",
+        }} pointerEvents="none">
+          <ContentLogo showAt={2100} logoUrl={logoUrl} logoW={LOGO_W} logoH={LOGO_H} />
+        </View>
       </View>
 
-      {/* ── Floor ─────────────────────────────────────────────────────────── */}
+      {/* ── Horizon glow line ────────────────────────────────────────────── */}
       <View style={{
-        position: "absolute", top: HORIZON_Y, left: 0, right: 0, bottom: 0,
-        backgroundColor: "#050000",
-      }} />
-
-      {/* ── Horizon glow line ─────────────────────────────────────────────── */}
-      <View style={{
-        position: "absolute", top: HORIZON_Y - 1, left: 0, right: 0, height: 1.5,
+        position: "absolute", top: HORIZON_Y - 1, left: 0, right: 0, height: 2,
         backgroundColor: RED,
-        shadowColor: RED_GLOW, shadowRadius: 14, shadowOpacity: 0.9,
+        shadowColor: RED_GLOW, shadowRadius: 16, shadowOpacity: 0.95,
         shadowOffset: { width: 0, height: 0 }, elevation: 6,
       }} />
 
-      {/* ── Logo block: title logo + NETPLAY text ─────────────────────────── */}
+      {/* ── Floor zone (below horizon) ───────────────────────────────────── */}
+      <View style={{
+        position: "absolute", top: HORIZON_Y, left: 0, right: 0, bottom: 0,
+        backgroundColor: "#040000",
+      }} />
+
+      {/* ── NETPLAY brand — centred in floor zone ────────────────────────── */}
       <View style={{
         position: "absolute",
-        top: 0, left: 0, right: 0, bottom: H * 0.26,
-        alignItems: "center", justifyContent: "center", gap: 14,
+        top: HORIZON_Y + 8,
+        left: 0, right: 0,
+        bottom: H * 0.22,
+        alignItems: "center", justifyContent: "center",
       }} pointerEvents="none">
-        <ContentLogo showAt={2100} logoUrl={logoUrl} logoW={LOGO_W} logoH={LOGO_H} />
-        <BrandText   showAt={5200} brandSize={BRAND_SIZE} />
-        <Tagline     showAt={7000} tagSize={TAG_SIZE} />
+        <BrandBlock showAt={4800} W={W} />
       </View>
 
-      {/* ── Progress bar ──────────────────────────────────────────────────── */}
-      <ProgressBar totalMs={STING_DURATION_MS} showAt={1900} barW={W * 0.65} />
+      {/* ── Progress bar + % — bottom strip ─────────────────────────────── */}
+      <ProgressBar totalMs={STING_DURATION_MS} showAt={1800} barW={W * 0.65} />
     </View>
   );
 }
@@ -315,34 +340,47 @@ const styles = StyleSheet.create({
   logoWrap: {
     alignItems: "center",
     justifyContent: "center",
-    position: "relative",
   },
   logoGlow: {
     position: "absolute",
     borderRadius: 999,
     backgroundColor: "transparent",
     shadowColor: "#ffffff",
-    shadowRadius: 30,
-    shadowOpacity: 0.18,
+    shadowRadius: 35,
+    shadowOpacity: 0.22,
     shadowOffset: { width: 0, height: 0 },
   },
   progressWrap: {
     position: "absolute",
-    bottom: "24%",
+    bottom: "8%",
     left: 0, right: 0,
     alignItems: "center",
+    gap: 6,
+  },
+  percentText: {
+    fontSize: 13,
+    fontWeight: "700",
+    letterSpacing: 1,
+    color: RED,
+    fontVariant: ["tabular-nums"],
   },
   progressTrack: {
     height: 3, borderRadius: 2,
-    backgroundColor: "rgba(255,255,255,0.06)",
-    borderWidth: 0.5, borderColor: "rgba(229,9,20,0.3)",
+    backgroundColor: "rgba(255,255,255,0.07)",
     overflow: "hidden",
     shadowColor: "#cc2020", shadowRadius: 6, shadowOpacity: 0.4,
     shadowOffset: { width: 0, height: 0 }, elevation: 3,
   },
   progressFill: {
-    height: "100%", borderRadius: 2, backgroundColor: RED,
+    height: "100%", borderRadius: 2,
+    backgroundColor: RED,
     shadowColor: RED_GLOW, shadowRadius: 8, shadowOpacity: 0.9,
     shadowOffset: { width: 0, height: 0 }, elevation: 5,
+  },
+  loadingLabel: {
+    fontSize: 9,
+    fontWeight: "600",
+    letterSpacing: 3,
+    color: "rgba(255,255,255,0.3)",
   },
 });
