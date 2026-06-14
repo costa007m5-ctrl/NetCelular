@@ -286,6 +286,11 @@ export default function DetailScreen() {
   const [editErr, setEditErr] = useState<string | null>(null);
   const [autoOverview, setAutoOverview] = useState<string>("");
   const [fetchingAutoOverview, setFetchingAutoOverview] = useState(false);
+  const [editSearchQuery, setEditSearchQuery] = useState("");
+  const [editSearchType, setEditSearchType] = useState<"movie" | "tv">("tv");
+  const [editSearchResults, setEditSearchResults] = useState<Array<{ id: number; title: string; year: string; poster: string | null; overview: string }>>([]);
+  const [editSearchLoading, setEditSearchLoading] = useState(false);
+  const [editSelectedResult, setEditSelectedResult] = useState<{ id: number; title: string; poster: string | null } | null>(null);
 
   const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null);
   const [convertingLinkId, setConvertingLinkId] = useState<string | null>(null);
@@ -1247,6 +1252,8 @@ export default function DetailScreen() {
   };
 
   // ─── Admin content-override handlers ───────────────────────────────────────
+  const TMDB_KEY_EDIT = "8f0beb08cf016ec8de49e454e09879ec";
+
   const openEditModal = () => {
     setEditTmdbId(contentOverride?.tmdb_id?.toString() ?? (tmdbId ? String(tmdbId) : ""));
     setEditTitle(contentOverride?.custom_title ?? "");
@@ -1254,17 +1261,21 @@ export default function DetailScreen() {
     setEditOverviewMode(contentOverride?.overview_mode ?? "auto");
     setAutoOverview(details?.overview ?? "");
     setEditErr(null);
+    setEditSearchQuery("");
+    setEditSearchResults([]);
+    setEditSelectedResult(null);
+    setEditSearchType(type === "movie" ? "movie" : "tv");
     setShowEditModal(true);
   };
 
-  const fetchAutoOverviewForId = async (idStr: string) => {
+  const fetchAutoOverviewForId = async (idStr: string, forceType?: "movie" | "tv") => {
     const id = parseInt(idStr, 10);
     if (!id) { setAutoOverview(""); return; }
     setFetchingAutoOverview(true);
     try {
-      const TMDB_KEY_LOCAL = "8f0beb08cf016ec8de49e454e09879ec";
+      const mediaType = forceType ?? editSearchType;
       const r = await fetch(
-        `https://api.themoviedb.org/3/${resolvedType}/${id}?api_key=${TMDB_KEY_LOCAL}&language=pt-BR`
+        `https://api.themoviedb.org/3/${mediaType}/${id}?api_key=${TMDB_KEY_EDIT}&language=pt-BR`
       );
       const data = r.ok ? await r.json() : null;
       setAutoOverview((data?.overview as string) ?? "");
@@ -1275,6 +1286,41 @@ export default function DetailScreen() {
     }
   };
 
+  const tmdbNameSearch = async () => {
+    const q = editSearchQuery.trim();
+    if (!q) return;
+    setEditSearchLoading(true);
+    setEditSearchResults([]);
+    try {
+      const url = `https://api.themoviedb.org/3/search/${editSearchType}?api_key=${TMDB_KEY_EDIT}&language=pt-BR&query=${encodeURIComponent(q)}&page=1`;
+      const r = await fetch(url);
+      const data = r.ok ? await r.json() : null;
+      const results = (data?.results ?? []).slice(0, 6).map((item: any) => ({
+        id: item.id,
+        title: item.title ?? item.name ?? "",
+        year: (item.release_date ?? item.first_air_date ?? "").slice(0, 4),
+        poster: item.poster_path ? `https://image.tmdb.org/t/p/w92${item.poster_path}` : null,
+        overview: item.overview ?? "",
+      }));
+      setEditSearchResults(results);
+      if (results.length === 0) setEditErr("Nenhum resultado encontrado. Tente outro nome.");
+      else setEditErr(null);
+    } catch {
+      setEditErr("Erro ao buscar no TMDB.");
+    } finally {
+      setEditSearchLoading(false);
+    }
+  };
+
+  const selectSearchResult = (result: { id: number; title: string; year: string; poster: string | null; overview: string }) => {
+    setEditSelectedResult({ id: result.id, title: result.title, poster: result.poster });
+    setEditTmdbId(String(result.id));
+    setAutoOverview(result.overview);
+    setEditSearchResults([]);
+    setEditSearchQuery(result.title);
+    setEditErr(null);
+  };
+
   const saveContentOverride = async () => {
     if (!userId) { setEditErr("É necessário estar logado."); return; }
     setEditBusy(true);
@@ -1283,13 +1329,20 @@ export default function DetailScreen() {
       const overrideTmdbId = editTmdbId ? parseInt(editTmdbId, 10) : null;
       const payload: Partial<Omit<ContentOverride, "content_key" | "id">> = {
         tmdb_id: overrideTmdbId || null,
-        tmdb_type: type,
+        tmdb_type: editSearchType,
         custom_title: editTitle.trim() || null,
         custom_overview: editOverviewMode === "manual" ? (editOverview.trim() || null) : null,
         overview_mode: editOverviewMode,
       };
-      const { error } = await db.contentOverrides.upsert(contentKey, payload, userId);
-      if (error) { setEditErr(error); return; }
+      // Timeout de 12s para evitar loading infinito caso a tabela não exista ainda
+      const timeoutPromise = new Promise<{ error: string }>((resolve) =>
+        setTimeout(() => resolve({ error: "Tempo esgotado. Execute o SQL no Supabase para criar a tabela content_overrides." }), 12000)
+      );
+      const result = await Promise.race([
+        db.contentOverrides.upsert(contentKey, payload, userId),
+        timeoutPromise,
+      ]);
+      if (result.error) { setEditErr(result.error); return; }
       const fresh = await db.contentOverrides.get(contentKey);
       setContentOverride(fresh);
       if (fresh?.tmdb_id && fresh.tmdb_id !== resolvedTmdbId) {
@@ -1297,7 +1350,7 @@ export default function DetailScreen() {
       }
       setShowEditModal(false);
     } catch (e: any) {
-      setEditErr(e?.message ?? "Erro ao salvar");
+      setEditErr(e?.message ?? "Erro ao salvar. Verifique se a tabela content_overrides existe no Supabase.");
     } finally {
       setEditBusy(false);
     }
@@ -1812,149 +1865,244 @@ export default function DetailScreen() {
             style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.80)", justifyContent: "flex-end" }}
             onPress={() => setShowEditModal(false)}
           >
-            <Pressable
-              onPress={(e) => e.stopPropagation()}
-              style={{ backgroundColor: "#111", borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, gap: 16, borderWidth: 1, borderBottomWidth: 0, borderColor: "rgba(234,179,8,0.25)" }}
-            >
-              {/* Header */}
-              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                  <Feather name="edit-2" size={16} color="#fbbf24" />
-                  <Text style={{ color: "#fbbf24", fontWeight: "700", fontSize: 16 }}>Editar Conteúdo</Text>
-                  <View style={{ paddingHorizontal: 7, paddingVertical: 2, backgroundColor: "rgba(234,179,8,0.15)", borderRadius: 6, borderWidth: 1, borderColor: "rgba(234,179,8,0.35)" }}>
-                    <Text style={{ color: "#fbbf24", fontSize: 10, fontWeight: "700" }}>ADMIN</Text>
+            <Pressable onPress={(e) => e.stopPropagation()}>
+              <ScrollView
+                style={{ backgroundColor: "#111", borderTopLeftRadius: 20, borderTopRightRadius: 20, borderWidth: 1, borderBottomWidth: 0, borderColor: "rgba(234,179,8,0.25)" }}
+                contentContainerStyle={{ padding: 20, gap: 14, paddingBottom: 36 }}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+              >
+                {/* Header */}
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <Feather name="edit-2" size={16} color="#fbbf24" />
+                    <Text style={{ color: "#fbbf24", fontWeight: "700", fontSize: 16 }}>Editar Conteúdo</Text>
+                    <View style={{ paddingHorizontal: 7, paddingVertical: 2, backgroundColor: "rgba(234,179,8,0.15)", borderRadius: 6, borderWidth: 1, borderColor: "rgba(234,179,8,0.35)" }}>
+                      <Text style={{ color: "#fbbf24", fontSize: 10, fontWeight: "700" }}>ADMIN</Text>
+                    </View>
                   </View>
-                </View>
-                <Pressable onPress={() => setShowEditModal(false)} hitSlop={12}>
-                  <Feather name="x" size={20} color="rgba(255,255,255,0.5)" />
-                </Pressable>
-              </View>
-
-              <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 11 }}>
-                Chave: <Text style={{ color: "rgba(255,255,255,0.5)", fontFamily: "monospace" }}>{contentKey}</Text>
-              </Text>
-
-              {/* TMDB ID */}
-              <View style={{ gap: 6 }}>
-                <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 13, fontWeight: "600" }}>ID TMDB</Text>
-                <View style={{ flexDirection: "row", gap: 8 }}>
-                  <TextInput
-                    style={{ flex: 1, backgroundColor: "rgba(255,255,255,0.07)", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, color: "#fff", fontSize: 14, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)" }}
-                    placeholder={tmdbId ? String(tmdbId) : "Ex: 205212"}
-                    placeholderTextColor="rgba(255,255,255,0.3)"
-                    value={editTmdbId}
-                    onChangeText={setEditTmdbId}
-                    keyboardType="numeric"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                  />
-                  <Pressable
-                    onPress={() => fetchAutoOverviewForId(editTmdbId)}
-                    disabled={!editTmdbId || fetchingAutoOverview}
-                    style={({ pressed }) => [{ paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10, backgroundColor: "rgba(59,130,246,0.15)", borderWidth: 1, borderColor: "rgba(59,130,246,0.4)", justifyContent: "center", alignItems: "center" }, (pressed || !editTmdbId) && { opacity: 0.5 }]}
-                  >
-                    {fetchingAutoOverview
-                      ? <ActivityIndicator size={14} color="#60a5fa" />
-                      : <Feather name="search" size={16} color="#60a5fa" />}
+                  <Pressable onPress={() => setShowEditModal(false)} hitSlop={12}>
+                    <Feather name="x" size={20} color="rgba(255,255,255,0.5)" />
                   </Pressable>
                 </View>
-                <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 11 }}>
-                  Digite o ID e toque 🔍 para buscar a sinopse automaticamente do TMDB.
+
+                <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 11 }}>
+                  Chave: <Text style={{ color: "rgba(255,255,255,0.45)", fontFamily: "monospace" }}>{contentKey}</Text>
                 </Text>
-              </View>
 
-              {/* Nome */}
-              <View style={{ gap: 6 }}>
-                <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 13, fontWeight: "600" }}>Nome (deixe vazio para usar o TMDB)</Text>
-                <TextInput
-                  style={{ backgroundColor: "rgba(255,255,255,0.07)", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, color: "#fff", fontSize: 14, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)" }}
-                  placeholder={details?.title ?? details?.name ?? "Nome personalizado…"}
-                  placeholderTextColor="rgba(255,255,255,0.3)"
-                  value={editTitle}
-                  onChangeText={setEditTitle}
-                  autoCorrect={false}
-                />
-              </View>
+                {/* ── Seção 1: Pesquisar por nome ── */}
+                <View style={{ gap: 8 }}>
+                  <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 13, fontWeight: "600" }}>Pesquisar no TMDB por nome</Text>
 
-              {/* Sinopse */}
-              <View style={{ gap: 8 }}>
-                <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 13, fontWeight: "600" }}>Sinopse</Text>
-                {/* Mode toggle */}
-                <View style={{ flexDirection: "row", gap: 8 }}>
-                  <Pressable
-                    onPress={() => setEditOverviewMode("auto")}
-                    style={({ pressed }) => [{ flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: "center", borderWidth: 1, backgroundColor: editOverviewMode === "auto" ? "rgba(34,197,94,0.15)" : "rgba(255,255,255,0.05)", borderColor: editOverviewMode === "auto" ? "rgba(34,197,94,0.5)" : "rgba(255,255,255,0.12)" }, pressed && { opacity: 0.7 }]}
-                  >
-                    <Text style={{ color: editOverviewMode === "auto" ? "#4ade80" : "rgba(255,255,255,0.5)", fontSize: 13, fontWeight: "600" }}>🤖 Automático</Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => setEditOverviewMode("manual")}
-                    style={({ pressed }) => [{ flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: "center", borderWidth: 1, backgroundColor: editOverviewMode === "manual" ? "rgba(234,179,8,0.15)" : "rgba(255,255,255,0.05)", borderColor: editOverviewMode === "manual" ? "rgba(234,179,8,0.5)" : "rgba(255,255,255,0.12)" }, pressed && { opacity: 0.7 }]}
-                  >
-                    <Text style={{ color: editOverviewMode === "manual" ? "#fbbf24" : "rgba(255,255,255,0.5)", fontSize: 13, fontWeight: "600" }}>✏️ Manual</Text>
-                  </Pressable>
+                  {/* Tipo: Série / Filme */}
+                  <View style={{ flexDirection: "row", gap: 6 }}>
+                    {(["tv", "movie"] as const).map((t) => (
+                      <Pressable
+                        key={t}
+                        onPress={() => { setEditSearchType(t); setEditSearchResults([]); }}
+                        style={({ pressed }) => [{ flex: 1, paddingVertical: 7, borderRadius: 8, alignItems: "center", borderWidth: 1, backgroundColor: editSearchType === t ? "rgba(139,92,246,0.2)" : "rgba(255,255,255,0.05)", borderColor: editSearchType === t ? "rgba(139,92,246,0.6)" : "rgba(255,255,255,0.1)" }, pressed && { opacity: 0.7 }]}
+                      >
+                        <Text style={{ color: editSearchType === t ? "#c4b5fd" : "rgba(255,255,255,0.4)", fontSize: 12, fontWeight: "600" }}>
+                          {t === "tv" ? "📺 Série" : "🎬 Filme"}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+
+                  {/* Campo de busca + botão */}
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    <TextInput
+                      style={{ flex: 1, backgroundColor: "rgba(255,255,255,0.07)", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, color: "#fff", fontSize: 14, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)" }}
+                      placeholder="Ex: MasterChef Brasil…"
+                      placeholderTextColor="rgba(255,255,255,0.3)"
+                      value={editSearchQuery}
+                      onChangeText={setEditSearchQuery}
+                      onSubmitEditing={tmdbNameSearch}
+                      returnKeyType="search"
+                      autoCorrect={false}
+                    />
+                    <Pressable
+                      onPress={tmdbNameSearch}
+                      disabled={editSearchLoading || !editSearchQuery.trim()}
+                      style={({ pressed }) => [{ paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10, backgroundColor: "rgba(139,92,246,0.2)", borderWidth: 1, borderColor: "rgba(139,92,246,0.5)", justifyContent: "center", alignItems: "center" }, (pressed || !editSearchQuery.trim()) && { opacity: 0.5 }]}
+                    >
+                      {editSearchLoading
+                        ? <ActivityIndicator size={16} color="#c4b5fd" />
+                        : <Feather name="search" size={16} color="#c4b5fd" />}
+                    </Pressable>
+                  </View>
+
+                  {/* Resultados da busca */}
+                  {editSearchResults.length > 0 && (
+                    <View style={{ gap: 6, backgroundColor: "rgba(255,255,255,0.03)", borderRadius: 12, padding: 8, borderWidth: 1, borderColor: "rgba(255,255,255,0.08)" }}>
+                      <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11, marginBottom: 2 }}>Toque para selecionar:</Text>
+                      {editSearchResults.map((res) => (
+                        <Pressable
+                          key={res.id}
+                          onPress={() => selectSearchResult(res)}
+                          style={({ pressed }) => [{ flexDirection: "row", alignItems: "center", gap: 10, padding: 8, borderRadius: 10, backgroundColor: editSelectedResult?.id === res.id ? "rgba(234,179,8,0.12)" : "rgba(255,255,255,0.04)", borderWidth: 1, borderColor: editSelectedResult?.id === res.id ? "rgba(234,179,8,0.4)" : "rgba(255,255,255,0.07)" }, pressed && { opacity: 0.7 }]}
+                        >
+                          {/* Poster */}
+                          {res.poster ? (
+                            <Image source={{ uri: res.poster }} style={{ width: 38, height: 56, borderRadius: 5, backgroundColor: "#222" }} resizeMode="cover" />
+                          ) : (
+                            <View style={{ width: 38, height: 56, borderRadius: 5, backgroundColor: "#222", alignItems: "center", justifyContent: "center" }}>
+                              <Feather name="film" size={16} color="rgba(255,255,255,0.3)" />
+                            </View>
+                          )}
+                          {/* Info */}
+                          <View style={{ flex: 1, gap: 3 }}>
+                            <Text style={{ color: editSelectedResult?.id === res.id ? "#fbbf24" : "#fff", fontWeight: "600", fontSize: 13 }} numberOfLines={2}>{res.title}</Text>
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                              {res.year ? <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11 }}>{res.year}</Text> : null}
+                              <Text style={{ color: "rgba(255,255,255,0.25)", fontSize: 11 }}>ID: {res.id}</Text>
+                            </View>
+                            {res.overview ? (
+                              <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 11, lineHeight: 15 }} numberOfLines={2}>{res.overview}</Text>
+                            ) : null}
+                          </View>
+                          {editSelectedResult?.id === res.id && (
+                            <Feather name="check-circle" size={18} color="#fbbf24" />
+                          )}
+                        </Pressable>
+                      ))}
+                    </View>
+                  )}
+
+                  {/* Card do resultado selecionado */}
+                  {editSelectedResult && editSearchResults.length === 0 && (
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 10, padding: 10, borderRadius: 10, backgroundColor: "rgba(234,179,8,0.08)", borderWidth: 1, borderColor: "rgba(234,179,8,0.3)" }}>
+                      {editSelectedResult.poster ? (
+                        <Image source={{ uri: editSelectedResult.poster }} style={{ width: 34, height: 50, borderRadius: 4, backgroundColor: "#222" }} resizeMode="cover" />
+                      ) : null}
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: "#fbbf24", fontWeight: "700", fontSize: 13 }} numberOfLines={1}>{editSelectedResult.title}</Text>
+                        <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11 }}>ID: {editSelectedResult.id}</Text>
+                      </View>
+                      <Feather name="check-circle" size={16} color="#fbbf24" />
+                    </View>
+                  )}
                 </View>
 
-                {editOverviewMode === "auto" ? (
-                  /* Preview da sinopse automática */
-                  <View style={{ backgroundColor: "rgba(34,197,94,0.06)", borderRadius: 10, padding: 12, borderWidth: 1, borderColor: "rgba(34,197,94,0.2)", gap: 4 }}>
-                    <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11 }}>Prévia (do TMDB):</Text>
-                    {fetchingAutoOverview
-                      ? <ActivityIndicator size={14} color="#4ade80" style={{ alignSelf: "flex-start", marginTop: 4 }} />
-                      : <Text style={{ color: "rgba(255,255,255,0.75)", fontSize: 13, lineHeight: 18 }} numberOfLines={4}>
-                          {autoOverview || (details?.overview ?? "Nenhuma sinopse disponível.")}
-                        </Text>
-                    }
+                {/* ── Seção 2: ID TMDB manual ── */}
+                <View style={{ gap: 6 }}>
+                  <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 13, fontWeight: "600" }}>ID TMDB (auto ou manual)</Text>
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    <TextInput
+                      style={{ flex: 1, backgroundColor: "rgba(255,255,255,0.07)", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, color: "#fff", fontSize: 14, borderWidth: 1, borderColor: editTmdbId ? "rgba(59,130,246,0.4)" : "rgba(255,255,255,0.12)" }}
+                      placeholder={tmdbId ? String(tmdbId) : "Ex: 205212"}
+                      placeholderTextColor="rgba(255,255,255,0.3)"
+                      value={editTmdbId}
+                      onChangeText={setEditTmdbId}
+                      keyboardType="numeric"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                    />
+                    <Pressable
+                      onPress={() => fetchAutoOverviewForId(editTmdbId)}
+                      disabled={!editTmdbId || fetchingAutoOverview}
+                      style={({ pressed }) => [{ paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10, backgroundColor: "rgba(59,130,246,0.15)", borderWidth: 1, borderColor: "rgba(59,130,246,0.4)", justifyContent: "center", alignItems: "center" }, (pressed || !editTmdbId) && { opacity: 0.5 }]}
+                    >
+                      {fetchingAutoOverview
+                        ? <ActivityIndicator size={14} color="#60a5fa" />
+                        : <Feather name="refresh-cw" size={15} color="#60a5fa" />}
+                    </Pressable>
                   </View>
-                ) : (
-                  /* Campo de sinopse manual */
+                  <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 11 }}>
+                    Digite um ID e toque ↺ para recarregar a prévia da sinopse.
+                  </Text>
+                </View>
+
+                {/* ── Seção 3: Nome personalizado ── */}
+                <View style={{ gap: 6 }}>
+                  <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 13, fontWeight: "600" }}>Nome (deixe vazio = usar TMDB)</Text>
                   <TextInput
-                    style={{ backgroundColor: "rgba(255,255,255,0.07)", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, color: "#fff", fontSize: 13, lineHeight: 20, borderWidth: 1, borderColor: "rgba(234,179,8,0.3)", minHeight: 100, textAlignVertical: "top" }}
-                    placeholder="Digite a sinopse personalizada…"
+                    style={{ backgroundColor: "rgba(255,255,255,0.07)", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, color: "#fff", fontSize: 14, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)" }}
+                    placeholder={details?.title ?? details?.name ?? "Nome personalizado…"}
                     placeholderTextColor="rgba(255,255,255,0.3)"
-                    value={editOverview}
-                    onChangeText={setEditOverview}
-                    multiline
+                    value={editTitle}
+                    onChangeText={setEditTitle}
                     autoCorrect={false}
                   />
-                )}
-              </View>
-
-              {/* Error */}
-              {editErr ? (
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                  <Feather name="alert-circle" size={13} color="#ef4444" />
-                  <Text style={{ color: "#ef4444", fontSize: 12, flex: 1 }}>{editErr}</Text>
                 </View>
-              ) : null}
 
-              {/* Actions */}
-              <View style={{ flexDirection: "row", gap: 8 }}>
-                {contentOverride && (
+                {/* ── Seção 4: Sinopse ── */}
+                <View style={{ gap: 8 }}>
+                  <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 13, fontWeight: "600" }}>Sinopse</Text>
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    <Pressable
+                      onPress={() => setEditOverviewMode("auto")}
+                      style={({ pressed }) => [{ flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: "center", borderWidth: 1, backgroundColor: editOverviewMode === "auto" ? "rgba(34,197,94,0.15)" : "rgba(255,255,255,0.05)", borderColor: editOverviewMode === "auto" ? "rgba(34,197,94,0.5)" : "rgba(255,255,255,0.10)" }, pressed && { opacity: 0.7 }]}
+                    >
+                      <Text style={{ color: editOverviewMode === "auto" ? "#4ade80" : "rgba(255,255,255,0.45)", fontSize: 13, fontWeight: "600" }}>🤖 Automático</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => setEditOverviewMode("manual")}
+                      style={({ pressed }) => [{ flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: "center", borderWidth: 1, backgroundColor: editOverviewMode === "manual" ? "rgba(234,179,8,0.15)" : "rgba(255,255,255,0.05)", borderColor: editOverviewMode === "manual" ? "rgba(234,179,8,0.5)" : "rgba(255,255,255,0.10)" }, pressed && { opacity: 0.7 }]}
+                    >
+                      <Text style={{ color: editOverviewMode === "manual" ? "#fbbf24" : "rgba(255,255,255,0.45)", fontSize: 13, fontWeight: "600" }}>✏️ Manual</Text>
+                    </Pressable>
+                  </View>
+
+                  {editOverviewMode === "auto" ? (
+                    <View style={{ backgroundColor: "rgba(34,197,94,0.06)", borderRadius: 10, padding: 12, borderWidth: 1, borderColor: "rgba(34,197,94,0.2)", gap: 4 }}>
+                      <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11 }}>Prévia (TMDB):</Text>
+                      {fetchingAutoOverview
+                        ? <ActivityIndicator size={14} color="#4ade80" style={{ alignSelf: "flex-start", marginTop: 4 }} />
+                        : <Text style={{ color: "rgba(255,255,255,0.75)", fontSize: 13, lineHeight: 18 }} numberOfLines={5}>
+                            {autoOverview || (details?.overview ?? "Nenhuma sinopse disponível.")}
+                          </Text>
+                      }
+                    </View>
+                  ) : (
+                    <TextInput
+                      style={{ backgroundColor: "rgba(255,255,255,0.07)", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, color: "#fff", fontSize: 13, lineHeight: 20, borderWidth: 1, borderColor: "rgba(234,179,8,0.3)", minHeight: 100, textAlignVertical: "top" }}
+                      placeholder="Digite a sinopse personalizada…"
+                      placeholderTextColor="rgba(255,255,255,0.3)"
+                      value={editOverview}
+                      onChangeText={setEditOverview}
+                      multiline
+                      autoCorrect={false}
+                    />
+                  )}
+                </View>
+
+                {/* Erro */}
+                {editErr ? (
+                  <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 6, backgroundColor: "rgba(239,68,68,0.08)", padding: 10, borderRadius: 8, borderWidth: 1, borderColor: "rgba(239,68,68,0.3)" }}>
+                    <Feather name="alert-circle" size={14} color="#f87171" style={{ marginTop: 1 }} />
+                    <Text style={{ color: "#f87171", fontSize: 12, flex: 1, lineHeight: 17 }}>{editErr}</Text>
+                  </View>
+                ) : null}
+
+                {/* Botões */}
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  {contentOverride && (
+                    <Pressable
+                      onPress={deleteContentOverride}
+                      disabled={editBusy}
+                      style={({ pressed }) => [{ paddingVertical: 13, paddingHorizontal: 14, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(239,68,68,0.12)", borderWidth: 1, borderColor: "rgba(239,68,68,0.4)" }, (pressed || editBusy) && { opacity: 0.6 }]}
+                    >
+                      <Feather name="trash-2" size={16} color="#f87171" />
+                    </Pressable>
+                  )}
                   <Pressable
-                    onPress={deleteContentOverride}
-                    disabled={editBusy}
-                    style={({ pressed }) => [{ paddingVertical: 12, paddingHorizontal: 14, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(239,68,68,0.12)", borderWidth: 1, borderColor: "rgba(239,68,68,0.4)" }, (pressed || editBusy) && { opacity: 0.6 }]}
+                    onPress={() => setShowEditModal(false)}
+                    style={({ pressed }) => [{ flex: 1, paddingVertical: 13, borderRadius: 10, alignItems: "center", backgroundColor: "rgba(255,255,255,0.07)" }, pressed && { opacity: 0.7 }]}
                   >
-                    <Feather name="trash-2" size={16} color="#f87171" />
+                    <Text style={{ color: "rgba(255,255,255,0.6)", fontWeight: "600" }}>Cancelar</Text>
                   </Pressable>
-                )}
-                <Pressable
-                  onPress={() => setShowEditModal(false)}
-                  style={({ pressed }) => [{ flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: "center", backgroundColor: "rgba(255,255,255,0.07)" }, pressed && { opacity: 0.7 }]}
-                >
-                  <Text style={{ color: "rgba(255,255,255,0.6)", fontWeight: "600" }}>Cancelar</Text>
-                </Pressable>
-                <Pressable
-                  onPress={saveContentOverride}
-                  disabled={editBusy}
-                  style={({ pressed }) => [{ flex: 2, paddingVertical: 12, borderRadius: 10, alignItems: "center", backgroundColor: "#ca8a04" }, (pressed || editBusy) && { opacity: 0.7 }]}
-                >
-                  {editBusy
-                    ? <ActivityIndicator size="small" color="#fff" />
-                    : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15 }}>Salvar</Text>}
-                </Pressable>
-              </View>
+                  <Pressable
+                    onPress={saveContentOverride}
+                    disabled={editBusy}
+                    style={({ pressed }) => [{ flex: 2, paddingVertical: 13, borderRadius: 10, alignItems: "center", backgroundColor: "#ca8a04" }, (pressed || editBusy) && { opacity: 0.7 }]}
+                  >
+                    {editBusy
+                      ? <ActivityIndicator size="small" color="#fff" />
+                      : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15 }}>Salvar</Text>}
+                  </Pressable>
+                </View>
+              </ScrollView>
             </Pressable>
           </Pressable>
         </KeyboardAvoidingView>
