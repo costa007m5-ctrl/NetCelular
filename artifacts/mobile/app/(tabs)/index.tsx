@@ -87,6 +87,7 @@ const flix2ToContent = (item: any): ContentItem => {
     genres: [],
     type: isMovie ? "movie" : "series",
     mediaType: isMovie ? "movie" : "tv",
+    exclusive: item.exclusive ?? false,
   };
 };
 

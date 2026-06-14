@@ -60,6 +60,7 @@ interface WhatsNewItem {
   added_date: string;
   rating?: number;
   overview?: string;
+  exclusive?: boolean;
 }
 interface WhatsNewResp {
   ok: boolean;
@@ -111,6 +112,7 @@ function wn2Content(item: WhatsNewItem): ContentItem {
     genres: [],
     type: isMovie ? "movie" : "series",
     mediaType: isMovie ? "movie" : "tv",
+    exclusive: item.exclusive ?? false,
   };
 }
 
