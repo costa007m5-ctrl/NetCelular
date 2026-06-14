@@ -2348,6 +2348,60 @@ router.get("/flix2/catalog", async (req, res) => {
 const FULL_CATALOG_CACHE = new Map<string, { data: any[]; cachedAt: number }>();
 const FULL_CATALOG_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
+// ── In-memory cache for Drive/R2 registry (for whats-new) ─────────────────────
+let registryCacheRef: { items: RegistryItem[]; cachedAt: number } | null = null;
+const REGISTRY_CACHE_TTL_MS = 30 * 60 * 1000; // 30 min
+
+async function getRegistryCached(): Promise<RegistryItem[]> {
+  if (registryCacheRef && Date.now() - registryCacheRef.cachedAt < REGISTRY_CACHE_TTL_MS) {
+    return registryCacheRef.items;
+  }
+  try {
+    const client = getClient();
+    const bucket = process.env["R2_BUCKET_NAME"] ?? "netplay-media-storage";
+    const registry = await readRegistry(client, bucket);
+    registryCacheRef = { items: registry.items, cachedAt: Date.now() };
+    return registry.items;
+  } catch {
+    return registryCacheRef?.items ?? [];
+  }
+}
+
+// Cache for TMDB poster paths looked up for registry items
+const REGISTRY_TMDB_POSTER = new Map<string, string>(); // `{type}_{tmdbId}` → poster URL
+
+async function getRegistryItemPoster(tmdbId: number, type: "movie" | "tv"): Promise<string> {
+  const key = `${type}_${tmdbId}`;
+  if (REGISTRY_TMDB_POSTER.has(key)) return REGISTRY_TMDB_POSTER.get(key)!;
+  // Try Flix2 catalog first (fast, in-memory)
+  const catType = type === "movie" ? "movies" : "series";
+  const cat = FULL_CATALOG_CACHE.get(catType);
+  if (cat) {
+    const match = cat.data.find((i: any) => Number(i.tmdb_id) === tmdbId && i.poster);
+    if (match?.poster) {
+      REGISTRY_TMDB_POSTER.set(key, match.poster);
+      return match.poster;
+    }
+  }
+  // Fallback: TMDB API call
+  try {
+    let posterPath: string | null = null;
+    if (type === "movie") {
+      const r = await (tmdb as any).movies.details(tmdbId);
+      posterPath = r.poster_path ?? null;
+    } else {
+      const r = await (tmdb as any).tv.details(tmdbId);
+      posterPath = r.poster_path ?? null;
+    }
+    const url = posterPath ? `https://image.tmdb.org/t/p/w342${posterPath}` : "";
+    REGISTRY_TMDB_POSTER.set(key, url);
+    return url;
+  } catch {
+    REGISTRY_TMDB_POSTER.set(key, "");
+    return "";
+  }
+}
+
 // Accumulates raw (non-deduped) items during warm-up so lookup can search
 // even before warm-up finishes. Cleared once FULL_CATALOG_CACHE is set.
 const WARM_PARTIAL_CACHE = new Map<string, any[]>();
@@ -3596,7 +3650,7 @@ function computeAndSaveDiff(type: string, freshItems: any[]): void {
 //   days=7        — how many days back to look (default 7, max 90)
 //   types=series,movies,animes — comma-separated (default all three)
 //   limit=100     — max items per type (default 100)
-router.get("/flix2/whats-new", (req, res) => {
+router.get("/flix2/whats-new", async (req, res) => {
   const {
     days:      daysStr      = "7",
     types:     typesStr     = "movies,series,animes",
@@ -3624,12 +3678,14 @@ router.get("/flix2/whats-new", (req, res) => {
     year:       i.year,
     poster:     i.poster,
     backdrop:   i.backdrop || "",
-    overview:   i.overview || "",
+    overview:   i.overview || i.synopsis || "",
     added_at:   i.added_at,
     added_date: i.added_at ? new Date(i.added_at * 1000).toISOString().slice(0, 10) : null,
   });
 
-  for (const type of (types.length ? types : FLIX2_TYPES)) {
+  const activeTypes = types.length ? types : FLIX2_TYPES;
+
+  for (const type of activeTypes) {
     const cached = FULL_CATALOG_CACHE.get(type);
     if (!cached) { result[type] = []; warming = true; continue; }
 
@@ -3640,11 +3696,22 @@ router.get("/flix2/whats-new", (req, res) => {
       .slice(0, limit)
       .map(toItem);
 
-    // Fallback: if date filter returns nothing, take the N most recently added items
+    // Fallback level 1: take N most recently added items (if they have added_at)
     if (items.length === 0 && allowFallback) {
       items = cached.data
-        .filter((i: any) => i.added_at)
+        .filter((i: any) => i.added_at > 0)
         .sort((a: any, b: any) => b.added_at - a.added_at)
+        .slice(0, limit)
+        .map(toItem);
+      if (items.length > 0) isFallback = true;
+    }
+
+    // Fallback level 2: no added_at info at all — sort by stream ID desc
+    // (Xtream assigns ascending IDs so higher ID = more recently added)
+    if (items.length === 0 && allowFallback) {
+      items = [...cached.data]
+        .filter((i: any) => i.poster)
+        .sort((a: any, b: any) => Number(b.id) - Number(a.id))
         .slice(0, limit)
         .map(toItem);
       if (items.length > 0) isFallback = true;
@@ -3652,6 +3719,59 @@ router.get("/flix2/whats-new", (req, res) => {
 
     result[type] = items;
     total += items.length;
+  }
+
+  // ── Include Drive / R2 registry items ────────────────────────────────────────
+  // Registry items are stored independently and would otherwise never appear in
+  // the "Recém Adicionados" and type-specific carousels on the Novidades tab.
+  try {
+    const regItems = await getRegistryCached();
+    // Deduplicate by tmdbId — one entry per title
+    const seenReg = new Set<string>();
+    // Process in reverse-chronological order (most recent addedAt first)
+    const sorted = [...regItems].sort((a, b) =>
+      new Date(b.addedAt ?? 0).getTime() - new Date(a.addedAt ?? 0).getTime()
+    );
+    for (const ri of sorted) {
+      if (!ri.tmdbId || !ri.title) continue;
+      const dedupKey = `${ri.tmdbType}_${ri.tmdbId}`;
+      if (seenReg.has(dedupKey)) continue;
+      seenReg.add(dedupKey);
+
+      const addedMs = ri.addedAt ? new Date(ri.addedAt).getTime() : 0;
+      const addedUnix = Math.floor(addedMs / 1000);
+      const addedDate = ri.addedAt ? ri.addedAt.slice(0, 10) : null;
+
+      const poster = await getRegistryItemPoster(ri.tmdbId, ri.tmdbType);
+
+      const regEntry: any = {
+        id:         `reg_${ri.id}`,
+        title:      ri.title,
+        tmdb_id:    ri.tmdbId,
+        type:       ri.tmdbType === "movie" ? "filme" : "serie",
+        year:       0,
+        poster,
+        backdrop:   "",
+        overview:   "",
+        added_at:   addedUnix,
+        added_date: addedDate,
+      };
+
+      // Push into the matching type bucket so it appears in the right carousel
+      const targetType = ri.tmdbType === "movie" ? "movies" : "series";
+      if (activeTypes.includes(targetType) || activeTypes.includes("animes")) {
+        const bucket = activeTypes.includes(targetType) ? targetType : activeTypes[0];
+        if (!result[bucket]) result[bucket] = [];
+        // Only add if the tmdbId is not already present from Flix2
+        const alreadyIn = result[bucket].some((x: any) => Number(x.tmdb_id) === ri.tmdbId);
+        if (!alreadyIn) {
+          result[bucket].unshift(regEntry); // prepend so drive items show first
+          total += 1;
+        }
+      }
+    }
+  } catch {
+    // Registry read failed — continue without drive items
   }
 
   res.json({
@@ -3662,7 +3782,7 @@ router.get("/flix2/whats-new", (req, res) => {
     days,
     total,
     cached: Object.fromEntries(
-      (types.length ? types : FLIX2_TYPES).map((t) => {
+      activeTypes.map((t) => {
         const c = FULL_CATALOG_CACHE.get(t);
         return [t, c ? { warm: true, items: c.data.length, cachedAt: c.cachedAt } : { warm: false }];
       })
@@ -3734,18 +3854,40 @@ router.get("/flix2/cinema-2026", async (req, res) => {
   }
 
   // ── 3b. Fallback when TMDB title matching found nothing ───────────────────
-  // Use added_at >= Jan 1 2026 OR year >= 2026 from the Xtream catalog directly.
+  // Level 1: Use added_at >= Jan 1 2026 OR year >= 2026 OR release_date starts with "2026"
   if (items2026.length === 0) {
     const fallback = cached.data
       .filter((i: any) => i.title && i.poster && (
-        (i.added_at && i.added_at >= JAN_2026) || Number(i.year) >= 2026
+        (i.added_at && i.added_at >= JAN_2026) ||
+        Number(i.year) >= 2026 ||
+        (i.release_date && String(i.release_date).startsWith("2026"))
       ))
       .sort((a: any, b: any) => (b.added_at ?? 0) - (a.added_at ?? 0))
       .slice(0, 300);
     for (const item of fallback) {
       const dateStr = item.added_at
         ? new Date(item.added_at * 1000).toISOString().slice(0, 10)
-        : "2026-01-01";
+        : (item.release_date || "2026-01-01");
+      items2026.push({
+        ...item,
+        _tmdbDate:  dateStr,
+        _tmdbVote:  Number(item.rating ?? 0),
+        _tmdbEntry: null,
+      });
+    }
+  }
+
+  // Level 2: absolute fallback — if still nothing, show the newest 200 movies
+  // by stream ID (higher ID = more recently added on Xtream) so Cinema is never blank.
+  if (items2026.length === 0) {
+    const fallback2 = [...cached.data]
+      .filter((i: any) => i.title && i.poster)
+      .sort((a: any, b: any) => Number(b.id) - Number(a.id))
+      .slice(0, 200);
+    const currentYear = new Date().getFullYear();
+    for (const item of fallback2) {
+      const releaseYear = item.year || item.release_date?.slice(0, 4) || currentYear;
+      const dateStr = item.release_date || `${releaseYear}-01-01`;
       items2026.push({
         ...item,
         _tmdbDate:  dateStr,
@@ -3756,6 +3898,7 @@ router.get("/flix2/cinema-2026", async (req, res) => {
   }
 
   // ── 4. Group by TMDB release month ────────────────────────────────────────
+  const currentYearStr = String(new Date().getFullYear());
   const monthMap: Record<string, any[]> = {};
   for (const item of items2026) {
     // Use TMDB release_date for grouping; fall back to added_at month
@@ -3766,8 +3909,8 @@ router.get("/flix2/cinema-2026", async (req, res) => {
       const d = new Date((item.added_at ?? 0) * 1000);
       key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
     }
-    // Only keep keys within 2026
-    if (!key.startsWith("2026")) continue;
+    // Keep 2026 keys; for absolute fallback items use currentYear key
+    if (!key.startsWith("2026") && !key.startsWith(currentYearStr)) continue;
     if (!monthMap[key]) monthMap[key] = [];
     const synopsis2026 = item._tmdbEntry?.overview || item._tmdbEntry?.overviewEn || item.synopsis || "";
     monthMap[key].push({
