@@ -143,6 +143,10 @@ const CARD_W_H = 140;
 
 const TMDB_KEY  = "8f0beb08cf016ec8de49e454e09879ec";
 const TMDB_BASE = "https://api.themoviedb.org/3";
+
+// Strip [L], [D], [HD], (2026) etc. for fuzzy title comparison
+const cleanT = (s: string) =>
+  s.replace(/\s*\[[^\]]*\]/g, "").replace(/\s*\(\d{4}\)/g, "").replace(/[:\-–]/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
 const IMG_W500  = "https://image.tmdb.org/t/p/w500";
 const IMG_W185  = "https://image.tmdb.org/t/p/w185";
 const IMG_W780  = "https://image.tmdb.org/t/p/w780";
@@ -226,12 +230,13 @@ const SOURCE_FILTERS: {
   { id: "drive",  label: "Drive",     icon: "hard-drive",  color: "#22c55e",  bg: "rgba(34,197,94,0.14)" },
 ];
 
-function PosterCard({ item, onPress, showRating = true, width, inFlix2 = false }: {
+function PosterCard({ item, onPress, showRating = true, width, inFlix2 = false, variantLabel }: {
   item: ContentItem;
   onPress: () => void;
   showRating?: boolean;
   width?: number;
   inFlix2?: boolean;
+  variantLabel?: string;
 }) {
   const fixedW = width ?? 0;
   const fixedH = fixedW * 1.5;
@@ -239,6 +244,7 @@ function PosterCard({ item, onPress, showRating = true, width, inFlix2 = false }
   const imgBox = fixedW > 0
     ? { width: fixedW, height: fixedH, borderRadius: 10, overflow: "hidden" as const, backgroundColor: "#1a0a14", marginBottom: 5 }
     : { width: "100%" as const, aspectRatio: 2 / 3, borderRadius: 10, overflow: "hidden" as const, backgroundColor: "#1a0a14", marginBottom: 5 };
+  const variantColor = variantLabel === "LEG" ? "#3b82f6" : variantLabel === "DUB" ? "#f59e0b" : "#6366f1";
   return (
     <Pressable style={outer} onPress={onPress}>
       <View style={imgBox}>
@@ -266,26 +272,41 @@ function PosterCard({ item, onPress, showRating = true, width, inFlix2 = false }
             </View>
           )}
         </View>
-        {inFlix2 && (
+        {variantLabel && (
+          <View style={[styles.variantBadge, { backgroundColor: `${variantColor}dd`, borderColor: `${variantColor}88` }]}>
+            <Feather name={variantLabel === "LEG" ? "align-left" : "volume-2"} size={7} color="#fff" />
+            <Text style={styles.variantBadgeText}>{variantLabel}</Text>
+          </View>
+        )}
+        {!variantLabel && inFlix2 && (
           <View style={styles.flix2Badge}>
             <Feather name="zap" size={8} color="#fff" />
             <Text style={styles.flix2BadgeText}>FLIX 2.0</Text>
           </View>
         )}
       </View>
-      <Text style={styles.cardTitle} numberOfLines={2}>{item.title}</Text>
+      <Text style={styles.cardTitle} numberOfLines={2}>
+        {variantLabel
+          ? item.title.replace(/\s*\[[^\]]*\]/g, "").replace(/\s*\(\d{4}\)/g, "").trim()
+          : item.title}
+      </Text>
       <Text style={styles.cardYear}>{item.year} · {item.mediaType === "tv" ? "Série" : "Filme"}</Text>
     </Pressable>
   );
 }
 
-function Flix2OnlyCard({ item }: { item: Flix2RawItem }) {
+function Flix2OnlyCard({ item, onPress }: { item: Flix2RawItem; onPress?: () => void }) {
   const typeLabel = item._type === "series" ? "SÉRIE" : item._type === "anime" ? "ANIME" : "FILME";
   const typeBg =
     item._type === "series" ? "rgba(8,145,178,0.85)" :
     item._type === "anime"  ? "rgba(234,88,12,0.85)" : "rgba(229,9,20,0.85)";
-  return (
-    <View style={{ width: "32%", marginBottom: 4, opacity: 0.9 }}>
+  const isLeg = /\[L\]/i.test(item.title);
+  const isDub = /\[D\b|Dub\b/i.test(item.title);
+  const variantLabel = isLeg ? "LEG" : isDub ? "DUB" : null;
+  const variantColor = isLeg ? "#3b82f6" : "#f59e0b";
+  const cleanedTitle = item.title.replace(/\s*\[[^\]]*\]/g, "").replace(/\s*\(\d{4}\)/g, "").trim();
+  const inner = (
+    <>
       <View style={{ width: "100%", aspectRatio: 2/3, borderRadius: 10, overflow: "hidden", backgroundColor: "#1a0a14", marginBottom: 5 }}>
         {item.thumbnail ? (
           <Image source={{ uri: item.thumbnail }} style={StyleSheet.absoluteFill} contentFit="cover" />
@@ -300,15 +321,26 @@ function Flix2OnlyCard({ item }: { item: Flix2RawItem }) {
             <Text style={styles.typeBadgeText}>{typeLabel}</Text>
           </View>
         </View>
-        <View style={styles.flix2Badge}>
-          <Feather name="zap" size={8} color="#fff" />
-          <Text style={styles.flix2BadgeText}>FLIX 2.0</Text>
-        </View>
+        {variantLabel ? (
+          <View style={[styles.variantBadge, { backgroundColor: `${variantColor}dd`, borderColor: `${variantColor}88` }]}>
+            <Feather name={isLeg ? "align-left" : "volume-2"} size={7} color="#fff" />
+            <Text style={styles.variantBadgeText}>{variantLabel}</Text>
+          </View>
+        ) : (
+          <View style={styles.flix2Badge}>
+            <Feather name="zap" size={8} color="#fff" />
+            <Text style={styles.flix2BadgeText}>FLIX 2.0</Text>
+          </View>
+        )}
       </View>
-      <Text style={styles.cardTitle} numberOfLines={2}>{item.title}</Text>
+      <Text style={styles.cardTitle} numberOfLines={2}>{variantLabel ? cleanedTitle : item.title}</Text>
       <Text style={styles.cardYear}>{typeLabel[0] + typeLabel.slice(1).toLowerCase()}</Text>
-    </View>
+    </>
   );
+  if (onPress) {
+    return <Pressable style={{ width: "32%", marginBottom: 4 }} onPress={onPress}>{inner}</Pressable>;
+  }
+  return <View style={{ width: "32%", marginBottom: 4, opacity: 0.9 }}>{inner}</View>;
 }
 
 
@@ -671,31 +703,64 @@ export default function BuscarScreen() {
           </View>
 
           {(() => {
-            // ── compute what to show based on sourceFilter ──────────────────
+            // ── Build Flix2 variant map (cleaned title → list of Flix2 items) ─
+            const flix2ByClean = new Map<string, Flix2RawItem[]>();
+            for (const f of flix2RawResults) {
+              const k = cleanT(f.title);
+              if (!flix2ByClean.has(k)) flix2ByClean.set(k, []);
+              flix2ByClean.get(k)!.push(f);
+            }
+
+            // ── Expand TMDB items: 1 TMDB entry → N cards when N Flix2 variants ─
+            type ExpandedItem = { item: ContentItem; variantTitle?: string; variantLabel?: string };
+            const expandedItems: ExpandedItem[] = [];
+            const coveredFlix2Keys = new Set<string>();
+
+            for (const item of results) {
+              const key = cleanT(item.title);
+              const variants = flix2ByClean.get(key) ?? [];
+              if (variants.length > 1) {
+                for (const v of variants) {
+                  coveredFlix2Keys.add(cleanT(v.title));
+                  const vLabel = /\[L\]/i.test(v.title) ? "LEG" : /\[D\b|Dub\b/i.test(v.title) ? "DUB" : undefined;
+                  expandedItems.push({ item, variantTitle: v.title, variantLabel: vLabel });
+                }
+              } else {
+                if (variants.length === 1) coveredFlix2Keys.add(cleanT(variants[0].title));
+                const vLabel = variants.length === 1 && /\[L\]/i.test(variants[0].title) ? "LEG"
+                  : variants.length === 1 && /\[D\b|Dub\b/i.test(variants[0].title) ? "DUB" : undefined;
+                expandedItems.push({ item, variantTitle: variants[0]?.title, variantLabel: vLabel });
+              }
+            }
+
+            // ── Flix2-only: no TMDB match by cleaned title ──────────────────
             const flix2OnlyRaw = flix2RawResults.filter(
-              r => !results.some(t => t.title.toLowerCase().trim() === r.title.toLowerCase().trim())
+              r => !coveredFlix2Keys.has(cleanT(r.title)) && !results.some(t => cleanT(t.title) === cleanT(r.title))
             );
 
-            let tmdbItems: ContentItem[] = [];
+            let tmdbExpanded: ExpandedItem[] = [];
             let showFlix2Only = false;
             let driveItems: ContentItem[] = [];
 
             if (sourceFilter === "global") {
-              tmdbItems = results;
+              tmdbExpanded = expandedItems;
               showFlix2Only = flix2OnlyRaw.length > 0;
               driveItems = r2SearchResults.filter(
-                r => !results.some(t => t.title.toLowerCase().trim() === r.title.toLowerCase().trim())
+                r => !results.some(t => cleanT(t.title) === cleanT(r.title))
               );
             } else if (sourceFilter === "tmdb") {
-              tmdbItems = results;
+              tmdbExpanded = expandedItems;
             } else if (sourceFilter === "flix2") {
-              tmdbItems = results.filter(r => flix2Titles.has(r.title.toLowerCase().trim()));
+              tmdbExpanded = expandedItems.filter(e =>
+                flix2Titles.has(cleanT(e.item.title)) ||
+                (e.variantTitle ? flix2Titles.has(e.variantTitle.toLowerCase().trim()) : false)
+              );
               showFlix2Only = flix2OnlyRaw.length > 0;
             } else if (sourceFilter === "drive") {
               driveItems = r2SearchResults;
             }
 
-            const isEmpty = tmdbItems.length === 0 && !showFlix2Only && driveItems.length === 0;
+            const isEmpty = tmdbExpanded.length === 0 && !showFlix2Only && driveItems.length === 0;
 
             if (loading && sourceFilter !== "drive") {
               return (
@@ -724,33 +789,42 @@ export default function BuscarScreen() {
             return (
               <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 20 }}>
 
-                {/* ── TMDB results ─────────────────────────────────────────── */}
-                {tmdbItems.length > 0 && (
+                {/* ── TMDB results (expanded with Flix2 variants) ───────────── */}
+                {tmdbExpanded.length > 0 && (
                   <>
                     {(showFlix2Only || driveItems.length > 0) && (
                       <View style={[styles.flix2OnlyHeader, { marginBottom: 8 }]}>
                         <View style={[styles.flix2OnlyAccent, { backgroundColor: "#01b4e4" }]} />
                         <Feather name="database" size={13} color="#01b4e4" />
                         <Text style={[styles.flix2OnlyTitle, { color: "#01b4e4" }]}>TMDB</Text>
-                        <Text style={styles.flix2OnlySubtitle}>{tmdbItems.length} resultado{tmdbItems.length !== 1 ? "s" : ""}</Text>
+                        <Text style={styles.flix2OnlySubtitle}>{tmdbExpanded.length} resultado{tmdbExpanded.length !== 1 ? "s" : ""}</Text>
                       </View>
                     )}
                     <View style={styles.grid}>
-                      {tmdbItems.map((item) => (
+                      {tmdbExpanded.map((e, idx) => (
                         <PosterCard
-                          key={item.id}
-                          item={item}
-                          onPress={() => goTo(item)}
-                          inFlix2={flix2Titles.has(item.title.toLowerCase().trim())}
+                          key={`${e.item.id}-${idx}`}
+                          item={e.item}
+                          onPress={() => router.push({
+                            pathname: "/detail",
+                            params: {
+                              type: e.item.mediaType ?? (e.item.type === "movie" ? "movie" : "tv"),
+                              id: String(e.item.tmdbId || 0),
+                              title: e.variantTitle ?? e.item.title,
+                              poster: e.item.posterPath ?? "",
+                            },
+                          } as any)}
+                          inFlix2={!!e.variantTitle}
+                          variantLabel={e.variantLabel}
                         />
                       ))}
                     </View>
                   </>
                 )}
 
-                {/* ── Flix 2.0-only items ──────────────────────────────────── */}
+                {/* ── Flix 2.0-only items (no TMDB match) ──────────────────── */}
                 {showFlix2Only && (
-                  <View style={{ marginTop: tmdbItems.length > 0 ? 24 : 0 }}>
+                  <View style={{ marginTop: tmdbExpanded.length > 0 ? 24 : 0 }}>
                     <View style={styles.flix2OnlyHeader}>
                       <View style={styles.flix2OnlyAccent} />
                       <Feather name="zap" size={14} color="#a855f7" />
@@ -759,7 +833,19 @@ export default function BuscarScreen() {
                     </View>
                     <View style={styles.grid}>
                       {flix2OnlyRaw.map((item, i) => (
-                        <Flix2OnlyCard key={`flix2only-${i}`} item={item} />
+                        <Flix2OnlyCard
+                          key={`flix2only-${i}`}
+                          item={item}
+                          onPress={() => router.push({
+                            pathname: "/detail",
+                            params: {
+                              type: item._type === "movie" ? "movie" : "tv",
+                              id: String(item.tmdb_id || 0),
+                              title: item.title,
+                              poster: item.thumbnail ?? "",
+                            },
+                          } as any)}
+                        />
                       ))}
                     </View>
                   </View>
@@ -1127,6 +1213,21 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(168,85,247,0.85)",
   },
   flix2BadgeText: { color: "#fff", fontSize: 8, fontWeight: "900", letterSpacing: 0.3 },
+
+  /* variant badge LEG/DUB (bottom-left corner of poster) */
+  variantBadge: {
+    position: "absolute",
+    bottom: 5,
+    left: 5,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 0.5,
+  },
+  variantBadgeText: { color: "#fff", fontSize: 8, fontWeight: "900", letterSpacing: 0.5 },
 
   /* flix2 count row in results bar */
   flix2CountRow: { flexDirection: "row", alignItems: "center", gap: 4 },
