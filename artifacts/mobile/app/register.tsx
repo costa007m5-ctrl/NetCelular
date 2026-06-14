@@ -16,6 +16,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { supabase, db } from "@/lib/supabase";
+import { scheduleWelcomeNotification } from "@/lib/notifications";
 
 const TOTAL_STEPS = 5;
 
@@ -80,6 +81,8 @@ export default function RegisterScreen() {
       // está DESATIVADA no projeto → pula direto para o onboarding.
       // Se session for null, a verificação está ATIVADA → mostra etapa 5.
       if (data.session) {
+        // Fire welcome notification after 3s so the user sees it while exploring
+        scheduleWelcomeNotification().catch(() => {});
         router.replace("/onboarding/profile");
       } else {
         setStep(5);

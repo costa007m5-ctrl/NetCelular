@@ -25,6 +25,19 @@ export function subscribeUnreadCount(fn: UnreadListener): () => void {
   };
 }
 
+/**
+ * Returns a notification trigger with `channelId: "default"` injected for
+ * Android (required for Android 8+ heads-up banners).
+ * On iOS/web the trigger is returned unchanged.
+ * Passing `null` means "fire immediately" — on Android we substitute a
+ * 1-second trigger because null triggers ignore channelId.
+ */
+function _ch(trigger: Record<string, any> | null): any {
+  if (Platform.OS !== "android") return trigger;
+  if (trigger === null) return { seconds: 1, channelId: "default" };
+  return { ...trigger, channelId: "default" };
+}
+
 export type NotifHistoryItem = {
   id: string;
   title: string;
@@ -99,6 +112,8 @@ export async function requestPermissionsAndSetup(): Promise<boolean> {
   if (Platform.OS === "web") return false;
   try {
     const Notifications = require("expo-notifications");
+
+    // Handler must be set before any permission request
     Notifications.setNotificationHandler({
       handleNotification: async () => ({
         shouldPlaySound: true,
@@ -107,6 +122,33 @@ export async function requestPermissionsAndSetup(): Promise<boolean> {
         shouldShowList: true,
       }),
     });
+
+    // Android 8+ requires explicit notification channels.
+    // We create/update them here so that heads-up banners, sound and vibration
+    // work correctly regardless of when the APK was first installed.
+    if (Platform.OS === "android") {
+      await Notifications.setNotificationChannelAsync("default", {
+        name: "NETPLAY",
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: "#e50914",
+        sound: "default",
+        enableVibrate: true,
+        showBadge: true,
+      }).catch(() => {});
+      await Notifications.setNotificationChannelAsync("content", {
+        name: "Novidades e Conteúdo",
+        importance: Notifications.AndroidImportance.HIGH,
+        sound: "default",
+        showBadge: true,
+      }).catch(() => {});
+      await Notifications.setNotificationChannelAsync("reminders", {
+        name: "Lembretes",
+        importance: Notifications.AndroidImportance.DEFAULT,
+        sound: "default",
+      }).catch(() => {});
+    }
+
     const { status: existing } = await Notifications.getPermissionsAsync();
     console.log("[Push] Status de permissão atual:", existing);
     let finalStatus = existing;
@@ -122,7 +164,8 @@ export async function requestPermissionsAndSetup(): Promise<boolean> {
   }
 }
 
-const EXPO_PROJECT_ID = "aa86cc57-e8c0-4ce7-806c-0d1e5e345991";
+// Must match the EAS projectId in app.json → extra.eas.projectId
+const EXPO_PROJECT_ID = "74c4fc8a-acbd-4271-a504-044f907db234";
 
 export async function registerPushToken(userId: string): Promise<void> {
   if (Platform.OS === "web" || !userId) return;
@@ -205,8 +248,9 @@ export async function scheduleWelcomeNotification(): Promise<void> {
         title: "🎬 Bem-vindo ao NETPLAY!",
         body: "Seu catálogo premium de filmes e séries está pronto.",
         sound: true,
+        data: { type: "welcome" },
       },
-      trigger: { seconds: 2 } as any,
+      trigger: _ch({ seconds: 3 }),
     });
   } catch {}
 }
@@ -226,12 +270,9 @@ export async function scheduleNewContentNotification(): Promise<void> {
         title: "🔥 Novidades no NETPLAY",
         body: "Novos filmes e séries foram adicionados ao catálogo hoje!",
         sound: true,
+        data: { type: "new_content" },
       },
-      trigger: {
-        hour: 20,
-        minute: 0,
-        repeats: true,
-      } as any,
+      trigger: _ch({ hour: 20, minute: 0, repeats: true }),
     });
     await AsyncStorage.setItem(DAILY_CONTENT_NOTIF_ID_KEY, id);
   } catch {}
@@ -246,8 +287,9 @@ export async function sendTestNotification(): Promise<void> {
         title: "🎬 NETPLAY",
         body: "Notificações ativadas! Você receberá novidades em primeira mão.",
         sound: true,
+        data: { type: "test" },
       },
-      trigger: null,
+      trigger: _ch(null),
     });
   } catch {}
 }
@@ -264,7 +306,7 @@ export async function sendContentAddedNotification(contentTitle: string, posterU
     if (posterUrl) {
       content.attachments = [{ url: posterUrl, identifier: "poster" }];
     }
-    await Notifications.scheduleNotificationAsync({ content, trigger: null });
+    await Notifications.scheduleNotificationAsync({ content, trigger: _ch(null) });
   } catch {}
 }
 
@@ -296,7 +338,7 @@ export async function scheduleContinueWatchingReminder(
     }
     const id = await Notifications.scheduleNotificationAsync({
       content,
-      trigger: { seconds: 900 } as any,
+      trigger: _ch({ seconds: 900 }),
     });
     await AsyncStorage.setItem(CONTINUE_NOTIF_ID_KEY, id);
   } catch {}
@@ -327,7 +369,7 @@ export async function scheduleGuestUpgradeNotification(): Promise<void> {
         sound: true,
         data: { type: "guest_upgrade" },
       },
-      trigger: { seconds: 86400 * 2 } as any,
+      trigger: _ch({ seconds: 86400 * 2 }),
     });
   } catch {}
 }
@@ -345,7 +387,7 @@ export async function schedulePlanReminderNotification(daysLeft: number): Promis
         sound: true,
         data: { type: "plan_expiry", daysLeft },
       },
-      trigger: null,
+      trigger: _ch(null),
     });
   } catch {}
 }
@@ -361,12 +403,7 @@ export async function scheduleWeeklyContentReminder(): Promise<void> {
         sound: true,
         data: { type: "weekly_digest" },
       },
-      trigger: {
-        weekday: 6,
-        hour: 19,
-        minute: 0,
-        repeats: true,
-      } as any,
+      trigger: _ch({ weekday: 6, hour: 19, minute: 0, repeats: true }),
     });
   } catch {}
 }
@@ -408,7 +445,7 @@ export async function scheduleReleaseReminder(
 
     const id = await Notifications.scheduleNotificationAsync({
       content,
-      trigger: { seconds: secondsUntil } as any,
+      trigger: _ch({ seconds: secondsUntil }),
     });
 
     // Also schedule a "1 day before" reminder if more than 24h away
@@ -422,7 +459,7 @@ export async function scheduleReleaseReminder(
       if (posterUrl) earlyContent.attachments = [{ url: posterUrl, identifier: "poster" }];
       await Notifications.scheduleNotificationAsync({
         content: earlyContent,
-        trigger: { seconds: secondsUntil - 86400 } as any,
+        trigger: _ch({ seconds: secondsUntil - 86400 }),
       }).catch(() => {});
     }
 
@@ -474,13 +511,24 @@ export async function sendPushViaServer(
     const { getApiBase } = await import("@/lib/api");
     const base = getApiBase();
     if (!base) throw new Error("API server não configurado");
+
+    // Attach Supabase session token so the server can verify admin status
+    let authHeader: Record<string, string> = {};
+    try {
+      const { supabase } = await import("@/lib/supabase");
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.access_token) {
+        authHeader["x-supabase-token"] = session.access_token;
+      }
+    } catch {}
+
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 15000);
     try {
-      const res = await fetch(`${base}/push/send`, {
+      const res = await fetch(`${base}/push/send-user`, {
         method: "POST",
         signal: controller.signal,
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeader },
         body: JSON.stringify({ title, body, data: data ?? {}, imageUrl, tokens }),
       });
       clearTimeout(timer);
@@ -601,7 +649,7 @@ export async function checkWatchlistNotifications(userId: string): Promise<void>
         },
       };
 
-      await Notifications.scheduleNotificationAsync({ content: notifContent, trigger: null });
+      await Notifications.scheduleNotificationAsync({ content: notifContent, trigger: _ch(null) });
       await saveNotificationToHistory({
         title: notifContent.title,
         body: notifContent.body,

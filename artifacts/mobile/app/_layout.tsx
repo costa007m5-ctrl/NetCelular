@@ -122,10 +122,21 @@ function NotificationHandler() {
         } catch {}
       });
 
-      // ── Background/foreground tap: navigate to content ──
+      // ── Background/foreground tap: save to history + navigate to content ──
       responseSub = Notifications.addNotificationResponseReceivedListener((response: any) => {
         try {
-          handleNotificationData(response?.notification?.request?.content?.data);
+          const content = response?.notification?.request?.content;
+          // Save to history so the bell badge increments even for background taps
+          if (content?.title) {
+            saveNotificationToHistory({
+              title: content.title,
+              body: content.body ?? "",
+              imageUrl: content.attachments?.[0]?.url,
+              receivedAt: new Date().toISOString(),
+              data: content.data ?? {},
+            }).catch(() => {});
+          }
+          handleNotificationData(content?.data);
         } catch {}
       });
     } catch {}
