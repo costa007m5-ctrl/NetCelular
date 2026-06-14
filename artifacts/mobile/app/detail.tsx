@@ -271,9 +271,8 @@ export default function DetailScreen() {
     (user?.email ? ["admin@netplay.tv", "admin@netplay.com.br"].includes(user.email) : false);
 
   // Unique key for this piece of content used to store/retrieve admin overrides
-  const contentKey = tmdbId
-    ? `${type}_${tmdbId}`
-    : `title_${(params.title ?? "").toLowerCase().replace(/[^a-z0-9]/g, "_").slice(0, 80)}`;
+  const normalizedTitleKey = `title_${(params.title ?? "").toLowerCase().replace(/[^a-z0-9]/g, "_").slice(0, 80)}`;
+  const contentKey = tmdbId ? `${type}_${tmdbId}` : normalizedTitleKey;
 
   // Admin content override state
   const [contentOverride, setContentOverride] = useState<ContentOverride | null>(null);
@@ -645,18 +644,29 @@ export default function DetailScreen() {
   }, [userId, tmdbId, type]);
 
   // Load content override (applies to ALL users; only admins can edit it)
+  // Falls back to title-based key so overrides saved without a TMDB ID are still
+  // found when the user navigates from a screen that passes a real tmdbId.
   useEffect(() => {
-    if (!isSupabaseConfigured || !contentKey) return;
-    db.contentOverrides.get(contentKey).then((ov) => {
+    if (!isSupabaseConfigured) return;
+    const applyOverride = (ov: ContentOverride | null) => {
       setContentOverride(ov);
-      if (ov?.tmdb_id && ov.tmdb_id !== resolvedTmdbId) {
-        setResolvedTmdbId(ov.tmdb_id);
-      }
+      if (ov?.tmdb_id && ov.tmdb_id !== resolvedTmdbId) setResolvedTmdbId(ov.tmdb_id);
       if (ov?.tmdb_type && (ov.tmdb_type === "movie" || ov.tmdb_type === "tv") && ov.tmdb_type !== resolvedType) {
         setResolvedType(ov.tmdb_type as "movie" | "tv");
       }
+    };
+    if (!contentKey) return;
+    db.contentOverrides.get(contentKey).then(async (ov) => {
+      // If nothing found under the tmdbId-based key, try the title-based fallback
+      // (handles overrides saved when the TMDB ID was not yet known)
+      if (!ov && contentKey !== normalizedTitleKey && normalizedTitleKey.length > 7) {
+        const byTitle = await db.contentOverrides.get(normalizedTitleKey).catch(() => null);
+        applyOverride(byTitle);
+      } else {
+        applyOverride(ov);
+      }
     }).catch(() => {});
-  }, [contentKey]);
+  }, [contentKey, normalizedTitleKey]);
 
   useEffect(() => {
     if (!tmdbId) return;
@@ -1260,7 +1270,9 @@ export default function DetailScreen() {
   const TMDB_KEY_EDIT = "8f0beb08cf016ec8de49e454e09879ec";
 
   const openEditModal = () => {
-    setEditTmdbId(contentOverride?.tmdb_id?.toString() ?? (tmdbId ? String(tmdbId) : ""));
+    const existingId = contentOverride?.tmdb_id?.toString() ?? (tmdbId ? String(tmdbId) : "");
+    const mediaType: "movie" | "tv" = contentOverride?.tmdb_type === "movie" ? "movie" : (type === "movie" ? "movie" : "tv");
+    setEditTmdbId(existingId);
     setEditTitle(contentOverride?.custom_title ?? "");
     setEditOverview(contentOverride?.custom_overview ?? "");
     setEditOverviewMode(contentOverride?.overview_mode ?? "auto");
@@ -1269,13 +1281,17 @@ export default function DetailScreen() {
     setEditSearchQuery("");
     setEditSearchResults([]);
     setEditSelectedResult(null);
-    setEditSearchType(type === "movie" ? "movie" : "tv");
+    setEditSearchType(mediaType);
     setEditPosterPath(contentOverride?.poster_path ?? null);
     setEditBackdropPath(contentOverride?.backdrop_path ?? null);
     setEditSeasons(contentOverride?.number_of_seasons ?? null);
     setEditEpisodes(contentOverride?.number_of_episodes ?? null);
     setEditVoteAverage(contentOverride?.vote_average ?? null);
     setShowEditModal(true);
+    // Auto-busca dados do TMDB se já tem ID (para popular poster/backdrop mesmo que não estejam salvos)
+    if (existingId) {
+      fetchAutoOverviewForId(existingId, mediaType);
+    }
   };
 
   const fetchAutoOverviewForId = async (idStr: string, forceType?: "movie" | "tv") => {
