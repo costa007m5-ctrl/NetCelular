@@ -2802,19 +2802,21 @@ router.get("/flix2/exclusive", async (req, res) => {
 
         // Exclusive = no subscription/ads/free streaming in Brazil
         if (!br || (!br.flatrate?.length && !br.ads?.length && !br.free?.length)) {
-          const posterPath  = match.poster_path  ? `https://image.tmdb.org/t/p/w500${match.poster_path}` : "";
+          const posterPath   = match.poster_path   ? `https://image.tmdb.org/t/p/w500${match.poster_path}` : "";
           const backdropPath = match.backdrop_path ? `https://image.tmdb.org/t/p/w1280${match.backdrop_path}` : "";
+          const genreIds: number[] = match.genre_ids ?? [];
           exclusive.push({
             id:        item.id,
             tmdb_id:   tmdbId,
             title:     cleanTitle,
             mediaType,
             year:      item.year > 0 ? item.year
-              : (match.release_date      ? parseInt(match.release_date)      : 0)
-              || (match.first_air_date   ? parseInt(match.first_air_date)    : 0),
-            poster:    item.poster  || posterPath,
+              : (match.release_date    ? parseInt(match.release_date)    : 0)
+              || (match.first_air_date ? parseInt(match.first_air_date)  : 0),
+            poster:    item.poster   || posterPath,
             backdrop:  item.backdrop || backdropPath,
             synopsis:  item.synopsis || match.overview || "",
+            genre_ids: genreIds,
           });
         }
       } catch {
