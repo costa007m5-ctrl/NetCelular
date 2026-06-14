@@ -65,6 +65,7 @@ async function fetchLogo(franchise: any, tmdbColId?: number | null): Promise<str
     let type: "collection" | "tv" | "movie" = "movie";
     let id = 0;
     if (tmdbColId) { type = "collection"; id = tmdbColId; }
+    else if (franchise.tmdbLogoId && franchise.tmdbLogoType) { type = franchise.tmdbLogoType; id = franchise.tmdbLogoId; }
     else if (franchise.fetchType === "collection" && franchise.tmdbCollectionId) { type = "collection"; id = franchise.tmdbCollectionId; }
     else if (franchise.tmdbTvId) { type = "tv"; id = franchise.tmdbTvId; }
     if (!id) return null;
@@ -1015,7 +1016,7 @@ export default function FranchiseScreen() {
           const [mvItems, tvItems] = await Promise.all([fetchCollections(allCollIds), fetchTvShows(franchise!.relatedTvIds ?? [])]);
           allItems = [...mvItems, ...tvItems];
         } else if (franchise!.fetchType === "keyword" && franchise!.tmdbKeywordId) {
-          const pages = [1, 2, 3];
+          const pages = [1, 2, 3, 4, 5];
           const [mvPages, tvPages] = await Promise.all([
             Promise.all(pages.map(p => api.tmdb.keywordDiscover(franchise!.tmdbKeywordId!, "movie", p))),
             Promise.all(pages.map(p => api.tmdb.keywordDiscover(franchise!.tmdbKeywordId!, "tv", p))),

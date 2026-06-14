@@ -43,6 +43,8 @@ export interface Franchise {
   isTop10?: boolean;
   related: string[];
   chronologicalContent?: ChronologicalItem[];
+  tmdbLogoId?: number;
+  tmdbLogoType?: "collection" | "tv" | "movie";
 }
 
 const _FRANCHISES_RAW: Franchise[] = [
@@ -63,6 +65,8 @@ const _FRANCHISES_RAW: Franchise[] = [
     genre: "superherois",
     fetchType: "keyword",
     tmdbKeywordId: 180547,
+    tmdbLogoId: 86311,
+    tmdbLogoType: "collection",
     yearRange: "2008 - Atual",
     contentCount: 35,
     totalHours: 120,
@@ -74,19 +78,21 @@ const _FRANCHISES_RAW: Franchise[] = [
     id: "dc",
     name: "DC Universe",
     shortName: "DC",
-    tagline: "DC Extended Universe",
+    tagline: "Todo o Universo DC Comics",
     description:
-      "Batman, Superman, Mulher-Maravilha e a Liga da Justiça protegem o mundo num universo épico de super-heróis.",
+      "Batman, Superman, Mulher-Maravilha, Liga da Justiça, animações, séries e filmes clássicos. Todo o universo DC Comics em um só lugar.",
     color: "#0064FF",
     accentColor: "#4488FF",
     bgGradient: ["#000520", "#000a30", "#00031a"],
     category: "filmes",
     genre: "superherois",
     fetchType: "keyword",
-    tmdbKeywordId: 310222,
-    yearRange: "2013 - Atual",
-    contentCount: 22,
-    totalHours: 75,
+    tmdbKeywordId: 9715,
+    tmdbLogoId: 141052,
+    tmdbLogoType: "movie",
+    yearRange: "1989 - Atual",
+    contentCount: 120,
+    totalHours: 300,
     bannerFeatured: true,
     isTop10: true,
     related: ["marvel", "xmen"],

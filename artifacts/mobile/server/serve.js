@@ -324,6 +324,49 @@ isPortInUse(API_PORT).then((inUse) => {
   }
 });
 
+// ── Auto-build mobile bundle se static-build não existir ────────────────────────
+(function autoTriggerMobileBuild() {
+  const hasStaticBuild = fs.existsSync(path.join(STATIC_ROOT, "ios", "manifest.json"));
+  if (hasStaticBuild) {
+    console.log("[mobile-build] static-build encontrado — pulando build.");
+    return;
+  }
+
+  const buildScript = path.resolve(__dirname, "..", "scripts", "build.js");
+  if (!fs.existsSync(buildScript)) {
+    console.warn("[mobile-build] scripts/build.js não encontrado — pulando build automático.");
+    return;
+  }
+
+  console.log("[mobile-build] static-build não encontrado — iniciando build mobile em background...");
+  console.log("[mobile-build] Isso pode levar 10-15 minutos. O app ficará disponível após a conclusão.");
+
+  const buildEnv = Object.assign({}, process.env, {
+    EXPO_PUBLIC_DOMAIN: process.env.EXPO_PUBLIC_DOMAIN || process.env.REPLIT_DEV_DOMAIN || "",
+    EXPO_PUBLIC_REPL_ID: process.env.REPL_ID || process.env.EXPO_PUBLIC_REPL_ID || "",
+  });
+
+  const buildChild = spawn(process.execPath, [buildScript], {
+    cwd: path.resolve(__dirname, ".."),
+    env: buildEnv,
+    stdio: ["ignore", "pipe", "pipe"],
+    detached: true,
+  });
+
+  buildChild.stdout && buildChild.stdout.on("data", (d) => process.stdout.write(`[mobile-build] ${d}`));
+  buildChild.stderr && buildChild.stderr.on("data", (d) => process.stderr.write(`[mobile-build] ${d}`));
+
+  buildChild.on("exit", (code) => {
+    if (code === 0) {
+      console.log("[mobile-build] Build concluído com sucesso! Escaneie o QR code no app Expo Go.");
+    } else {
+      console.error(`[mobile-build] Build falhou (code=${code}). Verifique os logs acima.`);
+    }
+  });
+
+  buildChild.unref();
+})();
+
 // ── Proxy: encaminha /api/* para o API server (porta 8080) ─────────────────────
 
 function proxyToApi(req, res) {

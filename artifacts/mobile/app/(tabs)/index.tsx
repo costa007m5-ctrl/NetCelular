@@ -1895,7 +1895,7 @@ const CURATED_FRANCHISES: Franchise[] = KNOWN_FRANCHISE_IDS
   .map(id => getFranchise(id))
   .filter((f): f is Franchise => !!f);
 
-// ── Known Franchise Circle ────────────────────────────────────────────────────
+// ── Known Franchise Banner ────────────────────────────────────────────────────
 const _knownLogoCache: Record<string, string | null> = {};
 
 const FranchiseKnownCircleItem = React.memo(function FranchiseKnownCircleItem({
@@ -1910,16 +1910,17 @@ const FranchiseKnownCircleItem = React.memo(function FranchiseKnownCircleItem({
     const fid = franchise.id;
     if (_knownLogoCache[fid] !== undefined) { setLogoUrl(_knownLogoCache[fid]); return; }
     let cancelled = false;
-    const type: "collection" | "tv" | null =
-      franchise.fetchType === "collection" && franchise.tmdbCollectionId ? "collection"
+    const type: "collection" | "tv" | "movie" | null =
+      (franchise as any).tmdbLogoType && (franchise as any).tmdbLogoId ? (franchise as any).tmdbLogoType
+      : franchise.fetchType === "collection" && franchise.tmdbCollectionId ? "collection"
       : franchise.tmdbTvId ? "tv"
       : null;
-    const tmdbId = franchise.tmdbCollectionId ?? franchise.tmdbTvId ?? 0;
+    const tmdbId = (franchise as any).tmdbLogoId ?? franchise.tmdbCollectionId ?? franchise.tmdbTvId ?? 0;
     if (!type || !tmdbId) { _knownLogoCache[fid] = null; return; }
-    api.tmdb.franchiseLogo(type, tmdbId)
+    api.tmdb.franchiseLogo(type as any, tmdbId)
       .then((data: any) => {
         const path = data?.logo_path ?? null;
-        const url = path ? `https://image.tmdb.org/t/p/w185${path}` : null;
+        const url = path ? `https://image.tmdb.org/t/p/w300${path}` : null;
         _knownLogoCache[fid] = url;
         if (!cancelled) setLogoUrl(url);
       })
@@ -1927,29 +1928,43 @@ const FranchiseKnownCircleItem = React.memo(function FranchiseKnownCircleItem({
     return () => { cancelled = true; };
   }, [franchise.id]);
 
-  const pi = () => Animated.spring(sc, { toValue: 0.87, useNativeDriver: true, speed: 30 }).start();
+  const pi = () => Animated.spring(sc, { toValue: 0.94, useNativeDriver: true, speed: 30 }).start();
   const po = () => Animated.spring(sc, { toValue: 1,    useNativeDriver: true, speed: 26 }).start();
 
   return (
     <Pressable onPress={onPress} onPressIn={pi} onPressOut={po}>
-      <Animated.View style={{ alignItems: "center", gap: 7, width: 90, transform: [{ scale: sc }] }}>
-        <View style={styles.franchiseCircle}>
+      <Animated.View style={{ transform: [{ scale: sc }] }}>
+        <View style={styles.franchiseBanner}>
           <LinearGradient colors={franchise.bgGradient as [string, string, string]}
             style={StyleSheet.absoluteFill} />
-          <LinearGradient colors={["rgba(0,0,0,0.05)", "rgba(0,0,0,0.55)"]}
-            style={StyleSheet.absoluteFill} />
-          {logoUrl && !imgErr ? (
-            <Image source={{ uri: logoUrl }} style={styles.franchiseLogoImg}
-              contentFit="contain" cachePolicy="memory-disk" onError={() => setImgErr(true)} />
-          ) : (
-            <Text style={{ color: franchise.accentColor, fontSize: 10, fontWeight: "900",
-              textAlign: "center", paddingHorizontal: 6, lineHeight: 13 }} numberOfLines={2}>
-              {franchise.shortName.toUpperCase()}
-            </Text>
-          )}
-          <View style={[styles.franchiseCircleRing, { borderColor: franchise.color + "70" }]} />
+          <LinearGradient
+            colors={["rgba(0,0,0,0.05)", "rgba(0,0,0,0.15)", "rgba(0,0,0,0.7)"]}
+            locations={[0, 0.4, 1]}
+            style={StyleSheet.absoluteFill}
+          />
+          <View style={[styles.franchiseBannerAccent, { backgroundColor: franchise.color }]} />
+          <View style={styles.franchiseBannerLogoArea}>
+            {logoUrl && !imgErr ? (
+              <Image source={{ uri: logoUrl }} style={styles.franchiseBannerLogo}
+                contentFit="contain" cachePolicy="memory-disk" onError={() => setImgErr(true)} />
+            ) : (
+              <Text style={[styles.franchiseBannerText, { color: franchise.accentColor }]} numberOfLines={2}>
+                {franchise.shortName.toUpperCase()}
+              </Text>
+            )}
+          </View>
+          <View style={styles.franchiseBannerBottom}>
+            <View style={[styles.franchiseBannerBadge, {
+              backgroundColor: franchise.color + "40",
+              borderColor: franchise.color + "70",
+            }]}>
+              <Text style={[styles.franchiseBannerBadgeText, { color: franchise.accentColor }]}>
+                {franchise.contentCount}+ títulos
+              </Text>
+            </View>
+          </View>
         </View>
-        <Text style={styles.franchiseCircleLabel} numberOfLines={2}>
+        <Text style={styles.franchiseCircleLabel} numberOfLines={1}>
           {franchise.shortName}
         </Text>
       </Animated.View>
@@ -3572,15 +3587,40 @@ const styles = StyleSheet.create({
   },
   familyBtnText: { color: "#fff", fontSize: 11, fontWeight: "800" },
 
-  // ── Franchise circle ──────────────────────────────────────────────────────
+  // ── Franchise banner (replaces circle) ───────────────────────────────────
+  franchiseBanner: {
+    width: 155, height: 100, borderRadius: 14,
+    overflow: "hidden", backgroundColor: "#1a1a1a",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.09)",
+    ...Platform.select({
+      ios: { shadowColor: "#000", shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.5, shadowRadius: 10 },
+      android: { elevation: 7 },
+    }),
+  },
+  franchiseBannerAccent: {
+    position: "absolute", top: 0, left: 0, right: 0, height: 3, zIndex: 3,
+  },
+  franchiseBannerLogoArea: {
+    flex: 1, alignItems: "center", justifyContent: "center",
+    paddingHorizontal: 10, paddingTop: 6, paddingBottom: 22,
+  },
+  franchiseBannerLogo: { width: 130, height: 50, zIndex: 2 },
+  franchiseBannerText: {
+    fontSize: 17, fontWeight: "900", textAlign: "center",
+    letterSpacing: 1.5, lineHeight: 21, zIndex: 2,
+  },
+  franchiseBannerBottom: {
+    position: "absolute", bottom: 7, left: 8, right: 8, zIndex: 3,
+  },
+  franchiseBannerBadge: {
+    alignSelf: "flex-start", paddingHorizontal: 7, paddingVertical: 3,
+    borderRadius: 6, borderWidth: 1,
+  },
+  franchiseBannerBadgeText: { fontSize: 9, fontWeight: "800" },
   franchiseCircle: {
     width: 82, height: 82, borderRadius: 41,
     overflow: "hidden", backgroundColor: "#1a1a1a",
     alignItems: "center", justifyContent: "center",
-    ...Platform.select({
-      ios: { shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 8 },
-      android: { elevation: 5 },
-    }),
   },
   franchiseLogoImg: { width: 60, height: 34, zIndex: 2 },
   franchiseCircleRing: {
@@ -3590,7 +3630,7 @@ const styles = StyleSheet.create({
   },
   franchiseCircleLabel: {
     color: "rgba(255,255,255,0.72)", fontSize: 10, fontWeight: "600",
-    textAlign: "center", lineHeight: 13, maxWidth: 86,
+    textAlign: "center", lineHeight: 13, maxWidth: 155,
   },
 
   // ── Square card (1:1) ─────────────────────────────────────────────────────

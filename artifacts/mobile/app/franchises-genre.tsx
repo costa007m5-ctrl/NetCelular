@@ -53,7 +53,8 @@ async function loadLogo(f: Franchise): Promise<string | null> {
   try {
     let type: "collection" | "tv" | "movie" = "movie";
     let id = 0;
-    if (f.fetchType === "collection" && f.tmdbCollectionId) { type = "collection"; id = f.tmdbCollectionId; }
+    if ((f as any).tmdbLogoId && (f as any).tmdbLogoType) { type = (f as any).tmdbLogoType; id = (f as any).tmdbLogoId; }
+    else if (f.fetchType === "collection" && f.tmdbCollectionId) { type = "collection"; id = f.tmdbCollectionId; }
     else if (f.tmdbTvId) { type = "tv"; id = f.tmdbTvId; }
     if (!id) { _logoCache.set(f.id, null); return null; }
     const data = await api.tmdb.franchiseLogo(type, id);
