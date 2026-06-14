@@ -1613,35 +1613,35 @@ const CATEGORIES = [
 ];
 
 // ── Genre config por categoria ────────────────────────────────────────────────
-type GenreConfig = { genreId: number; label: string; color: string; type: "movie" | "tv"; lang?: string };
+type GenreConfig = { genreId: number; genreIds?: string; label: string; color: string; type: "movie" | "tv"; lang?: string };
 const CATEGORY_GENRE_CONFIG: Record<string, GenreConfig[]> = {
   movie: [
     { genreId: 28,    label: "Ação",              color: "#ef4444", type: "movie" },
-    { genreId: 12,    label: "Aventura",           color: "#f97316", type: "movie" },
-    { genreId: 35,    label: "Comédia",            color: "#eab308", type: "movie" },
-    { genreId: 18,    label: "Drama",              color: "#8b5cf6", type: "movie" },
-    { genreId: 27,    label: "Terror",             color: "#7c3aed", type: "movie" },
-    { genreId: 878,   label: "Ficção Científica",  color: "#06b6d4", type: "movie" },
-    { genreId: 10749, label: "Romance",            color: "#ec4899", type: "movie" },
-    { genreId: 53,    label: "Thriller",           color: "#64748b", type: "movie" },
-    { genreId: 80,    label: "Crime",              color: "#374151", type: "movie" },
-    { genreId: 99,    label: "Documentário",       color: "#84cc16", type: "movie" },
-    { genreId: 37,    label: "Faroeste",           color: "#d97706", type: "movie" },
-    { genreId: 10751, label: "Família",            color: "#22c55e", type: "movie" },
+    { genreId: 12,    label: "Aventura",          color: "#f97316", type: "movie" },
+    { genreId: 35,    label: "Comédia",           color: "#eab308", type: "movie" },
+    { genreId: 18,    label: "Drama",             color: "#8b5cf6", type: "movie" },
+    { genreId: 27,    label: "Terror",            color: "#7c3aed", type: "movie" },
+    { genreId: 878,   label: "Ficção Científica", color: "#06b6d4", type: "movie" },
+    { genreId: 10749, label: "Romance",           color: "#ec4899", type: "movie" },
+    { genreId: 53,    label: "Thriller",          color: "#64748b", type: "movie" },
+    { genreId: 80,    label: "Crime",             color: "#9ca3af", type: "movie" },
+    { genreId: 99,    label: "Documentário",      color: "#84cc16", type: "movie" },
+    { genreId: 37,    label: "Faroeste",          color: "#d97706", type: "movie" },
+    { genreId: 10751, label: "Família",           color: "#22c55e", type: "movie" },
   ],
   tv: [
-    { genreId: 18,    label: "Drama",              color: "#8b5cf6", type: "tv" },
-    { genreId: 35,    label: "Comédia",            color: "#eab308", type: "tv" },
-    { genreId: 80,    label: "Crime",              color: "#374151", type: "tv" },
-    { genreId: 878,   label: "Ficção Científica",  color: "#06b6d4", type: "tv" },
-    { genreId: 27,    label: "Terror",             color: "#7c3aed", type: "tv" },
-    { genreId: 10759, label: "Ação & Aventura",    color: "#ef4444", type: "tv" },
-    { genreId: 10751, label: "Família",            color: "#22c55e", type: "tv" },
-    { genreId: 99,    label: "Documentário",       color: "#84cc16", type: "tv" },
-    { genreId: 10764, label: "Reality",            color: "#f97316", type: "tv" },
-    { genreId: 10766, label: "Novelas",            color: "#ec4899", type: "tv" },
-    { genreId: 9648,  label: "Mistério",           color: "#6366f1", type: "tv" },
-    { genreId: 10765, label: "Sci-Fi & Fantasy",   color: "#3b82f6", type: "tv" },
+    { genreId: 18,    label: "Drama",             color: "#8b5cf6", type: "tv" },
+    { genreId: 35,    label: "Comédia",           color: "#eab308", type: "tv" },
+    { genreId: 80,    label: "Crime",             color: "#9ca3af", type: "tv" },
+    { genreId: 878,   label: "Ficção Científica", color: "#06b6d4", type: "tv" },
+    { genreId: 27,    label: "Terror",            color: "#7c3aed", type: "tv" },
+    { genreId: 10759, label: "Ação & Aventura",   color: "#ef4444", type: "tv" },
+    { genreId: 10751, label: "Família",           color: "#22c55e", type: "tv" },
+    { genreId: 99,    label: "Documentário",      color: "#84cc16", type: "tv" },
+    { genreId: 10764, label: "Reality",           color: "#f97316", type: "tv" },
+    { genreId: 10766, label: "Novelas",           color: "#ec4899", type: "tv" },
+    { genreId: 9648,  label: "Mistério",          color: "#6366f1", type: "tv" },
+    { genreId: 10765, label: "Sci-Fi & Fantasy",  color: "#3b82f6", type: "tv" },
   ],
   anime: [
     { genreId: 28,    label: "Ação",              color: "#ef4444", type: "tv", lang: "ja" },
@@ -1658,16 +1658,16 @@ const CATEGORY_GENRE_CONFIG: Record<string, GenreConfig[]> = {
     { genreId: 10762, label: "Kids",              color: "#22c55e", type: "tv", lang: "ja" },
   ],
   animation: [
-    { genreId: 12,    label: "Aventura",          color: "#f97316", type: "movie" },
-    { genreId: 35,    label: "Comédia",           color: "#eab308", type: "movie" },
-    { genreId: 10751, label: "Família",           color: "#22c55e", type: "movie" },
-    { genreId: 14,    label: "Fantasia",          color: "#8b5cf6", type: "movie" },
-    { genreId: 28,    label: "Ação",              color: "#ef4444", type: "movie" },
-    { genreId: 878,   label: "Ficção Científica", color: "#06b6d4", type: "movie" },
-    { genreId: 10749, label: "Romance",           color: "#ec4899", type: "movie" },
-    { genreId: 18,    label: "Drama",             color: "#7c3aed", type: "movie" },
-    { genreId: 27,    label: "Terror",            color: "#1e1b4b", type: "movie" },
-    { genreId: 16,    label: "Todas as Animações",color: "#f97316", type: "movie" },
+    { genreId: 16, genreIds: "16,28",    label: "Aventuras de Ação",     color: "#ef4444", type: "movie" },
+    { genreId: 16, genreIds: "16,12",    label: "Grandes Aventuras",      color: "#f97316", type: "movie" },
+    { genreId: 16, genreIds: "16,35",    label: "Comédias Animadas",      color: "#eab308", type: "movie" },
+    { genreId: 16, genreIds: "16,10751", label: "Para a Família",         color: "#22c55e", type: "movie" },
+    { genreId: 16, genreIds: "16,14",    label: "Fantasia & Magia",       color: "#8b5cf6", type: "movie" },
+    { genreId: 16, genreIds: "16,878",   label: "Sci-Fi Animado",         color: "#06b6d4", type: "movie" },
+    { genreId: 16, genreIds: "16,18",    label: "Animação Dramática",     color: "#7c3aed", type: "movie" },
+    { genreId: 16,                       label: "Mais Populares",         color: "#f97316", type: "movie" },
+    { genreId: 16, genreIds: "16,10749", label: "Histórias de Amor",      color: "#ec4899", type: "movie" },
+    { genreId: 16, type: "tv",           label: "Séries Animadas",        color: "#34d399", type: "tv" },
   ],
   top: [],
 };
@@ -1863,12 +1863,14 @@ function VerMaisModal({
           <View style={{ flexDirection:"row", alignItems:"center", gap:10 }}>
             <View style={{ width:3, height:18, borderRadius:2, backgroundColor:accentColor }} />
             <Text style={{ color:"#fff", fontSize:17, fontWeight:"800" }}>{title}</Text>
-            <View style={{ paddingHorizontal:8, paddingVertical:3, borderRadius:20,
-              backgroundColor:`${accentColor}20`, borderWidth:1, borderColor:`${accentColor}40` }}>
-              <Text style={{ color:accentColor, fontSize:11, fontWeight:"700" }}>
-                {q ? `${filteredItems.length} de ${items.length}` : items.length}
-              </Text>
-            </View>
+            {q ? (
+              <View style={{ paddingHorizontal:8, paddingVertical:3, borderRadius:20,
+                backgroundColor:`${accentColor}20`, borderWidth:1, borderColor:`${accentColor}40` }}>
+                <Text style={{ color:accentColor, fontSize:11, fontWeight:"700" }}>
+                  {filteredItems.length} resultado{filteredItems.length !== 1 ? "s" : ""}
+                </Text>
+              </View>
+            ) : null}
           </View>
           <TouchableOpacity onPress={onClose} activeOpacity={0.7}
             style={{ width:34, height:34, borderRadius:17,
@@ -2408,14 +2410,14 @@ export default function HomeScreen() {
     if (cat === "all" || cat === "new" || cat === "top") return;
     const genres = CATEGORY_GENRE_CONFIG[cat] ?? [];
     genres.forEach(async (g) => {
-      const key = `${cat}_${g.genreId}`;
+      const key = `${cat}_${g.genreId}_${g.genreIds ?? ""}`;
       if (genreRowsLoadedRef.current.has(key)) return;
       genreRowsLoadedRef.current.add(key);
       try {
         const result: any = g.lang
           ? await api.tmdb.discoverByLang(g.type, g.lang, g.genreId)
-          : await api.tmdb.discover(g.type, g.genreId);
-        const items = ((result.results ?? []) as any[]).slice(0, 12).map(tmdbItemToContent);
+          : await api.tmdb.discover(g.type, g.genreId, 1, "popularity.desc", g.genreIds);
+        const items = ((result.results ?? []) as any[]).slice(0, 20).map(tmdbItemToContent);
         setGenreRows((prev) => ({ ...prev, [key]: items }));
       } catch { /* silent */ }
     });
@@ -3233,18 +3235,24 @@ export default function HomeScreen() {
                     {/* ── Gêneros ───────────────────────────────────────────── */}
                     <SectionDivider label="GÊNEROS" accentColor={accentColor} />
                     {catGenres.map((genre) => {
-                      const key   = `${activeCategory}_${genre.genreId}`;
+                      const key   = `${activeCategory}_${genre.genreId}_${genre.genreIds ?? ""}`;
                       const items = genreRows[key] ?? [];
+                      const goToGenreBrowse = () => router.push({
+                        pathname: "/genre-browse",
+                        params: {
+                          genre_id: String(genre.genreId),
+                          genre_ids: genre.genreIds ?? "",
+                          type: genre.type,
+                          title: genre.label,
+                        },
+                      });
                       return (
                         <View key={key} style={styles.section}>
                           <SectionHeader
                             title={genre.label}
                             icon="film"
                             accentColor={genre.color}
-                            onSeeAll={() => router.push({
-                              pathname: "/genre-browse",
-                              params: { genre_id: String(genre.genreId), type: genre.type, title: genre.label },
-                            })} />
+                            onSeeAll={goToGenreBrowse} />
                           {items.length === 0 ? (
                             <ScrollView horizontal showsHorizontalScrollIndicator={false}
                               contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}>
@@ -3256,15 +3264,13 @@ export default function HomeScreen() {
                           ) : (
                             <>
                               <PosterRow items={items.slice(0, 6)} onPress={goTo} />
-                              {items.length > 6 && (
-                                <TouchableOpacity
-                                  onPress={() => openModal(genre.label, items, genre.color)}
-                                  style={{ alignSelf: "center", marginTop: 10, paddingVertical: 7,
-                                    paddingHorizontal: 24, borderRadius: 20,
-                                    borderWidth: 1, borderColor: genre.color + "88" }}>
-                                  <Text style={{ color: genre.color, fontWeight: "600", fontSize: 13 }}>Ver Mais</Text>
-                                </TouchableOpacity>
-                              )}
+                              <TouchableOpacity
+                                onPress={goToGenreBrowse}
+                                style={{ alignSelf: "center", marginTop: 10, paddingVertical: 7,
+                                  paddingHorizontal: 24, borderRadius: 20,
+                                  borderWidth: 1, borderColor: genre.color + "88" }}>
+                                <Text style={{ color: genre.color, fontWeight: "600", fontSize: 13 }}>Ver Mais</Text>
+                              </TouchableOpacity>
                             </>
                           )}
                         </View>

@@ -109,11 +109,12 @@ router.get("/streaming", handle(async (req) => {
 router.get("/discover", handle(async (req) => {
   const type = String(req.query.type ?? "movie");
   const genreId = req.query.genre_id ? Number(req.query.genre_id) : undefined;
+  const genreIds = req.query.genre_ids ? String(req.query.genre_ids) : undefined;
   const page = Number(req.query.page ?? 1);
   if (type === "tv") {
-    return tmdb.discover.tv(genreId, page);
+    return tmdb.discover.tv(genreId, page, undefined, undefined, genreIds);
   }
-  return tmdb.discover.movies(genreId, page);
+  return tmdb.discover.movies(genreId, page, undefined, undefined, genreIds);
 }));
 
 router.get("/streaming-genre", handle(async (req) => {

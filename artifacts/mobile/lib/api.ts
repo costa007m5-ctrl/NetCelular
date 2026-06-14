@@ -296,8 +296,12 @@ export const api = {
     genres: (): Promise<{ movies: { id: number; name: string }[]; tv: { id: number; name: string }[] }> =>
       apiFetch("/tmdb/genres"),
 
-    discover: (type: "movie" | "tv", genreId: number, page = 1, sortBy = "popularity.desc"): Promise<TmdbSearchResult> =>
-      apiFetch(`/tmdb/discover?type=${type}&genre_id=${genreId}&page=${page}&sort_by=${encodeURIComponent(sortBy)}`),
+    discover: (type: "movie" | "tv", genreId: number, page = 1, sortBy = "popularity.desc", genreIds?: string): Promise<TmdbSearchResult> => {
+      let url = `/tmdb/discover?type=${type}&page=${page}&sort_by=${encodeURIComponent(sortBy)}`;
+      if (genreIds) url += `&genre_ids=${encodeURIComponent(genreIds)}`;
+      else url += `&genre_id=${genreId}`;
+      return apiFetch(url);
+    },
 
     person: (id: number): Promise<TmdbPerson> =>
       apiFetch(`/tmdb/person/${id}`),

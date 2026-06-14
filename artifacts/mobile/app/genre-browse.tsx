@@ -255,6 +255,7 @@ function ModeBar({ mode }: { mode: ViewMode }) {
 export default function GenreBrowseScreen() {
   const {
     genre_id,
+    genre_ids,
     type,
     title,
     lang,
@@ -263,6 +264,7 @@ export default function GenreBrowseScreen() {
     flix2_type,
   } = useLocalSearchParams<{
     genre_id: string;
+    genre_ids?: string;
     type: string;
     title: string;
     lang?: string;
@@ -363,12 +365,14 @@ export default function GenreBrowseScreen() {
     return { items: mapped, totalCount: total, totalPages: pages };
   };
 
+  const resolvedGenreIds = genre_ids && genre_ids.length > 0 ? genre_ids : undefined;
+
   // ── TMDB fetch ───────────────────────────────────────────────────────
   const fetchTmdbPage = (page: number) => {
     if (resolvedLang) {
       return api.tmdb.discoverByLang(resolvedType, resolvedLang, resolvedGenreId, page);
     }
-    return api.tmdb.discover(resolvedType, resolvedGenreId, page);
+    return api.tmdb.discover(resolvedType, resolvedGenreId, page, "popularity.desc", resolvedGenreIds);
   };
 
   // ── Initial load ─────────────────────────────────────────────────────
