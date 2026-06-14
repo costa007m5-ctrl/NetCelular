@@ -2783,7 +2783,16 @@ export default function DetailScreen() {
                       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 10 }}>
                         <View style={{ flexDirection: "row", gap: 12, paddingRight: 20 }}>
                           {castList.map((person: any) => (
-                            <View key={person.id} style={styles.castItem as any}>
+                            <Pressable
+                              key={person.id}
+                              style={({ pressed }) => [styles.castItem as any, { opacity: pressed ? 0.7 : 1 }]}
+                              onPress={() =>
+                                router.push({
+                                  pathname: "/actor-browse",
+                                  params: { name: person.name, color: colors.accentPurple ?? "#8b5cf6" },
+                                })
+                              }
+                            >
                               {person.profile_path ? (
                                 <Image
                                   source={{ uri: `https://image.tmdb.org/t/p/w185${person.profile_path}` }}
@@ -2799,7 +2808,7 @@ export default function DetailScreen() {
                               {person.character ? (
                                 <Text style={[styles.castCharacter, { color: colors.mutedForeground }]} numberOfLines={1}>{person.character}</Text>
                               ) : null}
-                            </View>
+                            </Pressable>
                           ))}
                         </View>
                       </ScrollView>
