@@ -956,6 +956,40 @@ export default function DetailScreen() {
     loadEps();
   }, [resolvedTmdbId, resolvedType, selectedSeason]);
 
+  // Extend episode list when Flix2 has more episodes than TMDB reported for this season.
+  // e.g. TMDB says 5 eps for T1 but Flix2 has 17 → adds synthetic eps 6-17 automatically.
+  // Uses functional setEpisodeList so it always sees the latest TMDB-loaded episodes.
+  useEffect(() => {
+    if (resolvedType !== "tv") return;
+    const flix2EpsForSeason = r2Items.filter(
+      (i) => i.flix2Url && Number(i.season) === selectedSeason && i.episode != null
+    );
+    if (flix2EpsForSeason.length === 0) return;
+    setEpisodeList((prev) => {
+      const existingNums = new Set(prev.map((ep) => ep.episode_number));
+      const toAdd: TmdbEpisode[] = [];
+      for (const fi of flix2EpsForSeason) {
+        const epNum = Number(fi.episode);
+        if (!existingNums.has(epNum)) {
+          toAdd.push({
+            id: -(selectedSeason * 10000 + epNum), // synthetic negative ID to avoid TMDB clash
+            episode_number: epNum,
+            season_number: selectedSeason,
+            name: `Episódio ${epNum}`,
+            overview: "",
+            still_path: null,
+            air_date: "",
+            runtime: null,
+            vote_average: 0,
+          });
+        }
+      }
+      if (toAdd.length === 0) return prev;
+      toAdd.sort((a, b) => a.episode_number - b.episode_number);
+      return [...prev, ...toAdd];
+    });
+  }, [r2Items, selectedSeason, resolvedType]);
+
   const toggleList = async () => {
     if (!userId || !details) return;
     if (inList) {
