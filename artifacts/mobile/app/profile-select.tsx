@@ -23,6 +23,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "@/lib/auth-context";
 import { db } from "@/lib/supabase";
+import { getApiBase } from "@/lib/api";
 
 const { width: SW, height: SH } = Dimensions.get("window");
 
@@ -30,33 +31,41 @@ const PROFILES_KEY = "netplay_profiles_v2";
 const ACTIVE_PROFILE_KEY = "netplay_active_profile_v2";
 const MAX_PROFILES = 4;
 
-const BANNERS = [
-  {
-    title: "Oppenheimer",
-    backdrop: "https://image.tmdb.org/t/p/original/fm6KqXpk3M2HVveHwCrBSSBaO0V.jpg",
-    rank: 1, type: "filmes",
-  },
-  {
-    title: "Duna: Parte 2",
-    backdrop: "https://image.tmdb.org/t/p/original/xOMo8BRK7PfcJv9JCnx7s5hj0PX.jpg",
-    rank: 2, type: "filmes",
-  },
-  {
-    title: "The Last of Us",
-    backdrop: "https://image.tmdb.org/t/p/original/uDgy6hyPd82kOHh6I95kkZaEKc.jpg",
-    rank: 1, type: "séries",
-  },
-  {
-    title: "Dune",
-    backdrop: "https://image.tmdb.org/t/p/original/tsRy63Mu5cu8etL1X7ZLyf7UP1M.jpg",
-    rank: 3, type: "filmes",
-  },
-  {
-    title: "Extraction 2",
-    backdrop: "https://image.tmdb.org/t/p/original/56v2KjBlU4XaOv9rVYEQypROD7P.jpg",
-    rank: 5, type: "filmes",
-  },
+const TMDB_BACKDROP = "https://image.tmdb.org/t/p/original";
+
+interface Banner { title: string; backdrop: string; rank: number; type: string }
+
+const FALLBACK_BANNERS: Banner[] = [
+  { title: "Oppenheimer",   backdrop: `${TMDB_BACKDROP}/fm6KqXpk3M2HVveHwCrBSSBaO0V.jpg`, rank: 1, type: "filmes" },
+  { title: "Duna: Parte 2", backdrop: `${TMDB_BACKDROP}/xOMo8BRK7PfcJv9JCnx7s5hj0PX.jpg`, rank: 2, type: "filmes" },
+  { title: "The Last of Us",backdrop: `${TMDB_BACKDROP}/uDgy6hyPd82kOHh6I95kkZaEKc.jpg`,  rank: 1, type: "séries" },
+  { title: "Dune",          backdrop: `${TMDB_BACKDROP}/tsRy63Mu5cu8etL1X7ZLyf7UP1M.jpg`, rank: 3, type: "filmes" },
+  { title: "Extraction 2",  backdrop: `${TMDB_BACKDROP}/56v2KjBlU4XaOv9rVYEQypROD7P.jpg`, rank: 5, type: "filmes" },
 ];
+
+async function fetchTrendingBanners(): Promise<Banner[]> {
+  try {
+    const base = getApiBase();
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch(`${base}/tmdb/trending`, { signal: controller.signal }).finally(() => clearTimeout(timer));
+    if (!res.ok) return FALLBACK_BANNERS;
+    const data = await res.json();
+    const items: any[] = [...(data.movies ?? []), ...(data.tv ?? [])];
+    const withBackdrop = items.filter((i: any) => i.backdrop_path);
+    if (withBackdrop.length < 3) return FALLBACK_BANNERS;
+    // Shuffle to vary order each session
+    const shuffled = withBackdrop.sort(() => Math.random() - 0.5).slice(0, 8);
+    return shuffled.map((item: any, idx: number) => ({
+      title: item.title ?? item.name ?? "",
+      backdrop: `${TMDB_BACKDROP}${item.backdrop_path}`,
+      rank: idx + 1,
+      type: item.media_type === "tv" || item.name ? "séries" : "filmes",
+    }));
+  } catch {
+    return FALLBACK_BANNERS;
+  }
+}
 
 function generateUUID(): string {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
@@ -447,6 +456,14 @@ export default function ProfileSelectScreen() {
   const [editModal, setEditModal] = useState(false);
   const [editTarget, setEditTarget] = useState<NetplayProfile | null>(null);
   const [editMode, setEditMode] = useState(false);
+  const [banners, setBanners] = useState<Banner[]>(FALLBACK_BANNERS);
+
+  // ── Fetch live TMDB trending banners ────────────────────────────────────────
+  useEffect(() => {
+    fetchTrendingBanners().then((result) => {
+      setBanners(result);
+    });
+  }, []);
 
   // ── Banner slideshow ────────────────────────────────────────────────────────
   const bannerIdxRef = useRef(0);
@@ -455,8 +472,9 @@ export default function ProfileSelectScreen() {
   const crossFade = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
+    if (banners.length < 2) return;
     const timer = setInterval(() => {
-      const next = (bannerIdxRef.current + 1) % BANNERS.length;
+      const next = (bannerIdxRef.current + 1) % banners.length;
       setNextDisplayIdx(next);
       crossFade.setValue(0);
       Animated.timing(crossFade, { toValue: 1, duration: 1200, useNativeDriver: true }).start(() => {
@@ -466,10 +484,10 @@ export default function ProfileSelectScreen() {
       });
     }, 5000);
     return () => clearInterval(timer);
-  }, []);
+  }, [banners]);
 
-  const currentBanner = BANNERS[displayIdx];
-  const nextBanner = BANNERS[nextDisplayIdx];
+  const currentBanner = banners[displayIdx] ?? FALLBACK_BANNERS[0];
+  const nextBanner = banners[nextDisplayIdx] ?? FALLBACK_BANNERS[1];
 
   // ── Profile data ────────────────────────────────────────────────────────────
   const load = useCallback(async () => {
