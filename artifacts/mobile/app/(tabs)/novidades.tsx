@@ -1180,14 +1180,19 @@ function EpisodesModal({
   onPlayEp: (g: EpGroup, ep: RawEp) => void;
   onViewSeries: (g: EpGroup) => void;
 }) {
+  const PAGE_SIZE = 15;
+
   const slideY = useRef(new Animated.Value(H)).current;
   const bdrop = useRef(new Animated.Value(0)).current;
   const [previewMuted, setPreviewMuted] = useState(true);
   const [playingKey, setPlayingKey] = useState<string | null>(null);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   useEffect(() => {
     if (visible) {
       setPlayingKey(null);
+      setVisibleCount(PAGE_SIZE);
       Animated.parallel([
         Animated.timing(slideY, { toValue: 0, duration: 330, useNativeDriver: true }),
         Animated.timing(bdrop, { toValue: 1, duration: 270, useNativeDriver: true }),
@@ -1201,15 +1206,52 @@ function EpisodesModal({
     }
   }, [visible]);
 
-  const items = useMemo<EpModalItem[]>(() => groups.map(g => ({
+  const allItems = useMemo<EpModalItem[]>(() => groups.map(g => ({
     group: g, ep: g.latestEp, key: `ep_${g.seriesId}_${g.latestEp.season}_${g.latestEp.episode}`,
   })), [groups]);
+
+  const pageItems = useMemo(() => allItems.slice(0, visibleCount), [allItems, visibleCount]);
+  const hasMore = visibleCount < allItems.length;
+
+  const loadMore = useCallback(() => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    setTimeout(() => {
+      setVisibleCount(c => Math.min(c + PAGE_SIZE, allItems.length));
+      setLoadingMore(false);
+    }, 250);
+  }, [loadingMore, hasMore, allItems.length]);
 
   const viewabilityConfig = useRef({ viewAreaCoveragePercentThreshold: 55 });
   const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
     if (viewableItems.length > 0) setPlayingKey(viewableItems[0].item.key);
     else setPlayingKey(null);
   });
+
+  const ListFooter = useCallback(() => {
+    if (!hasMore) return (
+      <View style={{ alignItems: "center", paddingVertical: 24 }}>
+        <Text style={{ fontSize: 12, color: "rgba(255,255,255,0.25)" }}>
+          {allItems.length} série{allItems.length !== 1 ? "s" : ""} exibidas
+        </Text>
+      </View>
+    );
+    return (
+      <View style={{ alignItems: "center", paddingVertical: 20, gap: 8 }}>
+        {loadingMore ? (
+          <ActivityIndicator size="small" color={TEAL} />
+        ) : (
+          <TouchableOpacity onPress={loadMore} activeOpacity={0.75}
+            style={{ flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: `${TEAL}18`, borderWidth: 1, borderColor: `${TEAL}35`, borderRadius: 10, paddingHorizontal: 18, paddingVertical: 10 }}>
+            <Feather name="chevron-down" size={14} color={TEAL} />
+            <Text style={{ fontSize: 13, fontWeight: "700", color: TEAL }}>
+              Carregar mais ({Math.min(PAGE_SIZE, allItems.length - visibleCount)} de {allItems.length - visibleCount})
+            </Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+  }, [hasMore, loadingMore, loadMore, allItems.length, visibleCount]);
 
   return (
     <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
@@ -1223,7 +1265,9 @@ function EpisodesModal({
           <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
             <View style={[epm.accent, { backgroundColor: TEAL }]} />
             <Text style={epm.title}>Novos Episódios</Text>
-            <View style={epm.cnt}><Text style={epm.cntText}>{groups.length} séries</Text></View>
+            <View style={epm.cnt}>
+              <Text style={epm.cntText}>{visibleCount < allItems.length ? `${visibleCount}/` : ""}{allItems.length} séries</Text>
+            </View>
           </View>
           <View style={{ flexDirection: "row", gap: 10 }}>
             <TouchableOpacity onPress={() => setPreviewMuted(m => !m)} activeOpacity={0.75}
@@ -1240,14 +1284,19 @@ function EpisodesModal({
           {previewMuted ? "Prévia no mudo — toque 🔊 para ativar áudio" : "Prévia com áudio ativo"}
         </Text>
         <FlatList
-          data={items}
+          data={pageItems}
           keyExtractor={item => item.key}
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 14, paddingBottom: 120, paddingTop: 4 }}
+          contentContainerStyle={{ paddingHorizontal: 14, paddingBottom: 40, paddingTop: 4 }}
           viewabilityConfig={viewabilityConfig.current}
           onViewableItemsChanged={onViewableItemsChanged.current}
-          initialNumToRender={5}
-          maxToRenderPerBatch={4}
+          initialNumToRender={4}
+          maxToRenderPerBatch={3}
+          windowSize={6}
+          removeClippedSubviews
+          onEndReached={loadMore}
+          onEndReachedThreshold={0.3}
+          ListFooterComponent={ListFooter}
           renderItem={({ item }) => (
             <EpPreviewRow
               item={item}
