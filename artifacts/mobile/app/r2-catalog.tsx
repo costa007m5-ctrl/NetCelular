@@ -3681,7 +3681,7 @@ function TeraBoxPanel() {
 type FolderBulkTarget = { drive: 0 | 1; path: string; name: string };
 type BulkScanItem = { filePath: string; fileName: string; size?: string; season?: number; episode?: number };
 
-function FolderBulkModal({ target, onClose, onDone, defaultContentType, defaultQuality, defaultAudio, defaultLanguage }: {
+function FolderBulkModal({ target, onClose, onDone, defaultContentType, defaultQuality, defaultAudio, defaultLanguage, defaultLabel }: {
   target: FolderBulkTarget;
   onClose: () => void;
   onDone: (count: number) => void;
