@@ -282,16 +282,28 @@ CREATE POLICY "anon_all_release_reminders"
 -- ────────────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS public.content_overrides (
-  id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-  content_key     TEXT        NOT NULL UNIQUE,
-  tmdb_id         INTEGER,
-  tmdb_type       TEXT        CHECK (tmdb_type IN ('movie', 'tv')),
-  custom_title    TEXT,
-  custom_overview TEXT,
-  overview_mode   TEXT        NOT NULL DEFAULT 'auto' CHECK (overview_mode IN ('auto', 'manual')),
-  updated_by      UUID        REFERENCES public.users(id) ON DELETE SET NULL,
-  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  id                UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  content_key       TEXT        NOT NULL UNIQUE,
+  tmdb_id           INTEGER,
+  tmdb_type         TEXT        CHECK (tmdb_type IN ('movie', 'tv')),
+  custom_title      TEXT,
+  custom_overview   TEXT,
+  overview_mode     TEXT        NOT NULL DEFAULT 'auto' CHECK (overview_mode IN ('auto', 'manual')),
+  poster_path       TEXT,
+  backdrop_path     TEXT,
+  number_of_seasons INTEGER,
+  number_of_episodes INTEGER,
+  vote_average      NUMERIC,
+  updated_by        UUID        REFERENCES public.users(id) ON DELETE SET NULL,
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Adicionar colunas se já existir a tabela (safe to run multiple times)
+ALTER TABLE public.content_overrides ADD COLUMN IF NOT EXISTS poster_path TEXT;
+ALTER TABLE public.content_overrides ADD COLUMN IF NOT EXISTS backdrop_path TEXT;
+ALTER TABLE public.content_overrides ADD COLUMN IF NOT EXISTS number_of_seasons INTEGER;
+ALTER TABLE public.content_overrides ADD COLUMN IF NOT EXISTS number_of_episodes INTEGER;
+ALTER TABLE public.content_overrides ADD COLUMN IF NOT EXISTS vote_average NUMERIC;
 
 ALTER TABLE public.content_overrides ENABLE ROW LEVEL SECURITY;
 

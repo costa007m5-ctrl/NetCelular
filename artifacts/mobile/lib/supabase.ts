@@ -27,6 +27,11 @@ export type ContentOverride = {
   custom_title?: string | null;
   custom_overview?: string | null;
   overview_mode: "auto" | "manual";
+  poster_path?: string | null;
+  backdrop_path?: string | null;
+  number_of_seasons?: number | null;
+  number_of_episodes?: number | null;
+  vote_average?: number | null;
   updated_by?: string | null;
   updated_at?: string;
 };

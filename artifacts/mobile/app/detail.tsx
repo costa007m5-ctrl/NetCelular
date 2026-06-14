@@ -291,6 +291,11 @@ export default function DetailScreen() {
   const [editSearchResults, setEditSearchResults] = useState<Array<{ id: number; title: string; year: string; poster: string | null; overview: string }>>([]);
   const [editSearchLoading, setEditSearchLoading] = useState(false);
   const [editSelectedResult, setEditSelectedResult] = useState<{ id: number; title: string; poster: string | null } | null>(null);
+  const [editPosterPath, setEditPosterPath] = useState<string | null>(null);
+  const [editBackdropPath, setEditBackdropPath] = useState<string | null>(null);
+  const [editSeasons, setEditSeasons] = useState<number | null>(null);
+  const [editEpisodes, setEditEpisodes] = useState<number | null>(null);
+  const [editVoteAverage, setEditVoteAverage] = useState<number | null>(null);
 
   const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null);
   const [convertingLinkId, setConvertingLinkId] = useState<string | null>(null);
@@ -1265,6 +1270,11 @@ export default function DetailScreen() {
     setEditSearchResults([]);
     setEditSelectedResult(null);
     setEditSearchType(type === "movie" ? "movie" : "tv");
+    setEditPosterPath(contentOverride?.poster_path ?? null);
+    setEditBackdropPath(contentOverride?.backdrop_path ?? null);
+    setEditSeasons(contentOverride?.number_of_seasons ?? null);
+    setEditEpisodes(contentOverride?.number_of_episodes ?? null);
+    setEditVoteAverage(contentOverride?.vote_average ?? null);
     setShowEditModal(true);
   };
 
@@ -1278,7 +1288,16 @@ export default function DetailScreen() {
         `https://api.themoviedb.org/3/${mediaType}/${id}?api_key=${TMDB_KEY_EDIT}&language=pt-BR`
       );
       const data = r.ok ? await r.json() : null;
-      setAutoOverview((data?.overview as string) ?? "");
+      if (data) {
+        setAutoOverview((data.overview as string) ?? "");
+        setEditPosterPath(data.poster_path ?? null);
+        setEditBackdropPath(data.backdrop_path ?? null);
+        setEditSeasons(data.number_of_seasons ?? null);
+        setEditEpisodes(data.number_of_episodes ?? null);
+        setEditVoteAverage(data.vote_average ?? null);
+      } else {
+        setAutoOverview("");
+      }
     } catch {
       setAutoOverview("");
     } finally {
@@ -1295,7 +1314,7 @@ export default function DetailScreen() {
       const url = `https://api.themoviedb.org/3/search/${editSearchType}?api_key=${TMDB_KEY_EDIT}&language=pt-BR&query=${encodeURIComponent(q)}&page=1`;
       const r = await fetch(url);
       const data = r.ok ? await r.json() : null;
-      const results = (data?.results ?? []).slice(0, 6).map((item: any) => ({
+      const results = (data?.results ?? []).map((item: any) => ({
         id: item.id,
         title: item.title ?? item.name ?? "",
         year: (item.release_date ?? item.first_air_date ?? "").slice(0, 4),
@@ -1319,6 +1338,8 @@ export default function DetailScreen() {
     setEditSearchResults([]);
     setEditSearchQuery(result.title);
     setEditErr(null);
+    // Buscar dados completos (poster_path real, backdrop, temporadas, etc.)
+    fetchAutoOverviewForId(String(result.id));
   };
 
   const saveContentOverride = async () => {
@@ -1333,6 +1354,11 @@ export default function DetailScreen() {
         custom_title: editTitle.trim() || null,
         custom_overview: editOverviewMode === "manual" ? (editOverview.trim() || null) : null,
         overview_mode: editOverviewMode,
+        poster_path: editPosterPath ?? null,
+        backdrop_path: editBackdropPath ?? null,
+        number_of_seasons: editSeasons ?? null,
+        number_of_episodes: editEpisodes ?? null,
+        vote_average: editVoteAverage ?? null,
       };
       const result = await db.contentOverrides.upsert(contentKey, payload, userId);
       if (result.error) { setEditErr(result.error); return; }
