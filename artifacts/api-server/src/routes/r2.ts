@@ -2349,6 +2349,9 @@ router.get("/flix2/catalog", async (req, res) => {
 const FULL_CATALOG_CACHE = new Map<string, { data: any[]; cachedAt: number }>();
 const FULL_CATALOG_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
+const EXCLUSIVE_CACHE = new Map<string, { data: any[]; cachedAt: number }>();
+const EXCLUSIVE_CACHE_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
+
 // ── In-memory cache for Drive/R2 registry (for whats-new) ─────────────────────
 let registryCacheRef: { items: RegistryItem[]; cachedAt: number } | null = null;
 const REGISTRY_CACHE_TTL_MS = 30 * 60 * 1000; // 30 min
@@ -2706,6 +2709,134 @@ router.get("/flix2/catalog-full", async (req, res) => {
 
     console.log(`[flix2/catalog-full] type=${type} pages=${totalPages} items=${deduped.length}`);
     res.json({ success: true, type, total: deduped.length, data: deduped, fromCache: false });
+  } catch (err: any) {
+    res.status(502).json({ error: err?.message ?? "proxy error" });
+  }
+});
+
+// ── GET /flix2/exclusive — items in NETPLAY not on any BR streaming platform ───
+// Strategy: for each flix2 item (which has no tmdb_id), search TMDB by title,
+// then check watch/providers for Brazil. Items with no flatrate/ads/free = exclusive.
+// Results are cached for 12h — first call is slow (~1-2 min), after that instant.
+router.get("/flix2/exclusive", async (req, res) => {
+  try {
+    const limit  = Math.min(Number(req.query.limit ?? 400), 1200);
+    const forceRefresh = req.query.refresh === "1";
+    const cacheKey = `exclusive_${limit}`;
+
+    if (!forceRefresh) {
+      const cached = EXCLUSIVE_CACHE.get(cacheKey);
+      if (cached && Date.now() - cached.cachedAt < EXCLUSIVE_CACHE_TTL_MS) {
+        res.json({ success: true, fromCache: true, total: cached.data.length, data: cached.data });
+        return;
+      }
+    }
+
+    const TMDB_KEY = process.env.TMDB_API_KEY ?? "8f0beb08cf016ec8de49e454e09879ec";
+
+    // Gather items from all cached catalog types, taking top N per type
+    // so no single type dominates when timestamps collide.
+    const catalogTypes = ["movies", "series", "animes"];
+    const perType = Math.ceil(limit / catalogTypes.length);
+    let allItems: any[] = [];
+    for (const ct of catalogTypes) {
+      const c = FULL_CATALOG_CACHE.get(ct);
+      if (c) {
+        const sorted = c.data
+          .filter((i: any) => i.title && i.title.trim().length > 1)
+          .sort((a: any, b: any) => (b.added_at ?? 0) - (a.added_at ?? 0))
+          .slice(0, perType);
+        allItems.push(...sorted.map((i: any) => ({ ...i, _catalogType: ct })));
+      }
+    }
+
+    // Deduplicate by title (case-insensitive) across catalog types
+    const seenTitle = new Set<string>();
+    allItems = allItems.filter((i) => {
+      const key = i.title.toLowerCase().trim();
+      if (seenTitle.has(key)) return false;
+      seenTitle.add(key);
+      return true;
+    });
+
+    if (allItems.length === 0) {
+      res.json({ success: true, fromCache: false, total: 0, data: [], note: "catalog cache empty — retry after warm-up" });
+      return;
+    }
+
+    const exclusive: any[] = [];
+    const CONCURRENCY = 6;
+
+    async function processOne(item: any) {
+      try {
+        const isMovie = item.type === "filme";
+        const mediaType = isMovie ? "movie" : "tv";
+
+        // Extract year hint from title (e.g. "Film Name (2024)")
+        const yearMatch = item.title.match(/\((\d{4})\)\s*$/);
+        const cleanTitle = yearMatch ? item.title.replace(/\s*\(\d{4}\)\s*$/, "").trim() : item.title;
+        const yearHint  = yearMatch ? yearMatch[1] : (item.year > 0 ? String(item.year) : "");
+
+        // TMDB search by title
+        const searchUrl = isMovie
+          ? `https://api.themoviedb.org/3/search/movie?api_key=${TMDB_KEY}&query=${encodeURIComponent(cleanTitle)}&language=pt-BR${yearHint ? `&year=${yearHint}` : ""}&page=1`
+          : `https://api.themoviedb.org/3/search/tv?api_key=${TMDB_KEY}&query=${encodeURIComponent(cleanTitle)}&language=pt-BR${yearHint ? `&first_air_date_year=${yearHint}` : ""}&page=1`;
+
+        const searchRes = await fetch(searchUrl, { signal: AbortSignal.timeout(8000) });
+        if (!searchRes.ok) return;
+        const searchJson = await searchRes.json();
+        const match = searchJson?.results?.[0];
+        if (!match) return;
+
+        const tmdbId = match.id as number;
+
+        // Check BR watch providers
+        const provUrl = isMovie
+          ? `https://api.themoviedb.org/3/movie/${tmdbId}/watch/providers?api_key=${TMDB_KEY}`
+          : `https://api.themoviedb.org/3/tv/${tmdbId}/watch/providers?api_key=${TMDB_KEY}`;
+
+        const provRes = await fetch(provUrl, { signal: AbortSignal.timeout(8000) });
+        if (!provRes.ok) return;
+        const provJson = await provRes.json();
+        const br = provJson?.results?.BR;
+
+        // Exclusive = no subscription/ads/free streaming in Brazil
+        if (!br || (!br.flatrate?.length && !br.ads?.length && !br.free?.length)) {
+          const posterPath  = match.poster_path  ? `https://image.tmdb.org/t/p/w500${match.poster_path}` : "";
+          const backdropPath = match.backdrop_path ? `https://image.tmdb.org/t/p/w1280${match.backdrop_path}` : "";
+          exclusive.push({
+            id:        item.id,
+            tmdb_id:   tmdbId,
+            title:     cleanTitle,
+            mediaType,
+            year:      item.year > 0 ? item.year
+              : (match.release_date      ? parseInt(match.release_date)      : 0)
+              || (match.first_air_date   ? parseInt(match.first_air_date)    : 0),
+            poster:    item.poster  || posterPath,
+            backdrop:  item.backdrop || backdropPath,
+            synopsis:  item.synopsis || match.overview || "",
+          });
+        }
+      } catch {
+        // silently skip on errors
+      }
+    }
+
+    for (let i = 0; i < allItems.length; i += CONCURRENCY) {
+      await Promise.all(allItems.slice(i, i + CONCURRENCY).map(processOne));
+    }
+
+    // Deduplicate output by tmdb_id (same film may appear from multiple catalog types)
+    const seenTmdb = new Set<number>();
+    const deduped = exclusive.filter((item) => {
+      if (seenTmdb.has(item.tmdb_id)) return false;
+      seenTmdb.add(item.tmdb_id);
+      return true;
+    });
+
+    EXCLUSIVE_CACHE.set(cacheKey, { data: deduped, cachedAt: Date.now() });
+    console.log(`[flix2/exclusive] checked=${allItems.length} exclusive=${deduped.length}`);
+    res.json({ success: true, fromCache: false, total: deduped.length, data: deduped });
   } catch (err: any) {
     res.status(502).json({ error: err?.message ?? "proxy error" });
   }

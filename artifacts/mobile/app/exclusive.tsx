@@ -26,22 +26,8 @@ const GAP = 8;
 const CARD_W = Math.floor((SW - H_PAD * 2 - GAP * (NUM_COLS - 1)) / NUM_COLS);
 const CARD_H = Math.floor(CARD_W * 1.5);
 const PURPLE = "#a78bfa";
-const CACHE_KEY = "exclusive_content_v3";
-const CACHE_TTL = 2 * 60 * 60 * 1000;
-const PROVIDER_BATCH = 40;
-const CATALOG_BATCH = 500;
-
-interface Flix2Item {
-  id: string;
-  tmdb_id: number;
-  title: string;
-  type: "filme" | "serie";
-  year: number;
-  rating: string;
-  poster: string;
-  backdrop: string;
-  synopsis: string;
-}
+const CACHE_KEY = "exclusive_content_v4";
+const CACHE_TTL = 12 * 60 * 60 * 1000; // 12h — matches server cache
 
 interface ExclusiveItem {
   id: string;
@@ -59,13 +45,22 @@ function PosterCard({ item, onPress }: { item: ExclusiveItem; onPress: () => voi
   return (
     <Pressable style={s.card} onPress={onPress}>
       {item.poster && !err ? (
-        <Image source={{ uri: item.poster }} style={StyleSheet.absoluteFill} contentFit="cover" onError={() => setErr(true)} />
+        <Image
+          source={{ uri: item.poster }}
+          style={StyleSheet.absoluteFill}
+          contentFit="cover"
+          onError={() => setErr(true)}
+        />
       ) : (
         <View style={[StyleSheet.absoluteFill, s.noImg]}>
           <Feather name="film" size={22} color="rgba(255,255,255,0.15)" />
         </View>
       )}
-      <LinearGradient colors={["transparent", "rgba(0,0,0,0.9)"]} locations={[0.5, 1]} style={StyleSheet.absoluteFill} />
+      <LinearGradient
+        colors={["transparent", "rgba(0,0,0,0.88)"]}
+        locations={[0.45, 1]}
+        style={StyleSheet.absoluteFill}
+      />
       <View style={s.pill}>
         <Feather name="zap" size={8} color={PURPLE} />
         <Text style={s.pillText}>NETPLAY</Text>
@@ -78,33 +73,6 @@ function PosterCard({ item, onPress }: { item: ExclusiveItem; onPress: () => voi
   );
 }
 
-async function r2Fetch(apiBase: string, type: "movies" | "series" | "animes"): Promise<Flix2Item[]> {
-  const res = await fetch(`${apiBase}/r2/flix2/catalog-full?type=${type}`, { signal: AbortSignal.timeout(30000) });
-  if (!res.ok) return [];
-  const json = await res.json();
-  return (json?.data ?? []) as Flix2Item[];
-}
-
-async function batchCheckProviders(apiBase: string, items: { id: number; type: "movie" | "tv" }[]): Promise<Set<number>> {
-  const exclusive = new Set<number>();
-  for (let i = 0; i < items.length; i += PROVIDER_BATCH) {
-    const batch = items.slice(i, i + PROVIDER_BATCH);
-    try {
-      const res = await fetch(`${apiBase}/tmdb/batch-providers`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items: batch }),
-        signal: AbortSignal.timeout(20000),
-      });
-      if (res.ok) {
-        const { exclusive: ids } = await res.json();
-        (ids as number[]).forEach(id => exclusive.add(id));
-      }
-    } catch {}
-  }
-  return exclusive;
-}
-
 export default function ExclusiveScreen() {
   const colors = useColors();
   const router = useRouter();
@@ -113,22 +81,25 @@ export default function ExclusiveScreen() {
   const topPad = isWeb ? 0 : insets.top;
 
   const [items, setItems] = useState<ExclusiveItem[]>([]);
-  const [phase, setPhase] = useState<"idle" | "loading" | "checking" | "done">("idle");
-  const [progress, setProgress] = useState({ checked: 0, total: 0 });
+  const [phase, setPhase] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [fromCache, setFromCache] = useState(false);
   const abortRef = useRef(false);
 
-  const goTo = useCallback((item: ExclusiveItem) => {
-    router.push({
-      pathname: "/detail",
-      params: {
-        type: item.mediaType,
-        id: String(item.tmdb_id),
-        flix2Id: item.id,
-        title: item.title,
-        poster: item.poster ?? "",
-      },
-    });
-  }, [router]);
+  const goTo = useCallback(
+    (item: ExclusiveItem) => {
+      router.push({
+        pathname: "/detail",
+        params: {
+          type: item.mediaType,
+          id: String(item.tmdb_id),
+          flix2Id: item.id,
+          title: item.title,
+          poster: item.poster ?? "",
+        },
+      });
+    },
+    [router]
+  );
 
   useEffect(() => {
     abortRef.current = false;
@@ -138,14 +109,18 @@ export default function ExclusiveScreen() {
 
   async function run(forceRefresh = false) {
     const apiBase = getApiBase();
+    setPhase("loading");
+    setItems([]);
 
+    // Try local AsyncStorage cache first (avoids cold server fetch on reload)
     if (!forceRefresh) {
       try {
-        const cached = await AsyncStorage.getItem(CACHE_KEY);
-        if (cached) {
-          const { items: ci, ts } = JSON.parse(cached);
-          if (Date.now() - ts < CACHE_TTL && ci?.length > 0) {
+        const raw = await AsyncStorage.getItem(CACHE_KEY);
+        if (raw) {
+          const { items: ci, ts } = JSON.parse(raw);
+          if (Date.now() - ts < CACHE_TTL && Array.isArray(ci) && ci.length > 0) {
             setItems(ci);
+            setFromCache(true);
             setPhase("done");
             return;
           }
@@ -153,96 +128,32 @@ export default function ExclusiveScreen() {
       } catch {}
     }
 
-    setItems([]);
-    setPhase("loading");
+    setFromCache(false);
 
-    // Fetch movies + series catalogs
-    let allFlix2: Flix2Item[] = [];
     try {
-      const [movies, series, animes] = await Promise.all([
-        r2Fetch(apiBase, "movies"),
-        r2Fetch(apiBase, "series"),
-        r2Fetch(apiBase, "animes"),
-      ]);
-      allFlix2 = [...movies, ...series, ...animes];
-    } catch {
+      const url = `${apiBase}/r2/flix2/exclusive${forceRefresh ? "?refresh=1" : ""}`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(180000) }); // 3 min — first call is slow
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      if (abortRef.current) return;
+
+      const data: ExclusiveItem[] = json?.data ?? [];
+      setItems(data);
+      setFromCache(json.fromCache ?? false);
       setPhase("done");
-      return;
-    }
 
-    if (abortRef.current) return;
-
-    // Only items with a valid TMDB ID can be checked
-    const withTmdb = allFlix2.filter(i => i.tmdb_id > 0);
-
-    if (withTmdb.length === 0) {
-      setPhase("done");
-      return;
-    }
-
-    setPhase("checking");
-    setProgress({ checked: 0, total: withTmdb.length });
-
-    const providerInput = withTmdb.map(i => ({
-      id: i.tmdb_id,
-      type: (i.type === "serie" ? "tv" : "movie") as "movie" | "tv",
-    }));
-
-    // Check in batches, updating progress after each
-    const exclusiveIds = new Set<number>();
-    for (let i = 0; i < providerInput.length; i += PROVIDER_BATCH) {
-      if (abortRef.current) break;
-      const batch = providerInput.slice(i, i + PROVIDER_BATCH);
-      try {
-        const res = await fetch(`${apiBase}/tmdb/batch-providers`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ items: batch }),
-          signal: AbortSignal.timeout(20000),
-        });
-        if (res.ok) {
-          const { exclusive: ids } = await res.json();
-          (ids as number[]).forEach(id => exclusiveIds.add(id));
-        }
-      } catch {}
-
-      const checkedSoFar = Math.min(i + PROVIDER_BATCH, withTmdb.length);
-      setProgress({ checked: checkedSoFar, total: withTmdb.length });
-
-      // Show partial results progressively
-      const partial = withTmdb
-        .filter(e => exclusiveIds.has(e.tmdb_id))
-        .map(toExclusive);
-      setItems(partial);
-    }
-
-    if (abortRef.current) return;
-
-    const final = withTmdb.filter(e => exclusiveIds.has(e.tmdb_id)).map(toExclusive);
-    setItems(final);
-    setPhase("done");
-    if (final.length > 0) {
-      AsyncStorage.setItem(CACHE_KEY, JSON.stringify({ items: final, ts: Date.now() })).catch(() => {});
+      // Save to local cache
+      if (data.length > 0) {
+        AsyncStorage.setItem(CACHE_KEY, JSON.stringify({ items: data, ts: Date.now() })).catch(() => {});
+      }
+    } catch (err) {
+      if (!abortRef.current) setPhase("error");
     }
   }
 
-  function toExclusive(e: Flix2Item): ExclusiveItem {
-    return {
-      id: e.id,
-      tmdb_id: e.tmdb_id,
-      title: e.title,
-      mediaType: e.type === "serie" ? "tv" : "movie",
-      year: e.year,
-      poster: e.poster,
-      backdrop: e.backdrop,
-      synopsis: e.synopsis,
-    };
-  }
-
-  const pct = progress.total > 0 ? Math.round((progress.checked / progress.total) * 100) : 0;
-  const isChecking = phase === "checking";
   const isLoading = phase === "loading";
   const isDone = phase === "done";
+  const isError = phase === "error";
 
   return (
     <View style={[s.root, { backgroundColor: colors.background }]}>
@@ -263,21 +174,23 @@ export default function ExclusiveScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Progress bar while checking */}
-      {isChecking && (
-        <View style={s.progressWrap}>
-          <View style={[s.progressFill, { width: `${pct}%` as any }]} />
-          <Text style={s.progressText}>
-            Verificando no TMDB… {progress.checked}/{progress.total} — {items.length} exclusivos encontrados
-          </Text>
-        </View>
-      )}
-
-      {/* Loading catalog */}
       {isLoading ? (
         <View style={s.center}>
           <ActivityIndicator size="large" color={PURPLE} />
-          <Text style={s.loadingText}>Carregando catálogo…</Text>
+          <Text style={s.loadingTitle}>Buscando exclusivos…</Text>
+          <Text style={s.loadingSubtitle}>
+            Na primeira vez, verificamos centenas de títulos no TMDB.{"\n"}Isso pode levar 1-2 minutos.
+          </Text>
+          <Text style={s.loadingHint}>Os resultados ficam salvos por 12 horas.</Text>
+        </View>
+      ) : isError ? (
+        <View style={s.center}>
+          <Feather name="wifi-off" size={40} color="rgba(255,255,255,0.2)" />
+          <Text style={s.emptyTitle}>Erro ao carregar</Text>
+          <Text style={s.emptySubtitle}>Verifique sua conexão e tente novamente.</Text>
+          <TouchableOpacity style={s.retryBtn} onPress={() => run(true)}>
+            <Text style={s.retryText}>Tentar novamente</Text>
+          </TouchableOpacity>
         </View>
       ) : isDone && items.length === 0 ? (
         <View style={s.center}>
@@ -293,32 +206,25 @@ export default function ExclusiveScreen() {
       ) : (
         <FlatList
           data={items}
-          keyExtractor={item => `${item.tmdb_id}_${item.id}`}
+          keyExtractor={(item) => `${item.tmdb_id}_${item.id}`}
           numColumns={NUM_COLS}
           contentContainerStyle={s.grid}
           columnWrapperStyle={s.row}
-          renderItem={({ item }) => <PosterCard item={item} onPress={() => goTo(item)} />}
+          renderItem={({ item }) => (
+            <PosterCard item={item} onPress={() => goTo(item)} />
+          )}
           ListHeaderComponent={
             items.length > 0 ? (
               <View style={s.countRow}>
                 <Feather name="zap" size={13} color={PURPLE} />
                 <Text style={s.countText}>
                   {items.length} exclusivo{items.length !== 1 ? "s" : ""}
-                  {isChecking ? " (buscando mais…)" : " — não estão em nenhuma plataforma BR"}
+                  {fromCache ? " (cache)" : " — não estão em nenhuma plataforma BR"}
                 </Text>
               </View>
             ) : null
           }
-          ListFooterComponent={
-            isChecking ? (
-              <View style={s.footerRow}>
-                <ActivityIndicator size="small" color={PURPLE} />
-                <Text style={s.footerText}>Verificando mais títulos ({pct}%)…</Text>
-              </View>
-            ) : (
-              <View style={{ height: 120 }} />
-            )
-          }
+          ListFooterComponent={<View style={{ height: 120 }} />}
         />
       )}
     </View>
@@ -353,45 +259,52 @@ const s = StyleSheet.create({
   },
   badgeText: { fontSize: 9, fontWeight: "900", color: PURPLE, letterSpacing: 1 },
   headerTitle: { fontSize: 16, fontWeight: "800", color: "#fff", letterSpacing: -0.3 },
-  progressWrap: {
-    height: 34,
-    backgroundColor: "rgba(167,139,250,0.07)",
-    justifyContent: "center",
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(167,139,250,0.1)",
-    overflow: "hidden",
-  },
-  progressFill: {
-    position: "absolute",
-    left: 0, top: 0, bottom: 0,
-    backgroundColor: "rgba(167,139,250,0.2)",
-  },
-  progressText: { fontSize: 11, color: "rgba(167,139,250,0.75)", fontWeight: "600" },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 40, gap: 12 },
-  loadingText: { fontSize: 14, color: "rgba(255,255,255,0.5)", marginTop: 8 },
+  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 40, gap: 10 },
+  loadingTitle: { fontSize: 16, fontWeight: "700", color: "#fff", marginTop: 12, textAlign: "center" },
+  loadingSubtitle: { fontSize: 13, color: "rgba(255,255,255,0.45)", textAlign: "center", lineHeight: 19 },
+  loadingHint: { fontSize: 11, color: "rgba(167,139,250,0.5)", marginTop: 4, textAlign: "center" },
   emptyTitle: { fontSize: 17, fontWeight: "700", color: "#fff", textAlign: "center", marginTop: 8 },
   emptySubtitle: { fontSize: 13, color: "rgba(255,255,255,0.45)", textAlign: "center", lineHeight: 19 },
   retryBtn: {
-    marginTop: 8, paddingHorizontal: 20, paddingVertical: 10,
-    backgroundColor: "rgba(167,139,250,0.18)", borderRadius: 10,
-    borderWidth: 1, borderColor: "rgba(167,139,250,0.3)",
+    marginTop: 10,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    backgroundColor: "rgba(167,139,250,0.18)",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "rgba(167,139,250,0.3)",
   },
   retryText: { fontSize: 14, fontWeight: "700", color: PURPLE },
   grid: { paddingHorizontal: H_PAD, paddingTop: 14, paddingBottom: 40, gap: GAP },
   row: { gap: GAP, marginBottom: GAP },
-  countRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 14 },
+  countRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 14,
+  },
   countText: { fontSize: 12, color: "rgba(255,255,255,0.5)", fontWeight: "600", flex: 1 },
-  footerRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 20 },
-  footerText: { fontSize: 12, color: "rgba(167,139,250,0.6)" },
-  card: { width: CARD_W, height: CARD_H, borderRadius: 10, overflow: "hidden", backgroundColor: "#1a1a1a" },
+  card: {
+    width: CARD_W,
+    height: CARD_H,
+    borderRadius: 10,
+    overflow: "hidden",
+    backgroundColor: "#1a1a1a",
+  },
   noImg: { backgroundColor: "#110d1e", alignItems: "center", justifyContent: "center" },
   pill: {
-    position: "absolute", top: 6, left: 6,
-    flexDirection: "row", alignItems: "center", gap: 3,
-    backgroundColor: "rgba(167,139,250,0.28)", borderWidth: 1,
-    borderColor: "rgba(167,139,250,0.45)", borderRadius: 5,
-    paddingHorizontal: 5, paddingVertical: 2,
+    position: "absolute",
+    top: 6,
+    left: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    backgroundColor: "rgba(167,139,250,0.28)",
+    borderWidth: 1,
+    borderColor: "rgba(167,139,250,0.45)",
+    borderRadius: 5,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
   },
   pillText: { fontSize: 8, fontWeight: "800", color: PURPLE, letterSpacing: 0.5 },
   cardInfo: { position: "absolute", bottom: 0, left: 0, right: 0, padding: 8 },
