@@ -16,7 +16,7 @@ paths = [ "/" ]
 localPort = 18115
 
 [services.development]
-run = "pnpm run dev"
+run = "npm install -g pnpm@10.26.1 --prefer-offline 2>/dev/null; export PATH=\"$PATH:$(npm root -g)/../bin\"; pnpm run dev"
 
 [services.production]
 build = [ "pnpm", "--filter", "@workspace/mobile", "run", "build" ]
