@@ -118,7 +118,7 @@ async function loadAll(): Promise<AllData> {
       api.tmdb.upcoming(),
       api.tmdb.onTheAir(),
       api.tmdb.airingToday(),
-      r2Route<WhatsNewResp>("/flix2/whats-new?days=14"),
+      r2Route<WhatsNewResp>("/flix2/whats-new?days=30"),
     ]);
 
   const trending = trendingRes.status === "fulfilled" ? trendingRes.value : { all: [], movies: [], tv: [] };
@@ -907,35 +907,34 @@ export default function NovidadesScreen() {
 
   const nowPlayingItems = useMemo<ContentItem[]>(() => {
     if (!data) return [];
-    return data.nowPlaying.slice(0, 12).map(tmdbItemToContent);
+    return data.nowPlaying.map(tmdbItemToContent);
   }, [data]);
 
   const upcomingItems = useMemo<Array<{ item: ContentItem; releaseDate: string }>>(() => {
     if (!data) return [];
     return data.upcoming
       .filter((i) => i.release_date && daysUntil(i.release_date) >= 0)
-      .slice(0, 12)
       .map((i) => ({ item: tmdbItemToContent(i), releaseDate: i.release_date! }));
   }, [data]);
 
   const onTheAirItems = useMemo<ContentItem[]>(() => {
     if (!data) return [];
-    return data.onTheAir.slice(0, 10).map(tmdbItemToContent);
+    return data.onTheAir.map(tmdbItemToContent);
   }, [data]);
 
   const airingTodayItems = useMemo<ContentItem[]>(() => {
     if (!data) return [];
-    return data.airingToday.slice(0, 10).map(tmdbItemToContent);
+    return data.airingToday.map(tmdbItemToContent);
   }, [data]);
 
   const trendingMovieItems = useMemo<ContentItem[]>(() => {
     if (!data) return [];
-    return data.trendingMovies.slice(0, 12).map(tmdbItemToContent);
+    return data.trendingMovies.map(tmdbItemToContent);
   }, [data]);
 
   const trendingTvItems = useMemo<ContentItem[]>(() => {
     if (!data) return [];
-    return data.trendingTv.slice(0, 12).map(tmdbItemToContent);
+    return data.trendingTv.map(tmdbItemToContent);
   }, [data]);
 
   const newMovies = useMemo<ContentItem[]>(() => {
@@ -946,6 +945,44 @@ export default function NovidadesScreen() {
   const newSeries = useMemo<ContentItem[]>(() => {
     if (!data?.whatsNew) return [];
     return data.whatsNew.series.filter((i) => i.poster).map(wn2Content);
+  }, [data]);
+
+  // "Novos Episódios" — séries do whats-new onde novos eps foram adicionados
+  // Ordenadas pelo mais recente, priorizando séries de hoje e ontem
+  const newEpisodes = useMemo<ContentItem[]>(() => {
+    if (!data?.whatsNew) return [];
+    const today = new Date().toISOString().slice(0, 10);
+    const yest = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    const sorted = [...data.whatsNew.series]
+      .filter((i) => i.poster)
+      .sort((a, b) => {
+        // Hoje primeiro, ontem segundo, resto por added_at desc
+        const pa = a.added_date === today ? 2 : a.added_date === yest ? 1 : 0;
+        const pb = b.added_date === today ? 2 : b.added_date === yest ? 1 : 0;
+        if (pa !== pb) return pb - pa;
+        return b.added_at - a.added_at;
+      });
+    return sorted.map(wn2Content);
+  }, [data]);
+
+  // "Recém Adicionados" — mix de todos os tipos, ordenados por added_at desc (aleatorio visual)
+  const recentlyAdded = useMemo<ContentItem[]>(() => {
+    if (!data?.whatsNew) return [];
+    const all = [
+      ...(data.whatsNew.movies ?? []),
+      ...(data.whatsNew.series ?? []),
+      ...(data.whatsNew.animes ?? []),
+    ]
+      .filter((i) => i.poster)
+      .sort((a, b) => b.added_at - a.added_at);
+
+    // Embaralha ligeiramente: pega os 30 mais recentes e shuffla
+    const pool = all.slice(0, 40);
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+    return pool.map(wn2Content);
   }, [data]);
 
   const newAnimes = useMemo<ContentItem[]>(() => {
@@ -1015,16 +1052,56 @@ export default function NovidadesScreen() {
         <View style={{ height: 16 }} />
         {loading ? null : <StatsStrip movies={weekMovies} series={weekSeries} animes={weekAnimes} />}
 
+        {/* ── RECÉM ADICIONADOS NA PLATAFORMA ──────────────────────────── */}
+        <View style={root.section}>
+          <SectionHeader title="Recém Adicionados" icon="plus-circle" badge={recentlyAdded.length}
+            accentColor={GREEN} subtitle="Últimas adições à plataforma"
+            onSeeAll={recentlyAdded.length > 6 ? () => openModal("Recém Adicionados", recentlyAdded, GREEN) : undefined} />
+          {loading ? <SkeletonRow count={4} width={118} height={172} /> : (
+            recentlyAdded.length > 0 ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 4 }}>
+                {recentlyAdded.slice(0, 6).map((item, i) => (
+                  <PosterCard key={`ra_${item.id}_${i}`} item={item}
+                    onPress={() => goTo(item)} isNew />
+                ))}
+              </ScrollView>
+            ) : (
+              <Text style={root.emptyText}>Em breve por aqui</Text>
+            )
+          )}
+        </View>
+
+        {/* ── NOVOS EPISÓDIOS ───────────────────────────────────────────── */}
+        <View style={root.section}>
+          <SectionHeader title="Novos Episódios" icon="play-circle" badge={newEpisodes.length}
+            accentColor={TEAL} subtitle="Séries com episódios adicionados recentemente"
+            onSeeAll={newEpisodes.length > 6 ? () => openModal("Novos Episódios", newEpisodes, TEAL) : undefined} />
+          {loading ? <SkeletonRow count={4} width={118} height={172} /> : (
+            newEpisodes.length > 0 ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 4 }}>
+                {newEpisodes.slice(0, 6).map((item, i) => (
+                  <PosterCard key={`ep_${item.id}_${i}`} item={item}
+                    onPress={() => goTo(item)} badge="EP NOVO" badgeColor={TEAL} />
+                ))}
+              </ScrollView>
+            ) : (
+              <Text style={root.emptyText}>Em breve por aqui</Text>
+            )
+          )}
+        </View>
+
         {/* ── FILMES DA SEMANA ─────────────────────────────────────────── */}
         <View style={root.section}>
           <SectionHeader title="Filmes da Semana" icon="film" badge={newMovies.length}
-            accentColor={RED} subtitle="Adicionados nos últimos 14 dias"
-            onSeeAll={newMovies.length > 5 ? () => openModal("Filmes da Semana", newMovies, RED) : undefined} />
+            accentColor={RED} subtitle="Adicionados nos últimos 30 dias"
+            onSeeAll={newMovies.length > 6 ? () => openModal("Filmes da Semana", newMovies, RED) : undefined} />
           {loading ? <SkeletonRow count={4} width={118} height={172} /> : (
             newMovies.length > 0 ? (
               <ScrollView horizontal showsHorizontalScrollIndicator={false}
                 contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 4 }}>
-                {newMovies.map((item, i) => (
+                {newMovies.slice(0, 6).map((item, i) => (
                   <PosterCard key={`nm_${item.id}_${i}`} item={item}
                     onPress={() => goTo(item)} isNew />
                 ))}
@@ -1039,11 +1116,11 @@ export default function NovidadesScreen() {
         <View style={root.section}>
           <SectionHeader title="Em Alta Esta Semana" icon="trending-up" badge={trendingMovieItems.length}
             accentColor={AMBER} subtitle="Filmes mais assistidos no mundo"
-            onSeeAll={() => openModal("Em Alta — Filmes", trendingMovieItems, AMBER)} />
+            onSeeAll={trendingMovieItems.length > 6 ? () => openModal("Em Alta — Filmes", trendingMovieItems, AMBER) : undefined} />
           {loading ? <SkeletonRow count={4} width={118} height={172} /> : (
             <ScrollView horizontal showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 4 }}>
-              {trendingMovieItems.map((item, i) => (
+              {trendingMovieItems.slice(0, 6).map((item, i) => (
                 <PosterCard key={`tf_${item.id}_${i}`} item={item}
                   onPress={() => goTo(item)} badge={i < 3 ? `#${i + 1}` : undefined} badgeColor={AMBER} />
               ))}
@@ -1055,11 +1132,11 @@ export default function NovidadesScreen() {
         <View style={root.section}>
           <SectionHeader title="Em Cartaz Agora" icon="film" badge={nowPlayingItems.length}
             accentColor={ORANGE} subtitle="Nos cinemas esta semana"
-            onSeeAll={() => openModal("Em Cartaz Agora", nowPlayingItems, ORANGE)} />
+            onSeeAll={nowPlayingItems.length > 6 ? () => openModal("Em Cartaz Agora", nowPlayingItems, ORANGE) : undefined} />
           {loading ? <SkeletonRow count={3} width={220} height={130} /> : (
             <ScrollView horizontal showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 4 }}>
-              {nowPlayingItems.map((item, i) => (
+              {nowPlayingItems.slice(0, 6).map((item, i) => (
                 <LandscapeCard key={`np_${item.id}_${i}`} item={item} onPress={() => goTo(item)} />
               ))}
             </ScrollView>
@@ -1070,12 +1147,12 @@ export default function NovidadesScreen() {
         <View style={root.section}>
           <SectionHeader title="Séries da Semana" icon="tv" badge={newSeries.length}
             accentColor={BLUE} subtitle="Novas séries adicionadas"
-            onSeeAll={newSeries.length > 5 ? () => openModal("Séries da Semana", newSeries, BLUE) : undefined} />
+            onSeeAll={newSeries.length > 6 ? () => openModal("Séries da Semana", newSeries, BLUE) : undefined} />
           {loading ? <SkeletonRow count={4} width={118} height={172} /> : (
             newSeries.length > 0 ? (
               <ScrollView horizontal showsHorizontalScrollIndicator={false}
                 contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 4 }}>
-                {newSeries.map((item, i) => (
+                {newSeries.slice(0, 6).map((item, i) => (
                   <PosterCard key={`ns_${item.id}_${i}`} item={item}
                     onPress={() => goTo(item)} badge="NOVA" badgeColor={BLUE} />
                 ))}
@@ -1091,18 +1168,18 @@ export default function NovidadesScreen() {
 
         {/* ── ESTREANDO HOJE ───────────────────────────────────────────── */}
         {!loading && airingTodayItems.length > 0 && (
-          <BreakingBanner items={airingTodayItems} onPress={goTo} />
+          <BreakingBanner items={airingTodayItems.slice(0, 6)} onPress={goTo} />
         )}
 
         {/* ── SÉRIES NO AR ─────────────────────────────────────────────── */}
         <View style={root.section}>
           <SectionHeader title="Séries no Ar" icon="radio" badge={onTheAirItems.length}
-            accentColor={TEAL} subtitle="Temporadas em andamento"
-            onSeeAll={() => openModal("Séries no Ar", onTheAirItems, TEAL)} />
+            accentColor={PURPLE} subtitle="Temporadas em andamento"
+            onSeeAll={onTheAirItems.length > 6 ? () => openModal("Séries no Ar", onTheAirItems, PURPLE) : undefined} />
           {loading ? <SkeletonRow count={3} width={150} height={218} /> : (
             <ScrollView horizontal showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 4 }}>
-              {onTheAirItems.map((item, i) => (
+              {onTheAirItems.slice(0, 6).map((item, i) => (
                 <TvOnAirCard key={`oa_${item.id}_${i}`} item={item} onPress={() => goTo(item)} />
               ))}
             </ScrollView>
@@ -1112,14 +1189,14 @@ export default function NovidadesScreen() {
         {/* ── EM ALTA — SÉRIES ─────────────────────────────────────────── */}
         <View style={root.section}>
           <SectionHeader title="Séries em Alta" icon="award" badge={trendingTvItems.length}
-            accentColor={PURPLE} subtitle="As mais comentadas da semana"
-            onSeeAll={() => openModal("Séries em Alta", trendingTvItems, PURPLE)} />
+            accentColor={PINK} subtitle="As mais comentadas da semana"
+            onSeeAll={trendingTvItems.length > 6 ? () => openModal("Séries em Alta", trendingTvItems, PINK) : undefined} />
           {loading ? <SkeletonRow count={4} width={118} height={172} /> : (
             <ScrollView horizontal showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 4 }}>
-              {trendingTvItems.map((item, i) => (
+              {trendingTvItems.slice(0, 6).map((item, i) => (
                 <PosterCard key={`tv_${item.id}_${i}`} item={item}
-                  onPress={() => goTo(item)} badge={i < 3 ? `#${i + 1}` : undefined} badgeColor={PURPLE} />
+                  onPress={() => goTo(item)} badge={i < 3 ? `#${i + 1}` : undefined} badgeColor={PINK} />
               ))}
             </ScrollView>
           )}
@@ -1128,11 +1205,12 @@ export default function NovidadesScreen() {
         {/* ── CHEGANDO EM BREVE ────────────────────────────────────────── */}
         <View style={root.section}>
           <SectionHeader title="Chegando em Breve" icon="calendar" badge={upcomingItems.length}
-            accentColor={GREEN} subtitle="Prepare sua lista com antecedência" />
+            accentColor={AMBER} subtitle="Prepare sua lista com antecedência"
+            onSeeAll={upcomingItems.length > 6 ? () => openModal("Chegando em Breve", upcomingItems.map(u => u.item), AMBER) : undefined} />
           {loading ? <SkeletonRow count={4} width={120} height={172} /> : (
             <ScrollView horizontal showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 4 }}>
-              {upcomingItems.map(({ item, releaseDate }, i) => (
+              {upcomingItems.slice(0, 6).map(({ item, releaseDate }, i) => (
                 <UpcomingCard key={`up_${item.id}_${i}`} item={item}
                   releaseDate={releaseDate} onPress={() => goTo(item)} />
               ))}
@@ -1144,11 +1222,11 @@ export default function NovidadesScreen() {
         {newAnimes.length > 0 && (
           <View style={root.section}>
             <SectionHeader title="Animes da Semana" icon="star" badge={newAnimes.length}
-              accentColor={PINK} subtitle="Novos animes adicionados"
-              onSeeAll={newAnimes.length > 8 ? () => openModal("Animes da Semana", newAnimes, PINK) : undefined} />
+              accentColor={PURPLE} subtitle="Novos animes adicionados"
+              onSeeAll={newAnimes.length > 6 ? () => openModal("Animes da Semana", newAnimes, PURPLE) : undefined} />
             <ScrollView horizontal showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 4 }}>
-              {newAnimes.map((item, i) => (
+              {newAnimes.slice(0, 6).map((item, i) => (
                 <AnimeCard key={`an_${item.id}_${i}`} item={item} onPress={() => goTo(item)} />
               ))}
             </ScrollView>
@@ -1160,7 +1238,7 @@ export default function NovidadesScreen() {
           <LinearGradient colors={[`${RED}33`, "transparent"]}
             start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
             style={root.footerLine} />
-          <Text style={root.footerText}>NETPLAY · Atualizado semanalmente</Text>
+          <Text style={root.footerText}>NETPLAY · Atualizado diariamente</Text>
           <LinearGradient colors={["transparent", `${RED}33`]}
             start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
             style={root.footerLine} />
