@@ -52,6 +52,7 @@ import { preloadImages, clearPreloadQueue } from "@/lib/image-preloader";
 import { computeRecommendations } from "@/lib/recommendations";
 import { bulkGetStarRatings, setStarRating } from "@/lib/star-ratings";
 import { api, tmdbItemToContent } from "@/lib/api";
+import { getFranchise, type Franchise } from "@/constants/franchises";
 
 const TAB_BAR_CLEARANCE = 120;
 const { width: W, height: H } = Dimensions.get("window");
@@ -1883,6 +1884,79 @@ function VerMaisModal({
   );
 }
 
+// ── Curated list of well-known franchises shown in home circles ───────────────
+const KNOWN_FRANCHISE_IDS = [
+  "marvel", "dc", "starwars", "harrypotter", "lotr", "batman", "spiderman",
+  "xmen", "transformers", "jurassic", "matrix", "fastandfurious",
+  "missionimpossible", "johnwick", "jamesbond", "indianajones",
+  "gameofthrones", "strangerthings", "deadpool", "hobbit",
+];
+const CURATED_FRANCHISES: Franchise[] = KNOWN_FRANCHISE_IDS
+  .map(id => getFranchise(id))
+  .filter((f): f is Franchise => !!f);
+
+// ── Known Franchise Circle ────────────────────────────────────────────────────
+const _knownLogoCache: Record<string, string | null> = {};
+
+const FranchiseKnownCircleItem = React.memo(function FranchiseKnownCircleItem({
+  franchise, onPress,
+}: { franchise: Franchise; onPress: () => void }) {
+  const sc = useRef(new Animated.Value(1)).current;
+  const cached = _knownLogoCache[franchise.id];
+  const [logoUrl, setLogoUrl] = useState<string | null>(cached !== undefined ? cached : null);
+  const [imgErr, setImgErr] = useState(false);
+
+  useEffect(() => {
+    const fid = franchise.id;
+    if (_knownLogoCache[fid] !== undefined) { setLogoUrl(_knownLogoCache[fid]); return; }
+    let cancelled = false;
+    const type: "collection" | "tv" | null =
+      franchise.fetchType === "collection" && franchise.tmdbCollectionId ? "collection"
+      : franchise.tmdbTvId ? "tv"
+      : null;
+    const tmdbId = franchise.tmdbCollectionId ?? franchise.tmdbTvId ?? 0;
+    if (!type || !tmdbId) { _knownLogoCache[fid] = null; return; }
+    api.tmdb.franchiseLogo(type, tmdbId)
+      .then((data: any) => {
+        const path = data?.logo_path ?? null;
+        const url = path ? `https://image.tmdb.org/t/p/w185${path}` : null;
+        _knownLogoCache[fid] = url;
+        if (!cancelled) setLogoUrl(url);
+      })
+      .catch(() => { _knownLogoCache[fid] = null; });
+    return () => { cancelled = true; };
+  }, [franchise.id]);
+
+  const pi = () => Animated.spring(sc, { toValue: 0.87, useNativeDriver: true, speed: 30 }).start();
+  const po = () => Animated.spring(sc, { toValue: 1,    useNativeDriver: true, speed: 26 }).start();
+
+  return (
+    <Pressable onPress={onPress} onPressIn={pi} onPressOut={po}>
+      <Animated.View style={{ alignItems: "center", gap: 7, width: 90, transform: [{ scale: sc }] }}>
+        <View style={styles.franchiseCircle}>
+          <LinearGradient colors={franchise.bgGradient as [string, string, string]}
+            style={StyleSheet.absoluteFill} />
+          <LinearGradient colors={["rgba(0,0,0,0.05)", "rgba(0,0,0,0.55)"]}
+            style={StyleSheet.absoluteFill} />
+          {logoUrl && !imgErr ? (
+            <Image source={{ uri: logoUrl }} style={styles.franchiseLogoImg}
+              contentFit="contain" cachePolicy="memory-disk" onError={() => setImgErr(true)} />
+          ) : (
+            <Text style={{ color: franchise.accentColor, fontSize: 10, fontWeight: "900",
+              textAlign: "center", paddingHorizontal: 6, lineHeight: 13 }} numberOfLines={2}>
+              {franchise.shortName.toUpperCase()}
+            </Text>
+          )}
+          <View style={[styles.franchiseCircleRing, { borderColor: franchise.color + "70" }]} />
+        </View>
+        <Text style={styles.franchiseCircleLabel} numberOfLines={2}>
+          {franchise.shortName}
+        </Text>
+      </Animated.View>
+    </Pressable>
+  );
+});
+
 // ── Franchise circle item ─────────────────────────────────────────────────────
 const _franchiseLogoCache: Record<number, string | null> = {};
 let _franchiseFetchActive = 0;
@@ -2046,7 +2120,6 @@ export default function HomeScreen() {
   const [recommendations, setRecommendations] = useState<ContentItem[]>([]);
 
   // ── below-fold extra data ──────────────────────────────────────────────────
-  const [franchiseCollections, setFranchiseCollections] = useState<any[]>([]);
   const [nowPlayingItems, setNowPlayingItems] = useState<ContentItem[]>([]);
   const [onTheAirItems, setOnTheAirItems] = useState<ContentItem[]>([]);
 
@@ -2152,9 +2225,6 @@ export default function HomeScreen() {
   // ── below-fold extra data (fetched lazily after below-fold mounts) ─────────
   useEffect(() => {
     if (!belowFoldReady) return;
-    api.tmdb.popularCollections(1)
-      .then((d: any) => { setFranchiseCollections((d.results ?? []).slice(0, 16)); })
-      .catch(() => {});
     api.tmdb.nowPlaying()
       .then((items: any[]) => { setNowPlayingItems((items ?? []).slice(0, 10).map(tmdbItemToContent)); })
       .catch(() => {});
@@ -2695,38 +2765,26 @@ export default function HomeScreen() {
                 />
               </View>
 
-              {/* ── 15. FRANQUIAS ── círculos com logo sobre backdrop ──────── */}
+              {/* ── 15. FRANQUIAS ── círculos com logo sobre gradiente ──────── */}
               <SectionDivider label="FRANQUIAS" accentColor={INDIGO} />
               <View style={styles.section}>
                 <SectionHeader title="Franquias" icon="layers"
                   subtitle="Sagas e universos cinematográficos"
                   accentColor={INDIGO}
-                  onSeeAll={() => router.push("/franchise")} />
-                {franchiseCollections.length > 0 ? (
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={{ paddingHorizontal: 16, gap: 14 }} decelerationRate="fast">
-                    {franchiseCollections.map((col) => (
-                      <FranchiseCircleItem
-                        key={col.id}
-                        collection={col}
-                        onPress={() => router.push({
-                          pathname: "/franchise",
-                          params: { id: `tmdb_collection_${col.id}`, name: col.name },
-                        })}
-                      />
-                    ))}
-                  </ScrollView>
-                ) : (
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={{ paddingHorizontal: 16, gap: 14 }}>
-                    {[0,1,2,3,4,5].map((i) => (
-                      <View key={i} style={{ alignItems: "center", gap: 7 }}>
-                        <View style={[styles.franchiseCircle, { backgroundColor: "#1e1e1e" }]} />
-                        <View style={{ width: 70, height: 10, borderRadius: 5, backgroundColor: "#1e1e1e" }} />
-                      </View>
-                    ))}
-                  </ScrollView>
-                )}
+                  onSeeAll={() => router.push("/(tabs)/franquias" as any)} />
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ paddingHorizontal: 16, gap: 14 }} decelerationRate="fast">
+                  {CURATED_FRANCHISES.map((f) => (
+                    <FranchiseKnownCircleItem
+                      key={f.id}
+                      franchise={f}
+                      onPress={() => router.push({
+                        pathname: "/franchise",
+                        params: { id: f.id, name: f.name },
+                      })}
+                    />
+                  ))}
+                </ScrollView>
               </View>
 
               {/* ── 16. EM CARTAZ (wide 16:9 landscape cards) ───────────────── */}
