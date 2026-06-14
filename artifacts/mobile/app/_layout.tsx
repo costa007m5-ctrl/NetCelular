@@ -21,7 +21,7 @@ import NetplaySplash from "@/components/NetplaySplash";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { ThemeProvider } from "@/lib/theme-context";
 import { CatalogProvider } from "@/lib/catalog-context";
-import { requestPermissionsAndSetup, scheduleNewContentNotification, saveNotificationToHistory, checkWatchlistNotifications } from "@/lib/notifications";
+import { requestPermissionsAndSetup, scheduleNewContentNotification, saveNotificationToHistory, checkWatchlistNotifications, registerPushToken } from "@/lib/notifications";
 import { checkAndApplyUpdate, startPeriodicUpdateChecks } from "@/lib/app-updater";
 import { UpdateBanner } from "@/components/UpdateBanner";
 import { supabase } from "@/lib/supabase";
@@ -150,6 +150,22 @@ function WatchlistNotificationChecker() {
   return null;
 }
 
+/** Auto-registers the device push token whenever the authenticated user changes. */
+function PushTokenRegistrar() {
+  const { user } = useAuth();
+  const registeredFor = React.useRef<string | null>(null);
+  useEffect(() => {
+    if (!user?.id || registeredFor.current === user.id) return;
+    if (Platform.OS === "web") return;
+    registeredFor.current = user.id;
+    // Permissions must be requested before registering the token
+    requestPermissionsAndSetup().then((granted) => {
+      if (granted) registerPushToken(user.id).catch(() => {});
+    }).catch(() => {});
+  }, [user?.id]);
+  return null;
+}
+
 /**
  * Inicia o download em segundo plano de todo o catálogo Flix 2.0.
  * Aguarda 5s após o app estar pronto para não atrasar a tela inicial.
@@ -182,6 +198,7 @@ function RootNavigator() {
     <>
       <NotificationHandler />
       <WatchlistNotificationChecker />
+      <PushTokenRegistrar />
       <CatalogPrefetcher />
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#000" } }}>
         <Stack.Screen name="welcome" options={{ headerShown: false }} />

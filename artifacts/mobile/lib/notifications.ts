@@ -9,6 +9,22 @@ const CONTINUE_NOTIF_ID_KEY = "netplay_continue_notif_id";
 const DAILY_CONTENT_NOTIF_ID_KEY = "netplay_daily_content_notif_id";
 const MAX_HISTORY = 50;
 
+// ── Lightweight pub/sub so UI components can react to count changes ──────────
+type UnreadListener = (count: number) => void;
+const _unreadListeners: UnreadListener[] = [];
+
+function _notifyListeners(count: number) {
+  _unreadListeners.forEach((fn) => { try { fn(count); } catch {} });
+}
+
+export function subscribeUnreadCount(fn: UnreadListener): () => void {
+  _unreadListeners.push(fn);
+  return () => {
+    const i = _unreadListeners.indexOf(fn);
+    if (i >= 0) _unreadListeners.splice(i, 1);
+  };
+}
+
 export type NotifHistoryItem = {
   id: string;
   title: string;
@@ -26,8 +42,9 @@ export async function saveNotificationToHistory(item: Omit<NotifHistoryItem, "id
     const updated = [newItem, ...current].slice(0, MAX_HISTORY);
     await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(updated));
     const unreadRaw = await AsyncStorage.getItem(UNREAD_KEY);
-    const unread = parseInt(unreadRaw ?? "0", 10);
-    await AsyncStorage.setItem(UNREAD_KEY, String(unread + 1));
+    const newCount = parseInt(unreadRaw ?? "0", 10) + 1;
+    await AsyncStorage.setItem(UNREAD_KEY, String(newCount));
+    _notifyListeners(newCount);
   } catch {}
 }
 
@@ -59,6 +76,7 @@ export async function getUnreadCount(): Promise<number> {
 export async function markNotificationsRead(): Promise<void> {
   try {
     await AsyncStorage.setItem(UNREAD_KEY, "0");
+    _notifyListeners(0);
   } catch {}
 }
 

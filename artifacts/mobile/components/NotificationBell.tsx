@@ -1,10 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
+import { AppState, Animated, Pressable, StyleSheet, Text, View } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-
-const NOTIF_COUNT_KEY = "netplay_unread_notif_count";
+import { getUnreadCount, subscribeUnreadCount } from "@/lib/notifications";
 
 interface NotificationBellProps {
   onPress?: () => void;
@@ -16,10 +14,25 @@ export function NotificationBell({ onPress, size = 22 }: NotificationBellProps) 
   const [unread, setUnread] = useState(0);
   const shake = useRef(new Animated.Value(0)).current;
 
+  const refresh = () => {
+    getUnreadCount().then(setUnread).catch(() => {});
+  };
+
   useEffect(() => {
-    AsyncStorage.getItem(NOTIF_COUNT_KEY)
-      .then((v) => { if (v) setUnread(parseInt(v) || 0); })
-      .catch(() => {});
+    refresh();
+
+    // Re-read when a notification arrives or is marked read (pub/sub from notifications.ts)
+    const unsub = subscribeUnreadCount(setUnread);
+
+    // Re-read when app returns to foreground (e.g. after user opens OS notification tray)
+    const appStateSub = AppState.addEventListener("change", (state) => {
+      if (state === "active") refresh();
+    });
+
+    return () => {
+      unsub();
+      appStateSub.remove();
+    };
   }, []);
 
   useEffect(() => {

@@ -3356,7 +3356,7 @@ export default function HomeScreen() {
             </View>
           </View>
           <View style={styles.headerActions}>
-            <NotificationBell onPress={() => router.push("/(tabs)/profile")} />
+            <NotificationBell onPress={() => router.push("/notification-history")} />
             <TouchableOpacity style={styles.iconBtn}
               onPress={() => router.push("/buscar")}
               activeOpacity={0.75}>
