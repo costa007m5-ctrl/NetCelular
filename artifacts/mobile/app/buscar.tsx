@@ -484,7 +484,7 @@ export default function BuscarScreen() {
   const goTo = useCallback((item: ContentItem) => {
     router.push({
       pathname: "/detail",
-      params: { type: item.mediaType ?? (item.type === "movie" ? "movie" : "tv"), id: String(item.tmdbId || item.id), title: item.title, poster: item.posterPath ?? "" },
+      params: { type: item.mediaType ?? (item.type === "movie" ? "movie" : "tv"), id: String(item.tmdbId || 0), title: item.title, poster: item.posterPath ?? "" },
     });
   }, [router]);
 
