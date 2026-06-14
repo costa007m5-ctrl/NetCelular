@@ -1,17 +1,21 @@
 /**
  * StingOverlay — plays the programmatic sting animation + audio track.
  *
- * - Fetches the TMDB title logo (stylized name image) for the content being played
- * - StingAnimation handles all visuals (ring arches, logo reveal, text, bar)
- * - expo-av Audio plays sting_audio.aac in parallel
- * - Two conditions required before disappearing:
- *     1. Animation's 10 s timer fired (or 12 s safety net)
- *     2. `videoReady` prop is true
- * - Spinner shown if animation done but videoReady still false
+ * Transition sequence when video is ready + animation done:
+ *  1. Brief white flash (80 ms) — cinematic projector cut feel
+ *  2. Fade to black (600 ms)
+ *  3. onDone() called — overlay unmounts, video appears underneath
+ *
+ * This creates a smooth, cinematic handoff from the sting to the video.
  */
 
 import React, { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import {
+  ActivityIndicator,
+  Animated,
+  StyleSheet,
+  View,
+} from "react-native";
 import StingAnimation from "./StingAnimation";
 
 let AudioModule: any = null;
@@ -29,7 +33,6 @@ async function fetchTmdbLogo(tmdbId: number, mediaType: "movie" | "tv"): Promise
     );
     const data = await res.json();
     const logos: any[] = data.logos ?? [];
-    // Prefer English, then Portuguese, then any
     const best = logos.find((l) => l.iso_639_1 === "en")
       ?? logos.find((l) => l.iso_639_1 === "pt")
       ?? logos[0]
@@ -51,9 +54,17 @@ interface StingOverlayProps {
   mediaType?: "movie" | "tv";
 }
 
+const FADE_DURATION_MS = 650;
+const FLASH_DURATION_MS = 80;
+
 export default function StingOverlay({ videoReady, onDone, tmdbId, mediaType }: StingOverlayProps) {
   const [animDone, setAnimDone]   = useState(false);
   const [logoUrl,  setLogoUrl]    = useState<string | undefined>(undefined);
+
+  // Animated values for the cinematic transition
+  const overlayOpacity = useRef(new Animated.Value(1)).current;
+  const flashOpacity   = useRef(new Animated.Value(0)).current;
+
   const doneCalledRef  = useRef(false);
   const animDoneRef    = useRef(false);
   const videoReadyRef  = useRef(videoReady);
@@ -63,7 +74,7 @@ export default function StingOverlay({ videoReady, onDone, tmdbId, mediaType }: 
 
   useEffect(() => { onDoneRef.current = onDone; });
 
-  // Fetch title logo as soon as we mount (non-blocking — animation proceeds either way)
+  // Fetch title logo (non-blocking)
   useEffect(() => {
     if (!tmdbId || !mediaType) return;
     fetchTmdbLogo(tmdbId, mediaType).then((url) => {
@@ -80,7 +91,34 @@ export default function StingOverlay({ videoReady, onDone, tmdbId, mediaType }: 
       soundRef.current.unloadAsync().catch(() => {});
       soundRef.current = null;
     }
-    onDoneRef.current();
+
+    // ── Cinematic fade-out transition ─────────────────────────────────────────
+    // 1. Brief white flash
+    // 2. Fade entire overlay to black (opacity 0)
+    // 3. Call onDone so the overlay unmounts revealing the video
+    Animated.sequence([
+      // Flash in
+      Animated.timing(flashOpacity, {
+        toValue: 0.7,
+        duration: FLASH_DURATION_MS,
+        useNativeDriver: true,
+      }),
+      // Flash out + main overlay fade simultaneously
+      Animated.parallel([
+        Animated.timing(flashOpacity, {
+          toValue: 0,
+          duration: FADE_DURATION_MS * 0.4,
+          useNativeDriver: true,
+        }),
+        Animated.timing(overlayOpacity, {
+          toValue: 0,
+          duration: FADE_DURATION_MS,
+          useNativeDriver: true,
+        }),
+      ]),
+    ]).start(() => {
+      onDoneRef.current();
+    });
   };
 
   const markAnimDone = () => {
@@ -124,15 +162,23 @@ export default function StingOverlay({ videoReady, onDone, tmdbId, mediaType }: 
   }, [videoReady]);
 
   return (
-    <View style={styles.container} pointerEvents="none">
+    <Animated.View style={[styles.container, { opacity: overlayOpacity }]} pointerEvents="none">
+      {/* Sting animation */}
       {!animDone && <StingAnimation onEnd={markAnimDone} logoUrl={logoUrl} />}
 
-      {animDone && !videoReady && (
+      {/* Spinner: animation done but video still buffering */}
+      {animDone && !doneCalledRef.current && (
         <View style={styles.waitSpinner} pointerEvents="none">
           <ActivityIndicator size="large" color="#e50914" />
         </View>
       )}
-    </View>
+
+      {/* White flash layer — sits on top of everything */}
+      <Animated.View
+        style={[styles.flashLayer, { opacity: flashOpacity }]}
+        pointerEvents="none"
+      />
+    </Animated.View>
   );
 }
 
@@ -147,5 +193,10 @@ const styles = StyleSheet.create({
     backgroundColor: "#000",
     alignItems: "center",
     justifyContent: "center",
+  },
+  flashLayer: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "#ffffff",
+    zIndex: 10000,
   },
 });
