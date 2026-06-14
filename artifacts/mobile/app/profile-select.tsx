@@ -589,7 +589,7 @@ export default function ProfileSelectScreen() {
   // No full-screen block — render the animated background immediately
   // and show a small inline spinner inside the profiles row while loading.
 
-  const AVATAR_SIZE = Math.min(76, Math.floor((SW - 80) / Math.max(profiles.length + 1, 3)) - 8);
+  const AVATAR_SIZE = Math.min(68, Math.floor((SW - 80) / Math.max(profiles.length + 1, 3)) - 8);
 
   return (
     <View style={{ flex: 1, backgroundColor: "#000" }}>
@@ -726,7 +726,7 @@ const s = StyleSheet.create({
     position: "absolute",
     left: 20,
     right: 20,
-    bottom: SH * 0.42,
+    bottom: SH * 0.47,
   },
   contentLogo: {
     width: SW * 0.55,
@@ -772,10 +772,10 @@ const s = StyleSheet.create({
     left: 0,
     right: 0,
     alignItems: "center",
-    paddingTop: 16,
+    paddingTop: 10,
     backgroundColor: "rgba(20, 3, 2, 0.94)",
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
     overflow: "hidden",
   },
   panelTitle: {
@@ -783,7 +783,7 @@ const s = StyleSheet.create({
     fontSize: 15,
     fontWeight: "600",
     letterSpacing: 0.2,
-    marginBottom: 20,
+    marginBottom: 10,
     textShadowColor: "rgba(0,0,0,0.5)",
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 4,
@@ -793,7 +793,7 @@ const s = StyleSheet.create({
     flexDirection: "row",
     paddingHorizontal: 24,
     gap: 18,
-    marginBottom: 20,
+    marginBottom: 10,
   },
   profileCard: {
     alignItems: "center",
@@ -838,7 +838,7 @@ const s = StyleSheet.create({
   actionsRow: {
     flexDirection: "row",
     gap: 24,
-    marginBottom: 8,
+    marginBottom: 4,
   },
   actionBtn: {
     alignItems: "center",
