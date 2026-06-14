@@ -3621,6 +3621,8 @@ router.get("/flix2/whats-new", (req, res) => {
     type:       i.type,
     year:       i.year,
     poster:     i.poster,
+    backdrop:   i.backdrop || "",
+    overview:   i.overview || "",
     added_at:   i.added_at,
     added_date: i.added_at ? new Date(i.added_at * 1000).toISOString().slice(0, 10) : null,
   });

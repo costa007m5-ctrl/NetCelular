@@ -1467,6 +1467,7 @@ export default function NovidadesScreen() {
           latestEp,
           allEps,
           seriesOverview: s.overview || "",
+          backdropPath: s.backdrop || "",
         });
       }
       setEpGroups(groups);
