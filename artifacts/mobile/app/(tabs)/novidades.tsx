@@ -845,9 +845,12 @@ function EpPreviewRow({
   const epLabel = `S${String(ep.season).padStart(2, "0")} E${String(ep.episode).padStart(2, "0")}`;
   const canPreview = EpVideoComp !== null;
 
-  // Thumbnail: ONLY use the 16:9 TMDB backdrop — never the portrait poster
+  // Build thumbnail URL: prefer TMDB backdrop (16:9), fall back to poster
   const backdropUrl = g.backdropPath ? TMDB_IMG(g.backdropPath, "w780") : null;
-  const thumbUrl = (!thumbErr && backdropUrl) ? backdropUrl : null;
+  const posterUrl = g.seriesPoster || null;
+  const thumbUrl = (!thumbErr && backdropUrl) ? backdropUrl : posterUrl;
+  // Portrait posters need "contain" so they don't get cropped; backdrops use "cover"
+  const thumbFit = (thumbUrl === backdropUrl) ? "cover" : "contain";
 
   // TMDB logo image URL (PNG with transparency)
   const logoUrl = g.logoPath ? TMDB_IMG(g.logoPath, "w300") : null;
@@ -861,12 +864,12 @@ function EpPreviewRow({
     <View style={epr.card}>
       {/* ── Thumbnail 16:9 ─────────────────────────────────────────── */}
       <View style={epr.thumb}>
-        {/* Background: TMDB backdrop (16:9) only — no portrait poster */}
+        {/* Background: TMDB backdrop if available, else poster */}
         {thumbUrl ? (
           <Image
             source={{ uri: thumbUrl }}
             style={StyleSheet.absoluteFill}
-            contentFit="cover"
+            contentFit={thumbFit as any}
             cachePolicy="memory-disk"
             onError={() => setThumbErr(true)}
           />
