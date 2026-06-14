@@ -719,17 +719,26 @@ export default function BuscarScreen() {
             for (const item of results) {
               const key = cleanT(item.title);
               const variants = flix2ByClean.get(key) ?? [];
-              if (variants.length > 1) {
-                for (const v of variants) {
+              // Deduplicate by variant label — show at most one LEG, one DUB, one unlabeled
+              const seenLabels = new Set<string>();
+              const uniqueVariants: Array<{ title: string; label: string | undefined }> = [];
+              for (const v of variants) {
+                const lbl = /\[L\]/i.test(v.title) ? "LEG" : /\[D\b|Dub\b/i.test(v.title) ? "DUB" : "__none__";
+                if (!seenLabels.has(lbl)) {
+                  seenLabels.add(lbl);
                   coveredFlix2Keys.add(cleanT(v.title));
-                  const vLabel = /\[L\]/i.test(v.title) ? "LEG" : /\[D\b|Dub\b/i.test(v.title) ? "DUB" : undefined;
-                  expandedItems.push({ item, variantTitle: v.title, variantLabel: vLabel });
+                  uniqueVariants.push({ title: v.title, label: lbl === "__none__" ? undefined : lbl });
                 }
+              }
+              if (uniqueVariants.length > 1) {
+                for (const uv of uniqueVariants) {
+                  expandedItems.push({ item, variantTitle: uv.title, variantLabel: uv.label });
+                }
+              } else if (uniqueVariants.length === 1) {
+                expandedItems.push({ item, variantTitle: uniqueVariants[0].title, variantLabel: uniqueVariants[0].label });
               } else {
-                if (variants.length === 1) coveredFlix2Keys.add(cleanT(variants[0].title));
-                const vLabel = variants.length === 1 && /\[L\]/i.test(variants[0].title) ? "LEG"
-                  : variants.length === 1 && /\[D\b|Dub\b/i.test(variants[0].title) ? "DUB" : undefined;
-                expandedItems.push({ item, variantTitle: variants[0]?.title, variantLabel: vLabel });
+                // No Flix2 match — just show TMDB result as-is
+                expandedItems.push({ item });
               }
             }
 

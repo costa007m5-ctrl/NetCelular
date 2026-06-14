@@ -346,7 +346,8 @@ export default function DetailScreen() {
 
           const byTitle = allItems.filter((i: RegistryItem) => {
             if (i.tmdbId === tmdbId) return false;
-            const iNorm = (i.title ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+            // Clean the registry title too (remove [L], [D], year) before comparing
+            const iNorm = cleanTitle(i.title ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
             if (iNorm.length < 3) return false;
             // Critério 1: normalized igual (mesmo título, mesmo idioma)
             if (iNorm === titleNorm) return true;
