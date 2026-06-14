@@ -491,6 +491,8 @@ export function HeroBanner({ items, onItemPress, onDetailsPress, onAddToList }: 
             onMomentumScrollEnd={onScrollEnd}
             style={{ width: w, overflow: "hidden" }}
             contentContainerStyle={{ width: w * items.length }}
+            snapToInterval={w}
+            snapToAlignment="start"
             decelerationRate="fast"
             bounces={false}
             overScrollMode="never"
@@ -540,7 +542,7 @@ const heroStyles = StyleSheet.create({
     bottom: 0,
   },
   heroImage: {
-    width: SCREEN_WIDTH,
+    width: "100%",
     height: HERO_HEIGHT,
     position: "absolute",
     top: 0,
@@ -633,7 +635,7 @@ const heroStyles = StyleSheet.create({
     letterSpacing: 1.2,
   },
   logoImg: {
-    width: SCREEN_WIDTH * 0.6,
+    width: "60%",
     height: 80,
     marginBottom: 14,
     alignSelf: "flex-start",
