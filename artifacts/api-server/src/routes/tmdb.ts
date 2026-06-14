@@ -335,7 +335,7 @@ router.get("/discover-country", handle(async (req) => {
   const LANG_MAP: Record<string, string> = { BR: "pt", US: "en", KR: "ko", JP: "ja", GB: "en", FR: "fr", IT: "it", ES: "es" };
   const lang = LANG_MAP[country] ?? "en";
   const path = type === "tv" ? "tv" : "movie";
-  const key  = process.env.TMDB_API_KEY ?? "";
+  const key  = getKey();
   const res  = await fetch(`https://api.themoviedb.org/3/discover/${path}?api_key=${key}&language=pt-BR&with_original_language=${lang}&page=${page}&include_adult=false&sort_by=popularity.desc`);
   return res.json();
 }));
@@ -347,7 +347,7 @@ router.get("/discover-lang", handle(async (req) => {
   const page    = Number(req.query.page ?? 1);
   const sortBy  = String(req.query.sort_by ?? "popularity.desc");
   const path    = type === "tv" ? "tv" : "movie";
-  const key     = process.env.TMDB_API_KEY ?? "";
+  const key     = getKey();
   let url = `https://api.themoviedb.org/3/discover/${path}?api_key=${key}&language=pt-BR&with_original_language=${lang}&page=${page}&include_adult=false&sort_by=${encodeURIComponent(sortBy)}`;
   if (genreId > 0) url += `&with_genres=${genreId}`;
   const res = await fetch(url);
