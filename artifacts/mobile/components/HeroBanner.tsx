@@ -183,7 +183,7 @@ function HeroItem({ item, colors, onWatch, onDetails, onAddToList, isActive, ind
   const isNew = item.year >= HERO_YEAR - 1;
 
   return (
-    <Pressable style={{ width: screenWidth, height: HERO_HEIGHT }} onPress={onDetails ?? onWatch}>
+    <Pressable style={{ width: screenWidth, height: HERO_HEIGHT, flexShrink: 0, overflow: "hidden" }} onPress={onDetails ?? onWatch}>
       {!imgError && item.backdropPath ? (
         <Animated.View style={[heroStyles.heroImageWrap, { transform: [{ scale: scaleAnim }] }]}>
           <Image
@@ -479,20 +479,21 @@ export function HeroBanner({ items, onItemPress, onDetailsPress, onAddToList }: 
           style={{
             position: "absolute",
             top: 0, left: 0, right: 0, bottom: 0,
+            overflow: "hidden",
             opacity: bannerOpacity,
           }}
         >
           <Animated.ScrollView
             ref={scrollRef}
             horizontal
-            pagingEnabled
             showsHorizontalScrollIndicator={false}
             scrollEventThrottle={16}
             onMomentumScrollEnd={onScrollEnd}
-            style={{ width: w, overflow: "hidden" }}
-            contentContainerStyle={{ width: w * items.length }}
+            style={{ width: w, flexGrow: 0, flexShrink: 0 }}
+            contentContainerStyle={{ flexDirection: "row" }}
             snapToInterval={w}
             snapToAlignment="start"
+            disableIntervalMomentum
             decelerationRate="fast"
             bounces={false}
             overScrollMode="never"
