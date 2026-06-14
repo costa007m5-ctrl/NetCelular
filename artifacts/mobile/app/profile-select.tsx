@@ -525,7 +525,11 @@ export default function ProfileSelectScreen() {
   const load = useCallback(async () => {
     if (!user?.id) { setLoading(false); return; }
     try {
-      const list = await getProfiles(user.id);
+      // Race against a 4-second timeout so a slow/missing Supabase never hangs
+      const list = await Promise.race<NetplayProfile[]>([
+        getProfiles(user.id),
+        new Promise<NetplayProfile[]>((resolve) => setTimeout(() => resolve([]), 4000)),
+      ]);
       setProfiles(list);
     } catch (e) {
       console.error("[profile-select] load error:", e);
@@ -576,13 +580,8 @@ export default function ProfileSelectScreen() {
     );
   };
 
-  if (loading) {
-    return (
-      <View style={{ flex: 1, backgroundColor: "#000", alignItems: "center", justifyContent: "center" }}>
-        <ActivityIndicator color="#e50914" size="large" />
-      </View>
-    );
-  }
+  // No full-screen block — render the animated background immediately
+  // and show a small inline spinner inside the profiles row while loading.
 
   const AVATAR_SIZE = Math.min(76, Math.floor((SW - 80) / Math.max(profiles.length + 1, 3)) - 8);
 
@@ -648,6 +647,11 @@ export default function ProfileSelectScreen() {
         <Text style={[s.panelTitle, { zIndex: 1 }]}>Escolha o seu perfil</Text>
 
         {/* Profiles row */}
+        {loading ? (
+          <View style={{ height: AVATAR_SIZE + 28, justifyContent: "center", alignItems: "center", zIndex: 1, marginBottom: 20 }}>
+            <ActivityIndicator color="#e50914" size="large" />
+          </View>
+        ) : (
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -678,6 +682,7 @@ export default function ProfileSelectScreen() {
             </Pressable>
           ))}
         </ScrollView>
+        )}
 
         {/* Action buttons */}
         <View style={[s.actionsRow, { zIndex: 1 }]}>
