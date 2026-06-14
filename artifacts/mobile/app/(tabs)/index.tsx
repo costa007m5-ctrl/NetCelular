@@ -2601,6 +2601,12 @@ export default function HomeScreen() {
   const emAltaSeries   = useMemo(() => series.slice(10, 16),  [series]);
   const emAltaAnimes   = useMemo(() => animes.slice(0,  6),   [animes]);
 
+  const showMovies = activeCategory === "all" || activeCategory === "movie";
+  const showSeries = activeCategory === "all" || activeCategory === "tv";
+  const showAnimes = activeCategory === "all" || activeCategory === "anime";
+  const showTop10  = activeCategory === "all" || activeCategory === "top";
+  const showAll    = activeCategory === "all";
+
   const stats = useMemo(() => [
     { label: "Filmes",  value: totals.movies > 0 ? totals.movies.toLocaleString("pt-BR") : "–", icon: "film" as const,  color: RED },
     { label: "Séries",  value: totals.series > 0 ? totals.series.toLocaleString("pt-BR") : "–", icon: "tv" as const,    color: BLUE },
@@ -2658,7 +2664,13 @@ export default function HomeScreen() {
               {CATEGORIES.map((cat) => (
                 <CategoryPill key={cat.id} label={cat.label}
                   active={activeCategory === cat.id}
-                  onPress={() => setActiveCategory(cat.id)} />
+                  onPress={() => {
+                    if (cat.id === "new") {
+                      router.push("/(tabs)/novidades" as any);
+                    } else {
+                      setActiveCategory(cat.id);
+                    }
+                  }} />
               ))}
             </ScrollView>
           </AnimatedSection>
@@ -2749,7 +2761,7 @@ export default function HomeScreen() {
               )}
 
               {/* ── 7. EM ALTA AGORA ─────────────────────────────────────────── */}
-              {emAltaMovies.length > 0 && (
+              {showMovies && emAltaMovies.length > 0 && (
                 <AnimatedSection anim={s[5]}>
                   <View style={styles.section}>
                     <SectionHeader title="Em Alta Agora" icon="trending-up"
@@ -2778,7 +2790,7 @@ export default function HomeScreen() {
               )}
 
               {/* ── 9. TOP 10 FILMES ─────────────────────────────────────────── */}
-              {top10Movies.length > 0 && (
+              {(showTop10 || showMovies) && top10Movies.length > 0 && (
                 <AnimatedSection anim={s[7]}>
                   <View style={styles.section}>
                     <SectionHeader title="Top 10 Filmes" icon="award"
@@ -2801,7 +2813,7 @@ export default function HomeScreen() {
               <>
 
               {/* ── 11. SÉRIES EM ALTA ───────────────────────────────────────── */}
-              {emAltaSeries.length > 0 && (
+              {showSeries && emAltaSeries.length > 0 && (
                 <AnimatedSection anim={s[9]}>
                   <View style={styles.section}>
                     <SectionHeader title="Séries em Alta" icon="trending-up"
@@ -2813,7 +2825,7 @@ export default function HomeScreen() {
               )}
 
               {/* ── 12. TOP 10 SÉRIES ────────────────────────────────────────── */}
-              {top10Series.length > 0 && (
+              {(showTop10 || showSeries) && top10Series.length > 0 && (
                 <AnimatedSection anim={s[10]}>
                   <View style={styles.section}>
                     <SectionHeader title="Top 10 Séries" icon="award"
@@ -2831,7 +2843,7 @@ export default function HomeScreen() {
               )}
 
               {/* ── 13. ANIMES ───────────────────────────────────────────────── */}
-              {emAltaAnimes.length > 0 && (
+              {showAnimes && emAltaAnimes.length > 0 && (
                 <>
                   <SectionDivider label="ANIMES" accentColor={AMBER} />
                   <AnimatedSection anim={s[11]}>
@@ -2846,44 +2858,52 @@ export default function HomeScreen() {
               )}
 
               {/* ── 14. CINEMA PELO MUNDO ────────────────────────────────────── */}
-              <SectionDivider label="PELO MUNDO" accentColor="#3b82f6" />
-              <View style={styles.section}>
-                <SectionHeader title="Cinema pelo Mundo" icon="globe"
-                  subtitle="Explore por país de origem"
-                  accentColor="#3b82f6" />
-                <FilmNationRow
-                  countries={COUNTRIES}
-                  onPress={(c) => router.push({
-                    pathname: "/country-browse",
-                    params: { id: c.id, label: c.label, flag: c.flag, color: c.color },
-                  })}
-                />
-              </View>
-
-              {/* ── 15. FRANQUIAS ── círculos com logo sobre gradiente ──────── */}
-              <SectionDivider label="FRANQUIAS" accentColor={INDIGO} />
-              <View style={styles.section}>
-                <SectionHeader title="Franquias" icon="layers"
-                  subtitle="Sagas e universos cinematográficos"
-                  accentColor={INDIGO}
-                  onSeeAll={() => router.push("/(tabs)/franquias" as any)} />
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={{ paddingHorizontal: 16, gap: 14 }} decelerationRate="fast">
-                  {CURATED_FRANCHISES.map((f) => (
-                    <FranchiseKnownCircleItem
-                      key={f.id}
-                      franchise={f}
-                      onPress={() => router.push({
-                        pathname: "/franchise",
-                        params: { id: f.id, name: f.name },
+              {showAll && (
+                <>
+                  <SectionDivider label="PELO MUNDO" accentColor="#3b82f6" />
+                  <View style={styles.section}>
+                    <SectionHeader title="Cinema pelo Mundo" icon="globe"
+                      subtitle="Explore por país de origem"
+                      accentColor="#3b82f6" />
+                    <FilmNationRow
+                      countries={COUNTRIES}
+                      onPress={(c) => router.push({
+                        pathname: "/country-browse",
+                        params: { id: c.id, label: c.label, flag: c.flag, color: c.color },
                       })}
                     />
-                  ))}
-                </ScrollView>
-              </View>
+                  </View>
+                </>
+              )}
+
+              {/* ── 15. FRANQUIAS ── círculos com logo sobre gradiente ──────── */}
+              {(showAll || showMovies) && (
+                <>
+                  <SectionDivider label="FRANQUIAS" accentColor={INDIGO} />
+                  <View style={styles.section}>
+                    <SectionHeader title="Franquias" icon="layers"
+                      subtitle="Sagas e universos cinematográficos"
+                      accentColor={INDIGO}
+                      onSeeAll={() => router.push("/(tabs)/franquias" as any)} />
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={{ paddingHorizontal: 16, gap: 14 }} decelerationRate="fast">
+                      {CURATED_FRANCHISES.map((f) => (
+                        <FranchiseKnownCircleItem
+                          key={f.id}
+                          franchise={f}
+                          onPress={() => router.push({
+                            pathname: "/franchise",
+                            params: { id: f.id, name: f.name },
+                          })}
+                        />
+                      ))}
+                    </ScrollView>
+                  </View>
+                </>
+              )}
 
               {/* ── 16. EM CARTAZ (wide 16:9 landscape cards) ───────────────── */}
-              {nowPlayingItems.length > 0 && (
+              {showMovies && nowPlayingItems.length > 0 && (
                 <>
                   <SectionDivider label="LANÇAMENTOS" accentColor={ORANGE} />
                   <View style={styles.section}>
@@ -2897,7 +2917,7 @@ export default function HomeScreen() {
               )}
 
               {/* ── 17. DESTAQUES (square 1:1 cards) ────────────────────────── */}
-              {movies.length > 22 && (
+              {showMovies && movies.length > 22 && (
                 <View style={styles.section}>
                   <SectionHeader title="Destaques do Dia" icon="sun"
                     accentColor={PINK}
@@ -2912,7 +2932,7 @@ export default function HomeScreen() {
               )}
 
               {/* ── 18. SÉRIES MARATONA (tall portrait cards) ───────────────── */}
-              {series.length > 18 && (
+              {showSeries && series.length > 18 && (
                 <View style={styles.section}>
                   <SectionHeader title="Séries para Maratonar" icon="play-circle"
                     accentColor={GREEN}
@@ -2927,7 +2947,7 @@ export default function HomeScreen() {
               )}
 
               {/* ── 19. ESTREANDO NA TV (featured cards) ────────────────────── */}
-              {onTheAirItems.length > 0 && (
+              {showSeries && onTheAirItems.length > 0 && (
                 <View style={styles.section}>
                   <SectionHeader title="Estreando na TV" icon="tv"
                     badge="AO VIVO" accentColor={TEAL}
@@ -2938,64 +2958,78 @@ export default function HomeScreen() {
               )}
 
               {/* ── 20. EXPLORE POR HUMOR ───────────────────────────────────── */}
-              <SectionDivider label="EXPLORE" accentColor={PURPLE} />
-              <View style={styles.section}>
-                <SectionHeader title="Que Tal Assistir?" icon="zap"
-                  subtitle="Escolha pelo seu humor"
-                  accentColor={PURPLE} />
-                <MoodRowComp
-                  moods={MOODS}
-                  onPress={(m) => router.push({
-                    pathname: "/genre-browse",
-                    params: { genre_id: String(m.genreId), type: "movie", title: m.label },
-                  })}
-                />
-              </View>
+              {showAll && (
+                <>
+                  <SectionDivider label="EXPLORE" accentColor={PURPLE} />
+                  <View style={styles.section}>
+                    <SectionHeader title="Que Tal Assistir?" icon="zap"
+                      subtitle="Escolha pelo seu humor"
+                      accentColor={PURPLE} />
+                    <MoodRowComp
+                      moods={MOODS}
+                      onPress={(m) => router.push({
+                        pathname: "/genre-browse",
+                        params: { genre_id: String(m.genreId), type: "movie", title: m.label },
+                      })}
+                    />
+                  </View>
+                </>
+              )}
 
               {/* ── 21. GÊNEROS (circle icons) ──────────────────────────────── */}
-              <View style={{ marginBottom: 28 }}>
-                <SectionHeader title="Gêneros" icon="grid"
-                  subtitle="Explore por categoria"
-                  accentColor={BLUE} />
-                <CircleGenreRow
-                  genres={GENRE_CIRCLES}
-                  onPress={(g) => router.push({
-                    pathname: "/genre-browse",
-                    params: { genre_id: String(g.id), type: "movie", title: g.label },
-                  })}
-                />
-              </View>
+              {showAll && (
+                <View style={{ marginBottom: 28 }}>
+                  <SectionHeader title="Gêneros" icon="grid"
+                    subtitle="Explore por categoria"
+                    accentColor={BLUE} />
+                  <CircleGenreRow
+                    genres={GENRE_CIRCLES}
+                    onPress={(g) => router.push({
+                      pathname: "/genre-browse",
+                      params: { genre_id: String(g.id), type: "movie", title: g.label },
+                    })}
+                  />
+                </View>
+              )}
 
               {/* ── 22. ATORES EM DESTAQUE ───────────────────────────────────── */}
-              <SectionDivider label="TALENTOS" accentColor={AMBER} />
-              <View style={{ marginBottom: 8 }}>
-                <SectionHeader title="Atores em Destaque" icon="users"
-                  subtitle="Busque pelo seu ator favorito"
-                  accentColor={AMBER} />
-              </View>
-              {ACTOR_CATEGORIES.map((cat) => (
-                <ActorCategorySection
-                  key={cat.id}
-                  category={cat}
-                  onActorPress={(a) => router.push({
-                    pathname: "/actor-browse",
-                    params: { name: a.name, color: a.color },
-                  })}
-                />
-              ))}
+              {showAll && (
+                <>
+                  <SectionDivider label="TALENTOS" accentColor={AMBER} />
+                  <View style={{ marginBottom: 8 }}>
+                    <SectionHeader title="Atores em Destaque" icon="users"
+                      subtitle="Busque pelo seu ator favorito"
+                      accentColor={AMBER} />
+                  </View>
+                  {ACTOR_CATEGORIES.map((cat) => (
+                    <ActorCategorySection
+                      key={cat.id}
+                      category={cat}
+                      onActorPress={(a) => router.push({
+                        pathname: "/actor-browse",
+                        params: { name: a.name, color: a.color },
+                      })}
+                    />
+                  ))}
+                </>
+              )}
 
               {/* ── 23. HOT TAGS ────────────────────────────────────────────── */}
-              <SectionDivider label="TENDÊNCIAS" accentColor={RED} />
-              <View style={{ marginBottom: 32 }}>
-                <SectionHeader title="Tags em Alta" icon="hash" accentColor={RED} />
-                <HotTagsComp
-                  tags={HOT_TAGS}
-                  onPress={(tag) => router.push({
-                    pathname: "/buscar",
-                    params: { q: tag.replace("#", "") },
-                  })}
-                />
-              </View>
+              {showAll && (
+                <>
+                  <SectionDivider label="TENDÊNCIAS" accentColor={RED} />
+                  <View style={{ marginBottom: 32 }}>
+                    <SectionHeader title="Tags em Alta" icon="hash" accentColor={RED} />
+                    <HotTagsComp
+                      tags={HOT_TAGS}
+                      onPress={(tag) => router.push({
+                        pathname: "/buscar",
+                        params: { q: tag.replace("#", "") },
+                      })}
+                    />
+                  </View>
+                </>
+              )}
 
               </>
               )}
