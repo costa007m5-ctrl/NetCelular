@@ -646,9 +646,6 @@ export default function ProfileSelectScreen() {
       {/* ── Profile panel ──────────────────────────────────────────────────── */}
       <View style={[s.panel, { paddingBottom: insets.bottom + 20 }]}>
 
-        {/* Large curved arc "stage" behind all profiles */}
-        <View style={s.stageArc} />
-
         {/* Title */}
         <Text style={[s.panelTitle, { zIndex: 1 }]}>Escolha o seu perfil</Text>
 
@@ -776,17 +773,10 @@ const s = StyleSheet.create({
     right: 0,
     alignItems: "center",
     paddingTop: 16,
-    overflow: "visible",
-  },
-  stageArc: {
-    position: "absolute",
-    width: SW * 5.0,
-    height: SW * 5.0,
-    borderRadius: SW * 2.5,
-    backgroundColor: "rgba(28, 4, 2, 0.92)",
-    top: -(SW * 0.05),
-    left: -(SW * 2.0),
-    zIndex: 0,
+    backgroundColor: "rgba(20, 3, 2, 0.94)",
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    overflow: "hidden",
   },
   panelTitle: {
     color: "rgba(255,255,255,0.92)",
