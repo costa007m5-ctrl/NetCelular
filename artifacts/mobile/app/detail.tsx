@@ -1932,40 +1932,48 @@ export default function DetailScreen() {
                     </Pressable>
                   </View>
 
-                  {/* Resultados da busca */}
+                  {/* Resultados da busca — altura limitada com scroll interno */}
                   {editSearchResults.length > 0 && (
-                    <View style={{ gap: 6, backgroundColor: "rgba(255,255,255,0.03)", borderRadius: 12, padding: 8, borderWidth: 1, borderColor: "rgba(255,255,255,0.08)" }}>
-                      <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11, marginBottom: 2 }}>Toque para selecionar:</Text>
-                      {editSearchResults.map((res) => (
-                        <Pressable
-                          key={res.id}
-                          onPress={() => selectSearchResult(res)}
-                          style={({ pressed }) => [{ flexDirection: "row", alignItems: "center", gap: 10, padding: 8, borderRadius: 10, backgroundColor: editSelectedResult?.id === res.id ? "rgba(234,179,8,0.12)" : "rgba(255,255,255,0.04)", borderWidth: 1, borderColor: editSelectedResult?.id === res.id ? "rgba(234,179,8,0.4)" : "rgba(255,255,255,0.07)" }, pressed && { opacity: 0.7 }]}
-                        >
-                          {/* Poster */}
-                          {res.poster ? (
-                            <Image source={{ uri: res.poster }} style={{ width: 38, height: 56, borderRadius: 5, backgroundColor: "#222" }} resizeMode="cover" />
-                          ) : (
-                            <View style={{ width: 38, height: 56, borderRadius: 5, backgroundColor: "#222", alignItems: "center", justifyContent: "center" }}>
-                              <Feather name="film" size={16} color="rgba(255,255,255,0.3)" />
+                    <View style={{ borderRadius: 12, borderWidth: 1, borderColor: "rgba(255,255,255,0.08)", backgroundColor: "rgba(255,255,255,0.03)", overflow: "hidden" }}>
+                      <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11, paddingHorizontal: 10, paddingTop: 8, paddingBottom: 4 }}>
+                        Toque para selecionar ({editSearchResults.length} resultados):
+                      </Text>
+                      <ScrollView
+                        style={{ maxHeight: 260 }}
+                        nestedScrollEnabled
+                        keyboardShouldPersistTaps="handled"
+                        showsVerticalScrollIndicator
+                        contentContainerStyle={{ padding: 8, paddingTop: 0, gap: 6 }}
+                      >
+                        {editSearchResults.map((res) => (
+                          <Pressable
+                            key={res.id}
+                            onPress={() => selectSearchResult(res)}
+                            style={({ pressed }) => [{ flexDirection: "row", alignItems: "center", gap: 10, padding: 8, borderRadius: 10, backgroundColor: editSelectedResult?.id === res.id ? "rgba(234,179,8,0.12)" : "rgba(255,255,255,0.04)", borderWidth: 1, borderColor: editSelectedResult?.id === res.id ? "rgba(234,179,8,0.4)" : "rgba(255,255,255,0.07)" }, pressed && { opacity: 0.7 }]}
+                          >
+                            {res.poster ? (
+                              <Image source={{ uri: res.poster }} style={{ width: 38, height: 56, borderRadius: 5, backgroundColor: "#222" }} resizeMode="cover" />
+                            ) : (
+                              <View style={{ width: 38, height: 56, borderRadius: 5, backgroundColor: "#222", alignItems: "center", justifyContent: "center" }}>
+                                <Feather name="film" size={16} color="rgba(255,255,255,0.3)" />
+                              </View>
+                            )}
+                            <View style={{ flex: 1, gap: 3 }}>
+                              <Text style={{ color: editSelectedResult?.id === res.id ? "#fbbf24" : "#fff", fontWeight: "600", fontSize: 13 }} numberOfLines={2}>{res.title}</Text>
+                              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                                {res.year ? <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11 }}>{res.year}</Text> : null}
+                                <Text style={{ color: "rgba(255,255,255,0.25)", fontSize: 11 }}>ID: {res.id}</Text>
+                              </View>
+                              {res.overview ? (
+                                <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 11, lineHeight: 15 }} numberOfLines={2}>{res.overview}</Text>
+                              ) : null}
                             </View>
-                          )}
-                          {/* Info */}
-                          <View style={{ flex: 1, gap: 3 }}>
-                            <Text style={{ color: editSelectedResult?.id === res.id ? "#fbbf24" : "#fff", fontWeight: "600", fontSize: 13 }} numberOfLines={2}>{res.title}</Text>
-                            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                              {res.year ? <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11 }}>{res.year}</Text> : null}
-                              <Text style={{ color: "rgba(255,255,255,0.25)", fontSize: 11 }}>ID: {res.id}</Text>
-                            </View>
-                            {res.overview ? (
-                              <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 11, lineHeight: 15 }} numberOfLines={2}>{res.overview}</Text>
-                            ) : null}
-                          </View>
-                          {editSelectedResult?.id === res.id && (
-                            <Feather name="check-circle" size={18} color="#fbbf24" />
-                          )}
-                        </Pressable>
-                      ))}
+                            {editSelectedResult?.id === res.id && (
+                              <Feather name="check-circle" size={18} color="#fbbf24" />
+                            )}
+                          </Pressable>
+                        ))}
+                      </ScrollView>
                     </View>
                   )}
 
