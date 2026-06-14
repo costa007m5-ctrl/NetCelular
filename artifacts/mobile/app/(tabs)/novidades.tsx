@@ -840,16 +840,16 @@ function EpPreviewRow({
 }: { item: EpModalItem; isPlaying: boolean; muted: boolean; onPlay: () => void; onViewSeries: () => void; }) {
   const [vidLoading, setVidLoading] = useState(false);
   const [vidReady, setVidReady] = useState(false);
-  const [thumbErr, setThumbErr] = useState(false);
+  const [backdropErr, setBackdropErr] = useState(false);
+  const [posterErr, setPosterErr] = useState(false);
   const ep = item.ep;
   const g = item.group;
   const epLabel = `S${String(ep.season).padStart(2, "0")} E${String(ep.episode).padStart(2, "0")}`;
   const canPreview = EpVideoComp !== null;
 
-  // Build thumbnail URL: prefer TMDB backdrop (16:9), fall back to poster
-  const backdropUrl = g.backdropPath ? TMDB_IMG(g.backdropPath, "w780") : null;
-  const posterUrl = g.seriesPoster || null;
-  const thumbUrl = (!thumbErr && backdropUrl) ? backdropUrl : posterUrl;
+  // Separate URLs with independent error states so one failure never blacks out both
+  const backdropUrl = (!backdropErr && g.backdropPath) ? TMDB_IMG(g.backdropPath, "w780") : null;
+  const hasPoster = !posterErr && !!g.seriesPoster;
 
   // TMDB logo image URL (PNG with transparency)
   const logoUrl = g.logoPath ? TMDB_IMG(g.logoPath, "w300") : null;
@@ -864,24 +864,36 @@ function EpPreviewRow({
     <View style={epr.card}>
       {/* ── Thumbnail 16:9 ─────────────────────────────────────────── */}
       <View style={epr.thumb}>
-        {/* Banner: always visible (backdrop preferred, else poster, else gradient) */}
-        {thumbUrl ? (
+
+        {/* Layer 1 — poster (portrait) as permanent base; always tries to show */}
+        {hasPoster ? (
           <Image
-            source={{ uri: thumbUrl }}
+            source={{ uri: g.seriesPoster }}
             style={StyleSheet.absoluteFill}
             contentFit="contain"
             cachePolicy="memory-disk"
-            onError={() => setThumbErr(true)}
+            onError={() => setPosterErr(true)}
           />
         ) : (
-          <LinearGradient colors={["#0e1020", "#06080e"]} style={StyleSheet.absoluteFill} />
+          <LinearGradient colors={["#1a0c24", "#0c0818", "#080510"]} style={StyleSheet.absoluteFill} />
         )}
 
-        {/* Video preview — only fully shown once ready, thumbnail stays visible below */}
+        {/* Layer 2 — backdrop (landscape 16:9) overlaid on top of poster when available */}
+        {backdropUrl ? (
+          <Image
+            source={{ uri: backdropUrl }}
+            style={StyleSheet.absoluteFill}
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            onError={() => setBackdropErr(true)}
+          />
+        ) : null}
+
+        {/* Layer 3 — video preview, invisible until ready so layers 1+2 always show while buffering */}
         {isPlaying && canPreview && (
           <EpVideoComp
             source={{ uri: ep.stream_url }}
-            style={[StyleSheet.absoluteFill, { opacity: vidReady ? 1 : 0 }]}
+            style={[StyleSheet.absoluteFill, { opacity: vidReady ? 1 : 0, backgroundColor: "transparent" }]}
             resizeMode="contain"
             isMuted={muted}
             shouldPlay
@@ -894,14 +906,14 @@ function EpPreviewRow({
           />
         )}
 
-        {/* Dark gradient — stronger at top + bottom */}
+        {/* Dark gradient — stronger at top + bottom, always on top of images */}
         <LinearGradient
-          colors={["rgba(0,0,0,0.35)", "transparent", "rgba(0,0,0,0.88)"]}
-          locations={[0, 0.5, 1]}
+          colors={["rgba(0,0,0,0.25)", "transparent", "rgba(0,0,0,0.82)"]}
+          locations={[0, 0.45, 1]}
           style={StyleSheet.absoluteFill}
         />
 
-        {/* Series identity — logo image only (title shown in info section below) */}
+        {/* Series logo image — lower-third of the thumbnail (no text fallback) */}
         {logoUrl ? (
           <View style={epr.logoArea}>
             <Image
@@ -913,7 +925,7 @@ function EpPreviewRow({
           </View>
         ) : null}
 
-        {/* Loading spinner — centred, shown while buffering */}
+        {/* Loading spinner — semi-transparent bg so poster/backdrop remain visible while buffering */}
         {isPlaying && vidLoading && (
           <View style={epr.loadingOverlay}>
             <ActivityIndicator size="large" color="#fff" />
@@ -921,7 +933,7 @@ function EpPreviewRow({
           </View>
         )}
 
-        {/* PRÉVIA badge — top-left, only when video is playing and ready */}
+        {/* PRÉVIA badge — top-left, only once video is ready */}
         {isPlaying && vidReady && (
           <View style={epr.liveBadge}>
             <View style={epr.liveDot} />
@@ -981,8 +993,8 @@ const epr = StyleSheet.create({
   logoArea: { position: "absolute", bottom: 28, left: 0, right: 0, alignItems: "center", paddingHorizontal: 16 },
   logoImg: { width: "70%", height: 44 },
   logoText: { fontSize: 20, fontWeight: "900", color: "rgba(255,255,255,0.88)", letterSpacing: -0.4, textShadowColor: "rgba(0,0,0,0.95)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 8, textAlign: "center" },
-  loadingOverlay: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", gap: 8 },
-  loadingText: { fontSize: 11, color: "rgba(255,255,255,0.7)", fontWeight: "600" },
+  loadingOverlay: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "rgba(0,0,0,0.38)" },
+  loadingText: { fontSize: 11, color: "rgba(255,255,255,0.85)", fontWeight: "600" },
   liveBadge: { position: "absolute", top: 8, left: 10, flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "rgba(229,9,20,0.92)", borderRadius: 5, paddingHorizontal: 8, paddingVertical: 3 },
   liveDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: "#fff" },
   liveTxt: { fontSize: 8, fontWeight: "900", color: "#fff", letterSpacing: 0.8 },
