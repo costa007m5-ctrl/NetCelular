@@ -51,6 +51,7 @@ import { getCacheItemCount } from "@/lib/catalog-cache";
 import { preloadImages, clearPreloadQueue } from "@/lib/image-preloader";
 import { computeRecommendations } from "@/lib/recommendations";
 import { bulkGetStarRatings, setStarRating } from "@/lib/star-ratings";
+import { api, tmdbItemToContent } from "@/lib/api";
 
 const TAB_BAR_CLEARANCE = 120;
 const { width: W, height: H } = Dimensions.get("window");
@@ -845,36 +846,6 @@ function CircleGenreRow({ genres, onPress }: { genres: typeof GENRE_CIRCLES; onP
   );
 }
 
-// ── Square card (1:1 ratio) ────────────────────────────────────────────────────
-function SquareCard({ item, onPress }: { item: ContentItem; onPress: () => void }) {
-  const sc = useRef(new Animated.Value(1)).current;
-  const [err, setErr] = useState(false);
-  const pi = () => Animated.spring(sc, { toValue: 0.93, useNativeDriver: true, speed: 28 }).start();
-  const po = () => Animated.spring(sc, { toValue: 1,    useNativeDriver: true, speed: 24 }).start();
-  return (
-    <Pressable onPress={onPress} onPressIn={pi} onPressOut={po}>
-      <Animated.View style={[styles.squareCard, { transform: [{ scale: sc }] }]}>
-        {!err && item.posterPath
-          ? <Image source={{ uri: item.posterPath }} style={StyleSheet.absoluteFill}
-              contentFit="cover" cachePolicy="memory-disk" onError={() => setErr(true)} />
-          : <LinearGradient colors={["#1a0a14","#08060e"]} style={StyleSheet.absoluteFill} />}
-        <LinearGradient colors={["transparent","rgba(0,0,0,0.9)"]} locations={[0.5,1]}
-          style={StyleSheet.absoluteFill} />
-        <View style={styles.squareInfo}>
-          <Text style={styles.squareTitle} numberOfLines={2}>{item.title}</Text>
-        </View>
-      </Animated.View>
-    </Pressable>
-  );
-}
-function SquareRow({ items, onPress }: { items: ContentItem[]; onPress: (i: ContentItem) => void }) {
-  return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false}
-      contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }} decelerationRate="fast">
-      {items.slice(0, 8).map((item) => <SquareCard key={item.id} item={item} onPress={() => onPress(item)} />)}
-    </ScrollView>
-  );
-}
 
 // ── Panoramic card (ultra-wide 2:1) ───────────────────────────────────────────
 function PanoramicCard({ item, onPress }: { item: ContentItem; onPress: () => void }) {
@@ -1912,6 +1883,143 @@ function VerMaisModal({
   );
 }
 
+// ── Franchise circle item ─────────────────────────────────────────────────────
+const _franchiseLogoCache: Record<number, string | null> = {};
+let _franchiseFetchActive = 0;
+
+const FranchiseCircleItem = React.memo(function FranchiseCircleItem({
+  collection, onPress,
+}: {
+  collection: { id: number; name: string; poster_path: string | null; backdrop_path: string | null };
+  onPress: () => void;
+}) {
+  const sc = useRef(new Animated.Value(1)).current;
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [imgErr, setImgErr] = useState(false);
+
+  const bgUrl = collection.backdrop_path
+    ? `https://image.tmdb.org/t/p/w300${collection.backdrop_path}`
+    : collection.poster_path
+    ? `https://image.tmdb.org/t/p/w185${collection.poster_path}`
+    : null;
+
+  useEffect(() => {
+    const id = collection.id;
+    if (_franchiseLogoCache[id] !== undefined) {
+      setLogoUrl(_franchiseLogoCache[id]);
+      return;
+    }
+    if (_franchiseFetchActive >= 3) return;
+    let cancelled = false;
+    _franchiseFetchActive++;
+    api.tmdb.franchiseLogo("collection", id)
+      .then((data: any) => {
+        const path = data?.logo_path ?? null;
+        const url = path ? `https://image.tmdb.org/t/p/w185${path}` : null;
+        _franchiseLogoCache[id] = url;
+        if (!cancelled) setLogoUrl(url);
+      })
+      .catch(() => { _franchiseLogoCache[id] = null; })
+      .finally(() => { _franchiseFetchActive = Math.max(0, _franchiseFetchActive - 1); });
+    return () => { cancelled = true; };
+  }, [collection.id]);
+
+  const pi = () => Animated.spring(sc, { toValue: 0.87, useNativeDriver: true, speed: 30 }).start();
+  const po = () => Animated.spring(sc, { toValue: 1,    useNativeDriver: true, speed: 26 }).start();
+  const shortName = (collection.name ?? "")
+    .replace(/\s*(Collection|Coleção|Saga|Universe|Franchise)\s*/gi, "").trim();
+
+  return (
+    <Pressable onPress={onPress} onPressIn={pi} onPressOut={po}>
+      <Animated.View style={{ alignItems: "center", gap: 7, width: 90, transform: [{ scale: sc }] }}>
+        <View style={styles.franchiseCircle}>
+          {bgUrl && !imgErr ? (
+            <Image source={{ uri: bgUrl }} style={StyleSheet.absoluteFill}
+              contentFit="cover" cachePolicy="memory-disk" onError={() => setImgErr(true)} />
+          ) : (
+            <LinearGradient colors={["#2a0a1a", "#0a060e"]} style={StyleSheet.absoluteFill} />
+          )}
+          <LinearGradient colors={["rgba(0,0,0,0.1)", "rgba(0,0,0,0.65)"]} style={StyleSheet.absoluteFill} />
+          {logoUrl ? (
+            <Image source={{ uri: logoUrl }} style={styles.franchiseLogoImg}
+              contentFit="contain" cachePolicy="memory-disk" />
+          ) : (
+            <Feather name="film" size={22} color="rgba(255,255,255,0.5)" />
+          )}
+          <View style={styles.franchiseCircleRing} />
+        </View>
+        <Text style={styles.franchiseCircleLabel} numberOfLines={2}>{shortName}</Text>
+      </Animated.View>
+    </Pressable>
+  );
+});
+
+// ── Square card (1:1 ratio) ───────────────────────────────────────────────────
+function SquareCard({ item, onPress, accentColor = RED }: {
+  item: ContentItem; onPress: () => void; accentColor?: string;
+}) {
+  const sc = useRef(new Animated.Value(1)).current;
+  const [err, setErr] = useState(false);
+  const pi = () => Animated.spring(sc, { toValue: 0.92, useNativeDriver: true, speed: 30 }).start();
+  const po = () => Animated.spring(sc, { toValue: 1,    useNativeDriver: true, speed: 26 }).start();
+  return (
+    <Pressable onPress={onPress} onPressIn={pi} onPressOut={po}>
+      <Animated.View style={[styles.squareCard, { transform: [{ scale: sc }] }]}>
+        {!err && (item.backdropPath || item.posterPath) ? (
+          <Image source={{ uri: item.backdropPath || item.posterPath }}
+            style={StyleSheet.absoluteFill} contentFit="cover"
+            cachePolicy="memory-disk" onError={() => setErr(true)} />
+        ) : (
+          <LinearGradient colors={["#1a0a14", "#08060e"]} style={StyleSheet.absoluteFill} />
+        )}
+        <LinearGradient colors={["rgba(0,0,0,0.0)", "rgba(0,0,0,0.92)"]} locations={[0.3, 1]}
+          style={StyleSheet.absoluteFill} />
+        <View style={styles.squareInfo}>
+          {item.rating > 0 && (
+            <View style={[styles.squareRating, { backgroundColor: `${accentColor}22`, borderColor: `${accentColor}55` }]}>
+              <Feather name="star" size={8} color={accentColor} />
+              <Text style={[styles.squareRatingText, { color: accentColor }]}>{item.rating.toFixed(1)}</Text>
+            </View>
+          )}
+          <Text style={styles.squareTitle} numberOfLines={2}>{item.title}</Text>
+          <Text style={styles.squareMeta}>{item.type === "movie" ? "Filme" : "Série"}</Text>
+        </View>
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+// ── Tall poster card (portrait 2:3.5) ────────────────────────────────────────
+function TallCard({ item, onPress }: { item: ContentItem; onPress: () => void }) {
+  const sc = useRef(new Animated.Value(1)).current;
+  const [err, setErr] = useState(false);
+  const pi = () => Animated.spring(sc, { toValue: 0.93, useNativeDriver: true, speed: 30 }).start();
+  const po = () => Animated.spring(sc, { toValue: 1,    useNativeDriver: true, speed: 26 }).start();
+  return (
+    <Pressable onPress={onPress} onPressIn={pi} onPressOut={po}>
+      <Animated.View style={[styles.tallCard, { transform: [{ scale: sc }] }]}>
+        {!err && item.posterPath ? (
+          <Image source={{ uri: item.posterPath }} style={StyleSheet.absoluteFill}
+            contentFit="cover" cachePolicy="memory-disk" onError={() => setErr(true)} />
+        ) : (
+          <LinearGradient colors={["#1a0a14", "#08060e"]} style={StyleSheet.absoluteFill} />
+        )}
+        <LinearGradient colors={["transparent", "rgba(0,0,0,0.88)"]} locations={[0.5, 1]}
+          style={StyleSheet.absoluteFill} />
+        <View style={styles.tallInfo}>
+          {item.rating > 0 && (
+            <View style={styles.tallRating}>
+              <Feather name="star" size={8} color={AMBER} />
+              <Text style={styles.tallRatingText}>{item.rating.toFixed(1)}</Text>
+            </View>
+          )}
+          <Text style={styles.tallTitle} numberOfLines={2}>{item.title}</Text>
+        </View>
+      </Animated.View>
+    </Pressable>
+  );
+}
+
 export default function HomeScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -1937,6 +2045,11 @@ export default function HomeScreen() {
   const [activeProfile, setActiveProfile] = useState<any>(null);
   const [cacheTs, setCacheTs]             = useState<number | null>(null);
   const [recommendations, setRecommendations] = useState<ContentItem[]>([]);
+
+  // ── below-fold extra data ──────────────────────────────────────────────────
+  const [franchiseCollections, setFranchiseCollections] = useState<any[]>([]);
+  const [nowPlayingItems, setNowPlayingItems] = useState<ContentItem[]>([]);
+  const [onTheAirItems, setOnTheAirItems] = useState<ContentItem[]>([]);
 
   // ── modal "ver mais" ───────────────────────────────────────────────────────
   const [verMaisModal, setVerMaisModal] = useState<{
@@ -2036,6 +2149,21 @@ export default function HomeScreen() {
       .then((raw) => { if (raw) setActiveProfile(JSON.parse(raw)); })
       .catch(() => {});
   }, [user?.id]);
+
+  // ── below-fold extra data (fetched lazily after below-fold mounts) ─────────
+  useEffect(() => {
+    if (!belowFoldReady) return;
+    api.tmdb.popularCollections(1)
+      .then((d: any) => { setFranchiseCollections((d.results ?? []).slice(0, 16)); })
+      .catch(() => {});
+    api.tmdb.nowPlaying()
+      .then((items: any[]) => { setNowPlayingItems((items ?? []).slice(0, 10).map(tmdbItemToContent)); })
+      .catch(() => {});
+    api.tmdb.onTheAir()
+      .then((items: any[]) => { setOnTheAirItems((items ?? []).slice(0, 10).map(tmdbItemToContent)); })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [belowFoldReady]);
 
   // ── continue watching — load from local AsyncStorage (always works) ────────
   const loadContinueItems = useCallback(async () => {
@@ -2568,6 +2696,155 @@ export default function HomeScreen() {
                 />
               </View>
 
+              {/* ── 15. FRANQUIAS ── círculos com logo sobre backdrop ──────── */}
+              <SectionDivider label="FRANQUIAS" accentColor={INDIGO} />
+              <View style={styles.section}>
+                <SectionHeader title="Franquias" icon="layers"
+                  subtitle="Sagas e universos cinematográficos"
+                  accentColor={INDIGO}
+                  onSeeAll={() => router.push("/franchise")} />
+                {franchiseCollections.length > 0 ? (
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={{ paddingHorizontal: 16, gap: 14 }} decelerationRate="fast">
+                    {franchiseCollections.map((col) => (
+                      <FranchiseCircleItem
+                        key={col.id}
+                        collection={col}
+                        onPress={() => router.push({
+                          pathname: "/franchise",
+                          params: { collection_id: String(col.id), name: col.name },
+                        })}
+                      />
+                    ))}
+                  </ScrollView>
+                ) : (
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={{ paddingHorizontal: 16, gap: 14 }}>
+                    {[0,1,2,3,4,5].map((i) => (
+                      <View key={i} style={{ alignItems: "center", gap: 7 }}>
+                        <View style={[styles.franchiseCircle, { backgroundColor: "#1e1e1e" }]} />
+                        <View style={{ width: 70, height: 10, borderRadius: 5, backgroundColor: "#1e1e1e" }} />
+                      </View>
+                    ))}
+                  </ScrollView>
+                )}
+              </View>
+
+              {/* ── 16. EM CARTAZ (wide 16:9 landscape cards) ───────────────── */}
+              {nowPlayingItems.length > 0 && (
+                <>
+                  <SectionDivider label="LANÇAMENTOS" accentColor={ORANGE} />
+                  <View style={styles.section}>
+                    <SectionHeader title="Em Cartaz" icon="film"
+                      badge="NOVO" accentColor={ORANGE}
+                      subtitle="Últimos lançamentos no cinema"
+                      onSeeAll={() => openModal("Em Cartaz", nowPlayingItems, ORANGE)} />
+                    <WideRow items={nowPlayingItems} onPress={goTo} />
+                  </View>
+                </>
+              )}
+
+              {/* ── 17. DESTAQUES (square 1:1 cards) ────────────────────────── */}
+              {movies.length > 22 && (
+                <View style={styles.section}>
+                  <SectionHeader title="Destaques do Dia" icon="sun"
+                    accentColor={PINK}
+                    onSeeAll={() => openModal("Destaques do Dia", movies.slice(16, 40), PINK)} />
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }} decelerationRate="fast">
+                    {movies.slice(16, 24).map((item) => (
+                      <SquareCard key={item.id} item={item} onPress={() => goTo(item)} accentColor={PINK} />
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
+
+              {/* ── 18. SÉRIES MARATONA (tall portrait cards) ───────────────── */}
+              {series.length > 18 && (
+                <View style={styles.section}>
+                  <SectionHeader title="Séries para Maratonar" icon="play-circle"
+                    accentColor={GREEN}
+                    onSeeAll={() => openModal("Séries para Maratonar", series.slice(10, 50), GREEN)} />
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }} decelerationRate="fast">
+                    {series.slice(10, 20).map((item) => (
+                      <TallCard key={item.id} item={item} onPress={() => goTo(item)} />
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
+
+              {/* ── 19. ESTREANDO NA TV (featured cards) ────────────────────── */}
+              {onTheAirItems.length > 0 && (
+                <View style={styles.section}>
+                  <SectionHeader title="Estreando na TV" icon="tv"
+                    badge="AO VIVO" accentColor={TEAL}
+                    subtitle="Séries que estão no ar agora"
+                    onSeeAll={() => openModal("Estreando na TV", onTheAirItems, TEAL)} />
+                  <FeaturedRow items={onTheAirItems.slice(0, 6)} onPress={goTo} accentColor={TEAL} />
+                </View>
+              )}
+
+              {/* ── 20. EXPLORE POR HUMOR ───────────────────────────────────── */}
+              <SectionDivider label="EXPLORE" accentColor={PURPLE} />
+              <View style={styles.section}>
+                <SectionHeader title="Que Tal Assistir?" icon="zap"
+                  subtitle="Escolha pelo seu humor"
+                  accentColor={PURPLE} />
+                <MoodRowComp
+                  moods={MOODS}
+                  onPress={(m) => router.push({
+                    pathname: "/genre-browse",
+                    params: { genre_id: String(m.genreId), type: "movie", title: m.label },
+                  })}
+                />
+              </View>
+
+              {/* ── 21. GÊNEROS (circle icons) ──────────────────────────────── */}
+              <View style={{ marginBottom: 28 }}>
+                <SectionHeader title="Gêneros" icon="grid"
+                  subtitle="Explore por categoria"
+                  accentColor={BLUE} />
+                <CircleGenreRow
+                  genres={GENRE_CIRCLES}
+                  onPress={(g) => router.push({
+                    pathname: "/genre-browse",
+                    params: { genre_id: String(g.id), type: "movie", title: g.label },
+                  })}
+                />
+              </View>
+
+              {/* ── 22. ATORES EM DESTAQUE ───────────────────────────────────── */}
+              <SectionDivider label="TALENTOS" accentColor={AMBER} />
+              <View style={{ marginBottom: 8 }}>
+                <SectionHeader title="Atores em Destaque" icon="users"
+                  subtitle="Busque pelo seu ator favorito"
+                  accentColor={AMBER} />
+              </View>
+              {ACTOR_CATEGORIES.map((cat) => (
+                <ActorCategorySection
+                  key={cat.id}
+                  category={cat}
+                  onActorPress={(a) => router.push({
+                    pathname: "/buscar",
+                    params: { q: a.name },
+                  })}
+                />
+              ))}
+
+              {/* ── 23. HOT TAGS ────────────────────────────────────────────── */}
+              <SectionDivider label="TENDÊNCIAS" accentColor={RED} />
+              <View style={{ marginBottom: 32 }}>
+                <SectionHeader title="Tags em Alta" icon="hash" accentColor={RED} />
+                <HotTagsComp
+                  tags={HOT_TAGS}
+                  onPress={(tag) => router.push({
+                    pathname: "/buscar",
+                    params: { q: tag.replace("#", "") },
+                  })}
+                />
+              </View>
+
               </>
               )}
             </>
@@ -2938,16 +3215,7 @@ const styles = StyleSheet.create({
   },
   circleLabel: { fontSize: 10, fontWeight: "700", letterSpacing: 0.2, textAlign: "center" },
 
-  // ── Square card ───────────────────────────────────────────────────────────
-  squareCard: {
-    width: 128, height: 128, borderRadius: 14, overflow: "hidden",
-    ...Platform.select({
-      ios: { shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 8 },
-      android: { elevation: 6 },
-    }),
-  },
-  squareInfo: { position: "absolute", bottom: 8, left: 8, right: 8 },
-  squareTitle: { color: "#fff", fontSize: 11, fontWeight: "700", lineHeight: 14 },
+  // ── Square card (merged with tall + rating styles below) ──────────────────
 
   // ── Panoramic card ────────────────────────────────────────────────────────
   panoramicCard: {
@@ -3246,4 +3514,61 @@ const styles = StyleSheet.create({
     borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8,
   },
   familyBtnText: { color: "#fff", fontSize: 11, fontWeight: "800" },
+
+  // ── Franchise circle ──────────────────────────────────────────────────────
+  franchiseCircle: {
+    width: 82, height: 82, borderRadius: 41,
+    overflow: "hidden", backgroundColor: "#1a1a1a",
+    alignItems: "center", justifyContent: "center",
+    ...Platform.select({
+      ios: { shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 8 },
+      android: { elevation: 5 },
+    }),
+  },
+  franchiseLogoImg: { width: 60, height: 34, zIndex: 2 },
+  franchiseCircleRing: {
+    position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
+    borderRadius: 41, borderWidth: 2,
+    borderColor: "rgba(99,102,241,0.55)",
+  },
+  franchiseCircleLabel: {
+    color: "rgba(255,255,255,0.72)", fontSize: 10, fontWeight: "600",
+    textAlign: "center", lineHeight: 13, maxWidth: 86,
+  },
+
+  // ── Square card (1:1) ─────────────────────────────────────────────────────
+  squareCard: {
+    width: 130, height: 130, borderRadius: 14,
+    overflow: "hidden", backgroundColor: "#1a1a1a",
+    ...Platform.select({
+      ios: { shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 8 },
+      android: { elevation: 5 },
+    }),
+  },
+  squareInfo: {
+    position: "absolute", bottom: 0, left: 0, right: 0, padding: 8, gap: 3,
+  },
+  squareRating: {
+    flexDirection: "row", alignItems: "center", gap: 3, alignSelf: "flex-start",
+    borderWidth: 1, borderRadius: 5, paddingHorizontal: 5, paddingVertical: 2,
+  },
+  squareRatingText: { fontSize: 8, fontWeight: "700" },
+  squareTitle: { color: "#fff", fontSize: 10, fontWeight: "700", lineHeight: 13 },
+  squareMeta: { color: "rgba(255,255,255,0.4)", fontSize: 9 },
+
+  // ── Tall portrait card ────────────────────────────────────────────────────
+  tallCard: {
+    width: 100, height: 186, borderRadius: 12,
+    overflow: "hidden", backgroundColor: "#1a1a1a",
+    ...Platform.select({
+      ios: { shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 8 },
+      android: { elevation: 5 },
+    }),
+  },
+  tallInfo: {
+    position: "absolute", bottom: 0, left: 0, right: 0, padding: 7, gap: 3,
+  },
+  tallRating: { flexDirection: "row", alignItems: "center", gap: 2 },
+  tallRatingText: { color: "#f59e0b", fontSize: 8, fontWeight: "700" },
+  tallTitle: { color: "#fff", fontSize: 9, fontWeight: "700", lineHeight: 12 },
 });
