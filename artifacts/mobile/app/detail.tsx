@@ -1329,7 +1329,10 @@ export default function DetailScreen() {
     );
   }
 
-  const backdropUri = details ? TMDB_IMG(details.backdrop_path, "w1280") : (params.poster || null);
+  // Fallback chain: TMDB backdrop → TMDB poster (stretched) → nav-param poster (Flix2 thumbnail)
+  const backdropUri = details
+    ? (TMDB_IMG(details.backdrop_path, "w1280") || TMDB_IMG(details.poster_path, "w780") || params.poster || null)
+    : (params.poster || null);
   const title = details?.title ?? details?.name ?? params.title ?? "Carregando...";
   const isLegendado = /\[L\]/i.test(params.title ?? "");
   const year = (details?.release_date ?? details?.first_air_date ?? "").slice(0, 4);
