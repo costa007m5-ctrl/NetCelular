@@ -6,21 +6,19 @@ import React, {
   useState,
 } from "react";
 import {
-  ActivityIndicator,
   Animated,
   Dimensions,
+  FlatList,
   Modal,
   Platform,
   Pressable,
   RefreshControl,
   ScrollView,
-  StatusBar as RNStatusBar,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
-  FlatList,
 } from "react-native";
 import { Image } from "expo-image";
 import { StatusBar } from "expo-status-bar";
@@ -29,18 +27,25 @@ import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
-import type { ContentItem } from "@/constants/content";
 import { r2Route } from "@/lib/r2-direct";
+import { api, TMDB_IMG, tmdbItemToContent, type TmdbItem } from "@/lib/api";
+import type { ContentItem } from "@/constants/content";
 
 const { width: W, height: H } = Dimensions.get("window");
+
 const RED    = "#e50914";
 const AMBER  = "#f59e0b";
 const GREEN  = "#22c55e";
 const BLUE   = "#3b82f6";
 const PURPLE = "#8b5cf6";
 const TEAL   = "#0891b2";
+const PINK   = "#ec4899";
+const ORANGE = "#f97316";
 
-// ─── Data types ───────────────────────────────────────────────────────────────
+const HERO_H = Math.round(H * 0.52);
+const BANNER_INTERVAL = 6000;
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 interface WhatsNewItem {
   id: string;
   title: string;
@@ -54,16 +59,27 @@ interface WhatsNewItem {
   rating?: number;
   overview?: string;
 }
-interface WhatsNewResponse {
+interface WhatsNewResp {
   ok: boolean;
   since: string;
   days: number;
   total: number;
   movies: WhatsNewItem[];
   series: WhatsNewItem[];
-  episodes?: WhatsNewItem[];
+  animes: WhatsNewItem[];
+}
+interface AllData {
+  trending: TmdbItem[];
+  trendingMovies: TmdbItem[];
+  trendingTv: TmdbItem[];
+  nowPlaying: TmdbItem[];
+  upcoming: TmdbItem[];
+  onTheAir: TmdbItem[];
+  airingToday: TmdbItem[];
+  whatsNew: WhatsNewResp | null;
 }
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 function wn2Content(item: WhatsNewItem): ContentItem {
   const isMovie = item.type === "filme" || item.type === "movie";
   return {
@@ -81,189 +97,120 @@ function wn2Content(item: WhatsNewItem): ContentItem {
   };
 }
 
-async function fetchWhatsNew(days = 30): Promise<WhatsNewResponse> {
-  try {
-    const res = await r2Route<WhatsNewResponse>(`/flix2/whats-new?days=${days}`);
-    if (!res.ok) return { ok: false, since: "", days, total: 0, movies: [], series: [] };
-    return res;
-  } catch {
-    return { ok: false, since: "", days, total: 0, movies: [], series: [] };
-  }
+function daysUntil(dateStr: string): number {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(dateStr + "T00:00:00");
+  return Math.ceil((target.getTime() - today.getTime()) / 86400000);
 }
 
-function dateLabel(dateStr: string): string {
-  const now = new Date();
-  const today = now.toISOString().slice(0, 10);
-  const yDate = new Date(now.getTime() - 86400000);
-  const yesterday = yDate.toISOString().slice(0, 10);
-  const weekAgo = new Date(now.getTime() - 7 * 86400000).toISOString().slice(0, 10);
-
-  if (dateStr === today) return "Hoje";
-  if (dateStr === yesterday) return "Ontem";
-  if (dateStr >= weekAgo) return "Esta semana";
-  return "Anteriores";
+function formatDate(dateStr: string): string {
+  if (!dateStr) return "";
+  const d = new Date(dateStr + "T00:00:00");
+  return d.toLocaleDateString("pt-BR", { day: "numeric", month: "short" });
 }
 
-function groupItems(items: WhatsNewItem[]): Record<string, WhatsNewItem[]> {
-  const groups: Record<string, WhatsNewItem[]> = {
-    "Hoje": [],
-    "Ontem": [],
-    "Esta semana": [],
-    "Anteriores": [],
+async function loadAll(): Promise<AllData> {
+  const [trendingRes, nowPlayingRes, upcomingRes, onTheAirRes, airingRes, wnRes] =
+    await Promise.allSettled([
+      api.tmdb.trending(),
+      api.tmdb.nowPlaying(),
+      api.tmdb.upcoming(),
+      api.tmdb.onTheAir(),
+      api.tmdb.airingToday(),
+      r2Route<WhatsNewResp>("/flix2/whats-new?days=14"),
+    ]);
+
+  const trending = trendingRes.status === "fulfilled" ? trendingRes.value : { all: [], movies: [], tv: [] };
+  return {
+    trending: (trending as any).all ?? [],
+    trendingMovies: (trending as any).movies ?? [],
+    trendingTv: (trending as any).tv ?? [],
+    nowPlaying: nowPlayingRes.status === "fulfilled" ? (nowPlayingRes.value as TmdbItem[]) : [],
+    upcoming: upcomingRes.status === "fulfilled" ? (upcomingRes.value as TmdbItem[]) : [],
+    onTheAir: onTheAirRes.status === "fulfilled" ? (onTheAirRes.value as TmdbItem[]) : [],
+    airingToday: airingRes.status === "fulfilled" ? (airingRes.value as TmdbItem[]) : [],
+    whatsNew: wnRes.status === "fulfilled" ? (wnRes.value as WhatsNewResp) : null,
   };
-  for (const item of items) {
-    const label = dateLabel(item.added_date);
-    groups[label].push(item);
-  }
-  return groups;
 }
 
-// ─── SkeletonCard ─────────────────────────────────────────────────────────────
-function SkeletonCard({ shimmer }: { shimmer: Animated.Value }) {
-  const bg = shimmer.interpolate({
-    inputRange: [0, 1],
-    outputRange: ["rgba(255,255,255,0.04)", "rgba(255,255,255,0.10)"],
-  });
+// ─── Skeleton ─────────────────────────────────────────────────────────────────
+function SkeletonRow({ count = 4, width = 120, height = 180 }: { count?: number; width?: number; height?: number }) {
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(Animated.sequence([
+      Animated.timing(anim, { toValue: 1, duration: 850, useNativeDriver: true }),
+      Animated.timing(anim, { toValue: 0, duration: 850, useNativeDriver: true }),
+    ]));
+    loop.start();
+    return () => loop.stop();
+  }, []);
+  const opacity = anim.interpolate({ inputRange: [0, 1], outputRange: [0.04, 0.12] });
   return (
-    <View style={{ flexDirection: "row", paddingHorizontal: 16, gap: 10, marginBottom: 28 }}>
-      {[0, 1, 2, 3].map((i) => (
-        <Animated.View key={i} style={{
-          width: 120, height: 175, borderRadius: 12, backgroundColor: bg as any,
-        }} />
+    <View style={{ flexDirection: "row", paddingHorizontal: 16, gap: 10 }}>
+      {Array.from({ length: count }).map((_, i) => (
+        <Animated.View key={i} style={{ width, height, borderRadius: 12, backgroundColor: "white", opacity }} />
       ))}
     </View>
   );
 }
 
-// ─── PosterCard ───────────────────────────────────────────────────────────────
-function PosterCard({ item, onPress, isNew = false }: {
-  item: ContentItem; onPress: () => void; isNew?: boolean;
-}) {
-  const scale = useRef(new Animated.Value(1)).current;
-  const [err, setErr] = useState(false);
-  const pi = () => Animated.spring(scale, { toValue: 0.92, useNativeDriver: true, speed: 30 }).start();
-  const po = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 26 }).start();
+function SkeletonHero() {
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(Animated.sequence([
+      Animated.timing(anim, { toValue: 1, duration: 950, useNativeDriver: true }),
+      Animated.timing(anim, { toValue: 0, duration: 950, useNativeDriver: true }),
+    ]));
+    loop.start();
+    return () => loop.stop();
+  }, []);
+  const opacity = anim.interpolate({ inputRange: [0, 1], outputRange: [0.05, 0.14] });
   return (
-    <Pressable onPress={onPress} onPressIn={pi} onPressOut={po}>
-      <Animated.View style={{ width: 120, marginRight: 10, transform: [{ scale }] }}>
-        <View style={sty.pCard}>
-          {!err && item.posterPath ? (
-            <Image source={{ uri: item.posterPath }} style={StyleSheet.absoluteFill}
-              contentFit="cover" cachePolicy="memory-disk" transition={280}
-              onError={() => setErr(true)} />
-          ) : (
-            <LinearGradient colors={["#1a0a14", "#08060e"]} style={StyleSheet.absoluteFill}>
-              <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-                <Feather name="film" size={22} color="rgba(255,255,255,0.08)" />
-              </View>
-            </LinearGradient>
-          )}
-          <LinearGradient colors={["transparent", "rgba(0,0,0,0.82)"]}
-            locations={[0.55, 1]} style={StyleSheet.absoluteFill} />
-          {isNew && (
-            <View style={sty.newBadge}>
-              <Text style={sty.newBadgeText}>NOVO</Text>
-            </View>
-          )}
-          {item.rating > 0 && (
-            <View style={sty.ratingPin}>
-              <Feather name="star" size={8} color={AMBER} />
-              <Text style={sty.ratingPinText}>{item.rating.toFixed(1)}</Text>
-            </View>
-          )}
-        </View>
-        <Text style={sty.pTitle} numberOfLines={2}>{item.title}</Text>
-        <Text style={sty.pMeta}>{item.type === "movie" ? "Filme" : "Série"}{item.year > 0 ? ` · ${item.year}` : ""}</Text>
-      </Animated.View>
-    </Pressable>
-  );
-}
-
-// ─── FeaturedCard (hero for top item) ────────────────────────────────────────
-function FeaturedCard({ item, onPress, badge }: {
-  item: ContentItem; onPress: () => void; badge?: string;
-}) {
-  const scale = useRef(new Animated.Value(1)).current;
-  const [err, setErr] = useState(false);
-  const imgUri = item.backdropPath || item.posterPath;
-  const pi = () => Animated.spring(scale, { toValue: 0.97, useNativeDriver: true, speed: 28 }).start();
-  const po = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 24 }).start();
-  return (
-    <Pressable onPress={onPress} onPressIn={pi} onPressOut={po} style={sty.featPad}>
-      <Animated.View style={[sty.featCard, { transform: [{ scale }] }]}>
-        {!err && imgUri ? (
-          <Image source={{ uri: imgUri }} style={StyleSheet.absoluteFill}
-            contentFit="cover" cachePolicy="memory-disk" transition={300}
-            onError={() => setErr(true)} />
-        ) : (
-          <LinearGradient colors={["#1a0a14", "#08060e"]} style={StyleSheet.absoluteFill} />
-        )}
-        <LinearGradient
-          colors={["transparent", "rgba(0,0,0,0.15)", "rgba(0,0,0,0.96)"]}
-          locations={[0.25, 0.55, 1]} style={StyleSheet.absoluteFill} />
-        <View style={sty.featContent}>
-          {badge && (
-            <View style={sty.featBadge}>
-              <Feather name="zap" size={9} color={RED} />
-              <Text style={sty.featBadgeText}>{badge}</Text>
-            </View>
-          )}
-          <Text style={sty.featTitle} numberOfLines={2}>{item.title}</Text>
-          <View style={sty.featMeta}>
-            {item.year > 0 && <Text style={sty.featYear}>{item.year}</Text>}
-            <Text style={sty.featType}>{item.type === "movie" ? "Filme" : "Série"}</Text>
-            {item.rating > 0 && (
-              <View style={sty.featRate}>
-                <Feather name="star" size={9} color={AMBER} />
-                <Text style={sty.featRateText}>{item.rating.toFixed(1)}</Text>
-              </View>
-            )}
-          </View>
-          <View style={sty.featPlayBtn}>
-            <Feather name="play" size={13} color="#fff" />
-            <Text style={sty.featPlayText}>Assistir agora</Text>
-          </View>
-        </View>
-      </Animated.View>
-    </Pressable>
+    <Animated.View style={{ width: W, height: HERO_H, backgroundColor: "white", opacity }} />
   );
 }
 
 // ─── SectionHeader ────────────────────────────────────────────────────────────
-function SectionHeader({ title, icon, badge, accentColor = RED, onSeeAll }: {
-  title: string; icon?: keyof typeof Feather.glyphMap;
-  badge?: string; accentColor?: string; onSeeAll?: () => void;
+function SectionHeader({
+  title, subtitle, icon, badge, accentColor = RED, onSeeAll,
+}: {
+  title: string; subtitle?: string; icon?: keyof typeof Feather.glyphMap;
+  badge?: string | number; accentColor?: string; onSeeAll?: () => void;
 }) {
-  const words = title.split(" ");
-  const first = words[0];
-  const rest  = words.slice(1).join(" ");
+  const parts = title.split(" ");
+  const first = parts[0];
+  const rest = parts.slice(1).join(" ");
   return (
-    <View style={[sty.secHead, { overflow: "hidden" }]}>
+    <View style={[sh.wrap, { overflow: "hidden" }]}>
       <LinearGradient
-        colors={[`${accentColor}28`, "transparent"]}
-        start={{ x: 0, y: 0 }} end={{ x: 0.7, y: 0 }}
+        colors={[`${accentColor}22`, "transparent"]}
+        start={{ x: 0, y: 0 }} end={{ x: 0.8, y: 0 }}
         style={StyleSheet.absoluteFill}
       />
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-        <View style={[sty.accentBar, { backgroundColor: accentColor }]} />
+      <View style={sh.left}>
+        <View style={[sh.bar, { backgroundColor: accentColor }]} />
         {icon && (
-          <View style={[sty.iconWrap, { backgroundColor: `${accentColor}18` }]}>
+          <View style={[sh.iconBox, { backgroundColor: `${accentColor}1a` }]}>
             <Feather name={icon} size={13} color={accentColor} />
           </View>
         )}
-        <View style={{ flexDirection: "row", alignItems: "baseline" }}>
-          <Text style={[sty.secTitle, { color: accentColor }]}>{first}</Text>
-          {rest.length > 0 && <Text style={sty.secTitle}> {rest}</Text>}
-        </View>
-        {badge && (
-          <View style={[sty.badge, { backgroundColor: `${accentColor}20`, borderColor: `${accentColor}40` }]}>
-            <Text style={[sty.badgeText, { color: accentColor }]}>{badge}</Text>
+        <View>
+          <View style={{ flexDirection: "row", alignItems: "baseline" }}>
+            <Text style={[sh.title, { color: accentColor }]}>{first}</Text>
+            {rest ? <Text style={sh.title}> {rest}</Text> : null}
+            {badge != null && (
+              <View style={[sh.badge, { backgroundColor: `${accentColor}22`, borderColor: `${accentColor}44` }]}>
+                <Text style={[sh.badgeText, { color: accentColor }]}>{badge}</Text>
+              </View>
+            )}
           </View>
-        )}
+          {subtitle ? <Text style={sh.sub}>{subtitle}</Text> : null}
+        </View>
       </View>
       {onSeeAll && (
-        <TouchableOpacity onPress={onSeeAll} activeOpacity={0.7} style={sty.seeAllBtn}>
-          <Text style={sty.seeAllText}>Ver mais</Text>
+        <TouchableOpacity onPress={onSeeAll} activeOpacity={0.7} style={sh.seeAll}>
+          <Text style={sh.seeAllText}>Ver mais</Text>
           <Feather name="chevron-right" size={12} color="rgba(255,255,255,0.35)" />
         </TouchableOpacity>
       )}
@@ -271,76 +218,552 @@ function SectionHeader({ title, icon, badge, accentColor = RED, onSeeAll }: {
   );
 }
 
-// ─── DateDivider ──────────────────────────────────────────────────────────────
-function DateDivider({ label, accentColor = RED, count }: { label: string; accentColor?: string; count: number }) {
-  return (
-    <View style={sty.divRow}>
-      <LinearGradient colors={["transparent", `${accentColor}44`, "transparent"]}
-        style={sty.divLine} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} />
-      <View style={[sty.divLabel, { backgroundColor: `${accentColor}14`, borderColor: `${accentColor}30` }]}>
-        <Text style={[sty.divText, { color: accentColor }]}>{label}</Text>
-        <View style={[sty.divCount, { backgroundColor: `${accentColor}25` }]}>
-          <Text style={[sty.divCountText, { color: accentColor }]}>{count}</Text>
-        </View>
-      </View>
-      <LinearGradient colors={["transparent", `${accentColor}44`, "transparent"]}
-        style={sty.divLine} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} />
-    </View>
-  );
-}
+const sh = StyleSheet.create({
+  wrap: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 12, marginBottom: 4 },
+  left: { flexDirection: "row", alignItems: "center", gap: 8, flex: 1 },
+  bar: { width: 3, height: 20, borderRadius: 2 },
+  iconBox: { width: 26, height: 26, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+  title: { fontSize: 16, fontWeight: "800", color: "#fff", letterSpacing: 0.2 },
+  sub: { fontSize: 11, color: "rgba(255,255,255,0.38)", marginTop: 1 },
+  badge: { marginLeft: 6, paddingHorizontal: 6, paddingVertical: 1, borderRadius: 6, borderWidth: 1 },
+  badgeText: { fontSize: 10, fontWeight: "800" },
+  seeAll: { flexDirection: "row", alignItems: "center", gap: 3, paddingLeft: 12 },
+  seeAllText: { fontSize: 12, color: "rgba(255,255,255,0.38)", fontWeight: "600" },
+});
 
-// ─── ModalGridCard ────────────────────────────────────────────────────────────
-function ModalGridCard({ item, cardW, cardH, onPress }: {
-  item: ContentItem; cardW: number; cardH: number; onPress: () => void;
+// ─── PosterCard ───────────────────────────────────────────────────────────────
+function PosterCard({
+  item, onPress, isNew, badge, badgeColor = GREEN,
+}: {
+  item: ContentItem; onPress: () => void; isNew?: boolean; badge?: string; badgeColor?: string;
 }) {
+  const scale = useRef(new Animated.Value(1)).current;
   const [err, setErr] = useState(false);
+  const pi = () => Animated.spring(scale, { toValue: 0.93, useNativeDriver: true, speed: 32 }).start();
+  const po = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 28 }).start();
   return (
-    <Pressable onPress={onPress} style={{ width: cardW, marginBottom: 8 }}>
-      <View style={{ width: cardW, height: cardH, borderRadius: 10, overflow: "hidden", backgroundColor: "#111" }}>
-        {!err && item.posterPath ? (
-          <Image source={{ uri: item.posterPath }} style={StyleSheet.absoluteFill}
-            contentFit="cover" cachePolicy="memory-disk" onError={() => setErr(true)} />
-        ) : (
-          <LinearGradient colors={["#1a0a14", "#08060e"]} style={StyleSheet.absoluteFill} />
-        )}
-        <LinearGradient colors={["transparent", "rgba(0,0,0,0.88)"]} locations={[0.5, 1]}
-          style={StyleSheet.absoluteFill} />
-        <View style={{ position: "absolute", bottom: 0, left: 0, right: 0, padding: 7 }}>
-          <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700", lineHeight: 14 }}
-            numberOfLines={2}>{item.title}</Text>
+    <Pressable onPress={onPress} onPressIn={pi} onPressOut={po}>
+      <Animated.View style={{ width: 118, marginRight: 10, transform: [{ scale }] }}>
+        <View style={pc.card}>
+          {!err && item.posterPath ? (
+            <Image source={{ uri: item.posterPath }} style={StyleSheet.absoluteFill}
+              contentFit="cover" cachePolicy="memory-disk" transition={250}
+              onError={() => setErr(true)} />
+          ) : (
+            <LinearGradient colors={["#1a0a14", "#0a060e"]} style={StyleSheet.absoluteFill}>
+              <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+                <Feather name="film" size={22} color="rgba(255,255,255,0.07)" />
+              </View>
+            </LinearGradient>
+          )}
+          <LinearGradient colors={["transparent", "rgba(0,0,0,0.78)"]} locations={[0.5, 1]}
+            style={StyleSheet.absoluteFill} />
+          {(badge || isNew) && (
+            <View style={[pc.badge, { backgroundColor: badge ? `${badgeColor}ee` : `${GREEN}ee` }]}>
+              <Text style={pc.badgeText}>{badge ?? "NOVO"}</Text>
+            </View>
+          )}
+          {item.rating > 0 && (
+            <View style={pc.rating}>
+              <Feather name="star" size={8} color={AMBER} />
+              <Text style={pc.ratingText}>{item.rating.toFixed(1)}</Text>
+            </View>
+          )}
         </View>
-      </View>
+        <Text style={pc.title} numberOfLines={2}>{item.title}</Text>
+        <Text style={pc.meta}>
+          {item.type === "movie" ? "Filme" : "Série"}{item.year > 0 ? ` · ${item.year}` : ""}
+        </Text>
+      </Animated.View>
     </Pressable>
   );
 }
 
-// ─── Ver Mais Modal ───────────────────────────────────────────────────────────
+const pc = StyleSheet.create({
+  card: { width: 118, height: 172, borderRadius: 12, overflow: "hidden", backgroundColor: "#111", marginBottom: 6 },
+  badge: { position: "absolute", top: 7, left: 7, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5 },
+  badgeText: { fontSize: 8, fontWeight: "900", color: "#fff", letterSpacing: 0.8 },
+  rating: { position: "absolute", bottom: 7, right: 7, flexDirection: "row", alignItems: "center", gap: 2, backgroundColor: "rgba(0,0,0,0.72)", paddingHorizontal: 5, paddingVertical: 2, borderRadius: 5 },
+  ratingText: { fontSize: 9, fontWeight: "700", color: AMBER },
+  title: { fontSize: 12, fontWeight: "700", color: "#fff", lineHeight: 16 },
+  meta: { fontSize: 10, color: "rgba(255,255,255,0.4)", marginTop: 1 },
+});
+
+// ─── LandscapeCard (wider, for now-playing) ───────────────────────────────────
+function LandscapeCard({ item, onPress }: { item: ContentItem; onPress: () => void }) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const [err, setErr] = useState(false);
+  const imgUri = item.backdropPath || item.posterPath;
+  const pi = () => Animated.spring(scale, { toValue: 0.96, useNativeDriver: true, speed: 30 }).start();
+  const po = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 26 }).start();
+  return (
+    <Pressable onPress={onPress} onPressIn={pi} onPressOut={po} style={{ marginRight: 12 }}>
+      <Animated.View style={{ width: 220, transform: [{ scale }] }}>
+        <View style={lc.card}>
+          {!err && imgUri ? (
+            <Image source={{ uri: imgUri }} style={StyleSheet.absoluteFill}
+              contentFit="cover" cachePolicy="memory-disk" transition={250}
+              onError={() => setErr(true)} />
+          ) : (
+            <LinearGradient colors={["#1a0814", "#08060e"]} style={StyleSheet.absoluteFill} />
+          )}
+          <LinearGradient colors={["transparent", "transparent", "rgba(0,0,0,0.95)"]}
+            locations={[0, 0.35, 1]} style={StyleSheet.absoluteFill} />
+          <View style={lc.inner}>
+            <View style={lc.cinemaTag}>
+              <Feather name="film" size={9} color={RED} />
+              <Text style={lc.cinemaTagText}>EM CARTAZ</Text>
+            </View>
+            <Text style={lc.title} numberOfLines={2}>{item.title}</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              {item.year > 0 && <Text style={lc.year}>{item.year}</Text>}
+              {item.rating > 0 && (
+                <View style={lc.ratingRow}>
+                  <Feather name="star" size={9} color={AMBER} />
+                  <Text style={lc.ratingText}>{item.rating.toFixed(1)}</Text>
+                </View>
+              )}
+            </View>
+          </View>
+        </View>
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+const lc = StyleSheet.create({
+  card: { width: 220, height: 130, borderRadius: 14, overflow: "hidden", backgroundColor: "#111" },
+  inner: { position: "absolute", bottom: 0, left: 0, right: 0, padding: 10 },
+  cinemaTag: { flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 4 },
+  cinemaTagText: { fontSize: 8, fontWeight: "900", color: RED, letterSpacing: 1 },
+  title: { fontSize: 13, fontWeight: "800", color: "#fff", lineHeight: 17, marginBottom: 3 },
+  year: { fontSize: 10, color: "rgba(255,255,255,0.45)" },
+  ratingRow: { flexDirection: "row", alignItems: "center", gap: 3 },
+  ratingText: { fontSize: 10, fontWeight: "700", color: AMBER },
+});
+
+// ─── UpcomingCard ─────────────────────────────────────────────────────────────
+function UpcomingCard({ item, releaseDate, onPress }: { item: ContentItem; releaseDate: string; onPress: () => void }) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const [err, setErr] = useState(false);
+  const days = daysUntil(releaseDate);
+  const pi = () => Animated.spring(scale, { toValue: 0.94, useNativeDriver: true, speed: 32 }).start();
+  const po = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 28 }).start();
+  const countdownColor = days <= 7 ? RED : days <= 30 ? AMBER : BLUE;
+  return (
+    <Pressable onPress={onPress} onPressIn={pi} onPressOut={po}>
+      <Animated.View style={{ width: 120, marginRight: 10, transform: [{ scale }] }}>
+        <View style={uc.card}>
+          {!err && item.posterPath ? (
+            <Image source={{ uri: item.posterPath }} style={StyleSheet.absoluteFill}
+              contentFit="cover" cachePolicy="memory-disk" transition={250}
+              onError={() => setErr(true)} />
+          ) : (
+            <LinearGradient colors={["#0e0a1a", "#060410"]} style={StyleSheet.absoluteFill} />
+          )}
+          <LinearGradient colors={["transparent", "rgba(0,0,0,0.92)"]} locations={[0.4, 1]}
+            style={StyleSheet.absoluteFill} />
+          <View style={[uc.countdown, { backgroundColor: `${countdownColor}ee` }]}>
+            {days > 0 ? (
+              <>
+                <Text style={uc.countdownNum}>{days}</Text>
+                <Text style={uc.countdownLabel}>{days === 1 ? "dia" : "dias"}</Text>
+              </>
+            ) : (
+              <Text style={uc.countdownToday}>HOJE</Text>
+            )}
+          </View>
+          <View style={uc.dateBadge}>
+            <Text style={uc.dateText}>{formatDate(releaseDate)}</Text>
+          </View>
+        </View>
+        <Text style={uc.title} numberOfLines={2}>{item.title}</Text>
+        <Text style={uc.sub}>{days > 0 ? `Em ${days} dias` : "Estreia hoje!"}</Text>
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+const uc = StyleSheet.create({
+  card: { width: 120, height: 172, borderRadius: 12, overflow: "hidden", backgroundColor: "#111", marginBottom: 6 },
+  countdown: { position: "absolute", top: 7, right: 7, borderRadius: 8, paddingHorizontal: 6, paddingVertical: 3, alignItems: "center" },
+  countdownNum: { fontSize: 13, fontWeight: "900", color: "#fff", lineHeight: 14 },
+  countdownLabel: { fontSize: 7, fontWeight: "700", color: "rgba(255,255,255,0.8)", lineHeight: 10 },
+  countdownToday: { fontSize: 8, fontWeight: "900", color: "#fff" },
+  dateBadge: { position: "absolute", bottom: 7, left: 7, backgroundColor: "rgba(0,0,0,0.72)", paddingHorizontal: 5, paddingVertical: 2, borderRadius: 5 },
+  dateText: { fontSize: 9, fontWeight: "700", color: "rgba(255,255,255,0.7)" },
+  title: { fontSize: 12, fontWeight: "700", color: "#fff", lineHeight: 16 },
+  sub: { fontSize: 10, color: "rgba(255,255,255,0.4)", marginTop: 1 },
+});
+
+// ─── HeroRotatingBanner ───────────────────────────────────────────────────────
+function HeroRotatingBanner({
+  items, onPress, topPad,
+}: {
+  items: ContentItem[];
+  onPress: (item: ContentItem) => void;
+  topPad: number;
+}) {
+  const [index, setIndex] = useState(0);
+  const fade = useRef(new Animated.Value(1)).current;
+  const flatRef = useRef<FlatList>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [imgErrs, setImgErrs] = useState<Record<number, boolean>>({});
+
+  const advanceTo = useCallback((next: number) => {
+    Animated.timing(fade, { toValue: 0, duration: 320, useNativeDriver: true }).start(() => {
+      setIndex(next);
+      Animated.timing(fade, { toValue: 1, duration: 420, useNativeDriver: true }).start();
+      flatRef.current?.scrollToIndex({ index: next, animated: false });
+    });
+  }, [fade]);
+
+  useEffect(() => {
+    if (items.length < 2) return;
+    timerRef.current = setInterval(() => {
+      setIndex((cur) => {
+        const next = (cur + 1) % items.length;
+        Animated.timing(fade, { toValue: 0, duration: 320, useNativeDriver: true }).start(() => {
+          setIndex(next);
+          Animated.timing(fade, { toValue: 1, duration: 420, useNativeDriver: true }).start();
+          flatRef.current?.scrollToIndex({ index: next, animated: false });
+        });
+        return cur;
+      });
+    }, BANNER_INTERVAL);
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [items.length]);
+
+  if (!items.length) return <SkeletonHero />;
+  const item = items[Math.min(index, items.length - 1)];
+  const imgUri = item.backdropPath || item.posterPath;
+  const hasErr = imgErrs[index];
+
+  return (
+    <View style={{ width: W, height: HERO_H + topPad }}>
+      {/* background image */}
+      <Animated.View style={[StyleSheet.absoluteFill, { opacity: fade }]}>
+        {!hasErr && imgUri ? (
+          <Image source={{ uri: imgUri }} style={StyleSheet.absoluteFill}
+            contentFit="cover" cachePolicy="memory-disk" transition={300}
+            onError={() => setImgErrs((e) => ({ ...e, [index]: true }))} />
+        ) : (
+          <LinearGradient colors={["#1a0814", "#0e060c", "#050508"]} style={StyleSheet.absoluteFill} />
+        )}
+      </Animated.View>
+
+      {/* Gradient overlays */}
+      <LinearGradient
+        colors={["rgba(5,5,8,0.82)", "transparent", "transparent"]}
+        locations={[0, 0.25, 1]}
+        style={[StyleSheet.absoluteFill, { height: topPad + 70 }]}
+      />
+      <LinearGradient
+        colors={["transparent", "rgba(5,5,8,0.1)", "rgba(5,5,8,0.98)"]}
+        locations={[0.38, 0.68, 1]}
+        style={StyleSheet.absoluteFill}
+      />
+
+      {/* Content */}
+      <Animated.View style={[hb.content, { paddingTop: topPad + 60, opacity: fade }]}>
+        <View style={hb.tagRow}>
+          <View style={hb.trendTag}>
+            <Feather name="trending-up" size={9} color={RED} />
+            <Text style={hb.trendText}>EM ALTA</Text>
+          </View>
+          <View style={hb.typePill}>
+            <Text style={hb.typeText}>{item.type === "movie" ? "FILME" : "SÉRIE"}</Text>
+          </View>
+        </View>
+        <Text style={hb.title} numberOfLines={2}>{item.title}</Text>
+        {item.description?.length > 10 && (
+          <Text style={hb.desc} numberOfLines={2}>{item.description}</Text>
+        )}
+        <View style={hb.metaRow}>
+          {item.year > 0 && <Text style={hb.meta}>{item.year}</Text>}
+          {item.rating > 0 && (
+            <View style={hb.ratingWrap}>
+              <Feather name="star" size={10} color={AMBER} />
+              <Text style={hb.ratingText}>{item.rating.toFixed(1)}</Text>
+            </View>
+          )}
+        </View>
+        <View style={hb.btnRow}>
+          <TouchableOpacity onPress={() => onPress(item)} activeOpacity={0.82} style={hb.playBtn}>
+            <Feather name="play" size={14} color="#fff" />
+            <Text style={hb.playText}>Assistir</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => onPress(item)} activeOpacity={0.82} style={hb.infoBtn}>
+            <Feather name="info" size={14} color="rgba(255,255,255,0.8)" />
+            <Text style={hb.infoText}>Detalhes</Text>
+          </TouchableOpacity>
+        </View>
+      </Animated.View>
+
+      {/* Dots */}
+      {items.length > 1 && (
+        <View style={hb.dots}>
+          {items.slice(0, Math.min(items.length, 8)).map((_, i) => (
+            <TouchableOpacity key={i} onPress={() => advanceTo(i)} hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}>
+              <View style={[hb.dot, i === index && hb.dotActive]} />
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
+      {/* Hidden FlatList just for index sync tracking */}
+      <FlatList
+        ref={flatRef}
+        data={items}
+        horizontal
+        keyExtractor={(_, i) => String(i)}
+        renderItem={() => null}
+        scrollEnabled={false}
+        style={{ position: "absolute", opacity: 0, height: 0 }}
+        getItemLayout={(_, i) => ({ length: W, offset: W * i, index: i })}
+      />
+    </View>
+  );
+}
+
+const hb = StyleSheet.create({
+  content: { position: "absolute", bottom: 0, left: 0, right: 0, paddingHorizontal: 20, paddingBottom: 24 },
+  tagRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
+  trendTag: { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: `${RED}22`, borderWidth: 1, borderColor: `${RED}44`, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
+  trendText: { fontSize: 9, fontWeight: "900", color: RED, letterSpacing: 0.8 },
+  typePill: { backgroundColor: "rgba(255,255,255,0.12)", borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3 },
+  typeText: { fontSize: 9, fontWeight: "700", color: "rgba(255,255,255,0.7)", letterSpacing: 0.8 },
+  title: { fontSize: 26, fontWeight: "900", color: "#fff", lineHeight: 30, marginBottom: 6, letterSpacing: -0.3 },
+  desc: { fontSize: 12, color: "rgba(255,255,255,0.55)", lineHeight: 17, marginBottom: 10 },
+  metaRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 14 },
+  meta: { fontSize: 12, color: "rgba(255,255,255,0.45)" },
+  ratingWrap: { flexDirection: "row", alignItems: "center", gap: 4 },
+  ratingText: { fontSize: 12, fontWeight: "700", color: AMBER },
+  btnRow: { flexDirection: "row", gap: 10 },
+  playBtn: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: RED, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 24 },
+  playText: { fontSize: 13, fontWeight: "800", color: "#fff" },
+  infoBtn: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "rgba(255,255,255,0.12)", borderWidth: 1, borderColor: "rgba(255,255,255,0.18)", paddingHorizontal: 18, paddingVertical: 10, borderRadius: 24 },
+  infoText: { fontSize: 13, fontWeight: "700", color: "rgba(255,255,255,0.8)" },
+  dots: { position: "absolute", bottom: 100, right: 20, flexDirection: "row", gap: 5, alignItems: "center" },
+  dot: { width: 5, height: 5, borderRadius: 3, backgroundColor: "rgba(255,255,255,0.25)" },
+  dotActive: { width: 18, backgroundColor: RED },
+});
+
+// ─── StatsStrip ───────────────────────────────────────────────────────────────
+function StatsStrip({ movies, series, animes }: { movies: number; series: number; animes: number }) {
+  const items = [
+    { label: "filmes", count: movies, icon: "film" as const, color: RED },
+    { label: "séries", count: series, icon: "tv" as const, color: BLUE },
+    { label: "animes", count: animes, icon: "star" as const, color: PURPLE },
+  ];
+  return (
+    <View style={ss.row}>
+      {items.map((s, i) => (
+        <View key={i} style={[ss.pill, { borderColor: `${s.color}30` }]}>
+          <View style={[ss.iconWrap, { backgroundColor: `${s.color}18` }]}>
+            <Feather name={s.icon} size={11} color={s.color} />
+          </View>
+          <Text style={[ss.count, { color: s.color }]}>{s.count}</Text>
+          <Text style={ss.label}>{s.label}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+const ss = StyleSheet.create({
+  row: { flexDirection: "row", paddingHorizontal: 16, gap: 8, marginBottom: 24, marginTop: -8 },
+  pill: { flex: 1, flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "rgba(255,255,255,0.04)", borderWidth: 1, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 8 },
+  iconWrap: { width: 22, height: 22, borderRadius: 7, alignItems: "center", justifyContent: "center" },
+  count: { fontSize: 15, fontWeight: "900" },
+  label: { fontSize: 10, color: "rgba(255,255,255,0.42)", fontWeight: "600" },
+});
+
+// ─── ExclusiveBanner ──────────────────────────────────────────────────────────
+function ExclusiveBanner({ onPress }: { onPress: () => void }) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const pi = () => Animated.spring(scale, { toValue: 0.97, useNativeDriver: true, speed: 30 }).start();
+  const po = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 26 }).start();
+  return (
+    <Pressable onPress={onPress} onPressIn={pi} onPressOut={po} style={{ paddingHorizontal: 16, marginBottom: 28 }}>
+      <Animated.View style={{ transform: [{ scale }] }}>
+        <LinearGradient
+          colors={["#1a0520", "#0e0318", "#060110"]}
+          start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+          style={eb.card}
+        >
+          {/* Background pattern */}
+          <View style={eb.glowLeft} />
+          <View style={eb.glowRight} />
+          <View style={eb.content}>
+            <View style={eb.iconCircle}>
+              <Feather name="zap" size={20} color={PURPLE} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <View style={eb.badgeRow}>
+                <View style={eb.exclusiveBadge}>
+                  <Text style={eb.exclusiveText}>SÓ NO NETPLAY</Text>
+                </View>
+              </View>
+              <Text style={eb.title}>Conteúdos Exclusivos</Text>
+              <Text style={eb.subtitle}>Títulos que você só encontra aqui — animes, doramas e séries raras</Text>
+            </View>
+            <Feather name="chevron-right" size={20} color="rgba(167,139,250,0.6)" />
+          </View>
+          <View style={eb.bottom}>
+            {[["🎌", "Animes"], ["🎭", "Doramas"], ["🌟", "Raridades"]].map(([emoji, label]) => (
+              <View key={label} style={eb.tag}>
+                <Text style={eb.tagEmoji}>{emoji}</Text>
+                <Text style={eb.tagLabel}>{label}</Text>
+              </View>
+            ))}
+          </View>
+        </LinearGradient>
+      </Animated.View>
+    </Pressable>
+  );
+}
+const eb = StyleSheet.create({
+  card: { borderRadius: 18, overflow: "hidden", borderWidth: 1, borderColor: "rgba(167,139,250,0.18)" },
+  glowLeft: { position: "absolute", top: -30, left: -20, width: 120, height: 120, borderRadius: 60, backgroundColor: `${PURPLE}22` },
+  glowRight: { position: "absolute", bottom: -20, right: 40, width: 80, height: 80, borderRadius: 40, backgroundColor: `${PINK}1a` },
+  content: { flexDirection: "row", alignItems: "center", gap: 14, padding: 16, paddingBottom: 12 },
+  iconCircle: { width: 48, height: 48, borderRadius: 16, backgroundColor: `${PURPLE}22`, borderWidth: 1, borderColor: `${PURPLE}40`, alignItems: "center", justifyContent: "center" },
+  badgeRow: { flexDirection: "row", marginBottom: 4 },
+  exclusiveBadge: { backgroundColor: `${PURPLE}30`, borderWidth: 1, borderColor: `${PURPLE}55`, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 },
+  exclusiveText: { fontSize: 8, fontWeight: "900", color: PURPLE, letterSpacing: 0.8 },
+  title: { fontSize: 15, fontWeight: "800", color: "#fff", lineHeight: 19 },
+  subtitle: { fontSize: 11, color: "rgba(255,255,255,0.42)", lineHeight: 15, marginTop: 2 },
+  bottom: { flexDirection: "row", gap: 8, paddingHorizontal: 16, paddingBottom: 14 },
+  tag: { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "rgba(255,255,255,0.06)", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 },
+  tagEmoji: { fontSize: 12 },
+  tagLabel: { fontSize: 11, fontWeight: "600", color: "rgba(255,255,255,0.55)" },
+});
+
+// ─── BreakingBanner (Estreias Hoje) ───────────────────────────────────────────
+function BreakingBanner({ items, onPress }: { items: ContentItem[]; onPress: (item: ContentItem) => void }) {
+  if (!items.length) return null;
+  return (
+    <View style={{ marginBottom: 28 }}>
+      <SectionHeader title="Estreando Hoje" icon="sunrise" badge={items.length} accentColor={ORANGE} subtitle="Séries com novos episódios hoje" />
+      <ScrollView horizontal showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ paddingHorizontal: 16, gap: 10, paddingBottom: 4 }}>
+        {items.map((item, i) => (
+          <PosterCard key={`at_${item.id}_${i}`} item={item} onPress={() => onPress(item)} badge="HOJE" badgeColor={ORANGE} />
+        ))}
+      </ScrollView>
+    </View>
+  );
+}
+
+// ─── TvOnAirCard ──────────────────────────────────────────────────────────────
+function TvOnAirCard({ item, onPress }: { item: ContentItem; onPress: () => void }) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const [err, setErr] = useState(false);
+  const pi = () => Animated.spring(scale, { toValue: 0.94, useNativeDriver: true, speed: 32 }).start();
+  const po = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 28 }).start();
+  return (
+    <Pressable onPress={onPress} onPressIn={pi} onPressOut={po} style={{ marginRight: 10 }}>
+      <Animated.View style={{ width: 150, transform: [{ scale }] }}>
+        <View style={tv.card}>
+          {!err && item.posterPath ? (
+            <Image source={{ uri: item.posterPath }} style={StyleSheet.absoluteFill}
+              contentFit="cover" cachePolicy="memory-disk" transition={250}
+              onError={() => setErr(true)} />
+          ) : (
+            <LinearGradient colors={["#0a1020", "#060810"]} style={StyleSheet.absoluteFill} />
+          )}
+          <LinearGradient colors={["transparent", "rgba(0,0,0,0.9)"]} locations={[0.45, 1]}
+            style={StyleSheet.absoluteFill} />
+          <View style={tv.liveTag}>
+            <View style={tv.liveDot} />
+            <Text style={tv.liveText}>NO AR</Text>
+          </View>
+          {item.rating > 0 && (
+            <View style={tv.rating}>
+              <Feather name="star" size={8} color={AMBER} />
+              <Text style={tv.ratingText}>{item.rating.toFixed(1)}</Text>
+            </View>
+          )}
+        </View>
+        <Text style={tv.title} numberOfLines={2}>{item.title}</Text>
+        <Text style={tv.meta}>Série · Temporada atual</Text>
+      </Animated.View>
+    </Pressable>
+  );
+}
+const tv = StyleSheet.create({
+  card: { width: 150, height: 218, borderRadius: 12, overflow: "hidden", backgroundColor: "#111", marginBottom: 6 },
+  liveTag: { position: "absolute", top: 8, left: 8, flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: `${TEAL}dd`, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3 },
+  liveDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: "#fff" },
+  liveText: { fontSize: 8, fontWeight: "900", color: "#fff", letterSpacing: 0.8 },
+  rating: { position: "absolute", bottom: 8, right: 8, flexDirection: "row", alignItems: "center", gap: 2, backgroundColor: "rgba(0,0,0,0.7)", paddingHorizontal: 5, paddingVertical: 2, borderRadius: 5 },
+  ratingText: { fontSize: 9, fontWeight: "700", color: AMBER },
+  title: { fontSize: 12, fontWeight: "700", color: "#fff", lineHeight: 16 },
+  meta: { fontSize: 10, color: "rgba(255,255,255,0.38)", marginTop: 1 },
+});
+
+// ─── AnimeCard ────────────────────────────────────────────────────────────────
+function AnimeCard({ item, onPress }: { item: ContentItem; onPress: () => void }) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const [err, setErr] = useState(false);
+  const pi = () => Animated.spring(scale, { toValue: 0.93, useNativeDriver: true, speed: 32 }).start();
+  const po = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 28 }).start();
+  return (
+    <Pressable onPress={onPress} onPressIn={pi} onPressOut={po}>
+      <Animated.View style={{ width: 100, marginRight: 10, transform: [{ scale }] }}>
+        <View style={ac.card}>
+          {!err && item.posterPath ? (
+            <Image source={{ uri: item.posterPath }} style={StyleSheet.absoluteFill}
+              contentFit="cover" cachePolicy="memory-disk" transition={250}
+              onError={() => setErr(true)} />
+          ) : (
+            <LinearGradient colors={["#10051a", "#06030e"]} style={StyleSheet.absoluteFill} />
+          )}
+          <LinearGradient colors={["transparent", "rgba(0,0,0,0.88)"]} locations={[0.5, 1]}
+            style={StyleSheet.absoluteFill} />
+          <View style={ac.badge}>
+            <Text style={ac.badgeText}>🎌</Text>
+          </View>
+        </View>
+        <Text style={ac.title} numberOfLines={2}>{item.title}</Text>
+      </Animated.View>
+    </Pressable>
+  );
+}
+const ac = StyleSheet.create({
+  card: { width: 100, height: 145, borderRadius: 10, overflow: "hidden", backgroundColor: "#111", marginBottom: 5 },
+  badge: { position: "absolute", top: 6, right: 6, backgroundColor: "rgba(0,0,0,0.65)", borderRadius: 6, padding: 3 },
+  badgeText: { fontSize: 10 },
+  title: { fontSize: 10, fontWeight: "700", color: "#fff", lineHeight: 14 },
+});
+
+// ─── VerMaisModal ─────────────────────────────────────────────────────────────
 function VerMaisModal({ visible, title, items, accentColor = RED, onClose, onItemPress }: {
   visible: boolean; title: string; items: ContentItem[];
   accentColor?: string; onClose: () => void; onItemPress: (item: ContentItem) => void;
 }) {
-  const slideY   = useRef(new Animated.Value(H)).current;
-  const backdrop = useRef(new Animated.Value(0)).current;
+  const slideY = useRef(new Animated.Value(H)).current;
+  const bdrop = useRef(new Animated.Value(0)).current;
   const [query, setQuery] = useState("");
 
   useEffect(() => {
     if (visible) {
       setQuery("");
       Animated.parallel([
-        Animated.timing(slideY, { toValue: 0, duration: 340, useNativeDriver: true }),
-        Animated.timing(backdrop, { toValue: 1, duration: 280, useNativeDriver: true }),
+        Animated.timing(slideY, { toValue: 0, duration: 330, useNativeDriver: true }),
+        Animated.timing(bdrop, { toValue: 1, duration: 270, useNativeDriver: true }),
       ]).start();
     } else {
       Animated.parallel([
-        Animated.timing(slideY, { toValue: H, duration: 300, useNativeDriver: true }),
-        Animated.timing(backdrop, { toValue: 0, duration: 240, useNativeDriver: true }),
+        Animated.timing(slideY, { toValue: H, duration: 290, useNativeDriver: true }),
+        Animated.timing(bdrop, { toValue: 0, duration: 230, useNativeDriver: true }),
       ]).start();
     }
   }, [visible]);
 
   const filtered = useMemo(() => {
     if (!query.trim()) return items;
-    const q = query.trim().toLowerCase();
+    const q = query.toLowerCase();
     return items.filter((i) => i.title.toLowerCase().includes(q));
   }, [query, items]);
 
@@ -349,88 +772,101 @@ function VerMaisModal({ visible, title, items, accentColor = RED, onClose, onIte
 
   return (
     <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
-      <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.7)", opacity: backdrop }]}>
+      <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.72)", opacity: bdrop }]}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
       </Animated.View>
-      <Animated.View style={[sty.modal, { transform: [{ translateY: slideY }] }]}>
+      <Animated.View style={[vm.sheet, { transform: [{ translateY: slideY }] }]}>
         <LinearGradient colors={["#0a0810", "#060408"]} style={StyleSheet.absoluteFill} />
-        <View style={[sty.modalHandle, { backgroundColor: `${accentColor}60` }]} />
-        <View style={sty.modalHeader}>
+        <View style={[vm.handle, { backgroundColor: `${accentColor}55` }]} />
+        <View style={vm.header}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-            <View style={[sty.modalAccent, { backgroundColor: accentColor }]} />
-            <Text style={sty.modalTitle}>{title}</Text>
-            <View style={[sty.badge, { backgroundColor: `${accentColor}20`, borderColor: `${accentColor}40` }]}>
-              <Text style={[sty.badgeText, { color: accentColor }]}>
-                {query.trim() ? `${filtered.length} de ${items.length}` : items.length}
+            <View style={[vm.accent, { backgroundColor: accentColor }]} />
+            <Text style={vm.title}>{title}</Text>
+            <View style={[vm.cnt, { backgroundColor: `${accentColor}20`, borderColor: `${accentColor}44` }]}>
+              <Text style={[vm.cntText, { color: accentColor }]}>
+                {query.trim() ? `${filtered.length}/${items.length}` : items.length}
               </Text>
             </View>
           </View>
-          <TouchableOpacity onPress={onClose} activeOpacity={0.7} style={sty.modalClose}>
-            <Feather name="x" size={18} color="rgba(255,255,255,0.7)" />
+          <TouchableOpacity onPress={onClose} activeOpacity={0.7} style={vm.close}>
+            <Feather name="x" size={18} color="rgba(255,255,255,0.65)" />
           </TouchableOpacity>
         </View>
-        <View style={sty.searchWrap}>
-          <Feather name="search" size={14} color={query ? accentColor : "rgba(255,255,255,0.35)"} style={{ marginRight: 8 }} />
+        <View style={vm.searchBar}>
+          <Feather name="search" size={14} color={query ? accentColor : "rgba(255,255,255,0.3)"} style={{ marginRight: 8 }} />
           <TextInput
             value={query} onChangeText={setQuery}
-            placeholder="Buscar nesta lista..." placeholderTextColor="rgba(255,255,255,0.28)"
-            style={[sty.searchInput, query ? { color: "#fff" } : {}]}
-            returnKeyType="search" clearButtonMode="while-editing" autoCorrect={false}
+            placeholder="Buscar…" placeholderTextColor="rgba(255,255,255,0.25)"
+            style={[vm.searchInput, query && { color: "#fff" }]}
+            returnKeyType="search" autoCorrect={false}
           />
-          {query ? (
+          {!!query && (
             <TouchableOpacity onPress={() => setQuery("")} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
               <Feather name="x-circle" size={14} color={accentColor} />
             </TouchableOpacity>
-          ) : null}
+          )}
         </View>
         <FlatList
           data={filtered}
-          keyExtractor={(item, idx) => `${item.id}_${idx}`}
+          keyExtractor={(item, idx) => `vm_${item.id}_${idx}`}
           numColumns={3}
-          style={{ flex: 1 }}
           columnWrapperStyle={{ gap: 8, paddingHorizontal: 16 }}
           contentContainerStyle={{ paddingBottom: 120, paddingTop: 4 }}
           showsVerticalScrollIndicator={false}
           initialNumToRender={15}
           maxToRenderPerBatch={9}
-          windowSize={5}
           renderItem={({ item }) => (
-            <ModalGridCard
-              item={item} cardW={CARD_W} cardH={CARD_H}
-              onPress={() => { onItemPress(item); onClose(); }}
-            />
+            <Pressable onPress={() => { onItemPress(item); onClose(); }}
+              style={{ width: CARD_W, marginBottom: 8 }}>
+              <View style={{ width: CARD_W, height: CARD_H, borderRadius: 10, overflow: "hidden", backgroundColor: "#111" }}>
+                {item.posterPath ? (
+                  <Image source={{ uri: item.posterPath }} style={StyleSheet.absoluteFill}
+                    contentFit="cover" cachePolicy="memory-disk" />
+                ) : (
+                  <LinearGradient colors={["#1a0a14", "#08060e"]} style={StyleSheet.absoluteFill} />
+                )}
+                <LinearGradient colors={["transparent", "rgba(0,0,0,0.88)"]} locations={[0.5, 1]}
+                  style={StyleSheet.absoluteFill} />
+                <View style={{ position: "absolute", bottom: 0, left: 0, right: 0, padding: 7 }}>
+                  <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700", lineHeight: 14 }} numberOfLines={2}>
+                    {item.title}
+                  </Text>
+                </View>
+              </View>
+            </Pressable>
           )}
         />
       </Animated.View>
     </Modal>
   );
 }
+const vm = StyleSheet.create({
+  sheet: { position: "absolute", bottom: 0, left: 0, right: 0, height: H * 0.88, borderTopLeftRadius: 22, borderTopRightRadius: 22, overflow: "hidden" },
+  handle: { width: 36, height: 4, borderRadius: 2, alignSelf: "center", marginTop: 10, marginBottom: 6 },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 18, paddingVertical: 10 },
+  accent: { width: 3, height: 18, borderRadius: 2 },
+  title: { fontSize: 16, fontWeight: "800", color: "#fff" },
+  cnt: { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, borderWidth: 1 },
+  cntText: { fontSize: 11, fontWeight: "800" },
+  close: { width: 34, height: 34, borderRadius: 17, backgroundColor: "rgba(255,255,255,0.07)", alignItems: "center", justifyContent: "center" },
+  searchBar: { flexDirection: "row", alignItems: "center", marginHorizontal: 16, marginBottom: 10, backgroundColor: "rgba(255,255,255,0.06)", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 9 },
+  searchInput: { flex: 1, fontSize: 13, color: "rgba(255,255,255,0.5)", padding: 0 },
+});
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
-type FilterType = "all" | "movies" | "series";
-
-const ACCENT_BY_LABEL: Record<string, string> = {
-  "Hoje": RED,
-  "Ontem": PURPLE,
-  "Esta semana": BLUE,
-  "Anteriores": TEAL,
-};
-
 export default function NovidadesScreen() {
-  const colors  = useColors();
-  const router  = useRouter();
-  const insets  = useSafeAreaInsets();
-  const isWeb   = Platform.OS === "web";
-  const topPad  = isWeb ? 0 : insets.top;
+  const colors = useColors();
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const isWeb = Platform.OS === "web";
+  const topPad = isWeb ? 67 : insets.top;
 
-  const shimmer = useRef(new Animated.Value(0)).current;
-  const [loading, setLoading]       = useState(true);
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [data, setData]             = useState<WhatsNewResponse | null>(null);
-  const [filter, setFilter]         = useState<FilterType>("all");
-  const [modal, setModal]           = useState<{
-    visible: boolean; title: string; items: ContentItem[]; accent: string;
-  }>({ visible: false, title: "", items: [], accent: RED });
+  const [data, setData] = useState<AllData | null>(null);
+  const [modal, setModal] = useState<{ visible: boolean; title: string; items: ContentItem[]; accent: string }>({
+    visible: false, title: "", items: [], accent: RED,
+  });
 
   const openModal = (title: string, items: ContentItem[], accent = RED) =>
     setModal({ visible: true, title, items, accent });
@@ -441,7 +877,7 @@ export default function NovidadesScreen() {
       pathname: "/detail",
       params: {
         type: item.mediaType ?? (item.type === "movie" ? "movie" : "tv"),
-        id: String(item.tmdbId),
+        id: String(item.tmdbId || item.id),
         flix2Id: String(item.id ?? ""),
         title: item.title,
         poster: item.posterPath ?? "",
@@ -450,77 +886,109 @@ export default function NovidadesScreen() {
   }, [router]);
 
   const load = useCallback(async () => {
-    const res = await fetchWhatsNew(30);
-    setData(res);
+    const result = await loadAll();
+    setData(result);
   }, []);
 
   useEffect(() => {
-    const loop = Animated.loop(Animated.sequence([
-      Animated.timing(shimmer, { toValue: 1, duration: 900, useNativeDriver: true }),
-      Animated.timing(shimmer, { toValue: 0, duration: 900, useNativeDriver: true }),
-    ]));
-    if (Platform.OS === "web") loop.start();
-    load().then(() => {
-      loop.stop();
-      setLoading(false);
-    });
-    return () => loop.stop();
+    load().finally(() => setLoading(false));
   }, [load]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    load().then(() => setRefreshing(false));
+    load().finally(() => setRefreshing(false));
   }, [load]);
 
-  // ── Compute filtered + grouped items ───────────────────────────────────────
-  const allItems = useMemo((): WhatsNewItem[] => {
+  // ── Computed sections ───────────────────────────────────────────────────────
+  const heroBannerItems = useMemo<ContentItem[]>(() => {
     if (!data) return [];
-    let items: WhatsNewItem[] = [];
-    if (filter === "all")     items = [...(data.movies ?? []), ...(data.series ?? [])];
-    else if (filter === "movies") items = data.movies ?? [];
-    else items = data.series ?? [];
-    return items.filter((i) => i.title);
-  }, [data, filter]);
-
-  const groups = useMemo(() => groupItems(allItems), [allItems]);
-  const GROUP_ORDER: string[] = ["Hoje", "Ontem", "Esta semana", "Anteriores"];
-
-  // ── Featured: first item with a poster ─────────────────────────────────────
-  const featured = useMemo((): ContentItem | null => {
-    const first = allItems.find((i) => i.poster);
-    return first ? wn2Content(first) : null;
-  }, [allItems]);
-
-  const stats = useMemo(() => {
-    const m = (data?.movies ?? []).length;
-    const s = (data?.series ?? []).length;
-    return { movies: m, series: s, total: m + s };
+    return data.trending.slice(0, 8).map(tmdbItemToContent);
   }, [data]);
 
+  const nowPlayingItems = useMemo<ContentItem[]>(() => {
+    if (!data) return [];
+    return data.nowPlaying.slice(0, 12).map(tmdbItemToContent);
+  }, [data]);
+
+  const upcomingItems = useMemo<Array<{ item: ContentItem; releaseDate: string }>>(() => {
+    if (!data) return [];
+    return data.upcoming
+      .filter((i) => i.release_date && daysUntil(i.release_date) >= 0)
+      .slice(0, 12)
+      .map((i) => ({ item: tmdbItemToContent(i), releaseDate: i.release_date! }));
+  }, [data]);
+
+  const onTheAirItems = useMemo<ContentItem[]>(() => {
+    if (!data) return [];
+    return data.onTheAir.slice(0, 10).map(tmdbItemToContent);
+  }, [data]);
+
+  const airingTodayItems = useMemo<ContentItem[]>(() => {
+    if (!data) return [];
+    return data.airingToday.slice(0, 10).map(tmdbItemToContent);
+  }, [data]);
+
+  const trendingMovieItems = useMemo<ContentItem[]>(() => {
+    if (!data) return [];
+    return data.trendingMovies.slice(0, 12).map(tmdbItemToContent);
+  }, [data]);
+
+  const trendingTvItems = useMemo<ContentItem[]>(() => {
+    if (!data) return [];
+    return data.trendingTv.slice(0, 12).map(tmdbItemToContent);
+  }, [data]);
+
+  const newMovies = useMemo<ContentItem[]>(() => {
+    if (!data?.whatsNew) return [];
+    return data.whatsNew.movies.filter((i) => i.poster).map(wn2Content);
+  }, [data]);
+
+  const newSeries = useMemo<ContentItem[]>(() => {
+    if (!data?.whatsNew) return [];
+    return data.whatsNew.series.filter((i) => i.poster).map(wn2Content);
+  }, [data]);
+
+  const newAnimes = useMemo<ContentItem[]>(() => {
+    if (!data?.whatsNew) return [];
+    return data.whatsNew.animes.filter((i) => i.poster).map(wn2Content);
+  }, [data]);
+
+  const totalNew = (data?.whatsNew?.total ?? 0);
+
+  // ── Week stats ──────────────────────────────────────────────────────────────
+  const weekMovies = useMemo(() => data?.whatsNew?.movies.length ?? 0, [data]);
+  const weekSeries = useMemo(() => data?.whatsNew?.series.length ?? 0, [data]);
+  const weekAnimes = useMemo(() => data?.whatsNew?.animes.length ?? 0, [data]);
+
   return (
-    <View style={[sty.root, { backgroundColor: colors.background }]}>
+    <View style={[root.bg, { backgroundColor: colors.background }]}>
       <StatusBar style="light" />
 
       {/* ═══ HEADER ══════════════════════════════════════════════════════════ */}
-      <View style={[sty.header, { paddingTop: topPad + 8 }]}>
+      <View style={[root.header, { paddingTop: topPad + 10 }]}>
         <LinearGradient
-          colors={["rgba(0,0,0,0.95)", "rgba(0,0,0,0.6)", "transparent"]}
-          style={StyleSheet.absoluteFill} />
-        <View style={sty.headerInner}>
+          colors={["rgba(5,5,8,0.98)", "rgba(5,5,8,0.7)", "transparent"]}
+          style={StyleSheet.absoluteFill}
+        />
+        <View style={root.headerInner}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <View style={[sty.logoAccent, { backgroundColor: RED }]} />
-            <Text style={sty.logoRed}>NOVI</Text>
-            <Text style={sty.logoWhite}>DADES</Text>
-            {stats.total > 0 && (
-              <View style={sty.headerBadge}>
-                <Text style={sty.headerBadgeText}>{stats.total}</Text>
+            <LinearGradient colors={[RED, "#ff4d5a"]} style={root.sparkleBox}>
+              <Feather name="zap" size={12} color="#fff" />
+            </LinearGradient>
+            <Text style={root.logoA}>NOVI</Text>
+            <Text style={root.logoB}>DADES</Text>
+            {totalNew > 0 && (
+              <View style={root.countBadge}>
+                <Text style={root.countText}>{totalNew}+</Text>
               </View>
             )}
           </View>
-          <TouchableOpacity style={sty.iconBtn}
-            onPress={() => router.push("/(tabs)/list")} activeOpacity={0.75}>
-            <Feather name="bookmark" size={20} color="rgba(255,255,255,0.82)" />
-          </TouchableOpacity>
+          <View style={{ flexDirection: "row", gap: 10 }}>
+            <TouchableOpacity style={root.iconBtn}
+              onPress={() => router.push("/(tabs)/list")} activeOpacity={0.75}>
+              <Feather name="bookmark" size={19} color="rgba(255,255,255,0.75)" />
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
 
@@ -529,123 +997,177 @@ export default function NovidadesScreen() {
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh}
-            tintColor={RED} colors={[RED]} progressViewOffset={topPad + 50} />
+            tintColor={RED} colors={[RED]} progressViewOffset={topPad + 52} />
         }
-        contentContainerStyle={{ paddingBottom: 140 }}
+        contentContainerStyle={{ paddingBottom: 160 }}
       >
-        {/* ── Top padding for header ────────────────────────────────────── */}
-        <View style={{ height: topPad + 58 }} />
-
-        {/* ── FILTER PILLS ─────────────────────────────────────────────── */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 16, gap: 8, paddingBottom: 4 }}
-          style={{ flexGrow: 0, marginBottom: 12 }}>
-          {(["all", "movies", "series"] as FilterType[]).map((f) => {
-            const labels = { all: "Todos", movies: "Filmes", series: "Séries" };
-            const icons: Record<FilterType, keyof typeof Feather.glyphMap> = {
-              all: "layers", movies: "film", series: "tv",
-            };
-            const active = filter === f;
-            return (
-              <TouchableOpacity key={f} onPress={() => setFilter(f)} activeOpacity={0.8}
-                style={[sty.pill, active && sty.pillActive]}>
-                <Feather name={icons[f]} size={12} color={active ? "#fff" : "rgba(255,255,255,0.5)"} />
-                <Text style={[sty.pillText, active && sty.pillTextActive]}>{labels[f]}</Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-
-        {/* ── STATS BAR ────────────────────────────────────────────────── */}
-        {!loading && stats.total > 0 && (
-          <View style={sty.statsBar}>
-            <LinearGradient colors={[`${RED}18`, "transparent"]} style={StyleSheet.absoluteFill} />
-            <Feather name="clock" size={12} color={RED} />
-            <Text style={sty.statsText}>
-              <Text style={{ color: RED, fontWeight: "800" }}>{stats.movies}</Text> filmes · <Text style={{ color: PURPLE, fontWeight: "800" }}>{stats.series}</Text> séries adicionados nos últimos 30 dias
-            </Text>
-          </View>
-        )}
-
+        {/* ── HERO BANNER ──────────────────────────────────────────────── */}
         {loading ? (
-          <View style={{ marginTop: 16 }}>
-            <SkeletonCard shimmer={shimmer} />
-            <SkeletonCard shimmer={shimmer} />
-            <SkeletonCard shimmer={shimmer} />
+          <View style={{ marginBottom: 0 }}>
+            <SkeletonHero />
+            <View style={{ height: topPad + 60 }} />
           </View>
         ) : (
-          <>
-            {/* ── FEATURED ──────────────────────────────────────────────── */}
-            {featured && (
-              <View style={{ marginBottom: 8 }}>
-                <FeaturedCard
-                  item={featured}
-                  onPress={() => goTo(featured)}
-                  badge="ADICIONADO RECENTEMENTE"
-                />
-              </View>
-            )}
-
-            {/* ── DATE GROUPS ───────────────────────────────────────────── */}
-            {GROUP_ORDER.map((groupLabel) => {
-              const groupItems = groups[groupLabel] ?? [];
-              if (!groupItems.length) return null;
-              const accent = ACCENT_BY_LABEL[groupLabel] ?? RED;
-              const contentItems = groupItems.map(wn2Content);
-              return (
-                <View key={groupLabel} style={{ marginBottom: 8 }}>
-                  <DateDivider label={groupLabel} accentColor={accent} count={groupItems.length} />
-                  <View style={sty.sec}>
-                    <SectionHeader
-                      title={groupLabel === "Hoje" ? "Adicionados Hoje" :
-                             groupLabel === "Ontem" ? "Adicionados Ontem" :
-                             groupLabel === "Esta semana" ? "Esta Semana" : "Mais Antigos"}
-                      icon={groupLabel === "Hoje" ? "zap" :
-                            groupLabel === "Ontem" ? "clock" :
-                            groupLabel === "Esta semana" ? "calendar" : "archive"}
-                      badge={String(groupItems.length)}
-                      accentColor={accent}
-                      onSeeAll={contentItems.length > 6
-                        ? () => openModal(groupLabel, contentItems, accent)
-                        : undefined}
-                    />
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false}
-                      contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 8 }}
-                      decelerationRate="fast">
-                      {contentItems.slice(0, 10).map((item) => (
-                        <PosterCard key={item.id} item={item} onPress={() => goTo(item)} isNew />
-                      ))}
-                      {contentItems.length > 10 && (
-                        <Pressable
-                          onPress={() => openModal(groupLabel, contentItems, accent)}
-                          style={sty.morePill}>
-                          <LinearGradient colors={[`${accent}28`, `${accent}10`]}
-                            style={StyleSheet.absoluteFill} />
-                          <Feather name="plus" size={16} color={accent} />
-                          <Text style={[sty.morePillText, { color: accent }]}>
-                            +{contentItems.length - 10}
-                          </Text>
-                        </Pressable>
-                      )}
-                    </ScrollView>
-                  </View>
-                </View>
-              );
-            })}
-
-            {/* ── EMPTY STATE ───────────────────────────────────────────── */}
-            {allItems.length === 0 && (
-              <View style={sty.emptyState}>
-                <Feather name="inbox" size={40} color="rgba(255,255,255,0.1)" />
-                <Text style={sty.emptyTitle}>Nenhuma novidade encontrada</Text>
-                <Text style={sty.emptySub}>Puxe para baixo para atualizar</Text>
-              </View>
-            )}
-          </>
+          <HeroRotatingBanner items={heroBannerItems} onPress={goTo} topPad={topPad} />
         )}
+
+        {/* ── STATS STRIP ──────────────────────────────────────────────── */}
+        <View style={{ height: 16 }} />
+        {loading ? null : <StatsStrip movies={weekMovies} series={weekSeries} animes={weekAnimes} />}
+
+        {/* ── FILMES DA SEMANA ─────────────────────────────────────────── */}
+        <View style={root.section}>
+          <SectionHeader title="Filmes da Semana" icon="film" badge={newMovies.length}
+            accentColor={RED} subtitle="Adicionados nos últimos 14 dias"
+            onSeeAll={newMovies.length > 5 ? () => openModal("Filmes da Semana", newMovies, RED) : undefined} />
+          {loading ? <SkeletonRow count={4} width={118} height={172} /> : (
+            newMovies.length > 0 ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 4 }}>
+                {newMovies.map((item, i) => (
+                  <PosterCard key={`nm_${item.id}_${i}`} item={item}
+                    onPress={() => goTo(item)} isNew />
+                ))}
+              </ScrollView>
+            ) : (
+              <Text style={root.emptyText}>Em breve por aqui</Text>
+            )
+          )}
+        </View>
+
+        {/* ── EM ALTA ESTA SEMANA (FILMES) ─────────────────────────────── */}
+        <View style={root.section}>
+          <SectionHeader title="Em Alta Esta Semana" icon="trending-up" badge={trendingMovieItems.length}
+            accentColor={AMBER} subtitle="Filmes mais assistidos no mundo"
+            onSeeAll={() => openModal("Em Alta — Filmes", trendingMovieItems, AMBER)} />
+          {loading ? <SkeletonRow count={4} width={118} height={172} /> : (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 4 }}>
+              {trendingMovieItems.map((item, i) => (
+                <PosterCard key={`tf_${item.id}_${i}`} item={item}
+                  onPress={() => goTo(item)} badge={i < 3 ? `#${i + 1}` : undefined} badgeColor={AMBER} />
+              ))}
+            </ScrollView>
+          )}
+        </View>
+
+        {/* ── EM CARTAZ AGORA ──────────────────────────────────────────── */}
+        <View style={root.section}>
+          <SectionHeader title="Em Cartaz Agora" icon="film" badge={nowPlayingItems.length}
+            accentColor={ORANGE} subtitle="Nos cinemas esta semana"
+            onSeeAll={() => openModal("Em Cartaz Agora", nowPlayingItems, ORANGE)} />
+          {loading ? <SkeletonRow count={3} width={220} height={130} /> : (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 4 }}>
+              {nowPlayingItems.map((item, i) => (
+                <LandscapeCard key={`np_${item.id}_${i}`} item={item} onPress={() => goTo(item)} />
+              ))}
+            </ScrollView>
+          )}
+        </View>
+
+        {/* ── SÉRIES DA SEMANA ─────────────────────────────────────────── */}
+        <View style={root.section}>
+          <SectionHeader title="Séries da Semana" icon="tv" badge={newSeries.length}
+            accentColor={BLUE} subtitle="Novas séries adicionadas"
+            onSeeAll={newSeries.length > 5 ? () => openModal("Séries da Semana", newSeries, BLUE) : undefined} />
+          {loading ? <SkeletonRow count={4} width={118} height={172} /> : (
+            newSeries.length > 0 ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 4 }}>
+                {newSeries.map((item, i) => (
+                  <PosterCard key={`ns_${item.id}_${i}`} item={item}
+                    onPress={() => goTo(item)} badge="NOVA" badgeColor={BLUE} />
+                ))}
+              </ScrollView>
+            ) : (
+              <Text style={root.emptyText}>Em breve por aqui</Text>
+            )
+          )}
+        </View>
+
+        {/* ── EXCLUSIVE BANNER ─────────────────────────────────────────── */}
+        <ExclusiveBanner onPress={() => router.push("/search")} />
+
+        {/* ── ESTREANDO HOJE ───────────────────────────────────────────── */}
+        {!loading && airingTodayItems.length > 0 && (
+          <BreakingBanner items={airingTodayItems} onPress={goTo} />
+        )}
+
+        {/* ── SÉRIES NO AR ─────────────────────────────────────────────── */}
+        <View style={root.section}>
+          <SectionHeader title="Séries no Ar" icon="radio" badge={onTheAirItems.length}
+            accentColor={TEAL} subtitle="Temporadas em andamento"
+            onSeeAll={() => openModal("Séries no Ar", onTheAirItems, TEAL)} />
+          {loading ? <SkeletonRow count={3} width={150} height={218} /> : (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 4 }}>
+              {onTheAirItems.map((item, i) => (
+                <TvOnAirCard key={`oa_${item.id}_${i}`} item={item} onPress={() => goTo(item)} />
+              ))}
+            </ScrollView>
+          )}
+        </View>
+
+        {/* ── EM ALTA — SÉRIES ─────────────────────────────────────────── */}
+        <View style={root.section}>
+          <SectionHeader title="Séries em Alta" icon="award" badge={trendingTvItems.length}
+            accentColor={PURPLE} subtitle="As mais comentadas da semana"
+            onSeeAll={() => openModal("Séries em Alta", trendingTvItems, PURPLE)} />
+          {loading ? <SkeletonRow count={4} width={118} height={172} /> : (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 4 }}>
+              {trendingTvItems.map((item, i) => (
+                <PosterCard key={`tv_${item.id}_${i}`} item={item}
+                  onPress={() => goTo(item)} badge={i < 3 ? `#${i + 1}` : undefined} badgeColor={PURPLE} />
+              ))}
+            </ScrollView>
+          )}
+        </View>
+
+        {/* ── CHEGANDO EM BREVE ────────────────────────────────────────── */}
+        <View style={root.section}>
+          <SectionHeader title="Chegando em Breve" icon="calendar" badge={upcomingItems.length}
+            accentColor={GREEN} subtitle="Prepare sua lista com antecedência" />
+          {loading ? <SkeletonRow count={4} width={120} height={172} /> : (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 4 }}>
+              {upcomingItems.map(({ item, releaseDate }, i) => (
+                <UpcomingCard key={`up_${item.id}_${i}`} item={item}
+                  releaseDate={releaseDate} onPress={() => goTo(item)} />
+              ))}
+            </ScrollView>
+          )}
+        </View>
+
+        {/* ── ANIMES DA SEMANA ─────────────────────────────────────────── */}
+        {newAnimes.length > 0 && (
+          <View style={root.section}>
+            <SectionHeader title="Animes da Semana" icon="star" badge={newAnimes.length}
+              accentColor={PINK} subtitle="Novos animes adicionados"
+              onSeeAll={newAnimes.length > 8 ? () => openModal("Animes da Semana", newAnimes, PINK) : undefined} />
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 4 }}>
+              {newAnimes.map((item, i) => (
+                <AnimeCard key={`an_${item.id}_${i}`} item={item} onPress={() => goTo(item)} />
+              ))}
+            </ScrollView>
+          </View>
+        )}
+
+        {/* ── RODAPÉ ───────────────────────────────────────────────────── */}
+        <View style={root.footer}>
+          <LinearGradient colors={[`${RED}33`, "transparent"]}
+            start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+            style={root.footerLine} />
+          <Text style={root.footerText}>NETPLAY · Atualizado semanalmente</Text>
+          <LinearGradient colors={["transparent", `${RED}33`]}
+            start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+            style={root.footerLine} />
+        </View>
       </ScrollView>
 
-      {/* ─── Ver Mais Modal ────────────────────────────────────────────────── */}
+      {/* ═══ VER MAIS MODAL ══════════════════════════════════════════════════ */}
       <VerMaisModal
         visible={modal.visible}
         title={modal.title}
@@ -658,168 +1180,19 @@ export default function NovidadesScreen() {
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
-const sty = StyleSheet.create({
-  root: { flex: 1, backgroundColor: "#000" },
-
-  header: {
-    position: "absolute", top: 0, left: 0, right: 0, zIndex: 100,
-    paddingBottom: 12,
-  },
-  headerInner: {
-    flexDirection: "row", alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-  },
-  logoAccent: { width: 4, height: 22, borderRadius: 2 },
-  logoRed:   { color: RED, fontSize: 22, fontWeight: "900", letterSpacing: 1.5 },
-  logoWhite: { color: "#fff", fontSize: 22, fontWeight: "900", letterSpacing: 1.5 },
-  headerBadge: {
-    backgroundColor: `${RED}25`, borderWidth: 1, borderColor: `${RED}50`,
-    borderRadius: 8, paddingHorizontal: 7, paddingVertical: 2,
-  },
-  headerBadgeText: { color: RED, fontSize: 11, fontWeight: "800" },
-  iconBtn: { padding: 6 },
-
-  pill: {
-    flexDirection: "row", alignItems: "center", gap: 6,
-    paddingHorizontal: 14, paddingVertical: 8, borderRadius: 22,
-    backgroundColor: "rgba(255,255,255,0.06)",
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
-  },
-  pillActive: {
-    backgroundColor: RED, borderColor: RED,
-  },
-  pillText: { color: "rgba(255,255,255,0.5)", fontSize: 12, fontWeight: "700" },
-  pillTextActive: { color: "#fff" },
-
-  statsBar: {
-    flexDirection: "row", alignItems: "center", gap: 8,
-    marginHorizontal: 16, marginBottom: 12,
-    paddingHorizontal: 14, paddingVertical: 10,
-    borderRadius: 12, overflow: "hidden",
-    borderWidth: 1, borderColor: `${RED}20`,
-  },
-  statsText: { color: "rgba(255,255,255,0.65)", fontSize: 12, flex: 1 },
-
-  featPad: { paddingHorizontal: 16, marginBottom: 8 },
-  featCard: {
-    height: 200, borderRadius: 18, overflow: "hidden",
-    backgroundColor: "#111",
-  },
-  featContent: {
-    position: "absolute", bottom: 0, left: 0, right: 0, padding: 16,
-  },
-  featBadge: {
-    flexDirection: "row", alignItems: "center", gap: 5,
-    backgroundColor: `${RED}22`, borderWidth: 1, borderColor: `${RED}55`,
-    alignSelf: "flex-start", borderRadius: 6,
-    paddingHorizontal: 8, paddingVertical: 3, marginBottom: 6,
-  },
-  featBadgeText: { color: RED, fontSize: 9, fontWeight: "800", letterSpacing: 0.8 },
-  featTitle: { color: "#fff", fontSize: 20, fontWeight: "900", marginBottom: 6, lineHeight: 24 },
-  featMeta: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 },
-  featYear:  { color: "rgba(255,255,255,0.55)", fontSize: 12, fontWeight: "600" },
-  featType:  { color: "rgba(255,255,255,0.45)", fontSize: 11 },
-  featRate:  { flexDirection: "row", alignItems: "center", gap: 3 },
-  featRateText: { color: AMBER, fontSize: 11, fontWeight: "700" },
-  featPlayBtn: {
-    flexDirection: "row", alignItems: "center", gap: 7,
-    backgroundColor: RED, borderRadius: 22,
-    alignSelf: "flex-start",
-    paddingHorizontal: 16, paddingVertical: 9,
-  },
-  featPlayText: { color: "#fff", fontSize: 13, fontWeight: "800" },
-
-  sec: { marginBottom: 8 },
-  secHead: {
-    flexDirection: "row", alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16, paddingVertical: 12,
-    borderRadius: 0,
-  },
-  accentBar: { width: 3, height: 18, borderRadius: 2 },
-  iconWrap:  { width: 26, height: 26, borderRadius: 8, alignItems: "center", justifyContent: "center" },
-  secTitle:  { color: "#fff", fontSize: 15, fontWeight: "800", letterSpacing: 0.2 },
-  badge: {
-    paddingHorizontal: 7, paddingVertical: 2,
-    borderRadius: 8, borderWidth: 1,
-  },
-  badgeText: { fontSize: 10, fontWeight: "800" },
-  seeAllBtn: { flexDirection: "row", alignItems: "center", gap: 3 },
-  seeAllText: { color: "rgba(255,255,255,0.35)", fontSize: 12 },
-
-  pCard: {
-    width: 120, height: 175, borderRadius: 12, overflow: "hidden",
-    backgroundColor: "#111",
-  },
-  newBadge: {
-    position: "absolute", top: 7, left: 7,
-    backgroundColor: RED, borderRadius: 4,
-    paddingHorizontal: 5, paddingVertical: 2,
-  },
-  newBadgeText: { color: "#fff", fontSize: 8, fontWeight: "900", letterSpacing: 0.8 },
-  ratingPin: {
-    position: "absolute", bottom: 6, right: 6,
-    flexDirection: "row", alignItems: "center", gap: 2,
-    backgroundColor: "rgba(0,0,0,0.72)", borderRadius: 4,
-    paddingHorizontal: 4, paddingVertical: 2,
-  },
-  ratingPinText: { color: AMBER, fontSize: 8, fontWeight: "700" },
-  pTitle: { color: "#fff", fontSize: 11, fontWeight: "700", marginTop: 5, lineHeight: 14 },
-  pMeta:  { color: "rgba(255,255,255,0.4)", fontSize: 10, marginTop: 2 },
-
-  divRow: {
-    flexDirection: "row", alignItems: "center",
-    marginVertical: 12, paddingHorizontal: 16,
-  },
-  divLine: { flex: 1, height: 1 },
-  divLabel: {
-    flexDirection: "row", alignItems: "center", gap: 6,
-    paddingHorizontal: 12, paddingVertical: 5, borderRadius: 10,
-    borderWidth: 1, marginHorizontal: 10,
-  },
-  divText:  { fontSize: 11, fontWeight: "800", letterSpacing: 0.8, textTransform: "uppercase" },
-  divCount: { borderRadius: 6, paddingHorizontal: 5, paddingVertical: 1 },
-  divCountText: { fontSize: 10, fontWeight: "800" },
-
-  morePill: {
-    width: 60, height: 175, borderRadius: 12, overflow: "hidden",
-    alignItems: "center", justifyContent: "center", gap: 6,
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
-    backgroundColor: "rgba(255,255,255,0.03)",
-  },
-  morePillText: { fontSize: 13, fontWeight: "900" },
-
-  emptyState: {
-    alignItems: "center", justifyContent: "center",
-    paddingVertical: 80, gap: 12,
-  },
-  emptyTitle: { color: "rgba(255,255,255,0.3)", fontSize: 16, fontWeight: "700" },
-  emptySub:   { color: "rgba(255,255,255,0.18)", fontSize: 13 },
-
-  modal: {
-    position: "absolute", left: 0, right: 0, bottom: 0, height: H * 0.88,
-    borderTopLeftRadius: 24, borderTopRightRadius: 24, overflow: "hidden",
-  },
-  modalHandle: {
-    width: 36, height: 4, borderRadius: 2,
-    alignSelf: "center", marginTop: 12, marginBottom: 4,
-  },
-  modalHeader: {
-    flexDirection: "row", alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 18, paddingVertical: 12,
-  },
-  modalAccent: { width: 3, height: 18, borderRadius: 2 },
-  modalTitle:  { color: "#fff", fontSize: 16, fontWeight: "800" },
-  modalClose:  { padding: 6 },
-  searchWrap: {
-    flexDirection: "row", alignItems: "center",
-    marginHorizontal: 16, marginBottom: 8,
-    paddingHorizontal: 12, paddingVertical: 10,
-    backgroundColor: "rgba(255,255,255,0.06)",
-    borderRadius: 12, borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
-  },
-  searchInput: { flex: 1, color: "rgba(255,255,255,0.75)", fontSize: 13, fontWeight: "600" },
+const root = StyleSheet.create({
+  bg: { flex: 1 },
+  header: { position: "absolute", top: 0, left: 0, right: 0, zIndex: 100 },
+  headerInner: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingBottom: 12 },
+  sparkleBox: { width: 28, height: 28, borderRadius: 9, alignItems: "center", justifyContent: "center" },
+  logoA: { fontSize: 20, fontWeight: "900", color: RED, letterSpacing: 1 },
+  logoB: { fontSize: 20, fontWeight: "900", color: "#fff", letterSpacing: 1 },
+  countBadge: { backgroundColor: `${RED}25`, borderWidth: 1, borderColor: `${RED}50`, borderRadius: 8, paddingHorizontal: 7, paddingVertical: 2 },
+  countText: { fontSize: 10, fontWeight: "900", color: RED },
+  iconBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.08)", alignItems: "center", justifyContent: "center" },
+  section: { marginBottom: 28 },
+  emptyText: { color: "rgba(255,255,255,0.25)", fontSize: 13, paddingHorizontal: 20, fontStyle: "italic" },
+  footer: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16, paddingVertical: 12, marginTop: 12 },
+  footerLine: { flex: 1, height: 1 },
+  footerText: { fontSize: 10, fontWeight: "600", color: "rgba(255,255,255,0.2)", letterSpacing: 0.5 },
 });
