@@ -555,12 +555,19 @@ export const db = {
 
   contentOverrides: {
     get: async (contentKey: string): Promise<ContentOverride | null> => {
-      const { data } = await supabase
-        .from("content_overrides")
-        .select("*")
-        .eq("content_key", contentKey)
-        .maybeSingle();
-      return (data as ContentOverride) ?? null;
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const token = sessionData?.session?.access_token ?? key;
+        const res = await fetch(
+          `${url}/rest/v1/content_overrides?content_key=eq.${encodeURIComponent(contentKey)}&limit=1`,
+          { headers: { apikey: key, Authorization: `Bearer ${token}`, Accept: "application/json" } }
+        );
+        if (!res.ok) return null;
+        const data = await res.json();
+        return (data?.[0] as ContentOverride) ?? null;
+      } catch {
+        return null;
+      }
     },
 
     upsert: async (
@@ -568,24 +575,65 @@ export const db = {
       override: Partial<Omit<ContentOverride, "content_key" | "id">>,
       userId: string
     ): Promise<{ error?: string }> => {
-      const { error } = await supabase.from("content_overrides").upsert(
-        {
-          content_key: contentKey,
-          ...override,
-          updated_by: userId,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "content_key" }
-      );
-      return error ? { error: error.message } : {};
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token ?? key;
+      const payload = {
+        content_key: contentKey,
+        ...override,
+        updated_by: userId || null,
+        updated_at: new Date().toISOString(),
+      };
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 15000);
+      try {
+        const res = await fetch(`${url}/rest/v1/content_overrides`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: key,
+            Authorization: `Bearer ${token}`,
+            Prefer: "resolution=merge-duplicates,return=minimal",
+          },
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+        });
+        clearTimeout(timer);
+        if (res.ok || res.status === 201 || res.status === 204) return {};
+        const errData = await res.json().catch(() => null);
+        return { error: errData?.message ?? errData?.details ?? `HTTP ${res.status}` };
+      } catch (e: any) {
+        clearTimeout(timer);
+        if (e?.name === "AbortError") return { error: "Conexão demorou demais. Verifique sua internet." };
+        return { error: e?.message ?? "Erro desconhecido ao salvar." };
+      }
     },
 
     remove: async (contentKey: string): Promise<{ error?: string }> => {
-      const { error } = await supabase
-        .from("content_overrides")
-        .delete()
-        .eq("content_key", contentKey);
-      return error ? { error: error.message } : {};
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token ?? key;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 15000);
+      try {
+        const res = await fetch(
+          `${url}/rest/v1/content_overrides?content_key=eq.${encodeURIComponent(contentKey)}`,
+          {
+            method: "DELETE",
+            headers: {
+              apikey: key,
+              Authorization: `Bearer ${token}`,
+              Prefer: "return=minimal",
+            },
+            signal: controller.signal,
+          }
+        );
+        clearTimeout(timer);
+        if (res.ok || res.status === 204) return {};
+        const errData = await res.json().catch(() => null);
+        return { error: errData?.message ?? `HTTP ${res.status}` };
+      } catch (e: any) {
+        clearTimeout(timer);
+        return { error: e?.message ?? "Erro ao remover." };
+      }
     },
   },
 

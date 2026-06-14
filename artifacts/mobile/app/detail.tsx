@@ -1334,14 +1334,7 @@ export default function DetailScreen() {
         custom_overview: editOverviewMode === "manual" ? (editOverview.trim() || null) : null,
         overview_mode: editOverviewMode,
       };
-      // Timeout de 12s para evitar loading infinito caso a tabela não exista ainda
-      const timeoutPromise = new Promise<{ error: string }>((resolve) =>
-        setTimeout(() => resolve({ error: "Tempo esgotado. Execute o SQL no Supabase para criar a tabela content_overrides." }), 12000)
-      );
-      const result = await Promise.race([
-        db.contentOverrides.upsert(contentKey, payload, userId),
-        timeoutPromise,
-      ]);
+      const result = await db.contentOverrides.upsert(contentKey, payload, userId);
       if (result.error) { setEditErr(result.error); return; }
       const fresh = await db.contentOverrides.get(contentKey);
       setContentOverride(fresh);
