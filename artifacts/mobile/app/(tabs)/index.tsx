@@ -1612,6 +1612,70 @@ const CATEGORIES = [
   { id: "top",       label: "Top 10" },
 ];
 
+// ── Genre config por categoria ────────────────────────────────────────────────
+type GenreConfig = { genreId: number; label: string; color: string; type: "movie" | "tv"; lang?: string };
+const CATEGORY_GENRE_CONFIG: Record<string, GenreConfig[]> = {
+  movie: [
+    { genreId: 28,    label: "Ação",              color: "#ef4444", type: "movie" },
+    { genreId: 12,    label: "Aventura",           color: "#f97316", type: "movie" },
+    { genreId: 35,    label: "Comédia",            color: "#eab308", type: "movie" },
+    { genreId: 18,    label: "Drama",              color: "#8b5cf6", type: "movie" },
+    { genreId: 27,    label: "Terror",             color: "#7c3aed", type: "movie" },
+    { genreId: 878,   label: "Ficção Científica",  color: "#06b6d4", type: "movie" },
+    { genreId: 10749, label: "Romance",            color: "#ec4899", type: "movie" },
+    { genreId: 53,    label: "Thriller",           color: "#64748b", type: "movie" },
+    { genreId: 80,    label: "Crime",              color: "#374151", type: "movie" },
+    { genreId: 99,    label: "Documentário",       color: "#84cc16", type: "movie" },
+    { genreId: 37,    label: "Faroeste",           color: "#d97706", type: "movie" },
+    { genreId: 10751, label: "Família",            color: "#22c55e", type: "movie" },
+  ],
+  tv: [
+    { genreId: 18,    label: "Drama",              color: "#8b5cf6", type: "tv" },
+    { genreId: 35,    label: "Comédia",            color: "#eab308", type: "tv" },
+    { genreId: 80,    label: "Crime",              color: "#374151", type: "tv" },
+    { genreId: 878,   label: "Ficção Científica",  color: "#06b6d4", type: "tv" },
+    { genreId: 27,    label: "Terror",             color: "#7c3aed", type: "tv" },
+    { genreId: 10759, label: "Ação & Aventura",    color: "#ef4444", type: "tv" },
+    { genreId: 10751, label: "Família",            color: "#22c55e", type: "tv" },
+    { genreId: 99,    label: "Documentário",       color: "#84cc16", type: "tv" },
+    { genreId: 10764, label: "Reality",            color: "#f97316", type: "tv" },
+    { genreId: 10766, label: "Novelas",            color: "#ec4899", type: "tv" },
+    { genreId: 9648,  label: "Mistério",           color: "#6366f1", type: "tv" },
+    { genreId: 10765, label: "Sci-Fi & Fantasy",   color: "#3b82f6", type: "tv" },
+  ],
+  anime: [
+    { genreId: 28,    label: "Ação",              color: "#ef4444", type: "tv", lang: "ja" },
+    { genreId: 12,    label: "Aventura",          color: "#f97316", type: "tv", lang: "ja" },
+    { genreId: 35,    label: "Comédia",           color: "#eab308", type: "tv", lang: "ja" },
+    { genreId: 18,    label: "Drama",             color: "#8b5cf6", type: "tv", lang: "ja" },
+    { genreId: 10749, label: "Romance",           color: "#ec4899", type: "tv", lang: "ja" },
+    { genreId: 27,    label: "Terror",            color: "#7c3aed", type: "tv", lang: "ja" },
+    { genreId: 10765, label: "Fantasia",          color: "#06b6d4", type: "tv", lang: "ja" },
+    { genreId: 878,   label: "Sci-Fi",            color: "#3b82f6", type: "tv", lang: "ja" },
+    { genreId: 10759, label: "Ação & Aventura",   color: "#f97316", type: "tv", lang: "ja" },
+    { genreId: 9648,  label: "Mistério",          color: "#6366f1", type: "tv", lang: "ja" },
+    { genreId: 16,    label: "Animação",          color: "#84cc16", type: "tv", lang: "ja" },
+    { genreId: 10762, label: "Kids",              color: "#22c55e", type: "tv", lang: "ja" },
+  ],
+  animation: [
+    { genreId: 12,    label: "Aventura",          color: "#f97316", type: "movie" },
+    { genreId: 35,    label: "Comédia",           color: "#eab308", type: "movie" },
+    { genreId: 10751, label: "Família",           color: "#22c55e", type: "movie" },
+    { genreId: 14,    label: "Fantasia",          color: "#8b5cf6", type: "movie" },
+    { genreId: 28,    label: "Ação",              color: "#ef4444", type: "movie" },
+    { genreId: 878,   label: "Ficção Científica", color: "#06b6d4", type: "movie" },
+    { genreId: 10749, label: "Romance",           color: "#ec4899", type: "movie" },
+    { genreId: 18,    label: "Drama",             color: "#7c3aed", type: "movie" },
+    { genreId: 27,    label: "Terror",            color: "#1e1b4b", type: "movie" },
+    { genreId: 16,    label: "Todas as Animações",color: "#f97316", type: "movie" },
+  ],
+  top: [],
+};
+
+const CATEGORY_ACCENT: Record<string, string> = {
+  movie: RED, tv: BLUE, anime: AMBER, animation: "#f97316", top: AMBER,
+};
+
 // ── VerMaisModal ──────────────────────────────────────────────────────────────
 function VerMaisModal({
   visible, title, items, accentColor = PURPLE, userId = "", onClose, onItemPress,
@@ -2220,6 +2284,10 @@ export default function HomeScreen() {
   const [onTheAirItems, setOnTheAirItems] = useState<ContentItem[]>([]);
   const [animations, setAnimations] = useState<ContentItem[]>([]);
 
+  // ── genre carousels per category ──────────────────────────────────────────
+  const [genreRows, setGenreRows] = useState<Record<string, ContentItem[]>>({});
+  const genreRowsLoadedRef = useRef<Set<string>>(new Set());
+
   // ── modal "ver mais" ───────────────────────────────────────────────────────
   const [verMaisModal, setVerMaisModal] = useState<{
     visible: boolean; title: string; items: ContentItem[]; accentColor: string;
@@ -2333,6 +2401,26 @@ export default function HomeScreen() {
       .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [belowFoldReady]);
+
+  // ── fetch genre rows when category changes ────────────────────────────────
+  useEffect(() => {
+    const cat = activeCategory;
+    if (cat === "all" || cat === "new" || cat === "top") return;
+    const genres = CATEGORY_GENRE_CONFIG[cat] ?? [];
+    genres.forEach(async (g) => {
+      const key = `${cat}_${g.genreId}`;
+      if (genreRowsLoadedRef.current.has(key)) return;
+      genreRowsLoadedRef.current.add(key);
+      try {
+        const result: any = g.lang
+          ? await api.tmdb.discoverByLang(g.type, g.lang, g.genreId)
+          : await api.tmdb.discover(g.type, g.genreId);
+        const items = ((result.results ?? []) as any[]).slice(0, 12).map(tmdbItemToContent);
+        setGenreRows((prev) => ({ ...prev, [key]: items }));
+      } catch { /* silent */ }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeCategory]);
 
   // ── continue watching — load from local AsyncStorage (always works) ────────
   const loadContinueItems = useCallback(async () => {
@@ -3065,6 +3153,128 @@ export default function HomeScreen() {
                   </View>
                 </>
               )}
+
+              {/* ── GENRE CAROUSELS (quando categoria específica selecionada) ── */}
+              {!showAll && activeCategory !== "new" && activeCategory !== "top" && (() => {
+                const accentColor = CATEGORY_ACCENT[activeCategory] ?? RED;
+                const catGenres   = CATEGORY_GENRE_CONFIG[activeCategory] ?? [];
+
+                // "Feito para você" — primeiros 12 itens do catálogo dessa categoria
+                const forYou: ContentItem[] =
+                  activeCategory === "movie"     ? movies.slice(0, 12)
+                  : activeCategory === "tv"      ? series.slice(0, 12)
+                  : activeCategory === "anime"   ? animes.slice(0, 12)
+                  : activeCategory === "animation" ? animations.slice(0, 12)
+                  : [];
+
+                return (
+                  <>
+                    {/* ── Banner da categoria ───────────────────────────────── */}
+                    {(() => {
+                      const featuredItem =
+                        activeCategory === "movie" ? (movies[3] ?? movies[0])
+                        : activeCategory === "tv"  ? (series[3] ?? series[0])
+                        : activeCategory === "anime" ? (animes[3] ?? animes[0])
+                        : activeCategory === "animation" ? (animations[3] ?? animations[0])
+                        : null;
+                      if (!featuredItem) return null;
+                      const img = featuredItem.backdropPath ?? featuredItem.posterPath;
+                      const catLabel =
+                        activeCategory === "movie" ? "Filmes"
+                        : activeCategory === "tv" ? "Séries"
+                        : activeCategory === "anime" ? "Animes"
+                        : "Animação";
+                      return (
+                        <View style={{ marginHorizontal: 16, marginBottom: 20, marginTop: 4, borderRadius: 16, overflow: "hidden" }}>
+                          {img ? (
+                            <Image source={{ uri: img }} style={{ width: "100%", height: 180, borderRadius: 16 }}
+                              resizeMode="cover" />
+                          ) : (
+                            <LinearGradient colors={[accentColor + "66", "#000"]}
+                              style={{ width: "100%", height: 180, borderRadius: 16 }} />
+                          )}
+                          <LinearGradient
+                            colors={["transparent", "rgba(0,0,0,0.85)"]}
+                            style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 100, borderRadius: 16, justifyContent: "flex-end", padding: 14 }}>
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                              <View style={{ backgroundColor: accentColor, borderRadius: 4, paddingHorizontal: 8, paddingVertical: 3 }}>
+                                <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>{catLabel.toUpperCase()}</Text>
+                              </View>
+                              <Text style={{ color: "#fff", fontSize: 17, fontWeight: "700", flex: 1 }} numberOfLines={1}>
+                                {featuredItem.title}
+                              </Text>
+                            </View>
+                            <TouchableOpacity onPress={() => goTo(featuredItem)}
+                              style={{ marginTop: 8, backgroundColor: accentColor, borderRadius: 8, paddingVertical: 7, paddingHorizontal: 18, alignSelf: "flex-start" }}>
+                              <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>▶ Assistir</Text>
+                            </TouchableOpacity>
+                          </LinearGradient>
+                        </View>
+                      );
+                    })()}
+
+                    {/* ── Feito para Você ──────────────────────────────────── */}
+                    {forYou.length > 0 && (
+                      <View style={styles.section}>
+                        <SectionHeader title="Feito para Você" icon="heart"
+                          accentColor={accentColor}
+                          onSeeAll={() => openModal("Feito para Você", forYou, accentColor)} />
+                        <PosterRow items={forYou.slice(0, 6)} onPress={goTo} />
+                        {forYou.length > 6 && (
+                          <TouchableOpacity onPress={() => openModal("Feito para Você", forYou, accentColor)}
+                            style={{ alignSelf: "center", marginTop: 10, paddingVertical: 7, paddingHorizontal: 24,
+                              borderRadius: 20, borderWidth: 1, borderColor: accentColor + "88" }}>
+                            <Text style={{ color: accentColor, fontWeight: "600", fontSize: 13 }}>Ver Mais</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    )}
+
+                    {/* ── Gêneros ───────────────────────────────────────────── */}
+                    <SectionDivider label="GÊNEROS" accentColor={accentColor} />
+                    {catGenres.map((genre) => {
+                      const key   = `${activeCategory}_${genre.genreId}`;
+                      const items = genreRows[key] ?? [];
+                      return (
+                        <View key={key} style={styles.section}>
+                          <SectionHeader
+                            title={genre.label}
+                            icon="film"
+                            accentColor={genre.color}
+                            onSeeAll={() => router.push({
+                              pathname: "/genre-browse",
+                              params: { genre_id: String(genre.genreId), type: genre.type, title: genre.label },
+                            })} />
+                          {items.length === 0 ? (
+                            <ScrollView horizontal showsHorizontalScrollIndicator={false}
+                              contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}>
+                              {[0,1,2,3,4,5].map((i) => (
+                                <View key={i} style={{ width: 100, height: 148, borderRadius: 10,
+                                  backgroundColor: "rgba(255,255,255,0.06)" }} />
+                              ))}
+                            </ScrollView>
+                          ) : (
+                            <>
+                              <PosterRow items={items.slice(0, 6)} onPress={goTo} />
+                              {items.length > 6 && (
+                                <TouchableOpacity
+                                  onPress={() => openModal(genre.label, items, genre.color)}
+                                  style={{ alignSelf: "center", marginTop: 10, paddingVertical: 7,
+                                    paddingHorizontal: 24, borderRadius: 20,
+                                    borderWidth: 1, borderColor: genre.color + "88" }}>
+                                  <Text style={{ color: genre.color, fontWeight: "600", fontSize: 13 }}>Ver Mais</Text>
+                                </TouchableOpacity>
+                              )}
+                            </>
+                          )}
+                        </View>
+                      );
+                    })}
+
+                    <View style={{ height: 32 }} />
+                  </>
+                );
+              })()}
 
               </>
               )}
