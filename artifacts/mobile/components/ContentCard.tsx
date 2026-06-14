@@ -43,6 +43,14 @@ function QualityBadge({ quality }: { quality?: string }) {
   );
 }
 
+function LegendadoBadge() {
+  return (
+    <View style={cardStyles.legBadge}>
+      <Text style={cardStyles.legBadgeText}>LEG</Text>
+    </View>
+  );
+}
+
 function PlayOverlay({ visible }: { visible: boolean }) {
   if (!visible) return null;
   return (
@@ -150,6 +158,7 @@ const AnimatedCard = React.memo(function AnimatedCard({
                 <Feather name="tv" size={7} color="rgba(255,255,255,0.7)" />
               </View>
             )}
+            {/\[L\]/i.test(item.title) && <LegendadoBadge />}
           </View>
         )}
 
@@ -215,7 +224,7 @@ export const ContentCardWithLabel = React.memo(function ContentCardWithLabel({
           style={[cardStyles.label, { color: colors.mutedForeground }]}
           numberOfLines={1}
         >
-          {item.title}
+          {item.title.replace(/\s*\[[^\]]*\]/g, "").replace(/\s*\(\d{4}\)/g, "").trim()}
         </Text>
       )}
     </View>
@@ -326,6 +335,20 @@ const cardStyles = StyleSheet.create({
     backgroundColor: "#22c55e",
   },
   newBadgeText: {
+    color: "#fff",
+    fontSize: 7,
+    fontWeight: "900",
+    letterSpacing: 0.8,
+  },
+  legBadge: {
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 4,
+    backgroundColor: "rgba(59,130,246,0.85)",
+    borderWidth: 0.5,
+    borderColor: "rgba(147,197,253,0.4)",
+  },
+  legBadgeText: {
     color: "#fff",
     fontSize: 7,
     fontWeight: "900",

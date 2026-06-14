@@ -1302,6 +1302,7 @@ export default function DetailScreen() {
 
   const backdropUri = details ? TMDB_IMG(details.backdrop_path, "w1280") : (params.poster || null);
   const title = details?.title ?? details?.name ?? params.title ?? "Carregando...";
+  const isLegendado = /\[L\]/i.test(params.title ?? "");
   const year = (details?.release_date ?? details?.first_air_date ?? "").slice(0, 4);
   const rating = details?.vote_average ? Math.round(details.vote_average * 10) / 10 : null;
   const likePercent = rating ? Math.round((rating / 10) * 100) : null;
@@ -1653,6 +1654,12 @@ export default function DetailScreen() {
                 />
               ) : (
                 <Text style={[styles.title, { color: colors.foreground }]}>{title}</Text>
+              )}
+              {isLegendado && (
+                <View style={styles.legBadge}>
+                  <Feather name="align-left" size={11} color="#93c5fd" />
+                  <Text style={styles.legBadgeText}>LEGENDADO</Text>
+                </View>
               )}
 
               {/* Meta row */}
@@ -2481,6 +2488,25 @@ const styles = StyleSheet.create({
   castCharacter: { fontSize: 10, textAlign: "center", marginTop: 2, lineHeight: 13 },
   title: { fontSize: 26, fontWeight: "900", letterSpacing: -0.5, marginBottom: 8, lineHeight: 32 },
   titleLogo: { width: "80%", height: 72, marginBottom: 10, alignSelf: "flex-start" },
+  legBadge: {
+    alignSelf: "flex-start",
+    backgroundColor: "rgba(59,130,246,0.18)",
+    borderWidth: 1,
+    borderColor: "rgba(59,130,246,0.55)",
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    marginBottom: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  legBadgeText: {
+    color: "#93c5fd",
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 1,
+  },
   metaRow: { flexDirection: "row", flexWrap: "wrap", gap: 4, marginBottom: 8 },
   meta: { fontSize: 13 },
   ratingRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 20 },
