@@ -2486,6 +2486,16 @@ async function warmCatalogType(type: string): Promise<void> {
     const msg = e?.message ?? String(e);
     console.warn(`[flix2] cache warm failed for ${type}:`, msg);
     WARM_PROGRESS.set(type, { ...getWarmState(type), status: "error", errorMsg: msg });
+    // Auto-retry: schedule up to 3 attempts with increasing delay.
+    // This handles transient blocks on the production IP at startup time.
+    const maxRetries = 3;
+    const attempt = (getWarmState(type) as any)._retryCount ?? 0;
+    if (attempt < maxRetries) {
+      const delay = (attempt + 1) * 15_000; // 15s, 30s, 45s
+      console.log(`[flix2] scheduling warm retry #${attempt + 1} for ${type} in ${delay / 1000}s`);
+      WARM_PROGRESS.set(type, { ...getWarmState(type), _retryCount: attempt + 1 } as any);
+      setTimeout(() => warmCatalogType(type).catch(() => {}), delay);
+    }
   }
 }
 
@@ -3687,10 +3697,20 @@ router.get("/flix2/whats-new", async (req, res) => {
 
   for (const type of activeTypes) {
     const cached = FULL_CATALOG_CACHE.get(type);
-    if (!cached) { result[type] = []; warming = true; continue; }
+    // Fallback: if FULL_CATALOG_CACHE is empty, try XTREAM_RAW_CACHE (populated by any
+    // catalog-full request or xtreamFetchAll call, even if warmCatalogType failed)
+    const rawCached = !cached ? XTREAM_RAW_CACHE.get(type) : null;
+    const data = cached?.data ?? rawCached?.items ?? null;
+    if (!data) {
+      result[type] = [];
+      warming = true;
+      // Trigger background warm so next request may succeed
+      warmCatalogType(type).catch(() => {});
+      continue;
+    }
 
     // Primary: filter by date window
-    let items = cached.data
+    let items = data
       .filter((i: any) => i.added_at && i.added_at >= sinceUnix)
       .sort((a: any, b: any) => b.added_at - a.added_at)
       .slice(0, limit)
@@ -3698,7 +3718,7 @@ router.get("/flix2/whats-new", async (req, res) => {
 
     // Fallback level 1: take N most recently added items (if they have added_at)
     if (items.length === 0 && allowFallback) {
-      items = cached.data
+      items = data
         .filter((i: any) => i.added_at > 0)
         .sort((a: any, b: any) => b.added_at - a.added_at)
         .slice(0, limit)
@@ -3709,7 +3729,7 @@ router.get("/flix2/whats-new", async (req, res) => {
     // Fallback level 2: no added_at info at all — sort by stream ID desc
     // (Xtream assigns ascending IDs so higher ID = more recently added)
     if (items.length === 0 && allowFallback) {
-      items = [...cached.data]
+      items = [...data]
         .filter((i: any) => i.poster)
         .sort((a: any, b: any) => Number(b.id) - Number(a.id))
         .slice(0, limit)
@@ -3804,24 +3824,13 @@ router.get("/flix2/cinema-2026", async (req, res) => {
 
   // ── 1. Ensure Xtream catalog is warm ──────────────────────────────────────
   const cached = FULL_CATALOG_CACHE.get("movies");
-  if (!cached) {
-    flix2FetchPage("movies", 1).then(async (first) => {
-      if (!first.success) return;
-      const totalPages: number = first.pagination?.total_pages ?? 1;
-      const allItems: any[] = [...(first.data ?? [])];
-      const BATCH = 15;
-      for (let start = 2; start <= totalPages; start += BATCH) {
-        const batch = Array.from(
-          { length: Math.min(BATCH, totalPages - start + 1) },
-          (_, i) => flix2FetchPage("movies", start + i)
-        );
-        const results = await Promise.allSettled(batch);
-        for (const r of results) {
-          if (r.status === "fulfilled" && r.value.success) allItems.push(...(r.value.data ?? []));
-        }
-      }
-      FULL_CATALOG_CACHE.set("movies", { data: allItems, cachedAt: Date.now() });
-    }).catch(() => {});
+  // Fall back to XTREAM_RAW_CACHE when FULL_CATALOG_CACHE hasn't populated yet
+  // (e.g. production startup where warmCatalogType("movies") failed initially)
+  const rawMovies = !cached ? XTREAM_RAW_CACHE.get("movies") : null;
+  const moviesData = cached?.data ?? rawMovies?.items ?? null;
+  if (!moviesData) {
+    // Trigger background warm and ask client to retry
+    warmCatalogType("movies").catch(() => {});
     res.json({ ok: false, warming: true, total: 0, topRated: [], months: [] });
     return;
   }
@@ -3840,7 +3849,7 @@ router.get("/flix2/cinema-2026", async (req, res) => {
   // seenTmdbIds prevents duplicate entries when multiple Xtream items share the same TMDB film
   const seenTmdbIds = new Set<number>();
   const items2026: Array<any & { _tmdbDate: string; _tmdbVote: number }> = [];
-  for (const item of cached.data) {
+  for (const item of moviesData) {
     if (!item.title) continue;
     const key = normTitle(item.title);
     const tmdbEntry = TMDB_2026_MAP.get(key);
@@ -3856,7 +3865,7 @@ router.get("/flix2/cinema-2026", async (req, res) => {
   // ── 3b. Fallback when TMDB title matching found nothing ───────────────────
   // Level 1: Use added_at >= Jan 1 2026 OR year >= 2026 OR release_date starts with "2026"
   if (items2026.length === 0) {
-    const fallback = cached.data
+    const fallback = moviesData
       .filter((i: any) => i.title && i.poster && (
         (i.added_at && i.added_at >= JAN_2026) ||
         Number(i.year) >= 2026 ||
@@ -3880,7 +3889,7 @@ router.get("/flix2/cinema-2026", async (req, res) => {
   // Level 2: absolute fallback — if still nothing, show the newest 200 movies
   // by stream ID (higher ID = more recently added on Xtream) so Cinema is never blank.
   if (items2026.length === 0) {
-    const fallback2 = [...cached.data]
+    const fallback2 = [...moviesData]
       .filter((i: any) => i.title && i.poster)
       .sort((a: any, b: any) => Number(b.id) - Number(a.id))
       .slice(0, 200);
