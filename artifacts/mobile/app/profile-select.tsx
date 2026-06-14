@@ -641,14 +641,18 @@ export default function ProfileSelectScreen() {
       {/* ── Profile panel ──────────────────────────────────────────────────── */}
       <View style={[s.panel, { paddingBottom: insets.bottom + 20 }]}>
 
+        {/* Large curved arc "stage" behind all profiles */}
+        <View style={s.stageArc} />
+
         {/* Title */}
-        <Text style={s.panelTitle}>Escolha o seu perfil</Text>
+        <Text style={[s.panelTitle, { zIndex: 1 }]}>Escolha o seu perfil</Text>
 
         {/* Profiles row */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={s.profilesRow}
+          style={{ zIndex: 1 }}
         >
           {profiles.map((profile) => (
             <Pressable
@@ -657,10 +661,6 @@ export default function ProfileSelectScreen() {
               onPress={() => handleSelect(profile)}
               onLongPress={() => { setEditTarget(profile); setEditModal(true); }}
             >
-              {/* Radial glow behind avatar */}
-              <View style={{ position: "absolute", borderRadius: 999, width: AVATAR_SIZE * 2.4, height: AVATAR_SIZE * 2.4, top: -(AVATAR_SIZE * 0.7), left: -(AVATAR_SIZE * 0.7), backgroundColor: "rgba(255,255,255,0.04)" }} />
-              <View style={{ position: "absolute", borderRadius: 999, width: AVATAR_SIZE * 1.8, height: AVATAR_SIZE * 1.8, top: -(AVATAR_SIZE * 0.4), left: -(AVATAR_SIZE * 0.4), backgroundColor: "rgba(255,255,255,0.07)" }} />
-              <View style={{ position: "absolute", borderRadius: 999, width: AVATAR_SIZE * 1.3, height: AVATAR_SIZE * 1.3, top: -(AVATAR_SIZE * 0.15), left: -(AVATAR_SIZE * 0.15), backgroundColor: "rgba(255,255,255,0.10)" }} />
               <ProfileAvatar profile={profile} size={AVATAR_SIZE} editMode={editMode} />
               {profile.isKids && (
                 <View style={s.kidsBadge}><Text style={s.kidsBadgeTxt}>KIDS</Text></View>
@@ -680,7 +680,7 @@ export default function ProfileSelectScreen() {
         </ScrollView>
 
         {/* Action buttons */}
-        <View style={s.actionsRow}>
+        <View style={[s.actionsRow, { zIndex: 1 }]}>
           {profiles.length < MAX_PROFILES && (
             <Pressable style={s.actionBtn} onPress={handleAdd}>
               <View style={[s.actionIcon, { width: AVATAR_SIZE, height: AVATAR_SIZE }]}>
@@ -765,6 +765,17 @@ const s = StyleSheet.create({
     right: 0,
     alignItems: "center",
     paddingTop: 16,
+    overflow: "visible",
+  },
+  stageArc: {
+    position: "absolute",
+    width: SW * 2.2,
+    height: SW * 2.2,
+    borderRadius: SW * 1.1,
+    backgroundColor: "rgba(28, 4, 2, 0.92)",
+    top: -(SW * 0.52),
+    left: -(SW * 0.6),
+    zIndex: 0,
   },
   panelTitle: {
     color: "rgba(255,255,255,0.92)",
