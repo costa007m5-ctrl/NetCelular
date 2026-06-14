@@ -491,6 +491,12 @@ export default function ProfileSelectScreen() {
   const [editMode, setEditMode] = useState(false);
   const [banners, setBanners] = useState<Banner[]>(FALLBACK_BANNERS);
 
+  // ── Selection animation ──────────────────────────────────────────────────────
+  const [selectingId, setSelectingId] = useState<string | null>(null);
+  const avatarScale   = useRef(new Animated.Value(1)).current;
+  const contentOpacity = useRef(new Animated.Value(1)).current;
+  const overlayOpacity = useRef(new Animated.Value(0)).current;
+
   // ── Fetch live TMDB trending banners ────────────────────────────────────────
   useEffect(() => {
     fetchTrendingBanners().then((result) => {
@@ -549,7 +555,34 @@ export default function ProfileSelectScreen() {
   const handleSelect = async (profile: NetplayProfile) => {
     if (editMode) { setEditTarget(profile); setEditModal(true); return; }
     await setActiveProfile(profile);
-    router.replace("/(tabs)");
+
+    setSelectingId(profile.id);
+    avatarScale.setValue(1);
+    contentOpacity.setValue(1);
+    overlayOpacity.setValue(0);
+
+    Animated.parallel([
+      Animated.timing(avatarScale, {
+        toValue: 18,
+        duration: 550,
+        useNativeDriver: true,
+      }),
+      Animated.timing(contentOpacity, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      Animated.sequence([
+        Animated.delay(200),
+        Animated.timing(overlayOpacity, {
+          toValue: 1,
+          duration: 350,
+          useNativeDriver: true,
+        }),
+      ]),
+    ]).start(() => {
+      router.replace("/(tabs)");
+    });
   };
 
   const handleAdd = () => { setEditTarget(null); setEditModal(true); };
@@ -621,7 +654,7 @@ export default function ProfileSelectScreen() {
       />
 
       {/* ── Content info in the middle of the screen ───────────────────────── */}
-      <View style={s.contentInfo}>
+      <Animated.View style={[s.contentInfo, { opacity: contentOpacity }]}>
         {currentBanner.logoPath ? (
           <Image
             source={{ uri: currentBanner.logoPath }}
@@ -641,10 +674,10 @@ export default function ProfileSelectScreen() {
             Top {currentBanner.rank} em {currentBanner.type} hoje
           </Text>
         </View>
-      </View>
+      </Animated.View>
 
       {/* ── Profile panel ──────────────────────────────────────────────────── */}
-      <View style={[s.panel, { paddingBottom: insets.bottom + 20 }]}>
+      <Animated.View style={[s.panel, { paddingBottom: insets.bottom + 20, opacity: contentOpacity }]}>
 
         {/* Title */}
         <Text style={[s.panelTitle, { zIndex: 1 }]}>Escolha o seu perfil</Text>
@@ -661,29 +694,36 @@ export default function ProfileSelectScreen() {
           contentContainerStyle={s.profilesRow}
           style={{ zIndex: 1 }}
         >
-          {profiles.map((profile) => (
-            <Pressable
-              key={profile.id}
-              style={({ pressed }) => [s.profileCard, { opacity: pressed ? 0.8 : 1 }]}
-              onPress={() => handleSelect(profile)}
-              onLongPress={() => { setEditTarget(profile); setEditModal(true); }}
-            >
-              <ProfileAvatar profile={profile} size={AVATAR_SIZE} editMode={editMode} />
-              {profile.isKids && (
-                <View style={s.kidsBadge}><Text style={s.kidsBadgeTxt}>KIDS</Text></View>
-              )}
-              {/* Delete button in edit mode */}
-              {editMode && (
-                <Pressable
-                  style={s.deleteOverlay}
-                  onPress={() => handleDelete(profile)}
-                >
-                  <Feather name="trash-2" size={13} color="#ff6060" />
-                </Pressable>
-              )}
-              <Text style={s.profileName} numberOfLines={1}>{profile.name}</Text>
-            </Pressable>
-          ))}
+          {profiles.map((profile) => {
+            const isSelecting = selectingId === profile.id;
+            return (
+              <Pressable
+                key={profile.id}
+                style={({ pressed }) => [s.profileCard, { opacity: pressed && !selectingId ? 0.8 : 1 }]}
+                onPress={() => handleSelect(profile)}
+                onLongPress={() => { setEditTarget(profile); setEditModal(true); }}
+                disabled={!!selectingId}
+              >
+                <Animated.View style={isSelecting ? { transform: [{ scale: avatarScale }], zIndex: 99 } : undefined}>
+                  <ProfileAvatar profile={profile} size={AVATAR_SIZE} editMode={editMode} />
+                </Animated.View>
+                {profile.isKids && (
+                  <View style={s.kidsBadge}><Text style={s.kidsBadgeTxt}>KIDS</Text></View>
+                )}
+                {editMode && (
+                  <Pressable
+                    style={s.deleteOverlay}
+                    onPress={() => handleDelete(profile)}
+                  >
+                    <Feather name="trash-2" size={13} color="#ff6060" />
+                  </Pressable>
+                )}
+                {!isSelecting && (
+                  <Text style={s.profileName} numberOfLines={1}>{profile.name}</Text>
+                )}
+              </Pressable>
+            );
+          })}
         </ScrollView>
         )}
 
@@ -708,7 +748,13 @@ export default function ProfileSelectScreen() {
             </Pressable>
           )}
         </View>
-      </View>
+      </Animated.View>
+
+      {/* ── Full-screen black overlay for selection transition ─────────────── */}
+      <Animated.View
+        pointerEvents="none"
+        style={[StyleSheet.absoluteFill, { backgroundColor: "#000", opacity: overlayOpacity }]}
+      />
 
       <EditProfileModal
         visible={editModal}
