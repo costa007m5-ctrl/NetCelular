@@ -1448,7 +1448,7 @@ export default function NovidadesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const isWeb = Platform.OS === "web";
-  const topPad = isWeb ? 67 : insets.top;
+  const topPad = isWeb ? 0 : insets.top;
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
