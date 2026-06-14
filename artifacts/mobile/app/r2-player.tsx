@@ -52,7 +52,7 @@ const TMDB_KEY = "8f0beb08cf016ec8de49e454e09879ec";
 const SKIP_INTRO_MAX_S = 90;
 const SKIP_CREDITS_BEFORE_END_S = 180;
 const AUTO_HIDE_MS = 4500;
-const NEXT_EP_COUNTDOWN_S = 20;
+const NEXT_EP_COUNTDOWN_S = 15;
 const PRELOAD_TRIGGER_RATIO = 0.80;
 const SAVE_INTERVAL_MS = 15000;
 
@@ -1428,12 +1428,12 @@ export default function R2PlayerScreen() {
           </View>
         )}
 
-        {/* ── Skip intro button ─────────────────────────────────────────────── */}
+        {/* ── Skip vinheta ─────────────────────────────────────────────────── */}
         {showSkipIntro && phase === "ready" && controlsVisible && (
           <Pressable style={styles.skipIntroBtnPos} onPress={skipIntro}>
             <View style={styles.skipIntroBtn}>
               <Feather name="skip-forward" size={14} color="#fff" />
-              <Text style={styles.skipIntroBtnText}>Pular introdução</Text>
+              <Text style={styles.skipIntroBtnText}>Pular Vinheta</Text>
             </View>
           </Pressable>
         )}
@@ -1448,21 +1448,46 @@ export default function R2PlayerScreen() {
           </Pressable>
         )}
 
-        {/* ── Next episode countdown ───────────────────────────────────────── */}
+        {/* ── Next episode countdown — side panel with poster ───────────────── */}
         {showNextEpCountdown && !showEpisodes && (
-          <View style={styles.nextEpCountdown}>
-            <View style={styles.nextEpCountdownInner}>
-              <Text style={styles.nextEpCountdownLabel}>Próximo episódio em</Text>
-              <Text style={styles.nextEpCountdownNum}>{nextEpCountdownSec}s</Text>
-              <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
-                <Pressable style={styles.nextEpNowBtn} onPress={goToNextEpisode}>
-                  <Feather name="skip-forward" size={14} color="#fff" />
-                  <Text style={styles.nextEpNowBtnText}>Assistir agora</Text>
-                </Pressable>
-                <Pressable style={styles.nextEpCancelBtn} onPress={() => { setShowNextEpCountdown(false); setContinuousPlay(false); }}>
-                  <Text style={styles.nextEpCancelText}>Cancelar</Text>
-                </Pressable>
+          <View style={styles.nextEpPanel}>
+            <View style={styles.nextEpPanelBg} />
+            {(backdropPath || posterPath) && (
+              <Image
+                source={{ uri: TMDB_IMG(backdropPath ?? posterPath, "w780") ?? "" }}
+                style={StyleSheet.absoluteFill}
+                resizeMode="cover"
+              />
+            )}
+            <View style={styles.nextEpPanelDim} />
+            <View style={styles.nextEpPanelContent}>
+              <View style={styles.nextEpCountdownCircle}>
+                <Text style={styles.nextEpCountdownNum}>{nextEpCountdownSec}</Text>
+                <Text style={styles.nextEpCountdownUnit}>seg</Text>
               </View>
+              <Text style={styles.nextEpCountdownLabel}>Próximo episódio</Text>
+              {(() => {
+                const nextItem = (() => {
+                  if (!isTV || !season || !episode) return null;
+                  const nextEp = episode + 1;
+                  return r2Items.find((i) => i.season === season && i.episode === nextEp)
+                    ?? r2Items.find((i) => i.season === (season + 1) && i.episode === 1)
+                    ?? null;
+                })();
+                const nextTmdbEp = nextItem ? panelEpisodes.find((e) => e.episode_number === nextItem.episode) : null;
+                return nextItem ? (
+                  <Text style={styles.nextEpName} numberOfLines={2}>
+                    {nextTmdbEp?.name ?? `Ep. ${nextItem.episode}`}
+                  </Text>
+                ) : null;
+              })()}
+              <Pressable style={styles.nextEpNowBtn} onPress={goToNextEpisode}>
+                <Feather name="play" size={16} color="#fff" />
+                <Text style={styles.nextEpNowBtnText}>Assistir agora</Text>
+              </Pressable>
+              <Pressable style={styles.nextEpCancelBtn} onPress={() => { setShowNextEpCountdown(false); setContinuousPlay(false); }}>
+                <Text style={styles.nextEpCancelText}>Cancelar reprodução</Text>
+              </Pressable>
             </View>
           </View>
         )}
@@ -1667,7 +1692,7 @@ export default function R2PlayerScreen() {
       {/* ── Episodes Panel ────────────────────────────────────────────────────── */}
       <Animated.View
         style={[styles.episodesPanel, {
-          width: panelAnim.interpolate({ inputRange: [0, 1], outputRange: [0, W * 0.4] }),
+          width: panelAnim.interpolate({ inputRange: [0, 1], outputRange: [0, W * 0.46] }),
           opacity: panelAnim,
         }]}
         pointerEvents={showEpisodes ? "auto" : "none"}
@@ -1891,14 +1916,20 @@ const styles = StyleSheet.create({
   skipIntroBtn: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(255,255,255,0.18)", borderWidth: 1.5, borderColor: "rgba(255,255,255,0.4)", paddingHorizontal: 16, paddingVertical: 9, borderRadius: 8 },
   skipIntroBtnText: { color: "#fff", fontSize: 13, fontWeight: "700" },
 
-  nextEpCountdown: { position: "absolute", bottom: 72, right: 20, alignItems: "flex-end" },
-  nextEpCountdownInner: { backgroundColor: "rgba(14,14,14,0.92)", borderRadius: 12, padding: 14, borderWidth: 1, borderColor: "#2a2a2a", alignItems: "center", maxWidth: 200 },
-  nextEpCountdownLabel: { color: "rgba(255,255,255,0.6)", fontSize: 11, marginBottom: 2 },
-  nextEpCountdownNum: { color: "#fff", fontSize: 32, fontWeight: "900", lineHeight: 36 },
-  nextEpNowBtn: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: RED, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8, flex: 1, justifyContent: "center" },
-  nextEpNowBtnText: { color: "#fff", fontSize: 12, fontWeight: "700" },
-  nextEpCancelBtn: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: "#333" },
-  nextEpCancelText: { color: "#888", fontSize: 12 },
+  // Next ep countdown — immersive side panel
+  nextEpPanel: { position: "absolute", top: 0, right: 0, bottom: 0, width: "42%", overflow: "hidden" },
+  nextEpPanelBg: { ...StyleSheet.absoluteFillObject, backgroundColor: "#0a0a0a" },
+  nextEpPanelDim: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.72)" },
+  nextEpPanelContent: { flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: 18, gap: 12 },
+  nextEpCountdownCircle: { width: 72, height: 72, borderRadius: 36, borderWidth: 2, borderColor: RED, justifyContent: "center", alignItems: "center", backgroundColor: "rgba(229,9,20,0.12)" },
+  nextEpCountdownNum: { color: "#fff", fontSize: 26, fontWeight: "900", lineHeight: 28 },
+  nextEpCountdownUnit: { color: "rgba(255,255,255,0.55)", fontSize: 10, fontWeight: "600" },
+  nextEpCountdownLabel: { color: "rgba(255,255,255,0.85)", fontSize: 13, fontWeight: "700", textAlign: "center" },
+  nextEpName: { color: "rgba(255,255,255,0.65)", fontSize: 11, textAlign: "center", lineHeight: 15 },
+  nextEpNowBtn: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: RED, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 10 },
+  nextEpNowBtnText: { color: "#fff", fontSize: 13, fontWeight: "700" },
+  nextEpCancelBtn: { backgroundColor: "rgba(255,255,255,0.08)", borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8, borderWidth: 1, borderColor: "rgba(255,255,255,0.1)" },
+  nextEpCancelText: { color: "rgba(255,255,255,0.6)", fontSize: 11 },
 
   sleepBadge: { position: "absolute", top: 60, right: 14, flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(245,158,11,0.15)", borderWidth: 1, borderColor: "rgba(245,158,11,0.3)", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
   sleepBadgeText: { color: "#f59e0b", fontSize: 10, fontWeight: "700" },

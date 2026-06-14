@@ -674,6 +674,17 @@ const eb = StyleSheet.create({
   tagLabel: { fontSize: 11, fontWeight: "600", color: "rgba(255,255,255,0.55)" },
 });
 
+// ─── HangTimeout — fires onTimeout after 8s (prevents infinite loading spinner) ─
+function HangTimeout({ onTimeout }: { onTimeout: () => void }) {
+  const cb = useRef(onTimeout);
+  useEffect(() => { cb.current = onTimeout; }, [onTimeout]);
+  useEffect(() => {
+    const t = setTimeout(() => cb.current(), 8000);
+    return () => clearTimeout(t);
+  }, []);
+  return null;
+}
+
 // ─── BreakingBanner (Estreias Hoje) ───────────────────────────────────────────
 function BreakingBanner({ items, onPress }: { items: ContentItem[]; onPress: (item: ContentItem) => void }) {
   if (!items.length) return null;
@@ -991,7 +1002,12 @@ function EpPreviewRow({
             onReadyForDisplay={() => { setVidLoading(false); setVidReady(true); }}
             onLoad={() => { setVidLoading(false); setVidReady(true); }}
             onError={() => { setVidLoading(false); setVidReady(false); setVidErrored(true); }}
+            progressUpdateIntervalMillis={500}
           />
+        )}
+        {/* Timeout: if native player hangs loading for 8s, give up gracefully */}
+        {isPlaying && vidLoading && !vidReady && !vidErrored && Platform.OS !== "web" && (
+          <HangTimeout onTimeout={() => { setVidLoading(false); setVidErrored(true); }} />
         )}
 
         {/* Gradient — only when video is NOT playing */}
