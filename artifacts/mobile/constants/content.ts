@@ -12,6 +12,7 @@ export type ContentItem = {
   genres: (string | number)[];
   type: "movie" | "series";
   mediaType?: "movie" | "tv";
+  releaseDate?: string;
   duration?: string;
   progress?: number;
   channel?: string;

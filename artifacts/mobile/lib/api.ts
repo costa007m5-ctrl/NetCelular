@@ -385,6 +385,7 @@ export function tmdbItemToContent(item: TmdbItem) {
     tmdbId: item.id,
     title: item.title ?? item.name ?? "Sem título",
     year: Number((item.release_date ?? item.first_air_date ?? "2024").slice(0, 4)),
+    releaseDate: item.release_date ?? item.first_air_date ?? "",
     rating: Math.round(item.vote_average * 10) / 10,
     posterPath: TMDB_IMG(item.poster_path, "w342") ?? "",
     backdropPath: TMDB_IMG(item.backdrop_path, "w780") ?? "",

@@ -1089,12 +1089,20 @@ export default function FranchiseScreen() {
     if (activeTab === "series" && series.length === 0 && movies.length > 0) setActiveTab("filmes");
   }, [loading, movies.length, series.length]);
 
-  // ── Fetch upcoming movies (for "Em Breve" section) ───────────────
+  // ── Derive upcoming items from franchise content (future dates only) ──
   useEffect(() => {
-    api.tmdb.upcoming()
-      .then((items: any[]) => setUpcomingItems(items.slice(0, 8)))
-      .catch(() => {});
-  }, []);
+    if (loading) return;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const upcoming = [...movies, ...series]
+      .filter(item => {
+        if (!item.releaseDate) return false;
+        return new Date(item.releaseDate) > today;
+      })
+      .sort((a, b) => new Date(a.releaseDate!).getTime() - new Date(b.releaseDate!).getTime())
+      .slice(0, 8);
+    setUpcomingItems(upcoming);
+  }, [loading, movies.length, series.length]);
 
   // ── Carousel backdrops (derived from top-rated franchise items) ──
   const carouselBackdrops = useMemo(() => {
@@ -1333,43 +1341,52 @@ export default function FranchiseScreen() {
           </View>
         )}
 
-        {/* ── EM BREVE NO CINEMA ──────────────────────── */}
+        {/* ── PRÓXIMOS LANÇAMENTOS (franchise-specific, future dates) ── */}
         {upcomingItems.length > 0 && (
           <View style={main.section}>
-            <SectionHead title="Em Breve no Cinema" color="#f59e0b" sub="Próximos lançamentos" />
+            <SectionHead
+              title={`Próximos Lançamentos de ${df?.shortName ?? dynamicName}`}
+              color="#f59e0b"
+              sub={`${upcomingItems.length} título${upcomingItems.length !== 1 ? "s" : ""} em breve`}
+            />
             <ScrollView horizontal showsHorizontalScrollIndicator={false}
               contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}>
-              {upcomingItems.map((item: any) => {
-                const poster = item.poster_path
-                  ? `https://image.tmdb.org/t/p/w185${item.poster_path}`
-                  : null;
-                const releaseDate = item.release_date
-                  ? new Date(item.release_date).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })
+              {upcomingItems.map((item) => {
+                const releaseDate = item.releaseDate
+                  ? new Date(item.releaseDate).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" })
                   : "Em breve";
+                const typeLabel = item.type === "series" ? "SÉRIE" : "FILME";
                 return (
-                  <View key={item.id} style={{ width: CARD_W, alignItems: "center" }}>
+                  <Pressable key={item.id} onPress={() => goToDetail(item)}
+                    style={{ width: CARD_W, alignItems: "center" }}>
                     <View style={{ width: CARD_W, height: CARD_H, borderRadius: 10, overflow: "hidden",
                       backgroundColor: "#111", borderWidth: 1, borderColor: "rgba(245,158,11,0.25)" }}>
-                      {poster ? (
-                        <Image source={{ uri: poster }} style={StyleSheet.absoluteFill} contentFit="cover" />
+                      {item.posterPath ? (
+                        <Image source={{ uri: item.posterPath }} style={StyleSheet.absoluteFill} contentFit="cover" />
                       ) : (
                         <LinearGradient colors={["#1a1008", "#080605"]} style={StyleSheet.absoluteFill} />
                       )}
                       <LinearGradient
-                        colors={["transparent", "rgba(0,0,0,0.9)"]}
-                        locations={[0.5, 1]}
+                        colors={["transparent", "rgba(0,0,0,0.92)"]}
+                        locations={[0.45, 1]}
                         style={StyleSheet.absoluteFill}
                       />
                       <View style={main.emBreveBadge}>
                         <Feather name="clock" size={8} color="#f59e0b" />
                         <Text style={main.emBreveTxt}>{releaseDate}</Text>
                       </View>
+                      <View style={{ position: "absolute", top: 7, right: 7,
+                        backgroundColor: "rgba(0,0,0,0.7)", borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2 }}>
+                        <Text style={{ color: item.type === "series" ? "#60a5fa" : "#f59e0b", fontSize: 8, fontWeight: "800" }}>
+                          {typeLabel}
+                        </Text>
+                      </View>
                       <View style={{ position: "absolute", bottom: 0, left: 0, right: 0, padding: 7 }}>
                         <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700", lineHeight: 13 }}
-                          numberOfLines={2}>{item.title ?? item.original_title}</Text>
+                          numberOfLines={2}>{item.title}</Text>
                       </View>
                     </View>
-                  </View>
+                  </Pressable>
                 );
               })}
             </ScrollView>
