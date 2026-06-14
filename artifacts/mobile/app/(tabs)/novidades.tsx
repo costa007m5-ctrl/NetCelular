@@ -839,6 +839,7 @@ function EpPreviewRow({
   item, isPlaying, muted, onPlay, onViewSeries,
 }: { item: EpModalItem; isPlaying: boolean; muted: boolean; onPlay: () => void; onViewSeries: () => void; }) {
   const [vidLoading, setVidLoading] = useState(false);
+  const [vidReady, setVidReady] = useState(false);
   const [thumbErr, setThumbErr] = useState(false);
   const ep = item.ep;
   const g = item.group;
@@ -849,27 +850,26 @@ function EpPreviewRow({
   const backdropUrl = g.backdropPath ? TMDB_IMG(g.backdropPath, "w780") : null;
   const posterUrl = g.seriesPoster || null;
   const thumbUrl = (!thumbErr && backdropUrl) ? backdropUrl : posterUrl;
-  // Portrait posters need "contain" so they don't get cropped; backdrops use "cover"
-  const thumbFit = (thumbUrl === backdropUrl) ? "cover" : "contain";
 
   // TMDB logo image URL (PNG with transparency)
   const logoUrl = g.logoPath ? TMDB_IMG(g.logoPath, "w300") : null;
 
-  // Reset loading when play starts
+  // Reset video state when play starts/stops
   useEffect(() => {
     setVidLoading(isPlaying);
+    if (!isPlaying) setVidReady(false);
   }, [isPlaying]);
 
   return (
     <View style={epr.card}>
       {/* ── Thumbnail 16:9 ─────────────────────────────────────────── */}
       <View style={epr.thumb}>
-        {/* Background: TMDB backdrop if available, else poster */}
+        {/* Banner: always visible (backdrop preferred, else poster, else gradient) */}
         {thumbUrl ? (
           <Image
             source={{ uri: thumbUrl }}
             style={StyleSheet.absoluteFill}
-            contentFit={thumbFit as any}
+            contentFit="contain"
             cachePolicy="memory-disk"
             onError={() => setThumbErr(true)}
           />
@@ -877,20 +877,20 @@ function EpPreviewRow({
           <LinearGradient colors={["#0e1020", "#06080e"]} style={StyleSheet.absoluteFill} />
         )}
 
-        {/* Video preview — overlays image when playing */}
+        {/* Video preview — only fully shown once ready, thumbnail stays visible below */}
         {isPlaying && canPreview && (
           <EpVideoComp
             source={{ uri: ep.stream_url }}
-            style={StyleSheet.absoluteFill}
-            resizeMode={EpResizeMode.CONTAIN ?? "contain"}
+            style={[StyleSheet.absoluteFill, { opacity: vidReady ? 1 : 0 }]}
+            resizeMode="contain"
             isMuted={muted}
             shouldPlay
             isLooping
             useNativeControls={false}
-            onLoadStart={() => setVidLoading(true)}
-            onReadyForDisplay={() => setVidLoading(false)}
-            onLoad={() => setVidLoading(false)}
-            onError={() => setVidLoading(false)}
+            onLoadStart={() => { setVidLoading(true); setVidReady(false); }}
+            onReadyForDisplay={() => { setVidLoading(false); setVidReady(true); }}
+            onLoad={() => { setVidLoading(false); setVidReady(true); }}
+            onError={() => { setVidLoading(false); setVidReady(false); }}
           />
         )}
 
@@ -901,21 +901,19 @@ function EpPreviewRow({
           style={StyleSheet.absoluteFill}
         />
 
-        {/* Series identity — logo image OR styled text */}
-        <View style={epr.logoArea}>
-          {logoUrl ? (
+        {/* Series identity — logo image only (title shown in info section below) */}
+        {logoUrl ? (
+          <View style={epr.logoArea}>
             <Image
               source={{ uri: logoUrl }}
               style={epr.logoImg}
               contentFit="contain"
               cachePolicy="memory-disk"
             />
-          ) : (
-            <Text style={epr.logoText} numberOfLines={2}>{g.seriesTitle}</Text>
-          )}
-        </View>
+          </View>
+        ) : null}
 
-        {/* Loading spinner — centred */}
+        {/* Loading spinner — centred, shown while buffering */}
         {isPlaying && vidLoading && (
           <View style={epr.loadingOverlay}>
             <ActivityIndicator size="large" color="#fff" />
@@ -923,8 +921,8 @@ function EpPreviewRow({
           </View>
         )}
 
-        {/* PRÉVIA badge — top-left, only when loaded */}
-        {isPlaying && !vidLoading && (
+        {/* PRÉVIA badge — top-left, only when video is playing and ready */}
+        {isPlaying && vidReady && (
           <View style={epr.liveBadge}>
             <View style={epr.liveDot} />
             <Text style={epr.liveTxt}>PRÉVIA</Text>
