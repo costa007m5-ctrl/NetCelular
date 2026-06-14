@@ -2317,6 +2317,45 @@ export default function HomeScreen() {
     return combined.filter((i) => { if (seen.has(i.id)) return false; seen.add(i.id); return true; }).slice(0, 8);
   }, [heroItems, r2All]);
 
+  // ── Banner items per active category ──────────────────────────────────────
+  const activeBannerItems = useMemo(() => {
+    const withMedia = (arr: ContentItem[]) =>
+      arr.filter((i) => i.backdropPath || i.posterPath);
+    const dedupe = (arr: ContentItem[]) => {
+      const seen = new Set<string>();
+      return arr.filter((i) => { if (seen.has(i.id)) return false; seen.add(i.id); return true; });
+    };
+    switch (activeCategory) {
+      case "movie": {
+        const r2 = r2Movies.filter((i) => i.backdropPath || i.posterPath).slice(0, 2);
+        return dedupe([...r2, ...withMedia(movies)]).slice(0, 8);
+      }
+      case "tv": {
+        const r2 = r2Series.filter((i) => i.backdropPath || i.posterPath).slice(0, 2);
+        return dedupe([...r2, ...withMedia(series)]).slice(0, 8);
+      }
+      case "anime":
+        return dedupe(withMedia(animes)).slice(0, 8);
+      case "animation":
+        return dedupe(withMedia(animations.length >= 4 ? animations : withMedia(movies).slice(0, 8))).slice(0, 8);
+      case "top": {
+        const mixed: ContentItem[] = [];
+        const tm = [...top10Movies];
+        const ts = [...top10Series];
+        while (mixed.length < 8 && (tm.length || ts.length)) {
+          if (tm.length) mixed.push(tm.shift()!);
+          if (ts.length) mixed.push(ts.shift()!);
+        }
+        return dedupe(mixed).slice(0, 8);
+      }
+      case "new":
+        return dedupe([...withMedia(nowPlayingItems), ...withMedia(onTheAirItems)]).slice(0, 8);
+      default:
+        return mergedHeroItems;
+    }
+  }, [activeCategory, mergedHeroItems, movies, series, animes, animations, top10Movies, top10Series,
+      nowPlayingItems, onTheAirItems, r2Movies, r2Series]);
+
   // ── section entrance animations ────────────────────────────────────────────
   const SECTION_COUNT = 12;
   // On native, skip entrance animations entirely — set all to 1 immediately.
@@ -2742,7 +2781,7 @@ export default function HomeScreen() {
         {/* ── 1. HERO BANNER ─────────────────────────────────────────────── */}
         <Animated.View style={{ transform: [{ translateY: heroParallax }] }}>
           <HeroBanner
-            items={mergedHeroItems}
+            items={activeBannerItems}
             onItemPress={goTo}
           />
         </Animated.View>
