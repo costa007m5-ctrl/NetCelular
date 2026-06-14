@@ -1603,12 +1603,13 @@ function FamilyBannerComp({ items, onPress, onItem }: {
 
 // ── MAIN SCREEN ────────────────────────────────────────────────────────────────
 const CATEGORIES = [
-  { id: "all",   label: "Tudo" },
-  { id: "movie", label: "Filmes" },
-  { id: "tv",    label: "Séries" },
-  { id: "anime", label: "Animes" },
-  { id: "new",   label: "Novidades" },
-  { id: "top",   label: "Top 10" },
+  { id: "all",       label: "Tudo" },
+  { id: "movie",     label: "Filmes" },
+  { id: "tv",        label: "Séries" },
+  { id: "anime",     label: "Animes" },
+  { id: "animation", label: "Animação" },
+  { id: "new",       label: "Novidades" },
+  { id: "top",       label: "Top 10" },
 ];
 
 // ── VerMaisModal ──────────────────────────────────────────────────────────────
@@ -2217,6 +2218,7 @@ export default function HomeScreen() {
   // ── below-fold extra data ──────────────────────────────────────────────────
   const [nowPlayingItems, setNowPlayingItems] = useState<ContentItem[]>([]);
   const [onTheAirItems, setOnTheAirItems] = useState<ContentItem[]>([]);
+  const [animations, setAnimations] = useState<ContentItem[]>([]);
 
   // ── modal "ver mais" ───────────────────────────────────────────────────────
   const [verMaisModal, setVerMaisModal] = useState<{
@@ -2325,6 +2327,9 @@ export default function HomeScreen() {
       .catch(() => {});
     api.tmdb.onTheAir()
       .then((items: any[]) => { setOnTheAirItems((items ?? []).slice(0, 10).map(tmdbItemToContent)); })
+      .catch(() => {});
+    api.tmdb.discover("movie", 16)
+      .then((r: any) => { setAnimations(((r.results ?? []) as any[]).slice(0, 20).map(tmdbItemToContent)); })
       .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [belowFoldReady]);
@@ -2601,11 +2606,12 @@ export default function HomeScreen() {
   const emAltaSeries   = useMemo(() => series.slice(10, 16),  [series]);
   const emAltaAnimes   = useMemo(() => animes.slice(0,  6),   [animes]);
 
-  const showMovies = activeCategory === "all" || activeCategory === "movie";
-  const showSeries = activeCategory === "all" || activeCategory === "tv";
-  const showAnimes = activeCategory === "all" || activeCategory === "anime";
-  const showTop10  = activeCategory === "all" || activeCategory === "top";
-  const showAll    = activeCategory === "all";
+  const showMovies     = activeCategory === "all" || activeCategory === "movie";
+  const showSeries     = activeCategory === "all" || activeCategory === "tv";
+  const showAnimes     = activeCategory === "all" || activeCategory === "anime";
+  const showAnimations = activeCategory === "all" || activeCategory === "animation";
+  const showTop10      = activeCategory === "all" || activeCategory === "top";
+  const showAll        = activeCategory === "all";
 
   const stats = useMemo(() => [
     { label: "Filmes",  value: totals.movies > 0 ? totals.movies.toLocaleString("pt-BR") : "–", icon: "film" as const,  color: RED },
@@ -2852,6 +2858,35 @@ export default function HomeScreen() {
                         accentColor={AMBER}
                         onSeeAll={() => browseTo("animes", "Animes em Alta")} />
                       <PosterRow items={emAltaAnimes} onPress={goTo} />
+                    </View>
+                  </AnimatedSection>
+                </>
+              )}
+
+              {/* ── 13.5. ANIMAÇÕES ──────────────────────────────────────────── */}
+              {showAnimations && animations.length > 0 && (
+                <>
+                  <SectionDivider label="ANIMAÇÕES" accentColor="#f97316" />
+                  <AnimatedSection anim={s[11]}>
+                    <View style={styles.section}>
+                      <SectionHeader title="Animações em Destaque" icon="film"
+                        accentColor="#f97316"
+                        onSeeAll={() => router.push({
+                          pathname: "/genre-browse",
+                          params: { genre_id: "16", type: "movie", title: "Animações" },
+                        })} />
+                      <PosterRow items={animations.slice(0, 10)} onPress={goTo} />
+                    </View>
+                  </AnimatedSection>
+                  <AnimatedSection anim={s[11]}>
+                    <View style={styles.section}>
+                      <SectionHeader title="Mais Animações" icon="star"
+                        accentColor="#f97316"
+                        onSeeAll={() => router.push({
+                          pathname: "/genre-browse",
+                          params: { genre_id: "16", type: "movie", title: "Animações" },
+                        })} />
+                      <WideRow items={animations.slice(10, 18)} onPress={goTo} />
                     </View>
                   </AnimatedSection>
                 </>
