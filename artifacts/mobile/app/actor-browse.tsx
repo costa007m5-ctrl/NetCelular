@@ -20,8 +20,10 @@ import { api, tmdbItemToContent, type TmdbItem, type TmdbPerson } from "@/lib/ap
 import type { ContentItem } from "@/constants/content";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
-const CARD_W = 120;
-const CARD_H = 180;
+const GRID_PADDING = 16;
+const GRID_GAP = 10;
+const CARD_W = Math.floor((SCREEN_WIDTH - GRID_PADDING * 2 - GRID_GAP) / 2);
+const CARD_H = Math.floor(CARD_W * 1.5);
 const PHOTO_SIZE = 100;
 const TMDB_IMAGE = "https://image.tmdb.org/t/p/";
 
@@ -34,33 +36,35 @@ type Tab = "bio" | "filmes" | "series" | "embreve";
 function ContentCard({ item, onPress }: { item: ContentItem; onPress: () => void }) {
   const [imgErr, setImgErr] = useState(false);
   const sc = useRef(new Animated.Value(1)).current;
-  const pi = () => Animated.spring(sc, { toValue: 0.92, useNativeDriver: true, speed: 30 }).start();
+  const pi = () => Animated.spring(sc, { toValue: 0.95, useNativeDriver: true, speed: 30 }).start();
   const po = () => Animated.spring(sc, { toValue: 1, useNativeDriver: true, speed: 26 }).start();
   return (
     <Pressable onPress={onPress} onPressIn={pi} onPressOut={po}>
-      <Animated.View style={{ width: CARD_W, transform: [{ scale: sc }] }}>
-        <View style={styles.card}>
-          {!imgErr && item.posterPath ? (
-            <Image source={{ uri: item.posterPath }} style={StyleSheet.absoluteFill}
-              contentFit="cover" cachePolicy="memory-disk" onError={() => setImgErr(true)} />
-          ) : (
-            <LinearGradient colors={["#1e1e1e", "#2a1a1a"]} style={StyleSheet.absoluteFill}>
-              <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-                <Feather name="film" size={22} color="#444" />
-              </View>
-            </LinearGradient>
-          )}
-          <LinearGradient colors={["transparent", "rgba(0,0,0,0.88)"]}
-            style={styles.cardGrad} locations={[0.5, 1]} />
-          {item.rating > 0 && (
-            <View style={styles.ratingBadge}>
-              <Feather name="star" size={8} color="#f59e0b" />
-              <Text style={styles.ratingText}>{item.rating.toFixed(1)}</Text>
+      <Animated.View style={[styles.card, { transform: [{ scale: sc }] }]}>
+        {!imgErr && item.posterPath ? (
+          <Image source={{ uri: item.posterPath }} style={StyleSheet.absoluteFill}
+            contentFit="cover" cachePolicy="memory-disk" onError={() => setImgErr(true)} />
+        ) : (
+          <LinearGradient colors={["#1e1e1e", "#2a1a1a"]} style={StyleSheet.absoluteFill}>
+            <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+              <Feather name="film" size={26} color="#444" />
             </View>
-          )}
+          </LinearGradient>
+        )}
+        <LinearGradient colors={["transparent", "rgba(0,0,0,0.85)"]}
+          style={styles.cardGrad} locations={[0.45, 1]} />
+        {item.rating > 0 && (
+          <View style={styles.ratingBadge}>
+            <Feather name="star" size={8} color="#f59e0b" />
+            <Text style={styles.ratingText}>{item.rating.toFixed(1)}</Text>
+          </View>
+        )}
+        <View style={styles.cardBottom}>
           <Text style={styles.cardTitle} numberOfLines={2}>{item.title}</Text>
+          {item.year > 0 && (
+            <Text style={styles.cardYear}>{item.year}</Text>
+          )}
         </View>
-        <Text style={styles.cardYear} numberOfLines={1}>{item.year > 0 ? item.year : ""}</Text>
       </Animated.View>
     </Pressable>
   );
@@ -679,30 +683,32 @@ const styles = StyleSheet.create({
 
   gridWrap: {
     flexDirection: "row", flexWrap: "wrap",
-    paddingHorizontal: 16, gap: 10,
+    paddingHorizontal: GRID_PADDING, gap: GRID_GAP,
   },
   card: {
     width: CARD_W, height: CARD_H,
-    borderRadius: 10, overflow: "hidden",
+    borderRadius: 12, overflow: "hidden",
     backgroundColor: "#1a1a1a",
   },
   cardGrad: {
-    position: "absolute", bottom: 0, left: 0, right: 0, height: "55%",
+    position: "absolute", bottom: 0, left: 0, right: 0, height: "60%",
+  },
+  cardBottom: {
+    position: "absolute", bottom: 0, left: 0, right: 0,
+    padding: 8, gap: 2,
   },
   cardTitle: {
-    position: "absolute", bottom: 6, left: 5, right: 5,
-    color: "#fff", fontSize: 9, fontWeight: "600", lineHeight: 12,
+    color: "#fff", fontSize: 11, fontWeight: "700", lineHeight: 14,
   },
   cardYear: {
-    color: "rgba(255,255,255,0.4)", fontSize: 10, fontWeight: "500",
-    marginTop: 4, textAlign: "center",
+    color: "rgba(255,255,255,0.45)", fontSize: 10, fontWeight: "500",
   },
   ratingBadge: {
-    position: "absolute", top: 5, right: 5,
+    position: "absolute", top: 6, right: 6,
     flexDirection: "row", alignItems: "center", gap: 2,
-    backgroundColor: "rgba(0,0,0,0.75)", paddingHorizontal: 4, paddingVertical: 2, borderRadius: 4,
+    backgroundColor: "rgba(0,0,0,0.78)", paddingHorizontal: 5, paddingVertical: 3, borderRadius: 5,
   },
-  ratingText: { color: "#f59e0b", fontSize: 8, fontWeight: "700" },
+  ratingText: { color: "#f59e0b", fontSize: 9, fontWeight: "700" },
 
   upcomingHeader: {
     flexDirection: "row", alignItems: "center",
