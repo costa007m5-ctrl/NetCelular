@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from "react";
+import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import {
   Animated,
   Dimensions,
@@ -59,12 +59,13 @@ async function fetchBackdrop(franchise: any, tmdbColId?: number | null): Promise
   } catch { return null; }
 }
 
-async function fetchLogo(franchise: any): Promise<string | null> {
-  if (!franchise) return null;
+async function fetchLogo(franchise: any, tmdbColId?: number | null): Promise<string | null> {
+  if (!franchise && !tmdbColId) return null;
   try {
     let type: "collection" | "tv" | "movie" = "movie";
     let id = 0;
-    if (franchise.fetchType === "collection" && franchise.tmdbCollectionId) { type = "collection"; id = franchise.tmdbCollectionId; }
+    if (tmdbColId) { type = "collection"; id = tmdbColId; }
+    else if (franchise.fetchType === "collection" && franchise.tmdbCollectionId) { type = "collection"; id = franchise.tmdbCollectionId; }
     else if (franchise.tmdbTvId) { type = "tv"; id = franchise.tmdbTvId; }
     if (!id) return null;
     const data = await api.tmdb.franchiseLogo(type, id);
@@ -98,9 +99,10 @@ function Skeleton({ w, h, r = 10 }: { w: number; h: number; r?: number }) {
   return <Animated.View style={{ width: w, height: h, borderRadius: r, backgroundColor: "rgba(255,255,255,0.08)", opacity: anim }} />;
 }
 
-/* ── Cinematic Hero ───────────────────────────────────────────── */
+/* ── Cinematic Hero Carousel ──────────────────────────────────── */
 function CinematicHero({
   backdropUrl, logoUrl, franchise, isFav, onFavPress, onWatchPress, topPad,
+  carouselBackdrops = [], carouselTitles = [],
 }: {
   backdropUrl: string | null;
   logoUrl: string | null;
@@ -109,8 +111,19 @@ function CinematicHero({
   onFavPress: () => void;
   onWatchPress: () => void;
   topPad: number;
+  carouselBackdrops?: string[];
+  carouselTitles?: string[];
 }) {
   const glow = useRef(new Animated.Value(0.2)).current;
+  const [activeIdx, setActiveIdx] = useState(0);
+
+  const allBackdrops = useMemo(() => {
+    const urls: string[] = [];
+    if (backdropUrl) urls.push(backdropUrl);
+    for (const u of carouselBackdrops) if (u && !urls.includes(u)) urls.push(u);
+    return urls;
+  }, [backdropUrl, carouselBackdrops]);
+
   useEffect(() => {
     Animated.loop(
       Animated.sequence([
@@ -120,11 +133,23 @@ function CinematicHero({
     ).start();
   }, []);
 
+  useEffect(() => {
+    if (allBackdrops.length <= 1) return;
+    const timer = setInterval(() => {
+      setActiveIdx(i => (i + 1) % allBackdrops.length);
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [allBackdrops.length]);
+
+  const currentBackdrop = allBackdrops[activeIdx] ?? null;
+  const currentTitle = activeIdx > 0 ? (carouselTitles[activeIdx - 1] ?? "") : "";
+
   return (
     <View style={[hero.wrap, { height: HERO_H + topPad }]}>
-      {/* Backdrop */}
-      {backdropUrl ? (
-        <Image source={{ uri: backdropUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
+      {/* Backdrop (expo-image crossfade via transition prop) */}
+      {currentBackdrop ? (
+        <Image key={currentBackdrop} source={{ uri: currentBackdrop }}
+          style={StyleSheet.absoluteFill} contentFit="cover" transition={600} />
       ) : (
         <LinearGradient colors={franchise.bgGradient} style={StyleSheet.absoluteFill} />
       )}
@@ -147,6 +172,23 @@ function CinematicHero({
 
       {/* Top color bar */}
       <View style={[hero.topBar, { backgroundColor: franchise.color }]} />
+
+      {/* Carousel title (shows item title when on a carousel slide) */}
+      {currentTitle ? (
+        <View style={hero.slideLabel}>
+          <Text style={hero.slideLabelTxt} numberOfLines={1}>{currentTitle}</Text>
+        </View>
+      ) : null}
+
+      {/* Carousel dots */}
+      {allBackdrops.length > 1 && (
+        <View style={hero.dots}>
+          {allBackdrops.map((_, i) => (
+            <Pressable key={i} onPress={() => setActiveIdx(i)}
+              style={[hero.dot, i === activeIdx && { backgroundColor: franchise.accentColor, width: 16 }]} />
+          ))}
+        </View>
+      )}
 
       {/* Content */}
       <View style={[hero.content, { paddingTop: topPad + 16 }]}>
@@ -176,7 +218,7 @@ function CinematicHero({
         )}
 
         {/* Tagline */}
-        <Text style={hero.tagline}>{franchise.tagline}</Text>
+        {!!franchise.tagline && <Text style={hero.tagline}>{franchise.tagline}</Text>}
 
         {/* Stats chips */}
         <View style={hero.chips}>
@@ -245,6 +287,20 @@ const hero = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.1)", borderWidth: 1, borderColor: "rgba(255,255,255,0.18)",
     alignItems: "center", justifyContent: "center",
   },
+  dots: {
+    position: "absolute", bottom: 100, left: 0, right: 0,
+    flexDirection: "row", justifyContent: "center", gap: 5, zIndex: 3,
+  },
+  dot: {
+    width: 6, height: 6, borderRadius: 3,
+    backgroundColor: "rgba(255,255,255,0.35)",
+  },
+  slideLabel: {
+    position: "absolute", top: 60, right: 16, zIndex: 3,
+    backgroundColor: "rgba(0,0,0,0.5)", borderRadius: 8,
+    paddingHorizontal: 10, paddingVertical: 4, maxWidth: 200,
+  },
+  slideLabelTxt: { color: "rgba(255,255,255,0.8)", fontSize: 10, fontWeight: "600" },
 });
 
 /* ── Expandable Description ───────────────────────────────────── */
@@ -887,6 +943,7 @@ export default function FranchiseScreen() {
   const [collectionOverview, setCollectionOverview] = useState("");
   const [collectionYearRange, setCollectionYearRange] = useState("");
   const [collectionTotalHours, setCollectionTotalHours] = useState(0);
+  const [upcomingItems, setUpcomingItems] = useState<any[]>([]);
 
   const scrollY = useRef(new Animated.Value(0)).current;
   const headerOpacity = scrollY.interpolate({
@@ -900,7 +957,7 @@ export default function FranchiseScreen() {
     const load = async () => {
       const [bd, lg] = await Promise.all([
         fetchBackdrop(franchise, tmdbColId),
-        fetchLogo(franchise),
+        fetchLogo(franchise, tmdbColId),
       ]);
       if (bd) setBackdropUrl(bd);
       if (lg) setLogoUrl(lg);
@@ -1032,6 +1089,30 @@ export default function FranchiseScreen() {
     if (activeTab === "series" && series.length === 0 && movies.length > 0) setActiveTab("filmes");
   }, [loading, movies.length, series.length]);
 
+  // ── Fetch upcoming movies (for "Em Breve" section) ───────────────
+  useEffect(() => {
+    api.tmdb.upcoming()
+      .then((items: any[]) => setUpcomingItems(items.slice(0, 8)))
+      .catch(() => {});
+  }, []);
+
+  // ── Carousel backdrops (derived from top-rated franchise items) ──
+  const carouselBackdrops = useMemo(() => {
+    return [...movies, ...series]
+      .sort((a, b) => b.rating - a.rating)
+      .filter(i => !!i.backdropPath)
+      .slice(0, 5)
+      .map(i => i.backdropPath);
+  }, [movies, series]);
+
+  const carouselTitles = useMemo(() => {
+    return [...movies, ...series]
+      .sort((a, b) => b.rating - a.rating)
+      .filter(i => !!i.backdropPath)
+      .slice(0, 5)
+      .map(i => i.title);
+  }, [movies, series]);
+
   const goToDetail = useCallback((item: ContentItem) => {
     router.push({
       pathname: "/detail",
@@ -1114,6 +1195,8 @@ export default function FranchiseScreen() {
           onFavPress={() => toggle(df.id)}
           onWatchPress={() => firstItem && goToDetail(firstItem)}
           topPad={topPad}
+          carouselBackdrops={carouselBackdrops}
+          carouselTitles={carouselTitles}
         />
 
         {/* ── STAT STRIP ─────────────────────────────── */}
@@ -1189,6 +1272,51 @@ export default function FranchiseScreen() {
           </View>
         )}
 
+        {/* ── MELHORES DO UNIVERSO ────────────────────── */}
+        {!loading && allItems.length > 0 && (
+          <View style={main.section}>
+            <SectionHead
+              title={`Melhores de ${df.shortName}`}
+              color={df.accentColor}
+              sub="Títulos mais bem avaliados"
+            />
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}>
+              {[...allItems].sort((a, b) => b.rating - a.rating).slice(0, 8).map((item) => (
+                <Pressable key={item.id} onPress={() => goToDetail(item)}
+                  style={{ width: CARD_W, alignItems: "center" }}>
+                  <View style={{ width: CARD_W, height: CARD_H, borderRadius: 10, overflow: "hidden",
+                    backgroundColor: "#111", borderWidth: 1, borderColor: "rgba(255,255,255,0.08)" }}>
+                    {item.posterPath ? (
+                      <Image source={{ uri: item.posterPath }} style={StyleSheet.absoluteFill} contentFit="cover" />
+                    ) : (
+                      <LinearGradient colors={df.bgGradient} style={StyleSheet.absoluteFill} />
+                    )}
+                    <LinearGradient
+                      colors={["transparent", "rgba(0,0,0,0.9)"]}
+                      locations={[0.55, 1]}
+                      style={StyleSheet.absoluteFill}
+                    />
+                    {item.rating > 0 && (
+                      <View style={main.ratingBadge}>
+                        <Feather name="star" size={8} color="#fbbf24" />
+                        <Text style={main.ratingTxt}>{item.rating.toFixed(1)}</Text>
+                      </View>
+                    )}
+                    <View style={{ position: "absolute", bottom: 0, left: 0, right: 0, padding: 7 }}>
+                      <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700", lineHeight: 13 }}
+                        numberOfLines={2}>{item.title}</Text>
+                      {!!item.year && (
+                        <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 9, marginTop: 2 }}>{item.year}</Text>
+                      )}
+                    </View>
+                  </View>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
+        )}
+
         {/* ── ELENCO ─────────────────────────────────── */}
         {castItems.length > 0 && (
           <View style={main.section}>
@@ -1201,6 +1329,49 @@ export default function FranchiseScreen() {
               {castItems.map((p: any, i: number) => (
                 <CastCircle key={`${p.id}-${i}`} person={p} accentColor={df.accentColor} />
               ))}
+            </ScrollView>
+          </View>
+        )}
+
+        {/* ── EM BREVE NO CINEMA ──────────────────────── */}
+        {upcomingItems.length > 0 && (
+          <View style={main.section}>
+            <SectionHead title="Em Breve no Cinema" color="#f59e0b" sub="Próximos lançamentos" />
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}>
+              {upcomingItems.map((item: any) => {
+                const poster = item.poster_path
+                  ? `https://image.tmdb.org/t/p/w185${item.poster_path}`
+                  : null;
+                const releaseDate = item.release_date
+                  ? new Date(item.release_date).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })
+                  : "Em breve";
+                return (
+                  <View key={item.id} style={{ width: CARD_W, alignItems: "center" }}>
+                    <View style={{ width: CARD_W, height: CARD_H, borderRadius: 10, overflow: "hidden",
+                      backgroundColor: "#111", borderWidth: 1, borderColor: "rgba(245,158,11,0.25)" }}>
+                      {poster ? (
+                        <Image source={{ uri: poster }} style={StyleSheet.absoluteFill} contentFit="cover" />
+                      ) : (
+                        <LinearGradient colors={["#1a1008", "#080605"]} style={StyleSheet.absoluteFill} />
+                      )}
+                      <LinearGradient
+                        colors={["transparent", "rgba(0,0,0,0.9)"]}
+                        locations={[0.5, 1]}
+                        style={StyleSheet.absoluteFill}
+                      />
+                      <View style={main.emBreveBadge}>
+                        <Feather name="clock" size={8} color="#f59e0b" />
+                        <Text style={main.emBreveTxt}>{releaseDate}</Text>
+                      </View>
+                      <View style={{ position: "absolute", bottom: 0, left: 0, right: 0, padding: 7 }}>
+                        <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700", lineHeight: 13 }}
+                          numberOfLines={2}>{item.title ?? item.original_title}</Text>
+                      </View>
+                    </View>
+                  </View>
+                );
+              })}
             </ScrollView>
           </View>
         )}
@@ -1272,6 +1443,21 @@ export default function FranchiseScreen() {
 
 const main = StyleSheet.create({
   section: { marginBottom: 28 },
+  ratingBadge: {
+    position: "absolute", top: 7, right: 7,
+    flexDirection: "row", alignItems: "center", gap: 3,
+    backgroundColor: "rgba(0,0,0,0.7)", borderRadius: 6,
+    paddingHorizontal: 5, paddingVertical: 3,
+  },
+  ratingTxt: { color: "#fbbf24", fontSize: 9, fontWeight: "800" },
+  emBreveBadge: {
+    position: "absolute", top: 7, left: 7,
+    flexDirection: "row", alignItems: "center", gap: 3,
+    backgroundColor: "rgba(0,0,0,0.75)", borderRadius: 6,
+    paddingHorizontal: 5, paddingVertical: 3,
+    borderWidth: 1, borderColor: "rgba(245,158,11,0.4)",
+  },
+  emBreveTxt: { color: "#f59e0b", fontSize: 9, fontWeight: "800" },
   chronoIntro: {
     flexDirection: "row", alignItems: "center", gap: 8,
     paddingHorizontal: 20, paddingVertical: 10, marginBottom: 6,

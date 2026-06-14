@@ -1909,7 +1909,6 @@ const FranchiseCircleItem = React.memo(function FranchiseCircleItem({
       setLogoUrl(_franchiseLogoCache[id]);
       return;
     }
-    if (_franchiseFetchActive >= 3) return;
     let cancelled = false;
     _franchiseFetchActive++;
     api.tmdb.franchiseLogo("collection", id)
@@ -2712,7 +2711,7 @@ export default function HomeScreen() {
                         collection={col}
                         onPress={() => router.push({
                           pathname: "/franchise",
-                          params: { collection_id: String(col.id), name: col.name },
+                          params: { id: `tmdb_collection_${col.id}`, name: col.name },
                         })}
                       />
                     ))}
