@@ -97,10 +97,14 @@ function toContent(item: CinemaItem): ContentItem {
 async function fetchCinema(attempt = 0): Promise<CinemaData> {
   try {
     const res = await r2Route<CinemaData>("/flix2/cinema-2026");
-    if (res.warming && attempt < 6) {
-      // Server is still warming — retry with backoff (2s, 4s, 6s, 8s, 10s, 12s)
-      const delay = (attempt + 1) * 2000;
-      await new Promise((resolve) => setTimeout(resolve, delay));
+    if (res.warming && attempt < 20) {
+      // Server still warming — retry every 5s for up to ~100s
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+      return fetchCinema(attempt + 1);
+    }
+    // If warmed but still empty (0 results), retry a few more times to let title matching complete
+    if (res.ok && res.total === 0 && attempt < 4) {
+      await new Promise((resolve) => setTimeout(resolve, 5000));
       return fetchCinema(attempt + 1);
     }
     return res;

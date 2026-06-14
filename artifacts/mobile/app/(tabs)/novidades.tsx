@@ -62,6 +62,8 @@ interface WhatsNewItem {
 }
 interface WhatsNewResp {
   ok: boolean;
+  warming?: boolean;
+  fallback?: boolean;
   since: string;
   days: number;
   total: number;
@@ -124,6 +126,20 @@ function formatDate(dateStr: string): string {
   return d.toLocaleDateString("pt-BR", { day: "numeric", month: "short" });
 }
 
+async function fetchWhatsNew(attempt = 0): Promise<WhatsNewResp | null> {
+  try {
+    const res = await r2Route<WhatsNewResp>("/flix2/whats-new?days=90&limit=150");
+    // If cache is warming and content is still empty, retry with backoff (up to 10 attempts)
+    if (res.warming && res.total === 0 && attempt < 10) {
+      await new Promise((r) => setTimeout(r, (attempt + 1) * 3000));
+      return fetchWhatsNew(attempt + 1);
+    }
+    return res;
+  } catch {
+    return null;
+  }
+}
+
 async function loadAll(): Promise<AllData> {
   const [trendingRes, nowPlayingRes, upcomingRes, onTheAirRes, airingRes, wnRes] =
     await Promise.allSettled([
@@ -132,7 +148,7 @@ async function loadAll(): Promise<AllData> {
       api.tmdb.upcoming(),
       api.tmdb.onTheAir(),
       api.tmdb.airingToday(),
-      r2Route<WhatsNewResp>("/flix2/whats-new?days=30"),
+      fetchWhatsNew(),
     ]);
 
   const trending = trendingRes.status === "fulfilled" ? trendingRes.value : { all: [], movies: [], tv: [] };
@@ -144,7 +160,7 @@ async function loadAll(): Promise<AllData> {
     upcoming: upcomingRes.status === "fulfilled" ? (upcomingRes.value as TmdbItem[]) : [],
     onTheAir: onTheAirRes.status === "fulfilled" ? (onTheAirRes.value as TmdbItem[]) : [],
     airingToday: airingRes.status === "fulfilled" ? (airingRes.value as TmdbItem[]) : [],
-    whatsNew: wnRes.status === "fulfilled" ? (wnRes.value as WhatsNewResp) : null,
+    whatsNew: wnRes.status === "fulfilled" ? (wnRes.value as WhatsNewResp | null) : null,
   };
 }
 
@@ -1458,7 +1474,7 @@ export default function NovidadesScreen() {
         Promise.allSettled(
           withoutTmdb.map(g =>
             r2Route<{ results: Array<{ overview: string }> }>(
-              `/tmdb/search?q=${encodeURIComponent(g.seriesTitle)}&type=tv`
+              `/tmdb-search?q=${encodeURIComponent(g.seriesTitle)}&type=tv`
             ).then(d => ({
               seriesId: g.seriesId,
               overview: d.results?.[0]?.overview || "",

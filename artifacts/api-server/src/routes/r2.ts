@@ -3596,46 +3596,65 @@ function computeAndSaveDiff(type: string, freshItems: any[]): void {
 //   limit=100     — max items per type (default 100)
 router.get("/flix2/whats-new", (req, res) => {
   const {
-    days:   daysStr   = "7",
-    types:  typesStr  = "movies,series,animes",
-    limit:  limitStr  = "100",
+    days:      daysStr      = "7",
+    types:     typesStr     = "movies,series,animes",
+    limit:     limitStr     = "100",
+    fallback:  fallbackStr  = "true",
   } = req.query as Record<string, string>;
 
-  const days    = Math.min(Math.max(Number(daysStr)  || 7,  1), 90);
-  const limit   = Math.min(Math.max(Number(limitStr) || 100, 1), 500);
-  const types   = typesStr.split(",").map((t) => t.trim()).filter((t) => FLIX2_TYPES.includes(t));
-  const since   = Date.now() - days * 24 * 60 * 60 * 1000;
-  const sinceUnix = Math.floor(since / 1000); // Xtream timestamps are in seconds
+  const days         = Math.min(Math.max(Number(daysStr)  || 7,  1), 365);
+  const limit        = Math.min(Math.max(Number(limitStr) || 100, 1), 500);
+  const allowFallback = fallbackStr !== "false";
+  const types        = typesStr.split(",").map((t) => t.trim()).filter((t) => FLIX2_TYPES.includes(t));
+  const since        = Date.now() - days * 24 * 60 * 60 * 1000;
+  const sinceUnix    = Math.floor(since / 1000);
 
   const result: Record<string, any[]> = {};
-  let total = 0;
+  let total    = 0;
+  let warming  = false;
+  let isFallback = false;
+
+  const toItem = (i: any) => ({
+    id:         i.id,
+    title:      i.title,
+    tmdb_id:    i.tmdb_id,
+    type:       i.type,
+    year:       i.year,
+    poster:     i.poster,
+    added_at:   i.added_at,
+    added_date: i.added_at ? new Date(i.added_at * 1000).toISOString().slice(0, 10) : null,
+  });
 
   for (const type of (types.length ? types : FLIX2_TYPES)) {
     const cached = FULL_CATALOG_CACHE.get(type);
-    if (!cached) { result[type] = []; continue; }
+    if (!cached) { result[type] = []; warming = true; continue; }
 
-    const items = cached.data
+    // Primary: filter by date window
+    let items = cached.data
       .filter((i: any) => i.added_at && i.added_at >= sinceUnix)
       .sort((a: any, b: any) => b.added_at - a.added_at)
       .slice(0, limit)
-      .map((i: any) => ({
-        id:       i.id,
-        title:    i.title,
-        tmdb_id:  i.tmdb_id,
-        type:     i.type,
-        year:     i.year,
-        poster:   i.poster,
-        added_at: i.added_at,
-        added_date: i.added_at ? new Date(i.added_at * 1000).toISOString().slice(0, 10) : null,
-      }));
+      .map(toItem);
+
+    // Fallback: if date filter returns nothing, take the N most recently added items
+    if (items.length === 0 && allowFallback) {
+      items = cached.data
+        .filter((i: any) => i.added_at)
+        .sort((a: any, b: any) => b.added_at - a.added_at)
+        .slice(0, limit)
+        .map(toItem);
+      if (items.length > 0) isFallback = true;
+    }
 
     result[type] = items;
     total += items.length;
   }
 
   res.json({
-    ok:    true,
-    since: new Date(since).toISOString(),
+    ok:       true,
+    warming,
+    fallback: isFallback,
+    since:    new Date(since).toISOString(),
     days,
     total,
     cached: Object.fromEntries(
@@ -3707,6 +3726,28 @@ router.get("/flix2/cinema-2026", async (req, res) => {
       if (seenTmdbIds.has(tmdbEntry.tmdbId)) continue;
       seenTmdbIds.add(tmdbEntry.tmdbId);
       items2026.push({ ...item, _tmdbDate: tmdbEntry.date, _tmdbVote: tmdbEntry.vote, _tmdbEntry: tmdbEntry });
+    }
+  }
+
+  // ── 3b. Fallback when TMDB title matching found nothing ───────────────────
+  // Use added_at >= Jan 1 2026 OR year >= 2026 from the Xtream catalog directly.
+  if (items2026.length === 0) {
+    const fallback = cached.data
+      .filter((i: any) => i.title && i.poster && (
+        (i.added_at && i.added_at >= JAN_2026) || Number(i.year) >= 2026
+      ))
+      .sort((a: any, b: any) => (b.added_at ?? 0) - (a.added_at ?? 0))
+      .slice(0, 300);
+    for (const item of fallback) {
+      const dateStr = item.added_at
+        ? new Date(item.added_at * 1000).toISOString().slice(0, 10)
+        : "2026-01-01";
+      items2026.push({
+        ...item,
+        _tmdbDate:  dateStr,
+        _tmdbVote:  Number(item.rating ?? 0),
+        _tmdbEntry: null,
+      });
     }
   }
 
