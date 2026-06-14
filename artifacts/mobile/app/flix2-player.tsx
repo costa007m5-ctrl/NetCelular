@@ -49,6 +49,7 @@ import { db, isSupabaseConfigured } from "@/lib/supabase";
 import { checkAndStartSession, heartbeatSession, endSession } from "@/lib/session-manager";
 import { saveLocalProgress } from "@/hooks/useWatchProgress";
 import WebViewVideoPlayer, { type WebViewVideoPlayerRef } from "@/components/WebViewVideoPlayer";
+import StingOverlay from "@/components/StingOverlay";
 
 let Video: any = null;
 let ResizeMode: any = null;
@@ -232,6 +233,9 @@ export default function Flix2PlayerScreen() {
   //   exactly like Expo Go — ExoPlayer blocks these even with usesCleartextTraffic.
   const [useWebViewPlayer, setUseWebViewPlayer] = useState(false);
   const [webViewBaseUrl, setWebViewBaseUrl] = useState("https://nixplay.lat");
+
+  // ── Sting overlay ─────────────────────────────────────────────────────────────
+  const [showSting, setShowSting] = useState(Platform.OS !== "web");
 
   // ── Resolver WebView (nixplay redirect resolution) ────────────────────────────
   // Android WebView's onShouldStartLoadWithRequest fires for cross-scheme
@@ -1645,6 +1649,14 @@ export default function Flix2PlayerScreen() {
           })()}
         </ScrollView>
       </Animated.View>
+
+      {/* ── Sting overlay ───────────────────────────────────────────────────── */}
+      {showSting && (
+        <StingOverlay
+          videoReady={phase === "ready"}
+          onDone={() => setShowSting(false)}
+        />
+      )}
 
       {/* ── Hidden WebView — resolve nixplay.lat redirects before playing ──────
           Mounts only when resolverUrl is set (nixplay URL detected).

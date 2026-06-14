@@ -33,6 +33,7 @@ import { getSettings } from "@/lib/user-settings";
 import { scheduleContinueWatchingReminder, cancelContinueWatchingReminder } from "@/lib/notifications";
 import { saveLocalProgress } from "@/hooks/useWatchProgress";
 import type { TmdbEpisode, TmdbSeason } from "@/lib/api";
+import StingOverlay from "@/components/StingOverlay";
 
 let Video: any = null;
 let ResizeMode: any = null;
@@ -871,6 +872,9 @@ export default function PlayerScreen() {
   const directReferer = params.directReferer ?? "";
   const directEmbed = params.directEmbed ?? "";
 
+  // ── Sting overlay ──────────────────────────────────────────────────────────
+  const [showSting, setShowSting] = useState(Platform.OS !== "web");
+
   // ── WebView states ──────────────────────────────────────────────────────────
   const [loading, setLoading] = useState(true);
   const [initialLoadDone, setInitialLoadDone] = useState(false);
@@ -1501,6 +1505,14 @@ export default function PlayerScreen() {
         title={String(title ?? "")}
         videoUrl={streamUrl || m3u8Url || undefined}
       />
+
+      {/* ── Sting overlay ─────────────────────────────────────────────────── */}
+      {showSting && (
+        <StingOverlay
+          videoReady={!loading}
+          onDone={() => setShowSting(false)}
+        />
+      )}
     </View>
   );
 }

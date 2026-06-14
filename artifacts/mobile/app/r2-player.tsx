@@ -33,6 +33,7 @@ import {
   getCachedSignedUrl, setCachedSignedUrl,
   getCachedEpisodes, setCachedEpisodes,
 } from "@/lib/r2-cache";
+import StingOverlay from "@/components/StingOverlay";
 
 let Video: any = null;
 let ResizeMode: any = null;
@@ -206,6 +207,9 @@ export default function R2PlayerScreen() {
   const r2SeasonFolders = isTV ? r2Items.filter((i) => i.season != null && i.episode == null) : [];
   const watchSeason = params.watchSeason ? Number(params.watchSeason) : null;
   const watchEpisode = params.watchEpisode ? Number(params.watchEpisode) : null;
+
+  // ── Sting overlay ─────────────────────────────────────────────────────────
+  const [showSting, setShowSting] = useState(Platform.OS !== "web");
 
   // ── Core state ─────────────────────────────────────────────────────────────
   const [phase, setPhase] = useState<"loading" | "ready" | "error">("loading");
@@ -1830,6 +1834,14 @@ export default function R2PlayerScreen() {
         title={title ?? undefined}
         videoUrl={videoUrl ?? undefined}
       />
+
+      {/* ── Sting overlay ───────────────────────────────────────────────────── */}
+      {showSting && (
+        <StingOverlay
+          videoReady={phase === "ready"}
+          onDone={() => setShowSting(false)}
+        />
+      )}
     </View>
   );
 }
