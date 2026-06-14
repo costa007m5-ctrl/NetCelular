@@ -1511,6 +1511,11 @@ export default function PlayerScreen() {
         <StingOverlay
           videoReady={!loading}
           onDone={() => setShowSting(false)}
+          posterUrl={
+            backdropPath ? (TMDB_IMG(backdropPath, "w780") ?? undefined) :
+            posterPath   ? (TMDB_IMG(posterPath,   "w500") ?? undefined) :
+            undefined
+          }
         />
       )}
     </View>

@@ -1840,6 +1840,11 @@ export default function R2PlayerScreen() {
         <StingOverlay
           videoReady={phase === "ready"}
           onDone={() => setShowSting(false)}
+          posterUrl={
+            backdropPath ? `https://image.tmdb.org/t/p/w780${backdropPath}` :
+            posterPath   ? `https://image.tmdb.org/t/p/w500${posterPath}` :
+            undefined
+          }
         />
       )}
     </View>

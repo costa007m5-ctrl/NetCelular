@@ -1,9 +1,10 @@
 /**
  * StingOverlay — plays the programmatic sting animation + audio track.
  *
- * - StingAnimation handles all visuals (ring arches, icon reveal, text, bar)
+ * - StingAnimation handles all visuals (ring arches, poster reveal, text, bar)
  * - expo-av Audio plays sting_audio.aac in parallel
- * - Two conditions both required before disappearing:
+ * - posterUrl: URI of the content being played — shown in place of the app icon
+ * - Two conditions required before disappearing:
  *     1. Animation's 10 s timer fired (or 12 s safety net)
  *     2. `videoReady` prop is true
  * - Spinner shown if animation done but videoReady still false
@@ -19,9 +20,10 @@ try { AudioModule = require("expo-av").Audio; } catch {}
 interface StingOverlayProps {
   videoReady: boolean;
   onDone:     () => void;
+  posterUrl?: string;
 }
 
-export default function StingOverlay({ videoReady, onDone }: StingOverlayProps) {
+export default function StingOverlay({ videoReady, onDone, posterUrl }: StingOverlayProps) {
   const [animDone, setAnimDone] = useState(false);
   const doneCalledRef   = useRef(false);
   const animDoneRef     = useRef(false);
@@ -52,7 +54,6 @@ export default function StingOverlay({ videoReady, onDone }: StingOverlayProps) 
   };
 
   useEffect(() => {
-    // Play audio in parallel with the animation
     (async () => {
       try {
         if (!AudioModule) return;
@@ -65,7 +66,6 @@ export default function StingOverlay({ videoReady, onDone }: StingOverlayProps) 
       } catch { /* audio not critical */ }
     })();
 
-    // Absolute safety fallback: 12 s
     safetyRef.current = setTimeout(() => {
       markAnimDone();
       finish();
@@ -88,7 +88,7 @@ export default function StingOverlay({ videoReady, onDone }: StingOverlayProps) 
 
   return (
     <View style={styles.container} pointerEvents="none">
-      {!animDone && <StingAnimation onEnd={markAnimDone} />}
+      {!animDone && <StingAnimation onEnd={markAnimDone} posterUrl={posterUrl} />}
 
       {animDone && !videoReady && (
         <View style={styles.waitSpinner} pointerEvents="none">
