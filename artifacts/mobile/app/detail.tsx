@@ -1077,8 +1077,8 @@ export default function DetailScreen() {
         tmdb_id: tmdbId,
         type,
         title: details.title ?? details.name ?? "",
-        poster_path: TMDB_IMG(details.poster_path, "w500") ?? "",
-        backdrop_path: TMDB_IMG(details.backdrop_path, "w1280") ?? undefined,
+        poster_path: TMDB_IMG(effectivePosterPath, "w500") ?? "",
+        backdrop_path: TMDB_IMG(effectiveBackdropPath, "w1280") ?? undefined,
       });
       setInList(true);
     }
@@ -1138,8 +1138,8 @@ export default function DetailScreen() {
         tmdb_id: tmdbId,
         type,
         title: details?.title ?? details?.name ?? "",
-        poster_path: TMDB_IMG(details?.poster_path ?? null, "w500") ?? "",
-        backdrop_path: TMDB_IMG(details?.backdrop_path ?? null, "w1280") ?? "",
+        poster_path: TMDB_IMG(effectivePosterPath, "w500") ?? "",
+        backdrop_path: TMDB_IMG(effectiveBackdropPath, "w1280") ?? "",
         streamUrl,
       });
       if (result.error) {
@@ -1170,7 +1170,7 @@ export default function DetailScreen() {
         tmdb_id: tmdbId,
         type,
         title: details.title ?? details.name ?? params.title ?? "",
-        poster_path: details.poster_path ?? undefined,
+        poster_path: effectivePosterPath ?? undefined,
       });
     }
     Alert.alert(
@@ -1189,8 +1189,8 @@ export default function DetailScreen() {
         season: String(season),
         episode: String(episode),
         title: details?.title ?? details?.name ?? "",
-        posterPath: details?.poster_path ?? "",
-        backdropPath: details?.backdrop_path ?? "",
+        posterPath: effectivePosterPath ?? "",
+        backdropPath: effectiveBackdropPath ?? "",
       },
     });
   };
@@ -1444,8 +1444,8 @@ export default function DetailScreen() {
         flix2Url: item.flix2Url ?? "",
         title: details?.title ?? details?.name ?? item.title,
         episodeName: item.label,
-        backdropPath: details?.backdrop_path ?? "",
-        posterPath: details?.poster_path ?? "",
+        backdropPath: effectiveBackdropPath ?? "",
+        posterPath: effectivePosterPath ?? "",
         tmdbId: String(tmdbId),
         type,
         season: seasonVal != null ? String(seasonVal) : "",
@@ -1471,8 +1471,8 @@ export default function DetailScreen() {
         fallbackFlix2Url: fallbackFlix2Url ?? "",
         title: details?.title ?? details?.name ?? item.title,
         label: item.label,
-        backdropPath: details?.backdrop_path ?? "",
-        posterPath: details?.poster_path ?? "",
+        backdropPath: effectiveBackdropPath ?? "",
+        posterPath: effectivePosterPath ?? "",
         tmdbId: String(tmdbId),
         type,
         season: seasonVal != null ? String(seasonVal) : "",
@@ -1497,8 +1497,8 @@ export default function DetailScreen() {
         fallbackDriveItemId: "",
         title: details?.title ?? details?.name ?? item.title,
         label: item.label,
-        backdropPath: details?.backdrop_path ?? "",
-        posterPath: details?.poster_path ?? "",
+        backdropPath: effectiveBackdropPath ?? "",
+        posterPath: effectivePosterPath ?? "",
         tmdbId: String(tmdbId),
         type,
         season: seasonVal != null ? String(seasonVal) : "",
@@ -1573,18 +1573,26 @@ export default function DetailScreen() {
     );
   }
 
-  // Fallback chain: TMDB backdrop → TMDB poster (stretched) → nav-param poster (Flix2 thumbnail)
-  const backdropUri = details
-    ? (TMDB_IMG(details.backdrop_path, "w1280") || TMDB_IMG(details.poster_path, "w780") || params.poster || null)
-    : (params.poster || null);
+  // Fallback chain: TMDB backdrop → override backdrop → TMDB poster → override poster → nav-param poster
+  const backdropUri =
+    TMDB_IMG(details?.backdrop_path ?? null, "w1280") ||
+    TMDB_IMG(contentOverride?.backdrop_path ?? null, "w1280") ||
+    TMDB_IMG(details?.poster_path ?? null, "w780") ||
+    TMDB_IMG(contentOverride?.poster_path ?? null, "w780") ||
+    params.poster ||
+    null;
   const title = contentOverride?.custom_title ?? details?.title ?? details?.name ?? params.title ?? "Carregando...";
   const isLegendado = /\[L\]/i.test(params.title ?? "");
   const year = (details?.release_date ?? details?.first_air_date ?? "").slice(0, 4);
-  const rating = details?.vote_average ? Math.round(details.vote_average * 10) / 10 : null;
+  const rawRating = details?.vote_average ?? contentOverride?.vote_average ?? null;
+  const rating = rawRating ? Math.round(rawRating * 10) / 10 : null;
   const likePercent = rating ? Math.round((rating / 10) * 100) : null;
   const genreStr = details?.genres?.map((g) => g.name).join(" • ") ?? "";
   const runtime = (details as any)?.runtime;
-  const numSeasons = (details as any)?.number_of_seasons;
+  const numSeasons = (details as any)?.number_of_seasons ?? contentOverride?.number_of_seasons ?? null;
+  // Poster e backdrop efetivos: prefere TMDB, cai no override salvo pelo admin
+  const effectivePosterPath = details?.poster_path ?? contentOverride?.poster_path ?? null;
+  const effectiveBackdropPath = details?.backdrop_path ?? contentOverride?.backdrop_path ?? null;
   const overview = contentOverride?.overview_mode === "manual"
     ? (contentOverride?.custom_overview ?? details?.overview ?? "")
     : (details?.overview ?? "");
@@ -2821,7 +2829,7 @@ export default function DetailScreen() {
                           watched={watched}
                           current={current}
                           colors={colors}
-                          fallbackImage={details?.backdrop_path ?? details?.poster_path ?? null}
+                          fallbackImage={effectiveBackdropPath ?? effectivePosterPath ?? null}
                           onPress={undefined}
                           onR2Press={srcSettings.r2 && r2Ep && !isDriveItem(r2Ep) && !isFlixItem(r2Ep) ? () => goToR2Player(r2Ep, selectedSeason, ep.episode_number) : undefined}
                           onFlixPress={(() => {
