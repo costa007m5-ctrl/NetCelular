@@ -712,9 +712,18 @@ export default function BuscarScreen() {
             }
 
             // ── Expand TMDB items: 1 TMDB entry → N cards when N Flix2 variants ─
-            type ExpandedItem = { item: ContentItem; variantTitle?: string; variantLabel?: string };
+            // r2TmdbId: the tmdbId actually stored in the registry (may be 0 for Flix2-only)
+            type ExpandedItem = { item: ContentItem; variantTitle?: string; variantLabel?: string; r2TmdbId?: number };
             const expandedItems: ExpandedItem[] = [];
             const coveredFlix2Keys = new Set<string>();
+
+            // Helper: find the registry tmdbId for a variant title (prefers exact title match)
+            const getR2TmdbId = (varTitle: string): number | undefined => {
+              const vClean = cleanT(varTitle);
+              const match = r2All.find(r => cleanT(r.title) === vClean)
+                ?? r2All.find(r => cleanT(r.title) === cleanT(varTitle.replace(/\s*\[[^\]]*\]/g, "").replace(/\s*\(\d{4}\)/g, "").trim()));
+              return match?.tmdbId;
+            };
 
             for (const item of results) {
               const key = cleanT(item.title);
@@ -732,10 +741,10 @@ export default function BuscarScreen() {
               }
               if (uniqueVariants.length > 1) {
                 for (const uv of uniqueVariants) {
-                  expandedItems.push({ item, variantTitle: uv.title, variantLabel: uv.label });
+                  expandedItems.push({ item, variantTitle: uv.title, variantLabel: uv.label, r2TmdbId: getR2TmdbId(uv.title) });
                 }
               } else if (uniqueVariants.length === 1) {
-                expandedItems.push({ item, variantTitle: uniqueVariants[0].title, variantLabel: uniqueVariants[0].label });
+                expandedItems.push({ item, variantTitle: uniqueVariants[0].title, variantLabel: uniqueVariants[0].label, r2TmdbId: getR2TmdbId(uniqueVariants[0].title) });
               } else {
                 // No Flix2 match — just show TMDB result as-is
                 expandedItems.push({ item });
@@ -818,7 +827,9 @@ export default function BuscarScreen() {
                             pathname: "/detail",
                             params: {
                               type: e.item.mediaType ?? (e.item.type === "movie" ? "movie" : "tv"),
-                              id: String(e.item.tmdbId || 0),
+                              // Prefer the tmdbId actually stored in the registry (r2TmdbId).
+                              // Falls back to TMDB search ID so TMDB metadata still loads.
+                              id: String(e.r2TmdbId ?? e.item.tmdbId ?? 0),
                               title: e.variantTitle ?? e.item.title,
                               poster: e.item.posterPath ?? "",
                             },
