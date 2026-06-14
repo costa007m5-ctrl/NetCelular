@@ -378,6 +378,38 @@ const server = http.createServer((req, res) => {
     return proxyToApi(req, res);
   }
 
+  // Dev proxy: forward Metro bundle / asset requests to Metro dev server (port 18115)
+  // Triggered when the file doesn't exist in dist (i.e. dist only has the placeholder index.html).
+  const METRO_DEV_PORT = 18115;
+  const isMetroRequest = pathname.startsWith("/node_modules/") ||
+    pathname.startsWith("/_expo/") ||
+    pathname.startsWith("/__expo/") ||
+    pathname.startsWith("/assets/") ||
+    pathname === "/hot" ||
+    pathname.startsWith("/symbolicate");
+  if (isMetroRequest) {
+    const fileInDist = path.join(WEB_ROOT, path.normalize(pathname).replace(/^(\.\.(\/|\\|$))+/, ""));
+    const existsInDist = fs.existsSync(fileInDist) && !fs.statSync(fileInDist).isDirectory();
+    if (!existsInDist) {
+      const proxyReq = http.request({
+        hostname: "localhost",
+        port: METRO_DEV_PORT,
+        path: req.url,
+        method: req.method,
+        headers: Object.assign({}, req.headers, { host: `localhost:${METRO_DEV_PORT}` }),
+      }, (proxyRes) => {
+        res.writeHead(proxyRes.statusCode || 502, proxyRes.headers);
+        proxyRes.pipe(res, { end: true });
+      });
+      proxyReq.on("error", () => {
+        res.writeHead(502);
+        res.end("Metro dev server unavailable");
+      });
+      req.pipe(proxyReq, { end: true });
+      return;
+    }
+  }
+
   if (pathname === "/" || pathname === "/manifest") {
     const platform = req.headers["expo-platform"];
     if (platform === "ios" || platform === "android") {

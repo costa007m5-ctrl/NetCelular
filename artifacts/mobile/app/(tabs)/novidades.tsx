@@ -29,6 +29,7 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { r2Route } from "@/lib/r2-direct";
+import { getProxiedStreamUrl } from "@/lib/gdrive-index";
 import { api, TMDB_IMG, tmdbItemToContent, type TmdbItem } from "@/lib/api";
 import type { ContentItem } from "@/constants/content";
 
@@ -913,6 +914,7 @@ function EpPreviewRow({
 }: { item: EpModalItem; isPlaying: boolean; muted: boolean; onPlay: () => void; onViewSeries: () => void; }) {
   const [vidLoading, setVidLoading] = useState(false);
   const [vidReady, setVidReady] = useState(false);
+  const [vidErrored, setVidErrored] = useState(false);
   const [stillErr, setStillErr] = useState(false);
   const [backdropErr, setBackdropErr] = useState(false);
   const [posterErr, setPosterErr] = useState(false);
@@ -934,7 +936,7 @@ function EpPreviewRow({
   // Reset video state when play starts/stops
   useEffect(() => {
     setVidLoading(isPlaying);
-    if (!isPlaying) setVidReady(false);
+    if (!isPlaying) { setVidReady(false); setVidErrored(false); }
   }, [isPlaying]);
 
   return (
@@ -971,13 +973,12 @@ function EpPreviewRow({
           <LinearGradient colors={["#1a0c24", "#0c0818", "#080510"]} style={StyleSheet.absoluteFill} />
         )}
 
-        {/* Video preview — fills container with contain so nothing is cropped */}
-        {isPlaying && canPreview && (
+        {/* Video preview — proxy via servidor evita bloqueio do Cloudflare no APK */}
+        {isPlaying && canPreview && !vidErrored && (
           <EpVideoComp
-            source={{ uri: ep.stream_url }}
+            source={{ uri: getProxiedStreamUrl(ep.stream_url) }}
             style={[StyleSheet.absoluteFill, {
               opacity: vidReady ? 1 : 0,
-              backgroundColor: "#000",
             }]}
             resizeMode={EpResizeMode.CONTAIN ?? "contain"}
             isMuted={muted}
@@ -987,7 +988,7 @@ function EpPreviewRow({
             onLoadStart={() => { setVidLoading(true); setVidReady(false); }}
             onReadyForDisplay={() => { setVidLoading(false); setVidReady(true); }}
             onLoad={() => { setVidLoading(false); setVidReady(true); }}
-            onError={() => { setVidLoading(false); setVidReady(false); }}
+            onError={() => { setVidLoading(false); setVidReady(false); setVidErrored(true); }}
           />
         )}
 
