@@ -1,0 +1,142 @@
+/* ── Root container ───────────────────────────────────────────── */
+.sting-root {
+  position: relative;
+  width: 100%;
+  height: 100vh;
+  background: #050505;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── Deep background gradient ─────────────────────────────────── */
+.sting-bg {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 70% 55% at 50% 52%,
+    #1a0800 0%,
+    #0d0300 40%,
+    #050505 100%
+  );
+}
+
+/* ── Ambient center glow ──────────────────────────────────────── */
+.sting-center-glow {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #ff330022 0%, transparent 70%);
+  filter: blur(18px);
+  animation: centerPulse 2.2s ease-in-out infinite alternate;
+}
+
+@keyframes centerPulse {
+  0%   { opacity: 0.4; transform: translate(-50%, -50%) scale(0.9); }
+  100% { opacity: 1;   transform: translate(-50%, -50%) scale(1.3); }
+}
+
+/* ── Rings wrapper ────────────────────────────────────────────── */
+.sting-rings-wrap {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── Individual ring ──────────────────────────────────────────── */
+.sting-ring {
+  position: absolute;
+  border: 1.5px solid #e8400a;
+  animation: ringZoom linear infinite;
+  will-change: transform, opacity;
+}
+
+@keyframes ringZoom {
+  0%   { transform: scale(1);    opacity: 0.85; }
+  70%  { transform: scale(0.18); opacity: 0.6; }
+  90%  { transform: scale(0.05); opacity: 0; }
+  100% { transform: scale(1);    opacity: 0; }
+}
+
+/* ── Floor reflection ─────────────────────────────────────────── */
+.sting-floor {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 42%;
+  background: linear-gradient(
+    to top,
+    #050505 0%,
+    #050505 15%,
+    transparent 100%
+  );
+  /* subtle red sheen on floor */
+  box-shadow: inset 0 -1px 80px 0 #ff220008;
+}
+
+/* ── Progress bar area ────────────────────────────────────────── */
+.sting-bar-wrap {
+  position: absolute;
+  bottom: 14%;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.sting-bar-track {
+  width: 76%;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(232, 64, 10, 0.25);
+  overflow: hidden;
+  box-shadow: 0 0 10px 0 rgba(232, 64, 10, 0.2);
+}
+
+.sting-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #cc2200, #ff5522);
+  box-shadow:
+    0 0 8px 2px #ff330066,
+    0 0 20px 4px #ff220033;
+  transition: width 0.1s linear;
+}
+
+/* ── Brand text (subtle, centered, above bar) ─────────────────── */
+.sting-brand {
+  position: absolute;
+  bottom: 20%;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+  gap: 0;
+  letter-spacing: 6px;
+  font-family: 'Arial Black', 'Arial', sans-serif;
+  font-size: clamp(24px, 8vw, 42px);
+  font-weight: 900;
+  opacity: 0.18;
+  user-select: none;
+}
+
+.sting-brand-net {
+  color: #e50914;
+}
+
+.sting-brand-play {
+  color: #ffffff;
+}

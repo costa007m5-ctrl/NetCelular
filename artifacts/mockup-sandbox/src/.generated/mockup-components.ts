@@ -4,5 +4,6 @@ export const modules: ModuleMap = {
   "./components/mockups/EmailPreview.tsx": () => import("../components/mockups/EmailPreview.tsx"),
   "./components/mockups/channels/HomeAoVivo.tsx": () => import("../components/mockups/channels/HomeAoVivo.tsx"),
   "./components/mockups/channels/PlayerPremium.tsx": () => import("../components/mockups/channels/PlayerPremium.tsx"),
-  "./components/mockups/channels/SinopseCinematica.tsx": () => import("../components/mockups/channels/SinopseCinematica.tsx")
+  "./components/mockups/channels/SinopseCinematica.tsx": () => import("../components/mockups/channels/SinopseCinematica.tsx"),
+  "./components/mockups/sting/StingPreview.tsx": () => import("../components/mockups/sting/StingPreview.tsx")
 };
