@@ -586,7 +586,7 @@ export const db = {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 15000);
       try {
-        const res = await fetch(`${url}/rest/v1/content_overrides`, {
+        const res = await fetch(`${url}/rest/v1/content_overrides?on_conflict=content_key`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
