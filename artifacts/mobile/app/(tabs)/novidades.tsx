@@ -68,6 +68,17 @@ interface WhatsNewResp {
   series: WhatsNewItem[];
   animes: WhatsNewItem[];
 }
+
+interface RawEp { season: number; episode: number; stream_url: string; title: string; }
+interface EpGroup {
+  seriesId: string; seriesTitle: string; seriesPoster: string; seriesTmdbId: number;
+  totalEps: number; latestEp: RawEp; allEps: RawEp[];
+}
+
+let EpVideoComp: any = null;
+let EpResizeMode: any = {};
+try { const av = require("expo-av"); EpVideoComp = av.Video; EpResizeMode = av.ResizeMode; } catch {}
+
 interface AllData {
   trending: TmdbItem[];
   trendingMovies: TmdbItem[];
@@ -737,6 +748,337 @@ const ac = StyleSheet.create({
   title: { fontSize: 10, fontWeight: "700", color: "#fff", lineHeight: 14 },
 });
 
+// ─── EpisodeCard ──────────────────────────────────────────────────────────────
+function EpisodeCard({
+  group, onPress, onSynopsis,
+}: { group: EpGroup; onPress: (g: EpGroup) => void; onSynopsis: (g: EpGroup) => void; }) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const [imgErr, setImgErr] = useState(false);
+  const ep = group.latestEp;
+  const isSingle = group.totalEps === 1;
+  const epLabel = `S${String(ep.season).padStart(2, "0")} E${String(ep.episode).padStart(2, "0")}`;
+  const pi = () => Animated.spring(scale, { toValue: 0.96, useNativeDriver: true, speed: 30 }).start();
+  const po = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 26 }).start();
+  return (
+    <Pressable onPressIn={pi} onPressOut={po} onPress={() => onPress(group)} style={{ marginRight: 14 }}>
+      <Animated.View style={{ width: 240, transform: [{ scale }] }}>
+        <View style={epc.card}>
+          {!imgErr && group.seriesPoster ? (
+            <Image source={{ uri: group.seriesPoster }} style={StyleSheet.absoluteFill}
+              contentFit="cover" cachePolicy="memory-disk" onError={() => setImgErr(true)} />
+          ) : (
+            <LinearGradient colors={["#0a1020", "#050810"]} style={StyleSheet.absoluteFill} />
+          )}
+          <LinearGradient colors={["rgba(0,0,0,0.6)", "transparent", "rgba(0,0,0,0.95)"]}
+            locations={[0, 0.35, 1]} style={StyleSheet.absoluteFill} />
+          <View style={epc.topRow}>
+            <View style={epc.epBadge}><Text style={epc.epBadgeText}>{epLabel}</Text></View>
+            <View style={epc.newBadge}><Text style={epc.newBadgeText}>EP NOVO</Text></View>
+          </View>
+          {isSingle && (
+            <View style={epc.playCircle}>
+              <Feather name="play" size={22} color="#fff" />
+            </View>
+          )}
+          <View style={epc.bottomRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={epc.seriesTitle} numberOfLines={1}>{group.seriesTitle}</Text>
+              {!isSingle && <Text style={epc.epCount}>{group.totalEps} episódios</Text>}
+            </View>
+            {!isSingle && (
+              <View style={epc.verEps}>
+                <Text style={epc.verEpsText}>eps</Text>
+                <Feather name="chevron-right" size={12} color={TEAL} />
+              </View>
+            )}
+          </View>
+        </View>
+        {isSingle && (
+          <View style={epc.actRow}>
+            <TouchableOpacity onPress={() => onPress(group)} activeOpacity={0.8}
+              style={[epc.actBtn, { backgroundColor: RED }]}>
+              <Feather name="play" size={12} color="#fff" />
+              <Text style={epc.actBtnTxt}>Assistir</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => onSynopsis(group)} activeOpacity={0.8} style={epc.actBtnOut}>
+              <Feather name="info" size={12} color="rgba(255,255,255,0.65)" />
+              <Text style={epc.actBtnOutTxt}>Sinopse</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </Animated.View>
+    </Pressable>
+  );
+}
+const epc = StyleSheet.create({
+  card: { width: 240, height: 135, borderRadius: 12, overflow: "hidden", backgroundColor: "#0a0a12", marginBottom: 8 },
+  topRow: { position: "absolute", top: 0, left: 0, right: 0, flexDirection: "row", justifyContent: "space-between", padding: 8 },
+  epBadge: { backgroundColor: `${TEAL}dd`, borderRadius: 5, paddingHorizontal: 7, paddingVertical: 3 },
+  epBadgeText: { fontSize: 9, fontWeight: "900", color: "#fff", letterSpacing: 0.5 },
+  newBadge: { backgroundColor: "rgba(34,197,94,0.85)", borderRadius: 5, paddingHorizontal: 7, paddingVertical: 3 },
+  newBadgeText: { fontSize: 9, fontWeight: "800", color: "#fff" },
+  playCircle: { position: "absolute", top: "50%", left: "50%", width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(229,9,20,0.85)", alignItems: "center", justifyContent: "center", marginTop: -22, marginLeft: -22, borderWidth: 2, borderColor: "rgba(255,255,255,0.3)" },
+  bottomRow: { position: "absolute", bottom: 0, left: 0, right: 0, flexDirection: "row", alignItems: "center", padding: 9 },
+  seriesTitle: { fontSize: 12, fontWeight: "800", color: "#fff", lineHeight: 15 },
+  epCount: { fontSize: 9, color: `${TEAL}cc`, fontWeight: "600", marginTop: 1 },
+  verEps: { flexDirection: "row", alignItems: "center", gap: 2 },
+  verEpsText: { fontSize: 9, color: TEAL, fontWeight: "700" },
+  actRow: { flexDirection: "row", gap: 8 },
+  actBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 8, borderRadius: 8 },
+  actBtnTxt: { fontSize: 12, fontWeight: "800", color: "#fff" },
+  actBtnOut: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 8, borderRadius: 8, backgroundColor: "rgba(255,255,255,0.08)", borderWidth: 1, borderColor: "rgba(255,255,255,0.12)" },
+  actBtnOutTxt: { fontSize: 12, fontWeight: "700", color: "rgba(255,255,255,0.65)" },
+});
+
+// ─── EpPreviewRow ─────────────────────────────────────────────────────────────
+interface EpModalItem { group: EpGroup; ep: RawEp; key: string; }
+
+function EpPreviewRow({
+  item, isPlaying, muted, onPlay, onViewSeries,
+}: { item: EpModalItem; isPlaying: boolean; muted: boolean; onPlay: () => void; onViewSeries: () => void; }) {
+  const [imgErr, setImgErr] = useState(false);
+  const ep = item.ep;
+  const g = item.group;
+  const epLabel = `S${String(ep.season).padStart(2, "0")} E${String(ep.episode).padStart(2, "0")}`;
+  const canPreview = EpVideoComp !== null && Platform.OS !== "web";
+  return (
+    <View style={epr.wrap}>
+      <View style={epr.thumb}>
+        {!imgErr && g.seriesPoster ? (
+          <Image source={{ uri: g.seriesPoster }} style={StyleSheet.absoluteFill}
+            contentFit="cover" cachePolicy="memory-disk" onError={() => setImgErr(true)} />
+        ) : (
+          <LinearGradient colors={["#0a1020", "#050810"]} style={StyleSheet.absoluteFill} />
+        )}
+        {isPlaying && canPreview && (
+          <EpVideoComp source={{ uri: ep.stream_url }} style={StyleSheet.absoluteFill}
+            resizeMode={EpResizeMode.COVER ?? "cover"} isMuted={muted}
+            shouldPlay isLooping useNativeControls={false} />
+        )}
+        <LinearGradient colors={["rgba(0,0,0,0.35)", "transparent", "rgba(0,0,0,0.7)"]}
+          locations={[0, 0.4, 1]} style={StyleSheet.absoluteFill} />
+        {isPlaying && canPreview && (
+          <View style={epr.playingDot}><View style={epr.dot} /></View>
+        )}
+        <View style={epr.epTag}><Text style={epr.epTagText}>{epLabel}</Text></View>
+      </View>
+      <View style={epr.info}>
+        <Text style={epr.seriesName} numberOfLines={1}>{g.seriesTitle}</Text>
+        <Text style={epr.epName} numberOfLines={2}>{ep.title || epLabel}</Text>
+        <View style={epr.btnRow}>
+          <TouchableOpacity onPress={onPlay} activeOpacity={0.8} style={epr.playBtn}>
+            <Feather name="play" size={11} color="#fff" />
+            <Text style={epr.playBtnTxt}>Assistir</Text>
+          </TouchableOpacity>
+          {g.totalEps > 1 && (
+            <TouchableOpacity onPress={onViewSeries} activeOpacity={0.75} style={epr.seriesBtn}>
+              <Text style={epr.seriesBtnTxt}>{g.totalEps} eps</Text>
+              <Feather name="chevron-right" size={11} color={TEAL} />
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+    </View>
+  );
+}
+const epr = StyleSheet.create({
+  wrap: { flexDirection: "row", gap: 10, marginBottom: 12, backgroundColor: "rgba(255,255,255,0.04)", borderRadius: 14, overflow: "hidden" },
+  thumb: { width: W * 0.42, aspectRatio: 16 / 9, backgroundColor: "#0a0a12" },
+  playingDot: { position: "absolute", top: 7, left: 7 },
+  dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: RED },
+  epTag: { position: "absolute", bottom: 5, left: 6, backgroundColor: `${TEAL}dd`, borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2 },
+  epTagText: { fontSize: 8, fontWeight: "900", color: "#fff" },
+  info: { flex: 1, justifyContent: "center", gap: 4, paddingVertical: 12, paddingRight: 10 },
+  seriesName: { fontSize: 12, fontWeight: "800", color: "#fff" },
+  epName: { fontSize: 10, color: "rgba(255,255,255,0.42)", lineHeight: 14 },
+  btnRow: { flexDirection: "row", gap: 8, marginTop: 4 },
+  playBtn: { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: RED, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 7 },
+  playBtnTxt: { fontSize: 11, fontWeight: "800", color: "#fff" },
+  seriesBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 5, borderRadius: 7, backgroundColor: `${TEAL}18`, borderWidth: 1, borderColor: `${TEAL}40` },
+  seriesBtnTxt: { fontSize: 11, fontWeight: "700", color: TEAL },
+});
+
+// ─── SingleEpSheet ────────────────────────────────────────────────────────────
+function SingleEpSheet({
+  visible, group, onClose, onPlay, onSynopsis,
+}: { visible: boolean; group: EpGroup | null; onClose: () => void; onPlay: (g: EpGroup) => void; onSynopsis: (g: EpGroup) => void; }) {
+  const slideY = useRef(new Animated.Value(H)).current;
+  const bdrop = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (visible) {
+      Animated.parallel([
+        Animated.timing(slideY, { toValue: 0, duration: 300, useNativeDriver: true }),
+        Animated.timing(bdrop, { toValue: 1, duration: 250, useNativeDriver: true }),
+      ]).start();
+    } else {
+      Animated.parallel([
+        Animated.timing(slideY, { toValue: H, duration: 270, useNativeDriver: true }),
+        Animated.timing(bdrop, { toValue: 0, duration: 220, useNativeDriver: true }),
+      ]).start();
+    }
+  }, [visible]);
+  if (!group) return null;
+  const ep = group.latestEp;
+  const epLabel = `S${String(ep.season).padStart(2, "0")} E${String(ep.episode).padStart(2, "0")}`;
+  return (
+    <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
+      <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.82)", opacity: bdrop }]}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+      </Animated.View>
+      <Animated.View style={[ses.sheet, { transform: [{ translateY: slideY }] }]}>
+        <LinearGradient colors={["#0c0814", "#060410"]} style={StyleSheet.absoluteFill} />
+        <View style={[ses.handle, { backgroundColor: `${TEAL}55` }]} />
+        <View style={ses.infoRow}>
+          <View style={ses.posterWrap}>
+            {group.seriesPoster ? (
+              <Image source={{ uri: group.seriesPoster }} style={StyleSheet.absoluteFill}
+                contentFit="cover" cachePolicy="memory-disk" />
+            ) : (
+              <LinearGradient colors={["#12061a", "#06030e"]} style={StyleSheet.absoluteFill} />
+            )}
+            <LinearGradient colors={["transparent", "rgba(0,0,0,0.6)"]} locations={[0.5, 1]}
+              style={StyleSheet.absoluteFill} />
+          </View>
+          <View style={ses.metaCol}>
+            <View style={ses.epBadge}><Text style={ses.epBadgeText}>{epLabel}</Text></View>
+            <Text style={ses.title} numberOfLines={2}>{group.seriesTitle}</Text>
+            <Text style={ses.epTitle} numberOfLines={2}>{ep.title || epLabel}</Text>
+          </View>
+        </View>
+        <View style={ses.actions}>
+          <TouchableOpacity onPress={() => { onClose(); onPlay(group); }} activeOpacity={0.85} style={ses.playBtn}>
+            <Feather name="play" size={16} color="#fff" />
+            <Text style={ses.playTxt}>Assistir Episódio</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => { onClose(); onSynopsis(group); }} activeOpacity={0.8} style={ses.synBtn}>
+            <Feather name="info" size={16} color={TEAL} />
+            <Text style={ses.synTxt}>Ver Sinopse da Série</Text>
+          </TouchableOpacity>
+        </View>
+      </Animated.View>
+    </Modal>
+  );
+}
+const ses = StyleSheet.create({
+  sheet: { position: "absolute", bottom: 0, left: 0, right: 0, borderTopLeftRadius: 24, borderTopRightRadius: 24, overflow: "hidden", paddingBottom: 36 },
+  handle: { width: 36, height: 4, borderRadius: 2, alignSelf: "center", marginTop: 10, marginBottom: 16 },
+  infoRow: { flexDirection: "row", paddingHorizontal: 18, gap: 14, marginBottom: 22 },
+  posterWrap: { width: 90, height: 126, borderRadius: 10, overflow: "hidden", backgroundColor: "#111" },
+  metaCol: { flex: 1, justifyContent: "center", gap: 7 },
+  epBadge: { alignSelf: "flex-start", backgroundColor: `${TEAL}dd`, borderRadius: 5, paddingHorizontal: 8, paddingVertical: 3 },
+  epBadgeText: { fontSize: 10, fontWeight: "900", color: "#fff" },
+  title: { fontSize: 16, fontWeight: "900", color: "#fff", lineHeight: 21 },
+  epTitle: { fontSize: 12, color: "rgba(255,255,255,0.48)", lineHeight: 16 },
+  actions: { paddingHorizontal: 18, gap: 10 },
+  playBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, backgroundColor: RED, paddingVertical: 14, borderRadius: 14 },
+  playTxt: { fontSize: 15, fontWeight: "900", color: "#fff" },
+  synBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, backgroundColor: `${TEAL}18`, borderWidth: 1, borderColor: `${TEAL}40`, paddingVertical: 14, borderRadius: 14 },
+  synTxt: { fontSize: 15, fontWeight: "700", color: TEAL },
+});
+
+// ─── EpisodesModal ────────────────────────────────────────────────────────────
+function EpisodesModal({
+  visible, groups, onClose, onPlayEp, onViewSeries,
+}: {
+  visible: boolean; groups: EpGroup[];
+  onClose: () => void;
+  onPlayEp: (g: EpGroup, ep: RawEp) => void;
+  onViewSeries: (g: EpGroup) => void;
+}) {
+  const slideY = useRef(new Animated.Value(H)).current;
+  const bdrop = useRef(new Animated.Value(0)).current;
+  const [previewMuted, setPreviewMuted] = useState(true);
+  const [playingKey, setPlayingKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (visible) {
+      setPlayingKey(null);
+      Animated.parallel([
+        Animated.timing(slideY, { toValue: 0, duration: 330, useNativeDriver: true }),
+        Animated.timing(bdrop, { toValue: 1, duration: 270, useNativeDriver: true }),
+      ]).start();
+    } else {
+      setPlayingKey(null);
+      Animated.parallel([
+        Animated.timing(slideY, { toValue: H, duration: 290, useNativeDriver: true }),
+        Animated.timing(bdrop, { toValue: 0, duration: 230, useNativeDriver: true }),
+      ]).start();
+    }
+  }, [visible]);
+
+  const items = useMemo<EpModalItem[]>(() => groups.map(g => ({
+    group: g, ep: g.latestEp, key: `ep_${g.seriesId}_${g.latestEp.season}_${g.latestEp.episode}`,
+  })), [groups]);
+
+  const viewabilityConfig = useRef({ viewAreaCoveragePercentThreshold: 55 });
+  const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
+    if (viewableItems.length > 0) setPlayingKey(viewableItems[0].item.key);
+    else setPlayingKey(null);
+  });
+
+  return (
+    <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
+      <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.78)", opacity: bdrop }]}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+      </Animated.View>
+      <Animated.View style={[epm.sheet, { transform: [{ translateY: slideY }] }]}>
+        <LinearGradient colors={["#080610", "#040308"]} style={StyleSheet.absoluteFill} />
+        <View style={[epm.handle, { backgroundColor: `${TEAL}55` }]} />
+        <View style={epm.header}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+            <View style={[epm.accent, { backgroundColor: TEAL }]} />
+            <Text style={epm.title}>Novos Episódios</Text>
+            <View style={epm.cnt}><Text style={epm.cntText}>{groups.length} séries</Text></View>
+          </View>
+          <View style={{ flexDirection: "row", gap: 10 }}>
+            <TouchableOpacity onPress={() => setPreviewMuted(m => !m)} activeOpacity={0.75}
+              style={[epm.iconBtn, { backgroundColor: previewMuted ? "rgba(255,255,255,0.07)" : `${TEAL}28` }]}>
+              <Feather name={previewMuted ? "volume-x" : "volume-2"} size={15}
+                color={previewMuted ? "rgba(255,255,255,0.4)" : TEAL} />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={onClose} activeOpacity={0.75} style={epm.iconBtn}>
+              <Feather name="x" size={16} color="rgba(255,255,255,0.55)" />
+            </TouchableOpacity>
+          </View>
+        </View>
+        <Text style={epm.hint}>
+          {previewMuted ? "Prévia no mudo — toque 🔊 para ativar áudio" : "Prévia com áudio ativo"}
+        </Text>
+        <FlatList
+          data={items}
+          keyExtractor={item => item.key}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingHorizontal: 14, paddingBottom: 120, paddingTop: 4 }}
+          viewabilityConfig={viewabilityConfig.current}
+          onViewableItemsChanged={onViewableItemsChanged.current}
+          initialNumToRender={5}
+          maxToRenderPerBatch={4}
+          renderItem={({ item }) => (
+            <EpPreviewRow
+              item={item}
+              isPlaying={playingKey === item.key}
+              muted={previewMuted}
+              onPlay={() => { onClose(); onPlayEp(item.group, item.ep); }}
+              onViewSeries={() => { onClose(); onViewSeries(item.group); }}
+            />
+          )}
+        />
+      </Animated.View>
+    </Modal>
+  );
+}
+const epm = StyleSheet.create({
+  sheet: { position: "absolute", bottom: 0, left: 0, right: 0, height: H * 0.9, borderTopLeftRadius: 22, borderTopRightRadius: 22, overflow: "hidden" },
+  handle: { width: 36, height: 4, borderRadius: 2, alignSelf: "center", marginTop: 10, marginBottom: 6 },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 8 },
+  accent: { width: 3, height: 18, borderRadius: 2 },
+  title: { fontSize: 16, fontWeight: "800", color: "#fff" },
+  cnt: { backgroundColor: `${TEAL}20`, borderWidth: 1, borderColor: `${TEAL}44`, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 },
+  cntText: { fontSize: 11, fontWeight: "800", color: TEAL },
+  iconBtn: { width: 34, height: 34, borderRadius: 17, backgroundColor: "rgba(255,255,255,0.07)", alignItems: "center", justifyContent: "center" },
+  hint: { fontSize: 11, color: "rgba(255,255,255,0.28)", paddingHorizontal: 18, marginBottom: 10 },
+});
+
 // ─── VerMaisModal ─────────────────────────────────────────────────────────────
 function VerMaisModal({ visible, title, items, accentColor = RED, onClose, onItemPress }: {
   visible: boolean; title: string; items: ContentItem[];
@@ -898,6 +1240,103 @@ export default function NovidadesScreen() {
     setRefreshing(true);
     load().finally(() => setRefreshing(false));
   }, [load]);
+
+  // ── Episode groups ───────────────────────────────────────────────────────
+  const [epGroups, setEpGroups] = useState<EpGroup[]>([]);
+  const [epLoading, setEpLoading] = useState(false);
+  const [showEpsModal, setShowEpsModal] = useState(false);
+  const [singleSheet, setSingleSheet] = useState<{ visible: boolean; group: EpGroup | null }>({
+    visible: false, group: null,
+  });
+
+  useEffect(() => {
+    const series = data?.whatsNew?.series?.filter(i => i.poster) ?? [];
+    if (!series.length) { setEpGroups([]); return; }
+    setEpLoading(true);
+    const toFetch = series.slice(0, 15);
+    Promise.allSettled(
+      toFetch.map(s =>
+        r2Route<{ found: boolean; episodes: RawEp[] }>(`/flix2/series-episodes?seriesId=${s.id}`)
+          .then(r => ({ s, r }))
+      )
+    ).then(results => {
+      const groups: EpGroup[] = [];
+      for (const res of results) {
+        if (res.status !== "fulfilled") continue;
+        const { s, r } = res.value;
+        if (!r.found || !r.episodes?.length) continue;
+        const allEps = r.episodes;
+        const latestEp = [...allEps].sort((a, b) => {
+          if (a.season !== b.season) return b.season - a.season;
+          return b.episode - a.episode;
+        })[0];
+        groups.push({
+          seriesId: String(s.id),
+          seriesTitle: s.title,
+          seriesPoster: s.poster,
+          seriesTmdbId: Number(s.tmdb_id) || 0,
+          totalEps: allEps.length,
+          latestEp,
+          allEps,
+        });
+      }
+      setEpGroups(groups);
+    }).finally(() => setEpLoading(false));
+  }, [data?.whatsNew]);
+
+  const handleEpCardPress = useCallback((group: EpGroup) => {
+    if (group.totalEps === 1) {
+      setSingleSheet({ visible: true, group });
+    } else {
+      router.push({
+        pathname: "/detail",
+        params: {
+          type: "tv",
+          id: String(group.seriesTmdbId || group.seriesId),
+          flix2Id: group.seriesId,
+          title: group.seriesTitle,
+          poster: group.seriesPoster,
+        },
+      });
+    }
+  }, [router]);
+
+  const handlePlayEpisode = useCallback((group: EpGroup, ep: RawEp) => {
+    const flix2Items = group.allEps.map(e => ({
+      id: `ep-${e.season}-${e.episode}`,
+      flix2Url: e.stream_url,
+      title: group.seriesTitle,
+      label: e.title,
+      season: e.season,
+      episode: e.episode,
+    }));
+    router.push({
+      pathname: "/flix2-player",
+      params: {
+        flix2Url: ep.stream_url,
+        title: group.seriesTitle,
+        episodeName: ep.title || `S${String(ep.season).padStart(2, "0")} E${String(ep.episode).padStart(2, "0")}`,
+        tmdbId: String(group.seriesTmdbId || 0),
+        type: "tv",
+        season: String(ep.season),
+        episode: String(ep.episode),
+        flix2ItemsJson: JSON.stringify(flix2Items),
+      },
+    });
+  }, [router]);
+
+  const handleEpSynopsis = useCallback((group: EpGroup) => {
+    router.push({
+      pathname: "/detail",
+      params: {
+        type: "tv",
+        id: String(group.seriesTmdbId || group.seriesId),
+        flix2Id: group.seriesId,
+        title: group.seriesTitle,
+        poster: group.seriesPoster,
+      },
+    });
+  }, [router]);
 
   // ── Computed sections ───────────────────────────────────────────────────────
   const heroBannerItems = useMemo<ContentItem[]>(() => {
@@ -1074,16 +1513,20 @@ export default function NovidadesScreen() {
 
         {/* ── NOVOS EPISÓDIOS ───────────────────────────────────────────── */}
         <View style={root.section}>
-          <SectionHeader title="Novos Episódios" icon="play-circle" badge={newEpisodes.length}
-            accentColor={TEAL} subtitle="Séries com episódios adicionados recentemente"
-            onSeeAll={newEpisodes.length > 6 ? () => openModal("Novos Episódios", newEpisodes, TEAL) : undefined} />
-          {loading ? <SkeletonRow count={4} width={118} height={172} /> : (
-            newEpisodes.length > 0 ? (
+          <SectionHeader title="Novos Episódios" icon="play-circle" badge={epGroups.length}
+            accentColor={TEAL} subtitle="Assista direto ou explore a temporada"
+            onSeeAll={epGroups.length > 0 ? () => setShowEpsModal(true) : undefined} />
+          {(loading || epLoading) ? <SkeletonRow count={3} width={240} height={135} /> : (
+            epGroups.length > 0 ? (
               <ScrollView horizontal showsHorizontalScrollIndicator={false}
                 contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 4 }}>
-                {newEpisodes.slice(0, 6).map((item, i) => (
-                  <PosterCard key={`ep_${item.id}_${i}`} item={item}
-                    onPress={() => goTo(item)} badge="EP NOVO" badgeColor={TEAL} />
+                {epGroups.slice(0, 6).map((g, i) => (
+                  <EpisodeCard
+                    key={`epg_${g.seriesId}_${i}`}
+                    group={g}
+                    onPress={handleEpCardPress}
+                    onSynopsis={handleEpSynopsis}
+                  />
                 ))}
               </ScrollView>
             ) : (
@@ -1253,6 +1696,36 @@ export default function NovidadesScreen() {
         accentColor={modal.accent}
         onClose={closeModal}
         onItemPress={goTo}
+      />
+
+      {/* ═══ SINGLE EP SHEET ═════════════════════════════════════════════════ */}
+      <SingleEpSheet
+        visible={singleSheet.visible}
+        group={singleSheet.group}
+        onClose={() => setSingleSheet({ visible: false, group: null })}
+        onPlay={(g) => handlePlayEpisode(g, g.latestEp)}
+        onSynopsis={handleEpSynopsis}
+      />
+
+      {/* ═══ EPISODES VER MAIS MODAL ═════════════════════════════════════════ */}
+      <EpisodesModal
+        visible={showEpsModal}
+        groups={epGroups}
+        onClose={() => setShowEpsModal(false)}
+        onPlayEp={handlePlayEpisode}
+        onViewSeries={(g) => {
+          setShowEpsModal(false);
+          router.push({
+            pathname: "/detail",
+            params: {
+              type: "tv",
+              id: String(g.seriesTmdbId || g.seriesId),
+              flix2Id: g.seriesId,
+              title: g.seriesTitle,
+              poster: g.seriesPoster,
+            },
+          });
+        }}
       />
     </View>
   );
