@@ -32,7 +32,7 @@ import type { TmdbItem, TmdbEpisode, TmdbSeason } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
 import { addCatalogWatch, removeCatalogWatch, isWatchingCatalog } from "@/lib/catalog-watch";
-import type { WatchProgress } from "@/lib/supabase";
+import type { ContentOverride, WatchProgress } from "@/lib/supabase";
 import type { ContentItem } from "@/constants/content";
 import { searchDriveByTitle, getDriveSeasonEpisodes, DriveMatch } from "@/lib/gdrive-search";
 import { DriveItem, parseEpisodeInfo } from "@/lib/gdrive-index";
@@ -269,6 +269,24 @@ export default function DetailScreen() {
   const userId = user?.id ?? "";
   const isAdmin = user?.role === "admin" ||
     (user?.email ? ["admin@netplay.tv", "admin@netplay.com.br"].includes(user.email) : false);
+
+  // Unique key for this piece of content used to store/retrieve admin overrides
+  const contentKey = tmdbId
+    ? `${type}_${tmdbId}`
+    : `title_${(params.title ?? "").toLowerCase().replace(/[^a-z0-9]/g, "_").slice(0, 80)}`;
+
+  // Admin content override state
+  const [contentOverride, setContentOverride] = useState<ContentOverride | null>(null);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editTmdbId, setEditTmdbId] = useState("");
+  const [editTitle, setEditTitle] = useState("");
+  const [editOverview, setEditOverview] = useState("");
+  const [editOverviewMode, setEditOverviewMode] = useState<"auto" | "manual">("auto");
+  const [editBusy, setEditBusy] = useState(false);
+  const [editErr, setEditErr] = useState<string | null>(null);
+  const [autoOverview, setAutoOverview] = useState<string>("");
+  const [fetchingAutoOverview, setFetchingAutoOverview] = useState(false);
+
   const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null);
   const [convertingLinkId, setConvertingLinkId] = useState<string | null>(null);
   const [convertedLinks, setConvertedLinks] = useState<Record<string, string>>({});
@@ -615,6 +633,20 @@ export default function DetailScreen() {
       db.progress.getForShow(userId, tmdbId, "tv").then(setWatchProgress);
     }
   }, [userId, tmdbId, type]);
+
+  // Load content override (applies to ALL users; only admins can edit it)
+  useEffect(() => {
+    if (!isSupabaseConfigured || !contentKey) return;
+    db.contentOverrides.get(contentKey).then((ov) => {
+      setContentOverride(ov);
+      if (ov?.tmdb_id && ov.tmdb_id !== resolvedTmdbId) {
+        setResolvedTmdbId(ov.tmdb_id);
+      }
+      if (ov?.tmdb_type && (ov.tmdb_type === "movie" || ov.tmdb_type === "tv") && ov.tmdb_type !== resolvedType) {
+        setResolvedType(ov.tmdb_type as "movie" | "tv");
+      }
+    }).catch(() => {});
+  }, [contentKey]);
 
   useEffect(() => {
     if (!tmdbId) return;
@@ -1214,6 +1246,77 @@ export default function DetailScreen() {
     }
   };
 
+  // ─── Admin content-override handlers ───────────────────────────────────────
+  const openEditModal = () => {
+    setEditTmdbId(contentOverride?.tmdb_id?.toString() ?? (tmdbId ? String(tmdbId) : ""));
+    setEditTitle(contentOverride?.custom_title ?? "");
+    setEditOverview(contentOverride?.custom_overview ?? "");
+    setEditOverviewMode(contentOverride?.overview_mode ?? "auto");
+    setAutoOverview(details?.overview ?? "");
+    setEditErr(null);
+    setShowEditModal(true);
+  };
+
+  const fetchAutoOverviewForId = async (idStr: string) => {
+    const id = parseInt(idStr, 10);
+    if (!id) { setAutoOverview(""); return; }
+    setFetchingAutoOverview(true);
+    try {
+      const TMDB_KEY_LOCAL = "8f0beb08cf016ec8de49e454e09879ec";
+      const r = await fetch(
+        `https://api.themoviedb.org/3/${resolvedType}/${id}?api_key=${TMDB_KEY_LOCAL}&language=pt-BR`
+      );
+      const data = r.ok ? await r.json() : null;
+      setAutoOverview((data?.overview as string) ?? "");
+    } catch {
+      setAutoOverview("");
+    } finally {
+      setFetchingAutoOverview(false);
+    }
+  };
+
+  const saveContentOverride = async () => {
+    if (!userId) { setEditErr("É necessário estar logado."); return; }
+    setEditBusy(true);
+    setEditErr(null);
+    try {
+      const overrideTmdbId = editTmdbId ? parseInt(editTmdbId, 10) : null;
+      const payload: Partial<Omit<ContentOverride, "content_key" | "id">> = {
+        tmdb_id: overrideTmdbId || null,
+        tmdb_type: type,
+        custom_title: editTitle.trim() || null,
+        custom_overview: editOverviewMode === "manual" ? (editOverview.trim() || null) : null,
+        overview_mode: editOverviewMode,
+      };
+      const { error } = await db.contentOverrides.upsert(contentKey, payload, userId);
+      if (error) { setEditErr(error); return; }
+      const fresh = await db.contentOverrides.get(contentKey);
+      setContentOverride(fresh);
+      if (fresh?.tmdb_id && fresh.tmdb_id !== resolvedTmdbId) {
+        setResolvedTmdbId(fresh.tmdb_id);
+      }
+      setShowEditModal(false);
+    } catch (e: any) {
+      setEditErr(e?.message ?? "Erro ao salvar");
+    } finally {
+      setEditBusy(false);
+    }
+  };
+
+  const deleteContentOverride = async () => {
+    setEditBusy(true);
+    try {
+      await db.contentOverrides.remove(contentKey);
+      setContentOverride(null);
+      setShowEditModal(false);
+    } catch {
+      setEditErr("Erro ao remover override");
+    } finally {
+      setEditBusy(false);
+    }
+  };
+  // ────────────────────────────────────────────────────────────────────────────
+
   const submitAddSource = async () => {
     const url = addSrcUrl.trim();
     if (!url) { setAddSrcErr("Cole uma URL válida"); return; }
@@ -1401,7 +1504,7 @@ export default function DetailScreen() {
   const backdropUri = details
     ? (TMDB_IMG(details.backdrop_path, "w1280") || TMDB_IMG(details.poster_path, "w780") || params.poster || null)
     : (params.poster || null);
-  const title = details?.title ?? details?.name ?? params.title ?? "Carregando...";
+  const title = contentOverride?.custom_title ?? details?.title ?? details?.name ?? params.title ?? "Carregando...";
   const isLegendado = /\[L\]/i.test(params.title ?? "");
   const year = (details?.release_date ?? details?.first_air_date ?? "").slice(0, 4);
   const rating = details?.vote_average ? Math.round(details.vote_average * 10) / 10 : null;
@@ -1409,7 +1512,9 @@ export default function DetailScreen() {
   const genreStr = details?.genres?.map((g) => g.name).join(" • ") ?? "";
   const runtime = (details as any)?.runtime;
   const numSeasons = (details as any)?.number_of_seasons;
-  const overview = details?.overview ?? "";
+  const overview = contentOverride?.overview_mode === "manual"
+    ? (contentOverride?.custom_overview ?? details?.overview ?? "")
+    : (details?.overview ?? "");
   const castList: any[] = ((details as any)?.credits?.cast ?? []).slice(0, 15);
   const topPad = Platform.OS === "web" ? 0 : insets.top;
 
@@ -1695,6 +1800,166 @@ export default function DetailScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
+      {/* ── Admin: Edit Content Metadata Modal ─────────────────────────────── */}
+      <Modal
+        visible={showEditModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowEditModal(false)}
+      >
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+          <Pressable
+            style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.80)", justifyContent: "flex-end" }}
+            onPress={() => setShowEditModal(false)}
+          >
+            <Pressable
+              onPress={(e) => e.stopPropagation()}
+              style={{ backgroundColor: "#111", borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, gap: 16, borderWidth: 1, borderBottomWidth: 0, borderColor: "rgba(234,179,8,0.25)" }}
+            >
+              {/* Header */}
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <Feather name="edit-2" size={16} color="#fbbf24" />
+                  <Text style={{ color: "#fbbf24", fontWeight: "700", fontSize: 16 }}>Editar Conteúdo</Text>
+                  <View style={{ paddingHorizontal: 7, paddingVertical: 2, backgroundColor: "rgba(234,179,8,0.15)", borderRadius: 6, borderWidth: 1, borderColor: "rgba(234,179,8,0.35)" }}>
+                    <Text style={{ color: "#fbbf24", fontSize: 10, fontWeight: "700" }}>ADMIN</Text>
+                  </View>
+                </View>
+                <Pressable onPress={() => setShowEditModal(false)} hitSlop={12}>
+                  <Feather name="x" size={20} color="rgba(255,255,255,0.5)" />
+                </Pressable>
+              </View>
+
+              <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 11 }}>
+                Chave: <Text style={{ color: "rgba(255,255,255,0.5)", fontFamily: "monospace" }}>{contentKey}</Text>
+              </Text>
+
+              {/* TMDB ID */}
+              <View style={{ gap: 6 }}>
+                <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 13, fontWeight: "600" }}>ID TMDB</Text>
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <TextInput
+                    style={{ flex: 1, backgroundColor: "rgba(255,255,255,0.07)", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, color: "#fff", fontSize: 14, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)" }}
+                    placeholder={tmdbId ? String(tmdbId) : "Ex: 205212"}
+                    placeholderTextColor="rgba(255,255,255,0.3)"
+                    value={editTmdbId}
+                    onChangeText={setEditTmdbId}
+                    keyboardType="numeric"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                  <Pressable
+                    onPress={() => fetchAutoOverviewForId(editTmdbId)}
+                    disabled={!editTmdbId || fetchingAutoOverview}
+                    style={({ pressed }) => [{ paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10, backgroundColor: "rgba(59,130,246,0.15)", borderWidth: 1, borderColor: "rgba(59,130,246,0.4)", justifyContent: "center", alignItems: "center" }, (pressed || !editTmdbId) && { opacity: 0.5 }]}
+                  >
+                    {fetchingAutoOverview
+                      ? <ActivityIndicator size={14} color="#60a5fa" />
+                      : <Feather name="search" size={16} color="#60a5fa" />}
+                  </Pressable>
+                </View>
+                <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 11 }}>
+                  Digite o ID e toque 🔍 para buscar a sinopse automaticamente do TMDB.
+                </Text>
+              </View>
+
+              {/* Nome */}
+              <View style={{ gap: 6 }}>
+                <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 13, fontWeight: "600" }}>Nome (deixe vazio para usar o TMDB)</Text>
+                <TextInput
+                  style={{ backgroundColor: "rgba(255,255,255,0.07)", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, color: "#fff", fontSize: 14, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)" }}
+                  placeholder={details?.title ?? details?.name ?? "Nome personalizado…"}
+                  placeholderTextColor="rgba(255,255,255,0.3)"
+                  value={editTitle}
+                  onChangeText={setEditTitle}
+                  autoCorrect={false}
+                />
+              </View>
+
+              {/* Sinopse */}
+              <View style={{ gap: 8 }}>
+                <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 13, fontWeight: "600" }}>Sinopse</Text>
+                {/* Mode toggle */}
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <Pressable
+                    onPress={() => setEditOverviewMode("auto")}
+                    style={({ pressed }) => [{ flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: "center", borderWidth: 1, backgroundColor: editOverviewMode === "auto" ? "rgba(34,197,94,0.15)" : "rgba(255,255,255,0.05)", borderColor: editOverviewMode === "auto" ? "rgba(34,197,94,0.5)" : "rgba(255,255,255,0.12)" }, pressed && { opacity: 0.7 }]}
+                  >
+                    <Text style={{ color: editOverviewMode === "auto" ? "#4ade80" : "rgba(255,255,255,0.5)", fontSize: 13, fontWeight: "600" }}>🤖 Automático</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => setEditOverviewMode("manual")}
+                    style={({ pressed }) => [{ flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: "center", borderWidth: 1, backgroundColor: editOverviewMode === "manual" ? "rgba(234,179,8,0.15)" : "rgba(255,255,255,0.05)", borderColor: editOverviewMode === "manual" ? "rgba(234,179,8,0.5)" : "rgba(255,255,255,0.12)" }, pressed && { opacity: 0.7 }]}
+                  >
+                    <Text style={{ color: editOverviewMode === "manual" ? "#fbbf24" : "rgba(255,255,255,0.5)", fontSize: 13, fontWeight: "600" }}>✏️ Manual</Text>
+                  </Pressable>
+                </View>
+
+                {editOverviewMode === "auto" ? (
+                  /* Preview da sinopse automática */
+                  <View style={{ backgroundColor: "rgba(34,197,94,0.06)", borderRadius: 10, padding: 12, borderWidth: 1, borderColor: "rgba(34,197,94,0.2)", gap: 4 }}>
+                    <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11 }}>Prévia (do TMDB):</Text>
+                    {fetchingAutoOverview
+                      ? <ActivityIndicator size={14} color="#4ade80" style={{ alignSelf: "flex-start", marginTop: 4 }} />
+                      : <Text style={{ color: "rgba(255,255,255,0.75)", fontSize: 13, lineHeight: 18 }} numberOfLines={4}>
+                          {autoOverview || (details?.overview ?? "Nenhuma sinopse disponível.")}
+                        </Text>
+                    }
+                  </View>
+                ) : (
+                  /* Campo de sinopse manual */
+                  <TextInput
+                    style={{ backgroundColor: "rgba(255,255,255,0.07)", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, color: "#fff", fontSize: 13, lineHeight: 20, borderWidth: 1, borderColor: "rgba(234,179,8,0.3)", minHeight: 100, textAlignVertical: "top" }}
+                    placeholder="Digite a sinopse personalizada…"
+                    placeholderTextColor="rgba(255,255,255,0.3)"
+                    value={editOverview}
+                    onChangeText={setEditOverview}
+                    multiline
+                    autoCorrect={false}
+                  />
+                )}
+              </View>
+
+              {/* Error */}
+              {editErr ? (
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <Feather name="alert-circle" size={13} color="#ef4444" />
+                  <Text style={{ color: "#ef4444", fontSize: 12, flex: 1 }}>{editErr}</Text>
+                </View>
+              ) : null}
+
+              {/* Actions */}
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                {contentOverride && (
+                  <Pressable
+                    onPress={deleteContentOverride}
+                    disabled={editBusy}
+                    style={({ pressed }) => [{ paddingVertical: 12, paddingHorizontal: 14, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(239,68,68,0.12)", borderWidth: 1, borderColor: "rgba(239,68,68,0.4)" }, (pressed || editBusy) && { opacity: 0.6 }]}
+                  >
+                    <Feather name="trash-2" size={16} color="#f87171" />
+                  </Pressable>
+                )}
+                <Pressable
+                  onPress={() => setShowEditModal(false)}
+                  style={({ pressed }) => [{ flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: "center", backgroundColor: "rgba(255,255,255,0.07)" }, pressed && { opacity: 0.7 }]}
+                >
+                  <Text style={{ color: "rgba(255,255,255,0.6)", fontWeight: "600" }}>Cancelar</Text>
+                </Pressable>
+                <Pressable
+                  onPress={saveContentOverride}
+                  disabled={editBusy}
+                  style={({ pressed }) => [{ flex: 2, paddingVertical: 12, borderRadius: 10, alignItems: "center", backgroundColor: "#ca8a04" }, (pressed || editBusy) && { opacity: 0.7 }]}
+                >
+                  {editBusy
+                    ? <ActivityIndicator size="small" color="#fff" />
+                    : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15 }}>Salvar</Text>}
+                </Pressable>
+              </View>
+            </Pressable>
+          </Pressable>
+        </KeyboardAvoidingView>
+      </Modal>
+
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
         {/* Backdrop */}
         <View style={{ height: BACKDROP_H + topPad }}>
@@ -1949,6 +2214,15 @@ export default function DetailScreen() {
                               <Feather name="archive" size={14} color="#a78bfa" />
                               <Text style={{ color: "#a78bfa", fontSize: 13, fontWeight: "600" }}>Admin Catalog</Text>
                             </Pressable>
+                            <Pressable
+                              onPress={openEditModal}
+                              style={({ pressed }) => [{ flexDirection: "row", alignItems: "center", gap: 7, paddingVertical: 7, paddingHorizontal: 12, borderRadius: 8, backgroundColor: contentOverride ? "rgba(234,179,8,0.18)" : "rgba(255,255,255,0.07)", borderWidth: 1, borderColor: contentOverride ? "rgba(234,179,8,0.5)" : "rgba(255,255,255,0.12)" }, pressed && { opacity: 0.7 }]}
+                            >
+                              <Feather name="edit-2" size={14} color={contentOverride ? "#fbbf24" : colors.foreground} />
+                              <Text style={{ color: contentOverride ? "#fbbf24" : colors.foreground, fontSize: 13, fontWeight: "600" }}>
+                                {contentOverride ? "Editar Override" : "Editar Conteúdo"}
+                              </Text>
+                            </Pressable>
                           </View>
                         </>
                       )}
@@ -2063,6 +2337,17 @@ export default function DetailScreen() {
                   <Feather name="share-2" size={20} color={colors.foreground} />
                   <Text style={[styles.actionLabel, { color: colors.mutedForeground }]}>Compartilhar</Text>
                 </Pressable>
+                {isAdmin && (
+                  <Pressable style={styles.actionBtn} onPress={openEditModal}>
+                    <View style={{ position: "relative" }}>
+                      <Feather name="edit-2" size={20} color={contentOverride ? "#fbbf24" : colors.foreground} />
+                      {contentOverride && (
+                        <View style={{ position: "absolute", top: -3, right: -3, width: 8, height: 8, borderRadius: 4, backgroundColor: "#fbbf24" }} />
+                      )}
+                    </View>
+                    <Text style={[styles.actionLabel, { color: contentOverride ? "#fbbf24" : colors.mutedForeground }]}>Editar</Text>
+                  </Pressable>
+                )}
               </View>
 
               {/* Tabs */}

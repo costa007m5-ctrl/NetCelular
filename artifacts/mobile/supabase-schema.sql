@@ -278,5 +278,39 @@ CREATE POLICY "anon_all_release_reminders"
 
 
 -- ────────────────────────────────────────────────────────────
+-- CONTENT OVERRIDES (edição de metadados — somente admin)
+-- ────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS public.content_overrides (
+  id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  content_key     TEXT        NOT NULL UNIQUE,
+  tmdb_id         INTEGER,
+  tmdb_type       TEXT        CHECK (tmdb_type IN ('movie', 'tv')),
+  custom_title    TEXT,
+  custom_overview TEXT,
+  overview_mode   TEXT        NOT NULL DEFAULT 'auto' CHECK (overview_mode IN ('auto', 'manual')),
+  updated_by      UUID        REFERENCES public.users(id) ON DELETE SET NULL,
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE public.content_overrides ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "anon_read_content_overrides" ON public.content_overrides;
+CREATE POLICY "anon_read_content_overrides"
+  ON public.content_overrides FOR SELECT TO anon
+  USING (true);
+
+DROP POLICY IF EXISTS "auth_read_content_overrides" ON public.content_overrides;
+CREATE POLICY "auth_read_content_overrides"
+  ON public.content_overrides FOR SELECT TO authenticated
+  USING (true);
+
+DROP POLICY IF EXISTS "auth_write_content_overrides" ON public.content_overrides;
+CREATE POLICY "auth_write_content_overrides"
+  ON public.content_overrides FOR ALL TO authenticated
+  USING (true) WITH CHECK (true);
+
+
+-- ────────────────────────────────────────────────────────────
 -- FIM — todas as tabelas e permissoes prontas
 -- ────────────────────────────────────────────────────────────

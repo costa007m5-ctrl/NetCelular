@@ -19,6 +19,18 @@ export const supabase = createClient(url, key, {
   },
 });
 
+export type ContentOverride = {
+  id?: string;
+  content_key: string;
+  tmdb_id?: number | null;
+  tmdb_type?: "movie" | "tv" | null;
+  custom_title?: string | null;
+  custom_overview?: string | null;
+  overview_mode: "auto" | "manual";
+  updated_by?: string | null;
+  updated_at?: string;
+};
+
 export type DbUser = {
   id?: string;
   email: string;
@@ -538,6 +550,42 @@ export const db = {
         .select("*, users(name, email, avatar_letter)")
         .order("created_at", { ascending: false });
       return data ?? [];
+    },
+  },
+
+  contentOverrides: {
+    get: async (contentKey: string): Promise<ContentOverride | null> => {
+      const { data } = await supabase
+        .from("content_overrides")
+        .select("*")
+        .eq("content_key", contentKey)
+        .maybeSingle();
+      return (data as ContentOverride) ?? null;
+    },
+
+    upsert: async (
+      contentKey: string,
+      override: Partial<Omit<ContentOverride, "content_key" | "id">>,
+      userId: string
+    ): Promise<{ error?: string }> => {
+      const { error } = await supabase.from("content_overrides").upsert(
+        {
+          content_key: contentKey,
+          ...override,
+          updated_by: userId,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "content_key" }
+      );
+      return error ? { error: error.message } : {};
+    },
+
+    remove: async (contentKey: string): Promise<{ error?: string }> => {
+      const { error } = await supabase
+        .from("content_overrides")
+        .delete()
+        .eq("content_key", contentKey);
+      return error ? { error: error.message } : {};
     },
   },
 
