@@ -780,12 +780,12 @@ const s = StyleSheet.create({
   },
   stageArc: {
     position: "absolute",
-    width: SW * 4.0,
-    height: SW * 4.0,
-    borderRadius: SW * 2.0,
+    width: SW * 5.0,
+    height: SW * 5.0,
+    borderRadius: SW * 2.5,
     backgroundColor: "rgba(28, 4, 2, 0.92)",
-    top: -(SW * 0.18),
-    left: -(SW * 1.5),
+    top: -(SW * 0.05),
+    left: -(SW * 2.0),
     zIndex: 0,
   },
   panelTitle: {
