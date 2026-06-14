@@ -234,6 +234,9 @@ export default function DetailScreen() {
   const [details, setDetails] = useState<TmdbItem | null>(null);
   const [similar, setSimilar] = useState<ContentItem[]>([]);
   const [seasons, setSeasons] = useState<TmdbSeason[]>([]);
+  // Images fetched directly from TMDB using the override's tmdb_id (bypasses server proxy)
+  const [overridePoster, setOverridePoster] = useState<string | null>(null);
+  const [overrideBackdrop, setOverrideBackdrop] = useState<string | null>(null);
   const [selectedSeason, setSelectedSeason] = useState(1);
   const [episodeList, setEpisodeList] = useState<TmdbEpisode[]>([]);
   const [activeTab, setActiveTab] = useState<Tab>(
@@ -667,6 +670,22 @@ export default function DetailScreen() {
       }
     }).catch(() => {});
   }, [contentKey, normalizedTitleKey]);
+
+  // When override has a tmdb_id, fetch poster+backdrop directly from TMDB (bypasses server proxy).
+  // This works even if poster_path/backdrop_path columns don't yet exist in content_overrides.
+  useEffect(() => {
+    const id = contentOverride?.tmdb_id;
+    if (!id) { setOverridePoster(null); setOverrideBackdrop(null); return; }
+    const mediaType: string = contentOverride?.tmdb_type ?? (type === "movie" ? "movie" : "tv");
+    const TMDB_KEY = "8f0beb08cf016ec8de49e454e09879ec";
+    fetch(`https://api.themoviedb.org/3/${mediaType}/${id}?api_key=${TMDB_KEY}&language=pt-BR`)
+      .then((r) => r.json())
+      .then((d) => {
+        setOverridePoster(d?.poster_path ?? null);
+        setOverrideBackdrop(d?.backdrop_path ?? null);
+      })
+      .catch(() => {});
+  }, [contentOverride?.tmdb_id, contentOverride?.tmdb_type, type]);
 
   useEffect(() => {
     if (!tmdbId) return;
@@ -1592,8 +1611,10 @@ export default function DetailScreen() {
   // Fallback chain: TMDB backdrop → override backdrop → TMDB poster → override poster → nav-param poster
   const backdropUri =
     TMDB_IMG(details?.backdrop_path ?? null, "w1280") ||
+    TMDB_IMG(overrideBackdrop, "w1280") ||
     TMDB_IMG(contentOverride?.backdrop_path ?? null, "w1280") ||
     TMDB_IMG(details?.poster_path ?? null, "w780") ||
+    TMDB_IMG(overridePoster, "w780") ||
     TMDB_IMG(contentOverride?.poster_path ?? null, "w780") ||
     params.poster ||
     null;
@@ -1606,9 +1627,9 @@ export default function DetailScreen() {
   const genreStr = details?.genres?.map((g) => g.name).join(" • ") ?? "";
   const runtime = (details as any)?.runtime;
   const numSeasons = (details as any)?.number_of_seasons ?? contentOverride?.number_of_seasons ?? null;
-  // Poster e backdrop efetivos: prefere TMDB, cai no override salvo pelo admin
-  const effectivePosterPath = details?.poster_path ?? contentOverride?.poster_path ?? null;
-  const effectiveBackdropPath = details?.backdrop_path ?? contentOverride?.backdrop_path ?? null;
+  // Poster e backdrop efetivos: prefere TMDB, cai no override salvo pelo admin, depois no override fetchado direto
+  const effectivePosterPath = details?.poster_path ?? contentOverride?.poster_path ?? overridePoster ?? null;
+  const effectiveBackdropPath = details?.backdrop_path ?? contentOverride?.backdrop_path ?? overrideBackdrop ?? null;
   const overview = contentOverride?.overview_mode === "manual"
     ? (contentOverride?.custom_overview ?? details?.overview ?? "")
     : (details?.overview ?? "");
