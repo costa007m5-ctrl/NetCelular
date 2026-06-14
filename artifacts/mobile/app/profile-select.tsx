@@ -14,6 +14,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { useFocusEffect } from "expo-router";
 import { Image } from "expo-image";
 import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
@@ -538,7 +539,12 @@ export default function ProfileSelectScreen() {
     }
   }, [user?.id]);
 
-  useEffect(() => { load(); }, [load]);
+  useFocusEffect(
+    useCallback(() => {
+      setLoading(true);
+      load();
+    }, [load])
+  );
 
   const handleSelect = async (profile: NetplayProfile) => {
     if (editMode) { setEditTarget(profile); setEditModal(true); return; }
@@ -774,12 +780,12 @@ const s = StyleSheet.create({
   },
   stageArc: {
     position: "absolute",
-    width: SW * 2.2,
-    height: SW * 2.2,
-    borderRadius: SW * 1.1,
+    width: SW * 4.0,
+    height: SW * 4.0,
+    borderRadius: SW * 2.0,
     backgroundColor: "rgba(28, 4, 2, 0.92)",
-    top: -(SW * 0.52),
-    left: -(SW * 0.6),
+    top: -(SW * 0.18),
+    left: -(SW * 1.5),
     zIndex: 0,
   },
   panelTitle: {
