@@ -74,6 +74,7 @@ interface RawEp { season: number; episode: number; stream_url: string; title: st
 interface EpGroup {
   seriesId: string; seriesTitle: string; seriesPoster: string; seriesTmdbId: number;
   totalEps: number; latestEp: RawEp; allEps: RawEp[]; seriesOverview?: string;
+  backdropPath?: string; logoPath?: string;
 }
 
 let EpVideoComp: any = null;
@@ -837,120 +838,131 @@ interface EpModalItem { group: EpGroup; ep: RawEp; key: string; }
 function EpPreviewRow({
   item, isPlaying, muted, onPlay, onViewSeries,
 }: { item: EpModalItem; isPlaying: boolean; muted: boolean; onPlay: () => void; onViewSeries: () => void; }) {
-  const [imgErr, setImgErr] = useState(false);
   const [vidLoading, setVidLoading] = useState(false);
-  const [tmdbOverview, setTmdbOverview] = useState("");
+  const [thumbErr, setThumbErr] = useState(false);
   const ep = item.ep;
   const g = item.group;
-  const epNum = `Episódio ${ep.episode}`;
-  const seasonLabel = `Temporada ${ep.season}`;
   const epLabel = `S${String(ep.season).padStart(2, "0")} E${String(ep.episode).padStart(2, "0")}`;
   const canPreview = EpVideoComp !== null;
-  const synopsis = g.seriesOverview || tmdbOverview;
 
-  // Fetch TMDB overview if not available from catalog
-  useEffect(() => {
-    if (g.seriesOverview || !g.seriesTmdbId) return;
-    r2Route<{ overview?: string }>(`/tmdb/tv/${g.seriesTmdbId}`)
-      .then(d => { if (d.overview) setTmdbOverview(d.overview); })
-      .catch(() => {});
-  }, [g.seriesTmdbId, g.seriesOverview]);
+  // Build thumbnail URL: prefer TMDB backdrop (16:9), fall back to poster
+  const backdropUrl = g.backdropPath ? TMDB_IMG(g.backdropPath, "w780") : null;
+  const posterUrl = g.seriesPoster || null;
+  const thumbUrl = (!thumbErr && backdropUrl) ? backdropUrl : posterUrl;
+  // Portrait posters need "contain" so they don't get cropped; backdrops use "cover"
+  const thumbFit = (thumbUrl === backdropUrl) ? "cover" : "contain";
 
-  // Reset video loading state when isPlaying changes
+  // TMDB logo image URL (PNG with transparency)
+  const logoUrl = g.logoPath ? TMDB_IMG(g.logoPath, "w300") : null;
+
+  // Reset loading when play starts
   useEffect(() => {
-    if (isPlaying) setVidLoading(true);
-    else setVidLoading(false);
+    setVidLoading(isPlaying);
   }, [isPlaying]);
 
   return (
     <View style={epr.card}>
-      {/* ── Thumbnail 16:9 full-width ── */}
+      {/* ── Thumbnail 16:9 ─────────────────────────────────────────── */}
       <View style={epr.thumb}>
-        {/* Poster fallback */}
-        {!imgErr && g.seriesPoster ? (
-          <Image source={{ uri: g.seriesPoster }} style={StyleSheet.absoluteFill}
-            contentFit="cover" cachePolicy="memory-disk" onError={() => setImgErr(true)} />
+        {/* Background: TMDB backdrop if available, else poster */}
+        {thumbUrl ? (
+          <Image
+            source={{ uri: thumbUrl }}
+            style={StyleSheet.absoluteFill}
+            contentFit={thumbFit as any}
+            cachePolicy="memory-disk"
+            onError={() => setThumbErr(true)}
+          />
         ) : (
           <LinearGradient colors={["#0e1020", "#06080e"]} style={StyleSheet.absoluteFill} />
         )}
 
-        {/* Video preview — overlays poster */}
+        {/* Video preview — overlays image when playing */}
         {isPlaying && canPreview && (
           <EpVideoComp
             source={{ uri: ep.stream_url }}
-            style={[StyleSheet.absoluteFill, { width: "100%", height: "100%" }]}
-            resizeMode={EpResizeMode.COVER ?? "cover"}
+            style={StyleSheet.absoluteFill}
+            resizeMode={EpResizeMode.CONTAIN ?? "contain"}
             isMuted={muted}
             shouldPlay
             isLooping
             useNativeControls={false}
             onLoadStart={() => setVidLoading(true)}
-            onLoad={() => setVidLoading(false)}
             onReadyForDisplay={() => setVidLoading(false)}
+            onLoad={() => setVidLoading(false)}
             onError={() => setVidLoading(false)}
           />
         )}
 
-        {/* Gradient overlay */}
+        {/* Dark gradient — stronger at top + bottom */}
         <LinearGradient
-          colors={["rgba(0,0,0,0.25)", "transparent", "rgba(0,0,0,0.9)"]}
-          locations={[0, 0.45, 1]}
+          colors={["rgba(0,0,0,0.35)", "transparent", "rgba(0,0,0,0.88)"]}
+          locations={[0, 0.5, 1]}
           style={StyleSheet.absoluteFill}
         />
 
-        {/* Series name as logo overlay — bottom of thumb */}
-        <View style={epr.logoOverlay}>
-          <Text style={epr.logoText} numberOfLines={1}>{g.seriesTitle}</Text>
+        {/* Series identity — logo image OR styled text */}
+        <View style={epr.logoArea}>
+          {logoUrl ? (
+            <Image
+              source={{ uri: logoUrl }}
+              style={epr.logoImg}
+              contentFit="contain"
+              cachePolicy="memory-disk"
+            />
+          ) : (
+            <Text style={epr.logoText} numberOfLines={2}>{g.seriesTitle}</Text>
+          )}
         </View>
 
-        {/* Loading spinner centered */}
+        {/* Loading spinner — centred */}
         {isPlaying && vidLoading && (
           <View style={epr.loadingOverlay}>
-            <ActivityIndicator size="large" color={TEAL} />
+            <ActivityIndicator size="large" color="#fff" />
             <Text style={epr.loadingText}>Carregando prévia…</Text>
           </View>
         )}
 
-        {/* PRÉVIA badge (top-left, only when playing & loaded) */}
-        {isPlaying && !vidLoading && canPreview && (
-          <View style={epr.liveRow}>
+        {/* PRÉVIA badge — top-left, only when loaded */}
+        {isPlaying && !vidLoading && (
+          <View style={epr.liveBadge}>
             <View style={epr.liveDot} />
             <Text style={epr.liveTxt}>PRÉVIA</Text>
           </View>
         )}
 
-        {/* S/E badge (bottom-left) */}
-        <View style={epr.epTag}><Text style={epr.epTagText}>{epLabel}</Text></View>
+        {/* S/E badge — bottom-left */}
+        <View style={epr.epTag}><Text style={epr.epTagTxt}>{epLabel}</Text></View>
       </View>
 
-      {/* ── Info below thumbnail ── */}
+      {/* ── Info below thumbnail ──────────────────────────────────── */}
       <View style={epr.info}>
-        {/* Episode meta badges */}
+        {/* Season / Episode badges */}
         <View style={epr.metaRow}>
           <View style={epr.metaBadge}>
             <Feather name="layers" size={9} color={TEAL} />
-            <Text style={epr.metaBadgeTxt}>{seasonLabel}</Text>
+            <Text style={epr.metaBadgeTxt}>{`Temporada ${ep.season}`}</Text>
           </View>
           <View style={[epr.metaBadge, { backgroundColor: `${RED}18`, borderColor: `${RED}30` }]}>
             <Feather name="play-circle" size={9} color={RED} />
-            <Text style={[epr.metaBadgeTxt, { color: RED }]}>{epNum}</Text>
+            <Text style={[epr.metaBadgeTxt, { color: RED }]}>{`Episódio ${ep.episode}`}</Text>
           </View>
         </View>
 
-        {/* Episode title (if not just "Series S04 E07") */}
-        {ep.title && !ep.title.match(/S\d+\s*E\d+$/) && (
+        {/* Episode title — only if it's a real title, not "Series S04 E07" */}
+        {ep.title && !/S\d+\s*E\d+/i.test(ep.title) && (
           <Text style={epr.epName} numberOfLines={1}>{ep.title}</Text>
         )}
 
         {/* Synopsis */}
-        {!!synopsis && (
-          <Text style={epr.synopsis} numberOfLines={3}>{synopsis}</Text>
+        {!!g.seriesOverview && (
+          <Text style={epr.synopsis} numberOfLines={3}>{g.seriesOverview}</Text>
         )}
 
         {/* Action buttons */}
         <View style={epr.btnRow}>
           <TouchableOpacity onPress={onPlay} activeOpacity={0.85} style={epr.playBtn}>
-            <Feather name="play" size={13} color="#fff" />
+            <Feather name="play" size={14} color="#fff" />
             <Text style={epr.playBtnTxt}>Assistir Episódio</Text>
           </TouchableOpacity>
           {g.totalEps > 1 && (
@@ -966,23 +978,25 @@ function EpPreviewRow({
 }
 const epr = StyleSheet.create({
   card: { marginBottom: 16, backgroundColor: "rgba(255,255,255,0.05)", borderRadius: 16, overflow: "hidden" },
-  thumb: { width: "100%", aspectRatio: 16 / 9, backgroundColor: "#0a0a14", overflow: "hidden" },
-  logoOverlay: { position: "absolute", bottom: 28, left: 0, right: 0, alignItems: "center", paddingHorizontal: 12 },
-  logoText: { fontSize: 22, fontWeight: "900", color: "rgba(255,255,255,0.82)", letterSpacing: -0.5, textShadowColor: "rgba(0,0,0,0.9)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 6, textAlign: "center" },
-  loadingOverlay: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.4)", gap: 8 },
-  loadingText: { fontSize: 11, color: TEAL, fontWeight: "600" },
-  liveRow: { position: "absolute", top: 8, left: 10, flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "rgba(229,9,20,0.9)", borderRadius: 5, paddingHorizontal: 8, paddingVertical: 3 },
+  thumb: { width: "100%", aspectRatio: 16 / 9, backgroundColor: "#08080f", overflow: "hidden" },
+  // Logo area centred in lower-third of thumbnail
+  logoArea: { position: "absolute", bottom: 28, left: 0, right: 0, alignItems: "center", paddingHorizontal: 16 },
+  logoImg: { width: "70%", height: 44 },
+  logoText: { fontSize: 20, fontWeight: "900", color: "rgba(255,255,255,0.88)", letterSpacing: -0.4, textShadowColor: "rgba(0,0,0,0.95)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 8, textAlign: "center" },
+  loadingOverlay: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", gap: 8 },
+  loadingText: { fontSize: 11, color: "rgba(255,255,255,0.7)", fontWeight: "600" },
+  liveBadge: { position: "absolute", top: 8, left: 10, flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "rgba(229,9,20,0.92)", borderRadius: 5, paddingHorizontal: 8, paddingVertical: 3 },
   liveDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: "#fff" },
   liveTxt: { fontSize: 8, fontWeight: "900", color: "#fff", letterSpacing: 0.8 },
   epTag: { position: "absolute", bottom: 6, left: 10, backgroundColor: `${TEAL}ee`, borderRadius: 5, paddingHorizontal: 8, paddingVertical: 3 },
-  epTagText: { fontSize: 9, fontWeight: "900", color: "#fff" },
-  info: { padding: 14, gap: 8 },
-  metaRow: { flexDirection: "row", gap: 8 },
+  epTagTxt: { fontSize: 9, fontWeight: "900", color: "#fff" },
+  info: { padding: 14, gap: 7 },
+  metaRow: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
   metaBadge: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: `${TEAL}18`, borderWidth: 1, borderColor: `${TEAL}30`, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 },
   metaBadgeTxt: { fontSize: 10, fontWeight: "700", color: TEAL },
-  epName: { fontSize: 12, fontWeight: "600", color: "rgba(255,255,255,0.65)", lineHeight: 16 },
-  synopsis: { fontSize: 12, color: "rgba(255,255,255,0.45)", lineHeight: 18 },
-  btnRow: { flexDirection: "row", gap: 10, marginTop: 2 },
+  epName: { fontSize: 12, fontWeight: "600", color: "rgba(255,255,255,0.6)", lineHeight: 16 },
+  synopsis: { fontSize: 12, color: "rgba(255,255,255,0.5)", lineHeight: 18 },
+  btnRow: { flexDirection: "row", gap: 10, marginTop: 4 },
   playBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: RED, paddingVertical: 12, borderRadius: 10 },
   playBtnTxt: { fontSize: 13, fontWeight: "800", color: "#fff" },
   seriesBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, paddingVertical: 12, borderRadius: 10, backgroundColor: `${TEAL}15`, borderWidth: 1, borderColor: `${TEAL}35` },
@@ -1344,9 +1358,9 @@ export default function NovidadesScreen() {
     const series = data?.whatsNew?.series?.filter(i => i.poster) ?? [];
     if (!series.length) { setEpGroups([]); return; }
     setEpLoading(true);
-    const toFetch = series.slice(0, 30);
+    // Fetch ALL series from the last 30 days — no arbitrary cap
     Promise.allSettled(
-      toFetch.map(s =>
+      series.map(s =>
         r2Route<{ found: boolean; episodes: RawEp[] }>(`/flix2/series-episodes?seriesId=${s.id}`)
           .then(r => ({ s, r }))
       )
@@ -1373,6 +1387,71 @@ export default function NovidadesScreen() {
         });
       }
       setEpGroups(groups);
+
+      // ── TMDB enrichment: backdrop + logo + overview ───────────────────────
+      // Pass 1: groups WITH tmdbId — fetch details + logo in parallel
+      const withTmdb = groups.filter(g => g.seriesTmdbId > 0).slice(0, 30);
+      if (withTmdb.length) {
+        Promise.allSettled(
+          withTmdb.map(g =>
+            Promise.all([
+              r2Route<{ overview?: string; backdrop_path?: string }>(`/tmdb/tv/${g.seriesTmdbId}`),
+              r2Route<{ logo_path: string | null }>(`/tmdb/franchise-logo?type=tv&id=${g.seriesTmdbId}`),
+            ]).then(([det, logo]) => ({
+              seriesId: g.seriesId,
+              overview: det.overview || "",
+              backdropPath: det.backdrop_path || "",
+              logoPath: logo.logo_path || "",
+            }))
+          )
+        ).then(enrichResults => {
+          const map: Record<string, { overview: string; backdropPath: string; logoPath: string }> = {};
+          for (const r2 of enrichResults) {
+            if (r2.status !== "fulfilled") continue;
+            map[r2.value.seriesId] = r2.value;
+          }
+          setEpGroups(prev =>
+            prev.map(g => {
+              const e = map[g.seriesId];
+              if (!e) return g;
+              return {
+                ...g,
+                seriesOverview: g.seriesOverview || e.overview,
+                backdropPath: e.backdropPath || g.backdropPath,
+                logoPath: e.logoPath || g.logoPath,
+              };
+            })
+          );
+        });
+      }
+
+      // Pass 2: groups WITHOUT tmdbId — try TMDB title search for overview
+      const withoutTmdb = groups.filter(g => !g.seriesTmdbId && !g.seriesOverview).slice(0, 15);
+      if (withoutTmdb.length) {
+        Promise.allSettled(
+          withoutTmdb.map(g =>
+            r2Route<{ results: Array<{ overview: string }> }>(
+              `/tmdb/search?q=${encodeURIComponent(g.seriesTitle)}&type=tv`
+            ).then(d => ({
+              seriesId: g.seriesId,
+              overview: d.results?.[0]?.overview || "",
+            }))
+          )
+        ).then(searchResults => {
+          const overMap: Record<string, string> = {};
+          for (const r2 of searchResults) {
+            if (r2.status !== "fulfilled") continue;
+            overMap[r2.value.seriesId] = r2.value.overview;
+          }
+          setEpGroups(prev =>
+            prev.map(g => {
+              const ov = overMap[g.seriesId];
+              if (!ov) return g;
+              return { ...g, seriesOverview: ov };
+            })
+          );
+        });
+      }
     }).finally(() => setEpLoading(false));
   }, [data?.whatsNew]);
 
