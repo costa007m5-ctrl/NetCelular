@@ -767,6 +767,13 @@ const ac = StyleSheet.create({
   title: { fontSize: 10, fontWeight: "700", color: "#fff", lineHeight: 14 },
 });
 
+// URL resolver — handles both full URLs (Xtream CDN) and TMDB relative paths
+function resolveImgUrl(pathOrUrl: string | null | undefined, size: "w185" | "w300" | "w342" | "w500" | "w780" | "w1280" | "original" = "w780"): string | null {
+  if (!pathOrUrl) return null;
+  if (pathOrUrl.startsWith("http")) return pathOrUrl;
+  return `https://image.tmdb.org/t/p/${size}${pathOrUrl}`;
+}
+
 // ─── EpisodeCard ──────────────────────────────────────────────────────────────
 function EpisodeCard({
   group, onPress, onSynopsis,
@@ -783,12 +790,12 @@ function EpisodeCard({
   const po = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 26 }).start();
 
   // Banner priority: episode still → series backdrop → poster → gradient
-  const stillUrl    = (!stillErr && group.latestEpStill) ? TMDB_IMG(group.latestEpStill, "w780") : null;
-  const backdropUrl = (!stillUrl && !backdropErr && group.backdropPath) ? TMDB_IMG(group.backdropPath, "w780") : null;
+  const stillUrl    = (!stillErr && group.latestEpStill) ? resolveImgUrl(group.latestEpStill, "w780") : null;
+  const backdropUrl = (!stillUrl && !backdropErr && group.backdropPath) ? resolveImgUrl(group.backdropPath, "w780") : null;
   const posterUrl   = (!stillUrl && !backdropUrl && !posterErr && group.seriesPoster) ? group.seriesPoster : null;
 
   // Logo image instead of text title
-  const logoUrl = (!logoErr && group.logoPath) ? TMDB_IMG(group.logoPath, "w300") : null;
+  const logoUrl = (!logoErr && group.logoPath) ? resolveImgUrl(group.logoPath, "w300") : null;
 
   // Episode synopsis
   const synopsis = group.latestEpOverview || group.seriesOverview || "";
@@ -913,14 +920,14 @@ function EpPreviewRow({
   const canPreview = EpVideoComp !== null;
 
   // Episode still is the primary banner (landscape 16:9); falls back to series backdrop then poster
-  const stillUrl = (!stillErr && g.latestEpStill) ? TMDB_IMG(g.latestEpStill, "w780") : null;
-  const backdropUrl = (!stillUrl && !backdropErr && g.backdropPath) ? TMDB_IMG(g.backdropPath, "w780") : null;
+  const stillUrl = (!stillErr && g.latestEpStill) ? resolveImgUrl(g.latestEpStill, "w780") : null;
+  const backdropUrl = (!stillUrl && !backdropErr && g.backdropPath) ? resolveImgUrl(g.backdropPath, "w780") : null;
   const hasPoster = !posterErr && !!g.seriesPoster && !stillUrl && !backdropUrl;
   // Synopsis: prefer episode-specific overview, fall back to series overview
   const synopsis = g.latestEpOverview || g.seriesOverview || "";
 
   // TMDB logo image URL (PNG with transparency)
-  const logoUrl = g.logoPath ? TMDB_IMG(g.logoPath, "w300") : null;
+  const logoUrl = g.logoPath ? resolveImgUrl(g.logoPath, "w300") : null;
 
   // Reset video state when play starts/stops
   useEffect(() => {
@@ -1064,7 +1071,7 @@ function EpPreviewRow({
 }
 const epr = StyleSheet.create({
   card:          { marginBottom: 16, backgroundColor: "rgba(255,255,255,0.05)", borderRadius: 16, overflow: "hidden" },
-  thumb:         { width: "100%", aspectRatio: 16 / 9, backgroundColor: "#000", overflow: "hidden" },
+  thumb:         { width: "100%", aspectRatio: 16 / 9, maxHeight: 195, backgroundColor: "#000", overflow: "hidden" },
   loadingOverlay:{ ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "rgba(0,0,0,0.38)" },
   loadingText:   { fontSize: 11, color: "rgba(255,255,255,0.85)", fontWeight: "600" },
   liveBadge:     { position: "absolute", top: 8, left: 10, flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "rgba(229,9,20,0.92)", borderRadius: 5, paddingHorizontal: 8, paddingVertical: 3 },
