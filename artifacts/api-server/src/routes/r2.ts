@@ -2125,6 +2125,8 @@ router.post("/source-settings", async (req, res) => {
 
 function normalizeTitleForSearch(t: string): string {
   return t
+    .replace(/\s*\[[^\]]*\]/g, "")  // strip [L], [D], [Dub], [Leg] etc. before normalizing
+    .replace(/\s*\(\d{4}\)/g, "")   // strip (2025), (2024) year annotations
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
