@@ -962,12 +962,15 @@ function EpPreviewRow({
           <LinearGradient colors={["#1a0c24", "#0c0818", "#080510"]} style={StyleSheet.absoluteFill} />
         )}
 
-        {/* Layer 3 — video preview, invisible until ready so layers 1+2 always show while buffering */}
+        {/* Video preview — fills container with contain so nothing is cropped */}
         {isPlaying && canPreview && (
           <EpVideoComp
             source={{ uri: ep.stream_url }}
-            style={[StyleSheet.absoluteFill, { opacity: vidReady ? 1 : 0, backgroundColor: "transparent" }]}
-            resizeMode="contain"
+            style={[StyleSheet.absoluteFill, {
+              opacity: vidReady ? 1 : 0,
+              backgroundColor: "#000",
+            }]}
+            resizeMode={EpResizeMode.CONTAIN ?? "contain"}
             isMuted={muted}
             shouldPlay
             isLooping
@@ -979,26 +982,16 @@ function EpPreviewRow({
           />
         )}
 
-        {/* Dark gradient — stronger at top + bottom, always on top of images */}
-        <LinearGradient
-          colors={["rgba(0,0,0,0.25)", "transparent", "rgba(0,0,0,0.82)"]}
-          locations={[0, 0.45, 1]}
-          style={StyleSheet.absoluteFill}
-        />
+        {/* Gradient — only when video is NOT playing */}
+        {!isPlaying && (
+          <LinearGradient
+            colors={["rgba(0,0,0,0.25)", "transparent", "rgba(0,0,0,0.82)"]}
+            locations={[0, 0.45, 1]}
+            style={StyleSheet.absoluteFill}
+          />
+        )}
 
-        {/* Series logo image — lower-third of the thumbnail (no text fallback) */}
-        {logoUrl ? (
-          <View style={epr.logoArea}>
-            <Image
-              source={{ uri: logoUrl }}
-              style={epr.logoImg}
-              contentFit="contain"
-              cachePolicy="memory-disk"
-            />
-          </View>
-        ) : null}
-
-        {/* Loading spinner — semi-transparent bg so poster/backdrop remain visible while buffering */}
+        {/* Loading spinner */}
         {isPlaying && vidLoading && (
           <View style={epr.loadingOverlay}>
             <ActivityIndicator size="large" color="#fff" />
@@ -1006,7 +999,7 @@ function EpPreviewRow({
           </View>
         )}
 
-        {/* PRÉVIA badge — top-left, only once video is ready */}
+        {/* PRÉVIA badge */}
         {isPlaying && vidReady && (
           <View style={epr.liveBadge}>
             <View style={epr.liveDot} />
@@ -1014,7 +1007,7 @@ function EpPreviewRow({
           </View>
         )}
 
-        {/* S/E badge — bottom-left */}
+        {/* S/E badge */}
         <View style={epr.epTag}><Text style={epr.epTagTxt}>{epLabel}</Text></View>
       </View>
 
@@ -1032,14 +1025,24 @@ function EpPreviewRow({
           </View>
         </View>
 
-        {/* Episode title — only if it's a real title, not "Series S04 E07" */}
+        {/* Episode title */}
         {ep.title && !/S\d+\s*E\d+/i.test(ep.title) && (
           <Text style={epr.epName} numberOfLines={1}>{ep.title}</Text>
         )}
 
-        {/* Synopsis — episode-specific overview preferred, falls back to series overview */}
+        {/* Synopsis */}
         {!!synopsis && (
           <Text style={epr.synopsis} numberOfLines={3}>{synopsis}</Text>
+        )}
+
+        {/* Series logo — below synopsis, left-aligned */}
+        {logoUrl && (
+          <Image
+            source={{ uri: logoUrl }}
+            style={epr.logoImg}
+            contentFit="contain"
+            cachePolicy="memory-disk"
+          />
         )}
 
         {/* Action buttons */}
@@ -1060,30 +1063,27 @@ function EpPreviewRow({
   );
 }
 const epr = StyleSheet.create({
-  card: { marginBottom: 16, backgroundColor: "rgba(255,255,255,0.05)", borderRadius: 16, overflow: "hidden" },
-  thumb: { width: "100%", aspectRatio: 16 / 9, backgroundColor: "#08080f", overflow: "hidden" },
-  // Logo area centred in lower-third of thumbnail
-  logoArea: { position: "absolute", bottom: 28, left: 0, right: 0, alignItems: "center", paddingHorizontal: 16 },
-  logoImg: { width: "70%", height: 44 },
-  logoText: { fontSize: 20, fontWeight: "900", color: "rgba(255,255,255,0.88)", letterSpacing: -0.4, textShadowColor: "rgba(0,0,0,0.95)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 8, textAlign: "center" },
-  loadingOverlay: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "rgba(0,0,0,0.38)" },
-  loadingText: { fontSize: 11, color: "rgba(255,255,255,0.85)", fontWeight: "600" },
-  liveBadge: { position: "absolute", top: 8, left: 10, flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "rgba(229,9,20,0.92)", borderRadius: 5, paddingHorizontal: 8, paddingVertical: 3 },
-  liveDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: "#fff" },
-  liveTxt: { fontSize: 8, fontWeight: "900", color: "#fff", letterSpacing: 0.8 },
-  epTag: { position: "absolute", bottom: 6, left: 10, backgroundColor: `${TEAL}ee`, borderRadius: 5, paddingHorizontal: 8, paddingVertical: 3 },
-  epTagTxt: { fontSize: 9, fontWeight: "900", color: "#fff" },
-  info: { padding: 14, gap: 7 },
-  metaRow: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
-  metaBadge: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: `${TEAL}18`, borderWidth: 1, borderColor: `${TEAL}30`, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 },
-  metaBadgeTxt: { fontSize: 10, fontWeight: "700", color: TEAL },
-  epName: { fontSize: 12, fontWeight: "600", color: "rgba(255,255,255,0.6)", lineHeight: 16 },
-  synopsis: { fontSize: 12, color: "rgba(255,255,255,0.5)", lineHeight: 18 },
-  btnRow: { flexDirection: "row", gap: 10, marginTop: 4 },
-  playBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: RED, paddingVertical: 12, borderRadius: 10 },
-  playBtnTxt: { fontSize: 13, fontWeight: "800", color: "#fff" },
-  seriesBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, paddingVertical: 12, borderRadius: 10, backgroundColor: `${TEAL}15`, borderWidth: 1, borderColor: `${TEAL}35` },
-  seriesBtnTxt: { fontSize: 13, fontWeight: "700", color: TEAL },
+  card:          { marginBottom: 16, backgroundColor: "rgba(255,255,255,0.05)", borderRadius: 16, overflow: "hidden" },
+  thumb:         { width: "100%", aspectRatio: 16 / 9, backgroundColor: "#000", overflow: "hidden" },
+  loadingOverlay:{ ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "rgba(0,0,0,0.38)" },
+  loadingText:   { fontSize: 11, color: "rgba(255,255,255,0.85)", fontWeight: "600" },
+  liveBadge:     { position: "absolute", top: 8, left: 10, flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "rgba(229,9,20,0.92)", borderRadius: 5, paddingHorizontal: 8, paddingVertical: 3 },
+  liveDot:       { width: 5, height: 5, borderRadius: 3, backgroundColor: "#fff" },
+  liveTxt:       { fontSize: 8, fontWeight: "900", color: "#fff", letterSpacing: 0.8 },
+  epTag:         { position: "absolute", bottom: 6, left: 10, backgroundColor: `${TEAL}ee`, borderRadius: 5, paddingHorizontal: 8, paddingVertical: 3 },
+  epTagTxt:      { fontSize: 9, fontWeight: "900", color: "#fff" },
+  info:          { padding: 14, gap: 7 },
+  metaRow:       { flexDirection: "row", gap: 8, flexWrap: "wrap" },
+  metaBadge:     { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: `${TEAL}18`, borderWidth: 1, borderColor: `${TEAL}30`, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 },
+  metaBadgeTxt:  { fontSize: 10, fontWeight: "700", color: TEAL },
+  epName:        { fontSize: 12, fontWeight: "600", color: "rgba(255,255,255,0.6)", lineHeight: 16 },
+  synopsis:      { fontSize: 12, color: "rgba(255,255,255,0.5)", lineHeight: 18 },
+  logoImg:       { width: 110, height: 36, alignSelf: "flex-start", marginTop: -2 },
+  btnRow:        { flexDirection: "row", gap: 10, marginTop: 4 },
+  playBtn:       { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: RED, paddingVertical: 12, borderRadius: 10 },
+  playBtnTxt:    { fontSize: 13, fontWeight: "800", color: "#fff" },
+  seriesBtn:     { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, paddingVertical: 12, borderRadius: 10, backgroundColor: `${TEAL}15`, borderWidth: 1, borderColor: `${TEAL}35` },
+  seriesBtnTxt:  { fontSize: 13, fontWeight: "700", color: TEAL },
 });
 
 // ─── SingleEpSheet ────────────────────────────────────────────────────────────
