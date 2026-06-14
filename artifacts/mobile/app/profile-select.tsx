@@ -33,15 +33,28 @@ const MAX_PROFILES = 4;
 
 const TMDB_BACKDROP = "https://image.tmdb.org/t/p/original";
 
-interface Banner { title: string; backdrop: string; rank: number; type: string }
+interface Banner { title: string; backdrop: string; rank: number; type: string; logoPath?: string; tmdbId?: number; mediaType?: "movie" | "tv" }
 
 const FALLBACK_BANNERS: Banner[] = [
-  { title: "Oppenheimer",   backdrop: `${TMDB_BACKDROP}/fm6KqXpk3M2HVveHwCrBSSBaO0V.jpg`, rank: 1, type: "filmes" },
-  { title: "Duna: Parte 2", backdrop: `${TMDB_BACKDROP}/xOMo8BRK7PfcJv9JCnx7s5hj0PX.jpg`, rank: 2, type: "filmes" },
-  { title: "The Last of Us",backdrop: `${TMDB_BACKDROP}/uDgy6hyPd82kOHh6I95kkZaEKc.jpg`,  rank: 1, type: "séries" },
-  { title: "Dune",          backdrop: `${TMDB_BACKDROP}/tsRy63Mu5cu8etL1X7ZLyf7UP1M.jpg`, rank: 3, type: "filmes" },
-  { title: "Extraction 2",  backdrop: `${TMDB_BACKDROP}/56v2KjBlU4XaOv9rVYEQypROD7P.jpg`, rank: 5, type: "filmes" },
+  { title: "Oppenheimer",   backdrop: `${TMDB_BACKDROP}/fm6KqXpk3M2HVveHwCrBSSBaO0V.jpg`, rank: 1, type: "filmes",  tmdbId: 872585, mediaType: "movie" },
+  { title: "Duna: Parte 2", backdrop: `${TMDB_BACKDROP}/xOMo8BRK7PfcJv9JCnx7s5hj0PX.jpg`, rank: 2, type: "filmes",  tmdbId: 693134, mediaType: "movie" },
+  { title: "The Last of Us",backdrop: `${TMDB_BACKDROP}/uDgy6hyPd82kOHh6I95kkZaEKc.jpg`,  rank: 1, type: "séries",  tmdbId: 100088, mediaType: "tv"    },
+  { title: "Dune",          backdrop: `${TMDB_BACKDROP}/tsRy63Mu5cu8etL1X7ZLyf7UP1M.jpg`, rank: 3, type: "filmes",  tmdbId: 438631, mediaType: "movie" },
+  { title: "Extraction 2",  backdrop: `${TMDB_BACKDROP}/56v2KjBlU4XaOv9rVYEQypROD7P.jpg`, rank: 5, type: "filmes",  tmdbId: 697843, mediaType: "movie" },
 ];
+
+const TMDB_LOGO_BASE = "https://image.tmdb.org/t/p/w500";
+
+async function fetchLogo(base: string, type: "movie" | "tv", id: number): Promise<string | undefined> {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 4000);
+    const r = await fetch(`${base}/tmdb/franchise-logo?type=${type}&id=${id}`, { signal: ctrl.signal }).finally(() => clearTimeout(t));
+    if (!r.ok) return undefined;
+    const d = await r.json();
+    return d.logo_path ? `${TMDB_LOGO_BASE}${d.logo_path}` : undefined;
+  } catch { return undefined; }
+}
 
 async function fetchTrendingBanners(): Promise<Banner[]> {
   try {
@@ -49,19 +62,38 @@ async function fetchTrendingBanners(): Promise<Banner[]> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 5000);
     const res = await fetch(`${base}/tmdb/trending`, { signal: controller.signal }).finally(() => clearTimeout(timer));
-    if (!res.ok) return FALLBACK_BANNERS;
+    if (!res.ok) {
+      // Still try to fetch logos for fallback banners
+      const withLogos = await Promise.all(
+        FALLBACK_BANNERS.map(async (b) => ({
+          ...b,
+          logoPath: b.tmdbId ? await fetchLogo(base, b.mediaType!, b.tmdbId) : undefined,
+        }))
+      );
+      return withLogos;
+    }
     const data = await res.json();
     const items: any[] = [...(data.movies ?? []), ...(data.tv ?? [])];
     const withBackdrop = items.filter((i: any) => i.backdrop_path);
     if (withBackdrop.length < 3) return FALLBACK_BANNERS;
-    // Shuffle to vary order each session
     const shuffled = withBackdrop.sort(() => Math.random() - 0.5).slice(0, 8);
-    return shuffled.map((item: any, idx: number) => ({
+    const base_banners = shuffled.map((item: any, idx: number) => ({
       title: item.title ?? item.name ?? "",
       backdrop: `${TMDB_BACKDROP}${item.backdrop_path}`,
       rank: idx + 1,
-      type: item.media_type === "tv" || item.name ? "séries" : "filmes",
+      type: (item.media_type === "tv" || item.name) ? "séries" : "filmes",
+      tmdbId: item.id as number,
+      mediaType: (item.media_type === "tv" ? "tv" : "movie") as "movie" | "tv",
+      logoPath: undefined as string | undefined,
     }));
+    // Fetch logos in parallel (best-effort)
+    const withLogos = await Promise.all(
+      base_banners.map(async (b) => ({
+        ...b,
+        logoPath: b.tmdbId ? await fetchLogo(base, b.mediaType, b.tmdbId) : undefined,
+      }))
+    );
+    return withLogos;
   } catch {
     return FALLBACK_BANNERS;
   }
@@ -585,7 +617,16 @@ export default function ProfileSelectScreen() {
 
       {/* ── Content info in the middle of the screen ───────────────────────── */}
       <View style={s.contentInfo}>
-        <Text style={s.contentTitle} numberOfLines={2}>{currentBanner.title}</Text>
+        {currentBanner.logoPath ? (
+          <Image
+            source={{ uri: currentBanner.logoPath }}
+            style={s.contentLogo}
+            contentFit="contain"
+            contentPosition="left"
+          />
+        ) : (
+          <Text style={s.contentTitle} numberOfLines={2}>{currentBanner.title}</Text>
+        )}
         <View style={s.rankRow}>
           <View style={s.rankBadge}>
             <Text style={s.rankTop}>TOP</Text>
@@ -616,6 +657,10 @@ export default function ProfileSelectScreen() {
               onPress={() => handleSelect(profile)}
               onLongPress={() => { setEditTarget(profile); setEditModal(true); }}
             >
+              {/* Radial glow behind avatar */}
+              <View style={{ position: "absolute", borderRadius: 999, width: AVATAR_SIZE * 2.4, height: AVATAR_SIZE * 2.4, top: -(AVATAR_SIZE * 0.7), left: -(AVATAR_SIZE * 0.7), backgroundColor: "rgba(255,255,255,0.04)" }} />
+              <View style={{ position: "absolute", borderRadius: 999, width: AVATAR_SIZE * 1.8, height: AVATAR_SIZE * 1.8, top: -(AVATAR_SIZE * 0.4), left: -(AVATAR_SIZE * 0.4), backgroundColor: "rgba(255,255,255,0.07)" }} />
+              <View style={{ position: "absolute", borderRadius: 999, width: AVATAR_SIZE * 1.3, height: AVATAR_SIZE * 1.3, top: -(AVATAR_SIZE * 0.15), left: -(AVATAR_SIZE * 0.15), backgroundColor: "rgba(255,255,255,0.10)" }} />
               <ProfileAvatar profile={profile} size={AVATAR_SIZE} editMode={editMode} />
               {profile.isKids && (
                 <View style={s.kidsBadge}><Text style={s.kidsBadgeTxt}>KIDS</Text></View>
@@ -674,6 +719,11 @@ const s = StyleSheet.create({
     left: 20,
     right: 20,
     bottom: SH * 0.42,
+  },
+  contentLogo: {
+    width: SW * 0.55,
+    height: 80,
+    marginBottom: 10,
   },
   contentTitle: {
     color: "#fff",
@@ -737,6 +787,7 @@ const s = StyleSheet.create({
     alignItems: "center",
     gap: 8,
     position: "relative",
+    overflow: "visible",
   },
   profileName: {
     color: "#fff",
