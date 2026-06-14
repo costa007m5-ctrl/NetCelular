@@ -6,6 +6,7 @@ import React, {
   useState,
 } from "react";
 import {
+  ActivityIndicator,
   Animated,
   Dimensions,
   FlatList,
@@ -837,48 +838,94 @@ function EpPreviewRow({
   item, isPlaying, muted, onPlay, onViewSeries,
 }: { item: EpModalItem; isPlaying: boolean; muted: boolean; onPlay: () => void; onViewSeries: () => void; }) {
   const [imgErr, setImgErr] = useState(false);
+  const [vidLoading, setVidLoading] = useState(false);
+  const [tmdbOverview, setTmdbOverview] = useState("");
   const ep = item.ep;
   const g = item.group;
   const epNum = `Episódio ${ep.episode}`;
   const seasonLabel = `Temporada ${ep.season}`;
   const epLabel = `S${String(ep.season).padStart(2, "0")} E${String(ep.episode).padStart(2, "0")}`;
   const canPreview = EpVideoComp !== null;
-  const synopsis = g.seriesOverview || "";
+  const synopsis = g.seriesOverview || tmdbOverview;
+
+  // Fetch TMDB overview if not available from catalog
+  useEffect(() => {
+    if (g.seriesOverview || !g.seriesTmdbId) return;
+    r2Route<{ overview?: string }>(`/tmdb/tv/${g.seriesTmdbId}`)
+      .then(d => { if (d.overview) setTmdbOverview(d.overview); })
+      .catch(() => {});
+  }, [g.seriesTmdbId, g.seriesOverview]);
+
+  // Reset video loading state when isPlaying changes
+  useEffect(() => {
+    if (isPlaying) setVidLoading(true);
+    else setVidLoading(false);
+  }, [isPlaying]);
 
   return (
     <View style={epr.card}>
-      {/* ── Thumbnail 16:9 (full width) ── */}
+      {/* ── Thumbnail 16:9 full-width ── */}
       <View style={epr.thumb}>
+        {/* Poster fallback */}
         {!imgErr && g.seriesPoster ? (
           <Image source={{ uri: g.seriesPoster }} style={StyleSheet.absoluteFill}
             contentFit="cover" cachePolicy="memory-disk" onError={() => setImgErr(true)} />
         ) : (
-          <LinearGradient colors={["#0a1020", "#050810"]} style={StyleSheet.absoluteFill} />
+          <LinearGradient colors={["#0e1020", "#06080e"]} style={StyleSheet.absoluteFill} />
         )}
+
+        {/* Video preview — overlays poster */}
         {isPlaying && canPreview && (
-          <EpVideoComp source={{ uri: ep.stream_url }} style={StyleSheet.absoluteFill}
-            resizeMode={EpResizeMode.COVER ?? "cover"} isMuted={muted}
-            shouldPlay isLooping useNativeControls={false} />
+          <EpVideoComp
+            source={{ uri: ep.stream_url }}
+            style={[StyleSheet.absoluteFill, { width: "100%", height: "100%" }]}
+            resizeMode={EpResizeMode.COVER ?? "cover"}
+            isMuted={muted}
+            shouldPlay
+            isLooping
+            useNativeControls={false}
+            onLoadStart={() => setVidLoading(true)}
+            onLoad={() => setVidLoading(false)}
+            onReadyForDisplay={() => setVidLoading(false)}
+            onError={() => setVidLoading(false)}
+          />
         )}
-        <LinearGradient colors={["rgba(0,0,0,0.3)", "transparent", "rgba(0,0,0,0.85)"]}
-          locations={[0, 0.4, 1]} style={StyleSheet.absoluteFill} />
-        {/* Playing indicator */}
-        {isPlaying && canPreview && (
+
+        {/* Gradient overlay */}
+        <LinearGradient
+          colors={["rgba(0,0,0,0.25)", "transparent", "rgba(0,0,0,0.9)"]}
+          locations={[0, 0.45, 1]}
+          style={StyleSheet.absoluteFill}
+        />
+
+        {/* Series name as logo overlay — bottom of thumb */}
+        <View style={epr.logoOverlay}>
+          <Text style={epr.logoText} numberOfLines={1}>{g.seriesTitle}</Text>
+        </View>
+
+        {/* Loading spinner centered */}
+        {isPlaying && vidLoading && (
+          <View style={epr.loadingOverlay}>
+            <ActivityIndicator size="large" color={TEAL} />
+            <Text style={epr.loadingText}>Carregando prévia…</Text>
+          </View>
+        )}
+
+        {/* PRÉVIA badge (top-left, only when playing & loaded) */}
+        {isPlaying && !vidLoading && canPreview && (
           <View style={epr.liveRow}>
             <View style={epr.liveDot} />
             <Text style={epr.liveTxt}>PRÉVIA</Text>
           </View>
         )}
-        {/* Season/episode badge */}
+
+        {/* S/E badge (bottom-left) */}
         <View style={epr.epTag}><Text style={epr.epTagText}>{epLabel}</Text></View>
       </View>
 
       {/* ── Info below thumbnail ── */}
       <View style={epr.info}>
-        {/* Series title — big logo-style text */}
-        <Text style={epr.seriesTitle} numberOfLines={1}>{g.seriesTitle}</Text>
-
-        {/* Episode meta row */}
+        {/* Episode meta badges */}
         <View style={epr.metaRow}>
           <View style={epr.metaBadge}>
             <Feather name="layers" size={9} color={TEAL} />
@@ -890,10 +937,10 @@ function EpPreviewRow({
           </View>
         </View>
 
-        {/* Episode title */}
-        {ep.title ? (
+        {/* Episode title (if not just "Series S04 E07") */}
+        {ep.title && !ep.title.match(/S\d+\s*E\d+$/) && (
           <Text style={epr.epName} numberOfLines={1}>{ep.title}</Text>
-        ) : null}
+        )}
 
         {/* Synopsis */}
         {!!synopsis && (
@@ -918,24 +965,27 @@ function EpPreviewRow({
   );
 }
 const epr = StyleSheet.create({
-  card: { marginBottom: 16, backgroundColor: "rgba(255,255,255,0.04)", borderRadius: 16, overflow: "hidden" },
-  thumb: { width: "100%", aspectRatio: 16 / 9, backgroundColor: "#0a0a12" },
-  liveRow: { position: "absolute", top: 8, left: 10, flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "rgba(229,9,20,0.85)", borderRadius: 5, paddingHorizontal: 7, paddingVertical: 3 },
+  card: { marginBottom: 16, backgroundColor: "rgba(255,255,255,0.05)", borderRadius: 16, overflow: "hidden" },
+  thumb: { width: "100%", aspectRatio: 16 / 9, backgroundColor: "#0a0a14", overflow: "hidden" },
+  logoOverlay: { position: "absolute", bottom: 28, left: 0, right: 0, alignItems: "center", paddingHorizontal: 12 },
+  logoText: { fontSize: 22, fontWeight: "900", color: "rgba(255,255,255,0.82)", letterSpacing: -0.5, textShadowColor: "rgba(0,0,0,0.9)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 6, textAlign: "center" },
+  loadingOverlay: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.4)", gap: 8 },
+  loadingText: { fontSize: 11, color: TEAL, fontWeight: "600" },
+  liveRow: { position: "absolute", top: 8, left: 10, flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "rgba(229,9,20,0.9)", borderRadius: 5, paddingHorizontal: 8, paddingVertical: 3 },
   liveDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: "#fff" },
   liveTxt: { fontSize: 8, fontWeight: "900", color: "#fff", letterSpacing: 0.8 },
-  epTag: { position: "absolute", bottom: 8, left: 10, backgroundColor: `${TEAL}ee`, borderRadius: 5, paddingHorizontal: 8, paddingVertical: 3 },
+  epTag: { position: "absolute", bottom: 6, left: 10, backgroundColor: `${TEAL}ee`, borderRadius: 5, paddingHorizontal: 8, paddingVertical: 3 },
   epTagText: { fontSize: 9, fontWeight: "900", color: "#fff" },
   info: { padding: 14, gap: 8 },
-  seriesTitle: { fontSize: 18, fontWeight: "900", color: "#fff", letterSpacing: -0.3, lineHeight: 22 },
   metaRow: { flexDirection: "row", gap: 8 },
   metaBadge: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: `${TEAL}18`, borderWidth: 1, borderColor: `${TEAL}30`, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 },
   metaBadgeTxt: { fontSize: 10, fontWeight: "700", color: TEAL },
   epName: { fontSize: 12, fontWeight: "600", color: "rgba(255,255,255,0.65)", lineHeight: 16 },
-  synopsis: { fontSize: 11, color: "rgba(255,255,255,0.38)", lineHeight: 16 },
-  btnRow: { flexDirection: "row", gap: 10, marginTop: 4 },
-  playBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: RED, paddingVertical: 11, borderRadius: 10 },
+  synopsis: { fontSize: 12, color: "rgba(255,255,255,0.45)", lineHeight: 18 },
+  btnRow: { flexDirection: "row", gap: 10, marginTop: 2 },
+  playBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: RED, paddingVertical: 12, borderRadius: 10 },
   playBtnTxt: { fontSize: 13, fontWeight: "800", color: "#fff" },
-  seriesBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, paddingVertical: 11, borderRadius: 10, backgroundColor: `${TEAL}15`, borderWidth: 1, borderColor: `${TEAL}35` },
+  seriesBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, paddingVertical: 12, borderRadius: 10, backgroundColor: `${TEAL}15`, borderWidth: 1, borderColor: `${TEAL}35` },
   seriesBtnTxt: { fontSize: 13, fontWeight: "700", color: TEAL },
 });
 
@@ -1294,7 +1344,7 @@ export default function NovidadesScreen() {
     const series = data?.whatsNew?.series?.filter(i => i.poster) ?? [];
     if (!series.length) { setEpGroups([]); return; }
     setEpLoading(true);
-    const toFetch = series.slice(0, 15);
+    const toFetch = series.slice(0, 30);
     Promise.allSettled(
       toFetch.map(s =>
         r2Route<{ found: boolean; episodes: RawEp[] }>(`/flix2/series-episodes?seriesId=${s.id}`)
