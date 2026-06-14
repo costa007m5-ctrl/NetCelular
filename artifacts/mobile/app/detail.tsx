@@ -1311,10 +1311,11 @@ export default function DetailScreen() {
     setEditSearchLoading(true);
     setEditSearchResults([]);
     try {
-      const url = `https://api.themoviedb.org/3/search/${editSearchType}?api_key=${TMDB_KEY_EDIT}&language=pt-BR&query=${encodeURIComponent(q)}&page=1`;
-      const r = await fetch(url);
-      const data = r.ok ? await r.json() : null;
-      const results = (data?.results ?? []).map((item: any) => ({
+      const base = `https://api.themoviedb.org/3/search/${editSearchType}?api_key=${TMDB_KEY_EDIT}&language=pt-BR&query=${encodeURIComponent(q)}`;
+      const [r1, r2] = await Promise.all([fetch(`${base}&page=1`), fetch(`${base}&page=2`)]);
+      const [d1, d2] = await Promise.all([r1.ok ? r1.json() : null, r2.ok ? r2.json() : null]);
+      const combined = [...(d1?.results ?? []), ...(d2?.results ?? [])].slice(0, 40);
+      const results = combined.map((item: any) => ({
         id: item.id,
         title: item.title ?? item.name ?? "",
         year: (item.release_date ?? item.first_air_date ?? "").slice(0, 4),
