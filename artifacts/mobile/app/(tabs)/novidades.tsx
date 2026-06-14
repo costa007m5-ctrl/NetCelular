@@ -129,10 +129,11 @@ function formatDate(dateStr: string): string {
 async function fetchWhatsNew(attempt = 0): Promise<WhatsNewResp | null> {
   try {
     const res = await r2Route<WhatsNewResp>("/flix2/whats-new?days=90&limit=150");
-    // If cache is warming (any category missing) retry with backoff (up to 10 attempts).
-    // Check warming even when total > 0 — animes may be warm while movies/series are still loading.
-    if (res.warming && attempt < 10) {
-      await new Promise((r) => setTimeout(r, (attempt + 1) * 3000));
+    // Only retry when we have ZERO items — if series/animes are available, show them
+    // immediately even if movies is still warming (movies may never warm in production).
+    const hasData = (res.total ?? 0) > 0;
+    if (res.warming && !hasData && attempt < 5) {
+      await new Promise((r) => setTimeout(r, 5000));
       return fetchWhatsNew(attempt + 1);
     }
     return res;

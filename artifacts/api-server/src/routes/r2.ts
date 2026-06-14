@@ -3830,9 +3830,90 @@ router.get("/flix2/cinema-2026", async (req, res) => {
   // (e.g. production startup where warmCatalogType("movies") failed initially)
   const rawMovies = !cached ? XTREAM_RAW_CACHE.get("movies") : null;
   const moviesData = cached?.data ?? rawMovies?.items ?? null;
+
+  // ── 1b. TMDB fallback: if Xtream movies unavailable, build from TMDB ──────
+  // get_vod_streams may be blocked from Replit production IPs — use TMDB
+  // now_playing + upcoming (3 pages each) as reliable fallback source.
   if (!moviesData) {
-    // Trigger background warm and ask client to retry
-    warmCatalogType("movies").catch(() => {});
+    warmCatalogType("movies").catch(() => {}); // trigger background warm for next time
+    try {
+      const TMDB_KEY = process.env.TMDB_API_KEY ?? "8f0beb08cf016ec8de49e454e09879ec";
+      const MONTH_PT_LOCAL: Record<number, string> = {
+        1: "Janeiro", 2: "Fevereiro", 3: "Março", 4: "Abril",
+        5: "Maio", 6: "Junho", 7: "Julho", 8: "Agosto",
+        9: "Setembro", 10: "Outubro", 11: "Novembro", 12: "Dezembro",
+      };
+      const fetchTmdbPage = async (type: "now_playing" | "upcoming", page: number) => {
+        const url = `https://api.themoviedb.org/3/movie/${type}?api_key=${TMDB_KEY}&language=pt-BR&page=${page}&region=BR`;
+        const r = await fetch(url, { signal: AbortSignal.timeout ? AbortSignal.timeout(8000) : undefined });
+        const d: any = await r.json();
+        return (d.results ?? []) as any[];
+      };
+      // Fetch 3 pages of now_playing + 3 pages of upcoming in parallel
+      const pages = await Promise.allSettled([
+        fetchTmdbPage("now_playing", 1), fetchTmdbPage("now_playing", 2), fetchTmdbPage("now_playing", 3),
+        fetchTmdbPage("upcoming", 1),   fetchTmdbPage("upcoming", 2),   fetchTmdbPage("upcoming", 3),
+      ]);
+      const seen = new Set<number>();
+      const tmdbItems: any[] = [];
+      for (const p of pages) {
+        if (p.status !== "fulfilled") continue;
+        for (const m of p.value) {
+          if (!m.id || seen.has(m.id)) continue;
+          seen.add(m.id);
+          const rdate: string = m.release_date ?? "";
+          // Only include movies from current year or later
+          if (rdate && !rdate.startsWith("2025") && !rdate.startsWith("2026") && !rdate.startsWith("2027")) continue;
+          tmdbItems.push(m);
+        }
+      }
+      if (tmdbItems.length > 0) {
+        const currentYearStr2 = String(new Date().getFullYear());
+        const monthMap2: Record<string, any[]> = {};
+        for (const m of tmdbItems) {
+          const rdate: string = m.release_date ?? "";
+          const key2 = rdate.length >= 7 ? rdate.slice(0, 7) : `${currentYearStr2}-01`;
+          if (!monthMap2[key2]) monthMap2[key2] = [];
+          monthMap2[key2].push({
+            id:           m.id,
+            title:        m.title ?? m.original_title ?? "",
+            tmdb_id:      m.id,
+            year:         rdate ? parseInt(rdate.slice(0, 4), 10) : new Date().getFullYear(),
+            poster:       m.poster_path  ? TMDB_IMG_SRV(m.poster_path,  "w342")! : "",
+            backdrop:     m.backdrop_path ? TMDB_IMG_SRV(m.backdrop_path,"w780")! : "",
+            rating:       m.vote_average > 0 ? String((m.vote_average as number).toFixed(1)) : "0",
+            synopsis:     m.overview ?? "",
+            release_date: rdate,
+            added_at:     rdate ? Math.floor(new Date(rdate).getTime() / 1000) : 0,
+          });
+        }
+        const months2 = Object.entries(monthMap2)
+          .sort(([a], [b]) => b.localeCompare(a))
+          .map(([key2, its]) => {
+            const [yearStr2, monthStr2] = key2.split("-");
+            const monthNum2 = parseInt(monthStr2, 10);
+            const label2 = `${MONTH_PT_LOCAL[monthNum2] ?? monthStr2} ${yearStr2}`;
+            return { key: key2, label: label2, items: its };
+          });
+        const topRated2 = [...tmdbItems]
+          .filter((m) => m.vote_average >= 6)
+          .sort((a, b) => b.vote_average - a.vote_average)
+          .slice(0, 20)
+          .map((m) => ({
+            id: m.id, title: m.title ?? "", tmdb_id: m.id,
+            year: m.release_date ? parseInt(m.release_date.slice(0, 4), 10) : new Date().getFullYear(),
+            release_date: m.release_date ?? "",
+            poster:   m.poster_path  ? TMDB_IMG_SRV(m.poster_path,  "w342")! : "",
+            backdrop: m.backdrop_path ? TMDB_IMG_SRV(m.backdrop_path,"w780")! : "",
+            rating:   m.vote_average > 0 ? String((m.vote_average as number).toFixed(1)) : "0",
+            synopsis: m.overview ?? "",
+          }));
+        res.json({ ok: true, total: tmdbItems.length, topRated: topRated2, months: months2 });
+        return;
+      }
+    } catch {
+      // TMDB also failed — fall through to warming response
+    }
     res.json({ ok: false, warming: true, total: 0, topRated: [], months: [] });
     return;
   }
