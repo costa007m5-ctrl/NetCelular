@@ -154,6 +154,34 @@ router.get("/tv/:id/providers", handle(async (req) => {
   return data?.results?.BR ?? null;
 }));
 
+router.post("/batch-providers", handle(async (req) => {
+  const items: { id: number; type: "movie" | "tv" }[] = req.body?.items ?? [];
+  if (!items.length) return { exclusive: [] };
+
+  const CONCURRENCY = 8;
+  const exclusive: number[] = [];
+
+  async function checkOne(item: { id: number; type: "movie" | "tv" }) {
+    try {
+      const data = await (item.type === "tv"
+        ? tmdb.watchProviders.tv(item.id)
+        : tmdb.watchProviders.movie(item.id));
+      const br = data?.results?.BR;
+      if (!br || (!br.flatrate?.length && !br.ads?.length && !br.free?.length)) {
+        exclusive.push(item.id);
+      }
+    } catch {
+      // If TMDB fails, don't mark as exclusive
+    }
+  }
+
+  for (let i = 0; i < items.length; i += CONCURRENCY) {
+    await Promise.all(items.slice(i, i + CONCURRENCY).map(checkOne));
+  }
+
+  return { exclusive };
+}));
+
 router.get("/redeflix/available", handle(async (req) => {
   const type = String(req.query.type ?? "movie");
   const id = Number(req.query.id ?? 0);

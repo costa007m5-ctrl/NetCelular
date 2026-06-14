@@ -1918,7 +1918,7 @@ export default function NovidadesScreen() {
         </View>
 
         {/* ── EXCLUSIVE BANNER ─────────────────────────────────────────── */}
-        <ExclusiveBanner onPress={() => router.push("/search")} />
+        <ExclusiveBanner onPress={() => router.push("/exclusive")} />
 
         {/* ── ESTREANDO HOJE ───────────────────────────────────────────── */}
         {!loading && airingTodayItems.length > 0 && (
