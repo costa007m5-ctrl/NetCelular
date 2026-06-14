@@ -545,6 +545,34 @@ export default function DetailScreen() {
     scanFolder();
   }, [r2Items, selectedSeason, type]);
 
+  // Extend seasons list when Flix2 loads episodes for seasons beyond what TMDB reported.
+  // e.g. TMDB says 2 seasons but Flix2 has T13 episodes → add T3…T13 tabs automatically.
+  useEffect(() => {
+    if (type !== "tv") return;
+    const flix2EpItems = r2Items.filter(
+      (i) => i.flix2Url && i.episode != null && i.season != null && Number(i.season) > 0
+    );
+    if (flix2EpItems.length === 0) return;
+    const maxFlix2Season = Math.max(...flix2EpItems.map((i) => Number(i.season)));
+    setSeasons((prev) => {
+      const currentMax = prev.length > 0 ? Math.max(...prev.map((s) => s.season_number)) : 0;
+      if (maxFlix2Season <= currentMax) return prev;
+      const extra: TmdbSeason[] = [];
+      for (let s = currentMax + 1; s <= maxFlix2Season; s++) {
+        extra.push({
+          id: s,
+          season_number: s,
+          name: `Temporada ${s}`,
+          overview: "",
+          episode_count: 0,
+          poster_path: null,
+          air_date: "",
+        });
+      }
+      return [...prev, ...extra];
+    });
+  }, [r2Items, type]);
+
   // Search Drive for matching content by title
   useEffect(() => {
     const titleStr = params.title ? String(params.title) : "";
