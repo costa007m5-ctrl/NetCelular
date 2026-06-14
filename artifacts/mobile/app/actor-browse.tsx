@@ -1,9 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
   Dimensions,
-  Image,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -11,57 +10,102 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { Image } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useColors } from "@/hooks/useColors";
-import { api, tmdbItemToContent, type TmdbItem, type TmdbPerson, type TmdbPersonResult } from "@/lib/api";
+import { api, tmdbItemToContent, type TmdbItem, type TmdbPerson } from "@/lib/api";
 import type { ContentItem } from "@/constants/content";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const CARD_W = 120;
 const CARD_H = 180;
-const PHOTO_SIZE = 110;
-
+const PHOTO_SIZE = 100;
 const TMDB_IMAGE = "https://image.tmdb.org/t/p/";
 
 function posterUrl(path: string | null, size = "w342") {
   return path ? `${TMDB_IMAGE}${size}${path}` : null;
 }
 
-function ContentCardH({ item, onPress }: { item: ContentItem; onPress: () => void }) {
+type Tab = "bio" | "filmes" | "series" | "embreve";
+
+function ContentCard({ item, onPress }: { item: ContentItem; onPress: () => void }) {
   const [imgErr, setImgErr] = useState(false);
+  const sc = useRef(new Animated.Value(1)).current;
+  const pi = () => Animated.spring(sc, { toValue: 0.92, useNativeDriver: true, speed: 30 }).start();
+  const po = () => Animated.spring(sc, { toValue: 1, useNativeDriver: true, speed: 26 }).start();
   return (
-    <Pressable onPress={onPress} style={{ width: CARD_W, marginRight: 10 }}>
-      <View style={styles.hCard}>
-        {!imgErr && item.posterPath ? (
-          <Image
-            source={{ uri: item.posterPath }}
-            style={StyleSheet.absoluteFill}
-            resizeMode="cover"
-            onError={() => setImgErr(true)}
-          />
-        ) : (
-          <LinearGradient colors={["#1e1e1e", "#2a1a1a"]} style={StyleSheet.absoluteFill}>
-            <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-              <Feather name="film" size={22} color="#444" />
+    <Pressable onPress={onPress} onPressIn={pi} onPressOut={po}>
+      <Animated.View style={{ width: CARD_W, transform: [{ scale: sc }] }}>
+        <View style={styles.card}>
+          {!imgErr && item.posterPath ? (
+            <Image source={{ uri: item.posterPath }} style={StyleSheet.absoluteFill}
+              contentFit="cover" cachePolicy="memory-disk" onError={() => setImgErr(true)} />
+          ) : (
+            <LinearGradient colors={["#1e1e1e", "#2a1a1a"]} style={StyleSheet.absoluteFill}>
+              <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+                <Feather name="film" size={22} color="#444" />
+              </View>
+            </LinearGradient>
+          )}
+          <LinearGradient colors={["transparent", "rgba(0,0,0,0.88)"]}
+            style={styles.cardGrad} locations={[0.5, 1]} />
+          {item.rating > 0 && (
+            <View style={styles.ratingBadge}>
+              <Feather name="star" size={8} color="#f59e0b" />
+              <Text style={styles.ratingText}>{item.rating.toFixed(1)}</Text>
             </View>
-          </LinearGradient>
+          )}
+          <Text style={styles.cardTitle} numberOfLines={2}>{item.title}</Text>
+        </View>
+        <Text style={styles.cardYear} numberOfLines={1}>{item.year > 0 ? item.year : ""}</Text>
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+function UpcomingCard({ item, onPress, accentColor }: { item: ContentItem; onPress: () => void; accentColor: string }) {
+  const [imgErr, setImgErr] = useState(false);
+  const sc = useRef(new Animated.Value(1)).current;
+  const pi = () => Animated.spring(sc, { toValue: 0.95, useNativeDriver: true, speed: 28 }).start();
+  const po = () => Animated.spring(sc, { toValue: 1, useNativeDriver: true, speed: 24 }).start();
+  return (
+    <Pressable onPress={onPress} onPressIn={pi} onPressOut={po} style={{ paddingHorizontal: 16, marginBottom: 12 }}>
+      <Animated.View style={[styles.upcomingCard, { borderColor: `${accentColor}30`, transform: [{ scale: sc }] }]}>
+        {!imgErr && (item.backdropPath || item.posterPath) ? (
+          <Image source={{ uri: item.backdropPath || item.posterPath }}
+            style={[StyleSheet.absoluteFill, { borderRadius: 14 }]}
+            contentFit="cover" cachePolicy="memory-disk" onError={() => setImgErr(true)} />
+        ) : (
+          <LinearGradient colors={[`${accentColor}25`, "#0a0810"]} style={[StyleSheet.absoluteFill, { borderRadius: 14 }]} />
         )}
         <LinearGradient
-          colors={["transparent", "rgba(0,0,0,0.85)"]}
-          style={styles.hCardGrad}
-          locations={[0.5, 1]}
+          colors={["rgba(0,0,0,0.0)", "rgba(0,0,0,0.88)"]}
+          style={[StyleSheet.absoluteFill, { borderRadius: 14 }]}
+          locations={[0.2, 1]}
         />
-        {item.rating > 0 && (
-          <View style={styles.ratingBadge}>
-            <Feather name="star" size={8} color="#f59e0b" />
-            <Text style={styles.ratingText}>{item.rating.toFixed(1)}</Text>
+        <LinearGradient
+          colors={[`${accentColor}30`, "transparent"]}
+          style={[StyleSheet.absoluteFill, { borderRadius: 14 }]}
+          start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+        />
+        <View style={styles.upcomingContent}>
+          <View style={[styles.upcomingBadge, { backgroundColor: `${accentColor}25`, borderColor: `${accentColor}55` }]}>
+            <Feather name="clock" size={10} color={accentColor} />
+            <Text style={[styles.upcomingBadgeText, { color: accentColor }]}>EM BREVE</Text>
           </View>
-        )}
-        <Text style={styles.hCardTitle} numberOfLines={2}>{item.title}</Text>
-      </View>
+          <Text style={styles.upcomingTitle} numberOfLines={2}>{item.title}</Text>
+          <Text style={styles.upcomingMeta}>
+            {item.type === "movie" ? "Filme" : "Série"}
+            {item.year > 2024 ? ` · ${item.year}` : ""}
+          </Text>
+        </View>
+        <View style={[styles.upcomingPlay, { backgroundColor: `${accentColor}cc` }]}>
+          <Feather name="play" size={13} color="#fff" />
+        </View>
+      </Animated.View>
     </Pressable>
   );
 }
@@ -73,16 +117,16 @@ export default function ActorBrowseScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const colors = useColors();
-  const isWeb = Platform.OS === "web";
-  const topPad = isWeb ? 0 : insets.top;
   const accentColor = color ?? "#e50914";
 
+  const [activeTab, setActiveTab] = useState<Tab>("bio");
+  const tabAnim = useRef(new Animated.Value(0)).current;
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [person, setPerson] = useState<TmdbPerson | null>(null);
-  const [personId, setPersonId] = useState<number | null>(null);
   const [profileUrl, setProfileUrl] = useState<string | null>(null);
   const [movies, setMovies] = useState<ContentItem[]>([]);
   const [tvShows, setTvShows] = useState<ContentItem[]>([]);
+  const [upcoming, setUpcoming] = useState<ContentItem[]>([]);
   const [showFullBio, setShowFullBio] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
 
@@ -93,20 +137,18 @@ export default function ActorBrowseScreen() {
     setPerson(null);
     setMovies([]);
     setTvShows([]);
+    setUpcoming([]);
 
     const load = async () => {
       try {
-        // 1. Search for the person
         const results = await api.tmdb.searchPerson(name);
         if (cancelled || results.length === 0) {
           if (!cancelled) setLoadState("error");
           return;
         }
         const found = results[0];
-        setPersonId(found.id);
         setProfileUrl(posterUrl(found.profile_path, "w185"));
 
-        // 2. Load full details + credits in parallel
         const [details, movs, tv] = await Promise.all([
           api.tmdb.person(found.id),
           api.tmdb.personMovies(found.id),
@@ -114,23 +156,56 @@ export default function ActorBrowseScreen() {
         ]);
 
         if (cancelled) return;
+
         setPerson(details);
-        if (details.profile_path) setProfileUrl(posterUrl(details.profile_path, "w185"));
-        setMovies(movs.slice(0, 30).map((m: TmdbItem) => tmdbItemToContent({ ...m, media_type: "movie" })));
-        setTvShows(tv.slice(0, 30).map((t: TmdbItem) => tmdbItemToContent({ ...t, media_type: "tv" })));
+        if (details.profile_path) setProfileUrl(posterUrl(details.profile_path, "w342"));
+
+        const today = new Date().toISOString().split("T")[0];
+
+        const upcomingM = (movs as any[]).filter(
+          (m: any) => m.release_date && m.release_date > today
+        ).sort((a: any, b: any) => a.release_date.localeCompare(b.release_date));
+
+        const upcomingT = (tv as any[]).filter(
+          (t: any) => t.first_air_date && t.first_air_date > today
+        ).sort((a: any, b: any) => a.first_air_date.localeCompare(b.first_air_date));
+
+        const upcomingAll: ContentItem[] = [
+          ...upcomingM.map((m: TmdbItem) => tmdbItemToContent({ ...m, media_type: "movie" })),
+          ...upcomingT.map((t: TmdbItem) => tmdbItemToContent({ ...t, media_type: "tv" })),
+        ].slice(0, 20);
+
+        setUpcoming(upcomingAll);
+        setMovies(
+          (movs as any[])
+            .filter((m: any) => !m.release_date || m.release_date <= today)
+            .sort((a: any, b: any) => (b.popularity ?? 0) - (a.popularity ?? 0))
+            .slice(0, 40)
+            .map((m: TmdbItem) => tmdbItemToContent({ ...m, media_type: "movie" }))
+        );
+        setTvShows(
+          (tv as any[])
+            .filter((t: any) => !t.first_air_date || t.first_air_date <= today)
+            .sort((a: any, b: any) => (b.popularity ?? 0) - (a.popularity ?? 0))
+            .slice(0, 40)
+            .map((t: TmdbItem) => tmdbItemToContent({ ...t, media_type: "tv" }))
+        );
+
         setLoadState("ready");
       } catch (e) {
-        if (!cancelled) {
-          console.error("actor-browse error:", e);
-          setLoadState("error");
-        }
+        if (!cancelled) { console.error("actor-browse error:", e); setLoadState("error"); }
       }
     };
 
     load();
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [name, retryKey]);
+
+  const switchTab = (tab: Tab) => {
+    const idx = ["bio", "filmes", "series", "embreve"].indexOf(tab);
+    Animated.spring(tabAnim, { toValue: idx, useNativeDriver: true, speed: 20, bounciness: 2 }).start();
+    setActiveTab(tab);
+  };
 
   const goToDetail = (item: ContentItem) => {
     router.push({
@@ -154,18 +229,27 @@ export default function ActorBrowseScreen() {
   const truncateBio = (bio: string) => {
     if (!bio) return "";
     const sentences = bio.split(". ");
-    if (sentences.length <= 3 || showFullBio) return bio;
-    return sentences.slice(0, 3).join(". ") + ".";
+    if (sentences.length <= 4 || showFullBio) return bio;
+    return sentences.slice(0, 4).join(". ") + ".";
   };
+
+  const TABS: { id: Tab; label: string; icon: keyof typeof Feather.glyphMap; count?: number }[] = [
+    { id: "bio",     label: "Bio",     icon: "user" },
+    { id: "filmes",  label: "Filmes",  icon: "film",  count: movies.length  },
+    { id: "series",  label: "Séries",  icon: "tv",    count: tvShows.length },
+    { id: "embreve", label: "Em Breve",icon: "clock", count: upcoming.length },
+  ];
+
+  const indicatorX = tabAnim.interpolate({
+    inputRange: [0, 1, 2, 3],
+    outputRange: [0, SCREEN_WIDTH / 4, SCREEN_WIDTH / 2, (SCREEN_WIDTH / 4) * 3],
+  });
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* ── Header ─────────────────────────────────────────────── */}
-      <View style={[styles.headerWrap, { paddingTop: topPad + 8 }]}>
-        <LinearGradient
-          colors={[`${accentColor}25`, "transparent"]}
-          style={StyleSheet.absoluteFill}
-        />
+      {/* ── Header ─────────────────────────────────────────────────── */}
+      <View style={[styles.headerWrap, { paddingTop: insets.top + 8 }]}>
+        <LinearGradient colors={[`${accentColor}22`, "transparent"]} style={StyleSheet.absoluteFill} />
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
           <Feather name="arrow-left" size={22} color="#fff" />
         </TouchableOpacity>
@@ -173,64 +257,48 @@ export default function ActorBrowseScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      {/* ── Content ────────────────────────────────────────────── */}
       {loadState === "loading" ? (
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={accentColor} />
-          <Text style={[styles.loadingText, { color: "#888" }]}>
-            Carregando filmografia...
-          </Text>
+          <Text style={[styles.loadingText, { color: "#888" }]}>Carregando informações...</Text>
         </View>
       ) : loadState === "error" ? (
         <View style={styles.centered}>
           <View style={[styles.errorIcon, { backgroundColor: `${accentColor}18` }]}>
             <Feather name="user-x" size={32} color={accentColor} />
           </View>
-          <Text style={[styles.errorTitle, { color: colors.foreground }]}>
-            Ator não encontrado
-          </Text>
+          <Text style={[styles.errorTitle, { color: colors.foreground }]}>Ator não encontrado</Text>
           <Text style={[styles.errorSub, { color: "#888" }]}>
             Não conseguimos carregar as informações de {name}
           </Text>
-          <TouchableOpacity
-            style={[styles.retryBtn, { backgroundColor: accentColor }]}
-            onPress={() => setRetryKey((k) => k + 1)}
-          >
+          <TouchableOpacity style={[styles.retryBtn, { backgroundColor: accentColor }]}
+            onPress={() => setRetryKey((k) => k + 1)}>
             <Feather name="refresh-cw" size={14} color="#fff" />
             <Text style={styles.retryText}>Tentar novamente</Text>
           </TouchableOpacity>
         </View>
       ) : (
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: insets.bottom + 48 }}
-        >
-          {/* ── Profile card ─────────────────────────────────── */}
-          <View style={styles.profileCard}>
+        <>
+          {/* ── Profile strip ────────────────────────────────────────── */}
+          <View style={styles.profileStrip}>
             <LinearGradient
-              colors={[`${accentColor}22`, `${accentColor}06`, "transparent"]}
-              locations={[0, 0.5, 1]}
+              colors={[`${accentColor}18`, `${accentColor}06`, "transparent"]}
               style={StyleSheet.absoluteFill}
             />
             <View style={styles.profileRow}>
-              {/* Photo */}
               <View style={[styles.photoWrap, { borderColor: `${accentColor}60` }]}>
                 {profileUrl ? (
-                  <Image
-                    source={{ uri: profileUrl }}
-                    style={styles.photo}
-                    resizeMode="cover"
-                  />
+                  <Image source={{ uri: profileUrl }} style={styles.photo}
+                    contentFit="cover" cachePolicy="memory-disk" />
                 ) : (
-                  <LinearGradient colors={[`${accentColor}40`, `${accentColor}15`]} style={styles.photo}>
+                  <LinearGradient colors={[`${accentColor}50`, `${accentColor}20`]} style={styles.photo}>
                     <Text style={[styles.initials, { color: accentColor }]}>
-                      {(name ?? "?").split(" ").map((w) => w[0]).join("").slice(0, 2)}
+                      {(name ?? "?").split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()}
                     </Text>
                   </LinearGradient>
                 )}
               </View>
 
-              {/* Info */}
               <View style={styles.profileInfo}>
                 <Text style={[styles.actorName, { color: colors.foreground }]} numberOfLines={2}>
                   {person?.name ?? name}
@@ -242,119 +310,240 @@ export default function ActorBrowseScreen() {
                     </Text>
                   </View>
                 )}
-                {person?.birthday && (
+                {person?.place_of_birth ? (
                   <View style={styles.metaRow}>
-                    <Feather name="calendar" size={11} color="#666" />
+                    <Feather name="map-pin" size={10} color="#555" />
+                    <Text style={styles.metaText} numberOfLines={1}>{person.place_of_birth}</Text>
+                  </View>
+                ) : null}
+                {person?.birthday ? (
+                  <View style={styles.metaRow}>
+                    <Feather name="calendar" size={10} color="#555" />
                     <Text style={styles.metaText}>
-                      {new Date(person.birthday).toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" })}
+                      {new Date(person.birthday).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" })}
                       {getAge(person.birthday) ? ` · ${getAge(person.birthday)} anos` : ""}
                     </Text>
                   </View>
-                )}
-                {person?.place_of_birth && (
-                  <View style={styles.metaRow}>
-                    <Feather name="map-pin" size={11} color="#666" />
-                    <Text style={styles.metaText} numberOfLines={2}>{person.place_of_birth}</Text>
-                  </View>
-                )}
-                {/* Stats */}
+                ) : null}
                 <View style={styles.statsRow}>
-                  <View style={styles.statItem}>
-                    <Text style={[styles.statNum, { color: accentColor }]}>{movies.length}+</Text>
-                    <Text style={styles.statLabel}>Filmes</Text>
-                  </View>
-                  <View style={styles.statDivider} />
-                  <View style={styles.statItem}>
-                    <Text style={[styles.statNum, { color: accentColor }]}>{tvShows.length}+</Text>
-                    <Text style={styles.statLabel}>Séries</Text>
-                  </View>
+                  {[
+                    { val: movies.length, label: "Filmes" },
+                    { val: tvShows.length, label: "Séries" },
+                    { val: upcoming.length, label: "Em Breve" },
+                  ].map((s, i) => (
+                    <React.Fragment key={s.label}>
+                      {i > 0 && <View style={styles.statDivider} />}
+                      <View style={styles.statItem}>
+                        <Text style={[styles.statNum, { color: accentColor }]}>{s.val}</Text>
+                        <Text style={styles.statLabel}>{s.label}</Text>
+                      </View>
+                    </React.Fragment>
+                  ))}
                 </View>
               </View>
             </View>
-
-            {/* Bio */}
-            {person?.biography ? (
-              <View style={styles.bioWrap}>
-                <Text style={styles.bioText}>
-                  {truncateBio(person.biography)}
-                </Text>
-                {person.biography.split(". ").length > 3 && (
-                  <TouchableOpacity onPress={() => setShowFullBio((v) => !v)}>
-                    <Text style={[styles.bioToggle, { color: accentColor }]}>
-                      {showFullBio ? "Ver menos" : "Ver mais"}
-                    </Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            ) : null}
           </View>
 
-          {/* ── Filmes ─────────────────────────────────────────── */}
-          {movies.length > 0 && (
-            <View style={styles.section}>
-              <View style={styles.sectionHeader}>
-                <View style={[styles.accent, { backgroundColor: accentColor }]} />
-                <Feather name="film" size={15} color={colors.foreground} />
-                <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Filmes</Text>
-                <Text style={[styles.sectionCount, { color: accentColor }]}>
-                  {movies.length}
-                </Text>
-              </View>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.hScroll}
-                decelerationRate="fast"
-              >
-                {movies.map((item, idx) => (
-                  <ContentCardH
-                    key={`movie-${item.id}-${idx}`}
-                    item={item}
-                    onPress={() => goToDetail(item)}
-                  />
-                ))}
-              </ScrollView>
-            </View>
-          )}
+          {/* ── Tab bar ──────────────────────────────────────────────── */}
+          <View style={[styles.tabBar, { borderBottomColor: "rgba(255,255,255,0.06)" }]}>
+            <Animated.View style={[styles.tabIndicator, {
+              backgroundColor: accentColor,
+              width: SCREEN_WIDTH / 4,
+              transform: [{ translateX: indicatorX }],
+            }]} />
+            {TABS.map((tab) => {
+              const isActive = activeTab === tab.id;
+              return (
+                <TouchableOpacity
+                  key={tab.id}
+                  style={styles.tabBtn}
+                  onPress={() => switchTab(tab.id)}
+                  activeOpacity={0.7}
+                >
+                  <Feather name={tab.icon} size={14}
+                    color={isActive ? accentColor : "rgba(255,255,255,0.35)"} />
+                  <Text style={[styles.tabLabel, { color: isActive ? accentColor : "rgba(255,255,255,0.4)" }]}>
+                    {tab.label}
+                  </Text>
+                  {tab.count !== undefined && tab.count > 0 && (
+                    <View style={[styles.tabBadge, {
+                      backgroundColor: isActive ? `${accentColor}30` : "rgba(255,255,255,0.07)",
+                      borderColor: isActive ? `${accentColor}50` : "rgba(255,255,255,0.1)",
+                    }]}>
+                      <Text style={[styles.tabBadgeText, { color: isActive ? accentColor : "rgba(255,255,255,0.35)" }]}>
+                        {tab.count}
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
 
-          {/* ── Séries ─────────────────────────────────────────── */}
-          {tvShows.length > 0 && (
-            <View style={styles.section}>
-              <View style={styles.sectionHeader}>
-                <View style={[styles.accent, { backgroundColor: accentColor }]} />
-                <Feather name="tv" size={15} color={colors.foreground} />
-                <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Séries</Text>
-                <Text style={[styles.sectionCount, { color: accentColor }]}>
-                  {tvShows.length}
-                </Text>
-              </View>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.hScroll}
-                decelerationRate="fast"
-              >
-                {tvShows.map((item, idx) => (
-                  <ContentCardH
-                    key={`tv-${item.id}-${idx}`}
-                    item={item}
-                    onPress={() => goToDetail(item)}
-                  />
-                ))}
-              </ScrollView>
-            </View>
-          )}
+          {/* ── Tab content ──────────────────────────────────────────── */}
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingBottom: insets.bottom + 60 }}
+          >
+            {/* BIO TAB */}
+            {activeTab === "bio" && (
+              <View style={styles.tabContent}>
+                {person?.biography ? (
+                  <View style={styles.bioCard}>
+                    <LinearGradient
+                      colors={[`${accentColor}12`, "transparent"]}
+                      style={StyleSheet.absoluteFill}
+                    />
+                    <View style={styles.bioHeader}>
+                      <View style={[styles.accentBar, { backgroundColor: accentColor }]} />
+                      <Text style={[styles.bioTitle, { color: colors.foreground }]}>História</Text>
+                    </View>
+                    <Text style={styles.bioText}>{truncateBio(person.biography)}</Text>
+                    {person.biography.split(". ").length > 4 && (
+                      <TouchableOpacity onPress={() => setShowFullBio((v) => !v)} style={styles.bioToggleBtn}>
+                        <Text style={[styles.bioToggle, { color: accentColor }]}>
+                          {showFullBio ? "Ver menos" : "Ler tudo"}
+                        </Text>
+                        <Feather name={showFullBio ? "chevron-up" : "chevron-down"} size={13} color={accentColor} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                ) : (
+                  <View style={styles.emptyBio}>
+                    <Feather name="user" size={32} color="#333" />
+                    <Text style={{ color: "#555", fontSize: 14, marginTop: 8, textAlign: "center" }}>
+                      Biografia não disponível para {name}
+                    </Text>
+                  </View>
+                )}
 
-          {/* Empty state if no credits */}
-          {movies.length === 0 && tvShows.length === 0 && loadState === "ready" && (
-            <View style={styles.emptyCredits}>
-              <Feather name="film" size={32} color="#333" />
-              <Text style={{ color: "#555", fontSize: 14, marginTop: 8 }}>
-                Nenhum crédito encontrado
-              </Text>
-            </View>
-          )}
-        </ScrollView>
+                {/* Quick stats cards */}
+                <View style={styles.infoGrid}>
+                  {person?.birthday ? (
+                    <View style={[styles.infoCard, { borderColor: `${accentColor}20` }]}>
+                      <Feather name="calendar" size={16} color={accentColor} />
+                      <Text style={styles.infoCardLabel}>Nascimento</Text>
+                      <Text style={[styles.infoCardValue, { color: colors.foreground }]}>
+                        {new Date(person.birthday).toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" })}
+                      </Text>
+                    </View>
+                  ) : null}
+                  {person?.place_of_birth ? (
+                    <View style={[styles.infoCard, { borderColor: `${accentColor}20` }]}>
+                      <Feather name="map-pin" size={16} color={accentColor} />
+                      <Text style={styles.infoCardLabel}>Local de Nascimento</Text>
+                      <Text style={[styles.infoCardValue, { color: colors.foreground }]} numberOfLines={2}>
+                        {person.place_of_birth}
+                      </Text>
+                    </View>
+                  ) : null}
+                  {movies.length > 0 && (
+                    <View style={[styles.infoCard, { borderColor: `${accentColor}20` }]}>
+                      <Feather name="film" size={16} color={accentColor} />
+                      <Text style={styles.infoCardLabel}>Filmes</Text>
+                      <Text style={[styles.infoCardValue, { color: colors.foreground }]}>{movies.length}+</Text>
+                    </View>
+                  )}
+                  {tvShows.length > 0 && (
+                    <View style={[styles.infoCard, { borderColor: `${accentColor}20` }]}>
+                      <Feather name="tv" size={16} color={accentColor} />
+                      <Text style={styles.infoCardLabel}>Séries</Text>
+                      <Text style={[styles.infoCardValue, { color: colors.foreground }]}>{tvShows.length}+</Text>
+                    </View>
+                  )}
+                </View>
+
+                {/* Top known movies preview */}
+                {movies.slice(0, 6).length > 0 && (
+                  <View style={styles.section}>
+                    <View style={styles.sectionHeader}>
+                      <View style={[styles.accentBarSm, { backgroundColor: accentColor }]} />
+                      <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Filmes em Destaque</Text>
+                      <TouchableOpacity onPress={() => switchTab("filmes")} style={styles.seeAllBtn}>
+                        <Text style={[styles.seeAllText, { color: accentColor }]}>Ver todos</Text>
+                        <Feather name="chevron-right" size={12} color={accentColor} />
+                      </TouchableOpacity>
+                    </View>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.hScroll} decelerationRate="fast">
+                      {movies.slice(0, 6).map((item, idx) => (
+                        <ContentCard key={`bio-mv-${item.id}-${idx}`} item={item} onPress={() => goToDetail(item)} />
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
+              </View>
+            )}
+
+            {/* FILMES TAB */}
+            {activeTab === "filmes" && (
+              <View style={styles.tabContent}>
+                {movies.length === 0 ? (
+                  <View style={styles.emptyState}>
+                    <Feather name="film" size={40} color="#333" />
+                    <Text style={styles.emptyText}>Nenhum filme encontrado</Text>
+                  </View>
+                ) : (
+                  <View style={styles.gridWrap}>
+                    {movies.map((item, idx) => (
+                      <ContentCard key={`mv-${item.id}-${idx}`} item={item} onPress={() => goToDetail(item)} />
+                    ))}
+                  </View>
+                )}
+              </View>
+            )}
+
+            {/* SÉRIES TAB */}
+            {activeTab === "series" && (
+              <View style={styles.tabContent}>
+                {tvShows.length === 0 ? (
+                  <View style={styles.emptyState}>
+                    <Feather name="tv" size={40} color="#333" />
+                    <Text style={styles.emptyText}>Nenhuma série encontrada</Text>
+                  </View>
+                ) : (
+                  <View style={styles.gridWrap}>
+                    {tvShows.map((item, idx) => (
+                      <ContentCard key={`tv-${item.id}-${idx}`} item={item} onPress={() => goToDetail(item)} />
+                    ))}
+                  </View>
+                )}
+              </View>
+            )}
+
+            {/* EM BREVE TAB */}
+            {activeTab === "embreve" && (
+              <View style={styles.tabContent}>
+                {upcoming.length === 0 ? (
+                  <View style={styles.emptyState}>
+                    <Feather name="clock" size={40} color="#333" />
+                    <Text style={styles.emptyText}>Nenhum lançamento previsto</Text>
+                    <Text style={styles.emptySubText}>
+                      Não há conteúdo futuro confirmado para {name} no momento
+                    </Text>
+                  </View>
+                ) : (
+                  <>
+                    <View style={styles.upcomingHeader}>
+                      <Feather name="clock" size={14} color={accentColor} />
+                      <Text style={[styles.upcomingHeaderText, { color: accentColor }]}>
+                        {upcoming.length} título{upcoming.length !== 1 ? "s" : ""} em breve
+                      </Text>
+                    </View>
+                    {upcoming.map((item, idx) => (
+                      <UpcomingCard
+                        key={`up-${item.id}-${idx}`}
+                        item={item}
+                        onPress={() => goToDetail(item)}
+                        accentColor={accentColor}
+                      />
+                    ))}
+                  </>
+                )}
+              </View>
+            )}
+          </ScrollView>
+        </>
       )}
     </View>
   );
@@ -366,175 +555,184 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 16,
-    paddingBottom: 12,
+    paddingBottom: 10,
     justifyContent: "space-between",
     overflow: "hidden",
   },
   backBtn: {
-    width: 40,
-    height: 40,
-    alignItems: "center",
-    justifyContent: "center",
+    width: 40, height: 40,
+    alignItems: "center", justifyContent: "center",
     borderRadius: 20,
   },
   headerTitle: {
-    flex: 1,
-    textAlign: "center",
-    color: "#fff",
-    fontSize: 17,
-    fontWeight: "700",
-    letterSpacing: -0.2,
+    flex: 1, textAlign: "center",
+    color: "#fff", fontSize: 17, fontWeight: "700", letterSpacing: -0.2,
   },
   centered: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 12,
-    paddingHorizontal: 32,
+    flex: 1, alignItems: "center", justifyContent: "center",
+    gap: 12, paddingHorizontal: 32,
   },
   loadingText: { fontSize: 13, fontWeight: "500", marginTop: 4 },
   errorIcon: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 4,
+    width: 72, height: 72, borderRadius: 36,
+    alignItems: "center", justifyContent: "center", marginBottom: 4,
   },
   errorTitle: { fontSize: 17, fontWeight: "700", textAlign: "center" },
   errorSub: { fontSize: 13, textAlign: "center", lineHeight: 18 },
   retryBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 20,
-    paddingVertical: 11,
-    borderRadius: 22,
-    marginTop: 8,
+    flexDirection: "row", alignItems: "center",
+    gap: 8, paddingHorizontal: 20, paddingVertical: 11,
+    borderRadius: 22, marginTop: 8,
   },
   retryText: { color: "#fff", fontSize: 14, fontWeight: "700" },
-  profileCard: {
-    marginHorizontal: 16,
-    marginTop: 4,
-    marginBottom: 24,
-    borderRadius: 18,
-    padding: 16,
-    backgroundColor: "rgba(255,255,255,0.04)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.07)",
+
+  profileStrip: {
+    paddingHorizontal: 16, paddingVertical: 14,
     overflow: "hidden",
+    borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.05)",
   },
-  profileRow: {
-    flexDirection: "row",
-    gap: 14,
-    alignItems: "flex-start",
-  },
+  profileRow: { flexDirection: "row", gap: 14, alignItems: "flex-start" },
   photoWrap: {
-    width: PHOTO_SIZE,
-    height: PHOTO_SIZE,
-    borderRadius: PHOTO_SIZE / 2,
-    borderWidth: 2,
-    overflow: "hidden",
-    flexShrink: 0,
+    width: PHOTO_SIZE, height: PHOTO_SIZE,
+    borderRadius: PHOTO_SIZE / 2, borderWidth: 2,
+    overflow: "hidden", flexShrink: 0,
   },
-  photo: {
-    width: "100%",
-    height: "100%",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  initials: {
-    fontSize: 32,
-    fontWeight: "800",
-  },
-  profileInfo: {
-    flex: 1,
-    gap: 6,
-  },
-  actorName: {
-    fontSize: 20,
-    fontWeight: "800",
-    letterSpacing: -0.3,
-    lineHeight: 24,
-  },
+  photo: { width: "100%", height: "100%", alignItems: "center", justifyContent: "center" },
+  initials: { fontSize: 28, fontWeight: "800" },
+  profileInfo: { flex: 1, gap: 5 },
+  actorName: { fontSize: 18, fontWeight: "800", letterSpacing: -0.3, lineHeight: 22 },
   deptBadge: {
-    alignSelf: "flex-start",
-    borderWidth: 1,
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    alignSelf: "flex-start", borderWidth: 1,
+    borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3,
   },
   deptText: { fontSize: 11, fontWeight: "700", letterSpacing: 0.3 },
-  metaRow: {
+  metaRow: { flexDirection: "row", alignItems: "flex-start", gap: 5 },
+  metaText: { color: "#666", fontSize: 10, flex: 1, lineHeight: 14 },
+  statsRow: { flexDirection: "row", alignItems: "center", marginTop: 2, gap: 0 },
+  statItem: { alignItems: "center", paddingHorizontal: 10 },
+  statNum: { fontSize: 16, fontWeight: "800" },
+  statLabel: { color: "#555", fontSize: 9, fontWeight: "600", marginTop: 1 },
+  statDivider: { width: 1, height: 24, backgroundColor: "rgba(255,255,255,0.08)" },
+
+  tabBar: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 5,
+    borderBottomWidth: 1,
+    position: "relative",
   },
-  metaText: { color: "#666", fontSize: 11, flex: 1, lineHeight: 15 },
-  statsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 4,
-    gap: 0,
+  tabIndicator: {
+    position: "absolute",
+    bottom: 0, height: 2,
+    borderTopLeftRadius: 1, borderTopRightRadius: 1,
   },
-  statItem: { alignItems: "center", paddingHorizontal: 8 },
-  statNum: { fontSize: 18, fontWeight: "800" },
-  statLabel: { color: "#666", fontSize: 10, fontWeight: "600", marginTop: 1 },
-  statDivider: { width: 1, height: 28, backgroundColor: "rgba(255,255,255,0.1)" },
-  bioWrap: { marginTop: 14 },
-  bioText: { color: "#aaa", fontSize: 13, lineHeight: 20 },
-  bioToggle: { marginTop: 4, fontSize: 13, fontWeight: "600" },
-  section: { marginBottom: 28 },
-  sectionHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 16,
-    marginBottom: 12,
+  tabBtn: {
+    flex: 1, paddingVertical: 10,
+    alignItems: "center", justifyContent: "center",
+    flexDirection: "row", gap: 4,
   },
-  accent: { width: 3, height: 18, borderRadius: 2 },
-  sectionTitle: { fontSize: 17, fontWeight: "700" },
-  sectionCount: { fontSize: 13, fontWeight: "600", marginLeft: 2 },
-  hScroll: { paddingHorizontal: 16 },
-  hCard: {
-    width: CARD_W,
-    height: CARD_H,
-    borderRadius: 10,
+  tabLabel: { fontSize: 11, fontWeight: "700", letterSpacing: 0.2 },
+  tabBadge: {
+    borderRadius: 8, paddingHorizontal: 5, paddingVertical: 1,
+    borderWidth: 1, marginLeft: 2,
+  },
+  tabBadgeText: { fontSize: 9, fontWeight: "700" },
+
+  tabContent: { paddingTop: 16 },
+
+  bioCard: {
+    marginHorizontal: 16, marginBottom: 16,
+    borderRadius: 16, padding: 16,
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.06)",
     overflow: "hidden",
+  },
+  bioHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 },
+  bioTitle: { fontSize: 15, fontWeight: "700" },
+  accentBar: { width: 3, height: 17, borderRadius: 2 },
+  bioText: { color: "#aaa", fontSize: 13, lineHeight: 21 },
+  bioToggleBtn: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 8 },
+  bioToggle: { fontSize: 13, fontWeight: "600" },
+  emptyBio: { alignItems: "center", paddingVertical: 40, paddingHorizontal: 32 },
+
+  infoGrid: {
+    flexDirection: "row", flexWrap: "wrap",
+    paddingHorizontal: 16, gap: 10, marginBottom: 20,
+  },
+  infoCard: {
+    flex: 1, minWidth: (SCREEN_WIDTH - 52) / 2,
+    borderRadius: 12, padding: 12,
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderWidth: 1, gap: 4,
+  },
+  infoCardLabel: { color: "#555", fontSize: 10, fontWeight: "600", marginTop: 2 },
+  infoCardValue: { fontSize: 12, fontWeight: "700", lineHeight: 16 },
+
+  section: { marginBottom: 24 },
+  sectionHeader: {
+    flexDirection: "row", alignItems: "center",
+    gap: 8, paddingHorizontal: 16, marginBottom: 12,
+  },
+  accentBarSm: { width: 3, height: 15, borderRadius: 2 },
+  sectionTitle: { fontSize: 15, fontWeight: "700", flex: 1 },
+  seeAllBtn: { flexDirection: "row", alignItems: "center", gap: 2 },
+  seeAllText: { fontSize: 12, fontWeight: "600" },
+  hScroll: { paddingHorizontal: 16, gap: 10 },
+
+  gridWrap: {
+    flexDirection: "row", flexWrap: "wrap",
+    paddingHorizontal: 16, gap: 10,
+  },
+  card: {
+    width: CARD_W, height: CARD_H,
+    borderRadius: 10, overflow: "hidden",
     backgroundColor: "#1a1a1a",
   },
-  hCardGrad: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: "55%",
+  cardGrad: {
+    position: "absolute", bottom: 0, left: 0, right: 0, height: "55%",
   },
-  hCardTitle: {
-    position: "absolute",
-    bottom: 6,
-    left: 5,
-    right: 5,
-    color: "#fff",
-    fontSize: 9,
-    fontWeight: "600",
-    lineHeight: 12,
+  cardTitle: {
+    position: "absolute", bottom: 6, left: 5, right: 5,
+    color: "#fff", fontSize: 9, fontWeight: "600", lineHeight: 12,
+  },
+  cardYear: {
+    color: "rgba(255,255,255,0.4)", fontSize: 10, fontWeight: "500",
+    marginTop: 4, textAlign: "center",
   },
   ratingBadge: {
-    position: "absolute",
-    top: 5,
-    right: 5,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 2,
-    backgroundColor: "rgba(0,0,0,0.75)",
-    paddingHorizontal: 4,
-    paddingVertical: 2,
-    borderRadius: 4,
+    position: "absolute", top: 5, right: 5,
+    flexDirection: "row", alignItems: "center", gap: 2,
+    backgroundColor: "rgba(0,0,0,0.75)", paddingHorizontal: 4, paddingVertical: 2, borderRadius: 4,
   },
   ratingText: { color: "#f59e0b", fontSize: 8, fontWeight: "700" },
-  emptyCredits: {
-    alignItems: "center",
-    paddingTop: 40,
+
+  upcomingHeader: {
+    flexDirection: "row", alignItems: "center",
+    gap: 6, paddingHorizontal: 16, marginBottom: 14,
   },
+  upcomingHeaderText: { fontSize: 13, fontWeight: "700", letterSpacing: 0.2 },
+  upcomingCard: {
+    height: 150, borderRadius: 14, overflow: "hidden",
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderWidth: 1,
+  },
+  upcomingContent: {
+    position: "absolute", bottom: 0, left: 0, right: 0,
+    padding: 14, gap: 3,
+  },
+  upcomingBadge: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    alignSelf: "flex-start", paddingHorizontal: 8, paddingVertical: 3,
+    borderRadius: 20, borderWidth: 1, marginBottom: 4,
+  },
+  upcomingBadgeText: { fontSize: 9, fontWeight: "800", letterSpacing: 0.5 },
+  upcomingTitle: { color: "#fff", fontSize: 16, fontWeight: "800", letterSpacing: -0.2 },
+  upcomingMeta: { color: "rgba(255,255,255,0.5)", fontSize: 11, fontWeight: "600" },
+  upcomingPlay: {
+    position: "absolute", top: 12, right: 12,
+    width: 36, height: 36, borderRadius: 18,
+    alignItems: "center", justifyContent: "center",
+  },
+
+  emptyState: { alignItems: "center", paddingTop: 60, paddingHorizontal: 32, gap: 10 },
+  emptyText: { color: "#555", fontSize: 15, fontWeight: "600", textAlign: "center" },
+  emptySubText: { color: "#444", fontSize: 13, textAlign: "center", lineHeight: 18 },
 });

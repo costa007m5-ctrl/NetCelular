@@ -771,6 +771,44 @@ const ACTOR_CATEGORIES = [
 // Flat list kept for backward compat with any remaining references
 const ACTORS = ACTOR_CATEGORIES[0].actors;
 
+// ── Genre image cache (lazy-loaded TMDB poster/backdrop per genre) ────────────
+const _genreImageCache: Record<number, { poster: string | null; backdrop: string | null }> = {};
+let _genreFetchActive = 0;
+const _genreFetchQueue: Array<() => void> = [];
+function _drainGenreQueue() {
+  while (_genreFetchActive < 3 && _genreFetchQueue.length > 0) {
+    const next = _genreFetchQueue.shift()!;
+    _genreFetchActive++;
+    next();
+  }
+}
+const _TMDB_GENRE_KEY = "8f0beb08cf016ec8de49e454e09879ec";
+
+function fetchGenreImage(
+  genreId: number,
+  cb: (poster: string | null, backdrop: string | null) => void
+) {
+  const cached = _genreImageCache[genreId];
+  if (cached !== undefined) { cb(cached.poster, cached.backdrop); return; }
+  const doFetch = () => {
+    fetch(
+      `https://api.themoviedb.org/3/discover/movie?api_key=${_TMDB_GENRE_KEY}&with_genres=${genreId}&sort_by=popularity.desc&language=pt-BR&page=1`
+    )
+      .then((r) => r.json())
+      .then((data) => {
+        const item = data.results?.[0];
+        const poster = item?.poster_path ? `https://image.tmdb.org/t/p/w342${item.poster_path}` : null;
+        const backdrop = item?.backdrop_path ? `https://image.tmdb.org/t/p/w780${item.backdrop_path}` : null;
+        _genreImageCache[genreId] = { poster, backdrop };
+        cb(poster, backdrop);
+      })
+      .catch(() => { _genreImageCache[genreId] = { poster: null, backdrop: null }; cb(null, null); })
+      .finally(() => { _genreFetchActive = Math.max(0, _genreFetchActive - 1); _drainGenreQueue(); });
+  };
+  if (_genreFetchActive < 3) { _genreFetchActive++; doFetch(); }
+  else { _genreFetchQueue.push(doFetch); }
+}
+
 const COUNTRIES = [
   { id: "BR", label: "Brasil",      flagCode: "br", flag: "🇧🇷", color: "#22c55e" },
   { id: "US", label: "EUA",         flagCode: "us", flag: "🇺🇸", color: "#3b82f6" },
@@ -797,17 +835,41 @@ function MoodCard({ mood, onPress }: {
   mood: typeof MOODS[0]; onPress: () => void;
 }) {
   const sc = useRef(new Animated.Value(1)).current;
+  const [backdropUrl, setBackdropUrl] = useState<string | null>(null);
+  const [imgErr, setImgErr] = useState(false);
+
+  useEffect(() => {
+    fetchGenreImage(mood.genreId, (_, backdrop) => {
+      if (backdrop) setBackdropUrl(backdrop);
+    });
+  }, [mood.genreId]);
+
   const pi = () => Animated.spring(sc, { toValue: 0.88, useNativeDriver: true, speed: 30 }).start();
   const po = () => Animated.spring(sc, { toValue: 1,    useNativeDriver: true, speed: 26 }).start();
   return (
     <Pressable onPress={onPress} onPressIn={pi} onPressOut={po}>
-      <Animated.View style={[styles.moodCard, { borderColor: `${mood.color}40`, transform: [{ scale: sc }] }]}>
-        <LinearGradient colors={[`${mood.color}28`, `${mood.color}08`, "transparent"]}
-          style={StyleSheet.absoluteFill} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} />
-        <View style={[styles.moodIconWrap, { backgroundColor: `${mood.color}20` }]}>
-          <Feather name={mood.icon} size={22} color={mood.color} />
+      <Animated.View style={[styles.moodCard, { borderColor: `${mood.color}50`, transform: [{ scale: sc }] }]}>
+        {!imgErr && backdropUrl ? (
+          <Image source={{ uri: backdropUrl }} style={StyleSheet.absoluteFill}
+            contentFit="cover" cachePolicy="memory-disk" onError={() => setImgErr(true)} />
+        ) : (
+          <LinearGradient colors={[`${mood.color}40`, `${mood.color}15`, "transparent"]}
+            style={StyleSheet.absoluteFill} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} />
+        )}
+        <LinearGradient
+          colors={["rgba(0,0,0,0.10)", "rgba(0,0,0,0.72)"]}
+          style={StyleSheet.absoluteFill}
+          start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }}
+        />
+        <LinearGradient
+          colors={[`${mood.color}55`, "transparent"]}
+          style={StyleSheet.absoluteFill}
+          start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+        />
+        <View style={[styles.moodIconWrap, { backgroundColor: `${mood.color}35` }]}>
+          <Feather name={mood.icon} size={22} color="#fff" />
         </View>
-        <Text style={[styles.moodLabel, { color: mood.color }]}>{mood.label}</Text>
+        <Text style={[styles.moodLabel, { color: "#fff", textShadowColor: "rgba(0,0,0,0.8)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 }]}>{mood.label}</Text>
       </Animated.View>
     </Pressable>
   );
@@ -824,14 +886,32 @@ function MoodRowComp({ moods, onPress }: { moods: typeof MOODS; onPress: (m: typ
 // ── Circle genre card ─────────────────────────────────────────────────────────
 function CircleGenreCard({ genre, onPress }: { genre: typeof GENRE_CIRCLES[0]; onPress: () => void }) {
   const sc = useRef(new Animated.Value(1)).current;
+  const [posterUrl, setPosterUrl] = useState<string | null>(null);
+  const [imgErr, setImgErr] = useState(false);
+
+  useEffect(() => {
+    fetchGenreImage(genre.id, (poster) => {
+      if (poster) setPosterUrl(poster);
+    });
+  }, [genre.id]);
+
   const pi = () => Animated.spring(sc, { toValue: 0.87, useNativeDriver: true, speed: 30 }).start();
   const po = () => Animated.spring(sc, { toValue: 1,    useNativeDriver: true, speed: 26 }).start();
   return (
     <Pressable onPress={onPress} onPressIn={pi} onPressOut={po}>
       <Animated.View style={[{ alignItems: "center", gap: 6, transform: [{ scale: sc }] }]}>
-        <View style={[styles.circleGenre, { borderColor: `${genre.color}50` }]}>
-          <LinearGradient colors={[`${genre.color}35`, `${genre.color}10`]} style={StyleSheet.absoluteFill} />
-          <Feather name={genre.icon} size={20} color={genre.color} />
+        <View style={[styles.circleGenre, { borderColor: `${genre.color}70`, borderWidth: 2 }]}>
+          {!imgErr && posterUrl ? (
+            <Image source={{ uri: posterUrl }} style={StyleSheet.absoluteFill}
+              contentFit="cover" cachePolicy="memory-disk" onError={() => setImgErr(true)} />
+          ) : (
+            <LinearGradient colors={[`${genre.color}45`, `${genre.color}15`]} style={StyleSheet.absoluteFill} />
+          )}
+          <LinearGradient
+            colors={["transparent", `${genre.color}cc`]}
+            style={StyleSheet.absoluteFill}
+            locations={[0.3, 1]}
+          />
         </View>
         <Text style={[styles.circleLabel, { color: genre.color }]}>{genre.label}</Text>
       </Animated.View>
@@ -2898,8 +2978,8 @@ export default function HomeScreen() {
                   key={cat.id}
                   category={cat}
                   onActorPress={(a) => router.push({
-                    pathname: "/buscar",
-                    params: { q: a.name },
+                    pathname: "/actor-browse",
+                    params: { name: a.name, color: a.color },
                   })}
                 />
               ))}
