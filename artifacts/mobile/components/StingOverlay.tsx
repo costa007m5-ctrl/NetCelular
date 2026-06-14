@@ -1,10 +1,9 @@
 /**
- * StingOverlay — plays the programmatic sting animation + audio track.
+ * StingOverlay — plays the sting video and waits for the main video to be ready.
  *
- * - StingAnimation handles all visuals (ring arches, icon reveal, text, bar)
- * - expo-av Audio plays sting_audio.aac in parallel
+ * - StingAnimation handles all visuals + audio (embedded in sting.mp4)
  * - Two conditions both required before disappearing:
- *     1. Animation's 10 s timer fired (or 12 s safety net)
+ *     1. Animation's onEnd fired (video finished or 12 s safety net)
  *     2. `videoReady` prop is true
  * - Spinner shown if animation done but videoReady still false
  */
@@ -12,9 +11,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import StingAnimation from "./StingAnimation";
-
-let AudioModule: any = null;
-try { AudioModule = require("expo-av").Audio; } catch {}
 
 interface StingOverlayProps {
   videoReady: boolean;
@@ -27,21 +23,12 @@ export default function StingOverlay({ videoReady, onDone }: StingOverlayProps) 
   const animDoneRef     = useRef(false);
   const videoReadyRef   = useRef(videoReady);
   const onDoneRef       = useRef(onDone);
-  const safetyRef       = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const soundRef        = useRef<any>(null);
 
   useEffect(() => { onDoneRef.current = onDone; });
 
   const finish = () => {
     if (doneCalledRef.current) return;
     doneCalledRef.current = true;
-    if (safetyRef.current) { clearTimeout(safetyRef.current); safetyRef.current = null; }
-    // Stop and unload audio
-    if (soundRef.current) {
-      soundRef.current.stopAsync().catch(() => {});
-      soundRef.current.unloadAsync().catch(() => {});
-      soundRef.current = null;
-    }
     onDoneRef.current();
   };
 
@@ -53,46 +40,14 @@ export default function StingOverlay({ videoReady, onDone }: StingOverlayProps) 
   };
 
   useEffect(() => {
-    // Play audio track from the reference video
-    (async () => {
-      try {
-        if (!AudioModule) return;
-        await AudioModule.setAudioModeAsync({ playsInSilentModeIOS: true });
-        const { sound } = await AudioModule.Sound.createAsync(
-          require("@/assets/sting_audio.aac"),
-          { shouldPlay: true, volume: 1.0, isLooping: false },
-        );
-        soundRef.current = sound;
-      } catch { /* audio not critical */ }
-    })();
-
-    // Absolute safety fallback: 12 s
-    safetyRef.current = setTimeout(() => {
-      markAnimDone();
-      finish();
-    }, 12_000);
-
-    return () => {
-      if (safetyRef.current) clearTimeout(safetyRef.current);
-      if (soundRef.current) {
-        soundRef.current.stopAsync().catch(() => {});
-        soundRef.current.unloadAsync().catch(() => {});
-        soundRef.current = null;
-      }
-    };
-  }, []);
-
-  useEffect(() => {
     videoReadyRef.current = videoReady;
     if (videoReady && animDoneRef.current) finish();
   }, [videoReady]);
 
   return (
     <View style={styles.container} pointerEvents="none">
-      {/* Programmatic animation — calls markAnimDone when its 10s timer fires */}
       {!animDone && <StingAnimation onEnd={markAnimDone} />}
 
-      {/* Spinner: animation done but video still buffering */}
       {animDone && !videoReady && (
         <View style={styles.waitSpinner} pointerEvents="none">
           <ActivityIndicator size="large" color="#e50914" />
