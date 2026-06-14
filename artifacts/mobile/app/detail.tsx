@@ -224,6 +224,9 @@ export default function DetailScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const params = useLocalSearchParams<{ type: string; id: string; flix2Id?: string; title?: string; tab?: string; poster?: string }>();
+  // Remove anotações como [L], [HD], [Dublado] e ano (2026) do título antes de buscar no TMDB/Flix2
+  const cleanTitle = (t: string) =>
+    t.replace(/\s*\[[^\]]*\]/g, "").replace(/\s*\(\d{4}\)/g, "").trim();
 
   const type = (params.type ?? "movie") as "movie" | "tv";
   const tmdbId = Number(params.id ?? 0);
@@ -336,7 +339,7 @@ export default function DetailScreen() {
         let titleFallbackIds: number[] = [];
         let titleFallbackTitles: string[] = [];
         if (registryItems.length === 0 && (params.title ?? "").length >= 3) {
-          const titleRaw = String(params.title ?? "").toLowerCase();
+          const titleRaw = cleanTitle(String(params.title ?? "")).toLowerCase();
           const titleNorm = titleRaw.replace(/[^a-z0-9]/g, "");
           // Palavras com 5+ chars para match semântico entre idiomas (ex: "tarzan" bate em PT e EN)
           const titleWords = titleNorm.match(/[a-z0-9]{5,}/g) ?? [];
@@ -411,7 +414,7 @@ export default function DetailScreen() {
           const flix2Type = type === "movie" ? "movies" : "all";
           const flix2StreamId = params.flix2Id ? `&streamId=${encodeURIComponent(params.flix2Id)}` : "";
           const flix2Raw = await r2Route<{ found: boolean; item: any }>(
-            `/flix2/lookup?tmdbId=${tmdbId}&type=${flix2Type}&title=${encodeURIComponent(params.title ?? "")}${flix2StreamId}`
+            `/flix2/lookup?tmdbId=${tmdbId}&type=${flix2Type}&title=${encodeURIComponent(cleanTitle(params.title ?? ""))}${flix2StreamId}`
           );
           if (cancelled || !flix2Raw.found) return;
           const fi = flix2Raw.item;
@@ -594,7 +597,8 @@ export default function DetailScreen() {
   useEffect(() => {
     if (!tmdbId) {
       // tmdbId=0 — try to find metadata via TMDB search by title (Flix2-only items)
-      const titleQ = (params.title ?? "").trim();
+      // Strip annotations like [L], [HD], (2026) before searching so TMDB can find the show
+      const titleQ = cleanTitle((params.title ?? "").trim());
       if (!titleQ) { setLoading(false); return; }
       setLoading(true);
       setLogoUrl(null);
