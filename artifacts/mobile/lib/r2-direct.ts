@@ -893,6 +893,10 @@ const SERVER_ONLY_ROUTES = new Set([
   "/flix2/index-status",
   "/flix2/stream-url",
   "/flix2/series-episodes",
+  "/flix2/whats-new",
+  "/flix2/cinema-2026",
+  "/flix2/warm-status",
+  "/flix2/stats",
   "/source-settings",
 ]);
 
