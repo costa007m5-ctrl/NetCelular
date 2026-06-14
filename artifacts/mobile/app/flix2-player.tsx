@@ -1655,11 +1655,8 @@ export default function Flix2PlayerScreen() {
         <StingOverlay
           videoReady={phase === "ready"}
           onDone={() => setShowSting(false)}
-          posterUrl={
-            backdropPath ? (TMDB_IMG(backdropPath, "w780") ?? undefined) :
-            posterPath   ? (TMDB_IMG(posterPath,   "w500") ?? undefined) :
-            undefined
-          }
+          tmdbId={tmdbId ?? undefined}
+          mediaType={contentType === "tv" ? "tv" : "movie"}
         />
       )}
 

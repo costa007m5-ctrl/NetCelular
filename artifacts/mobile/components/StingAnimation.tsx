@@ -3,16 +3,13 @@
  *
  * Sequence (10 s total):
  *  0-2.5 s  — Neon semicircular arch rings fly inward (tunnel effect)
- *  2-3.5 s  — Content poster materializes with bloom glow
+ *  2-3.5 s  — Content title logo materializes with bloom glow
  *  3.5-5 s  — Progress bar appears
  *  5-7 s    — NETPLAY text fades + slides in
  *  7-10 s   — Tagline appears; full logo hold
  *
- * Layout trick:
- *  Rings are full circles centered at the horizon line.
- *  A floor View masks the lower half → result = semicircular arches.
- *
- * Reanimated rule: useAnimatedStyle lives inside leaf components, never .map().
+ * logoUrl: stylized title logo from TMDB (PNG with transparent background).
+ *          Falls back to nothing if unavailable.
  */
 
 import React, { useEffect, useRef, useState } from "react";
@@ -106,52 +103,43 @@ function Ring({ radius, index }: RingProps) {
   );
 }
 
-// ── Content poster card ───────────────────────────────────────────────────────
-function PosterCard({ showAt, posterUrl, cardW, cardH }: {
-  showAt: number; posterUrl?: string; cardW: number; cardH: number;
+// ── Content title logo ────────────────────────────────────────────────────────
+function ContentLogo({ showAt, logoUrl, logoW, logoH }: {
+  showAt: number; logoUrl?: string; logoW: number; logoH: number;
 }) {
-  const opacity = useSharedValue(0);
-  const scale   = useSharedValue(0.2);
+  const opacity    = useSharedValue(0);
+  const scale      = useSharedValue(0.3);
+  const translateY = useSharedValue(10);
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
     const t = setTimeout(() => {
       setVisible(true);
-      opacity.value = withTiming(1, { duration: 400 });
-      scale.value = withSequence(
-        withTiming(1.08, { duration: 500, easing: Easing.out(Easing.cubic) }),
-        withTiming(1.0,  { duration: 300, easing: Easing.inOut(Easing.quad) }),
+      opacity.value    = withTiming(1, { duration: 600, easing: Easing.out(Easing.quad) });
+      scale.value      = withSequence(
+        withTiming(1.06, { duration: 550, easing: Easing.out(Easing.cubic) }),
+        withTiming(1.0,  { duration: 350, easing: Easing.inOut(Easing.quad) }),
       );
+      translateY.value = withTiming(0, { duration: 600, easing: Easing.out(Easing.cubic) });
     }, showAt);
     return () => clearTimeout(t);
   }, []);
 
   const animStyle = useAnimatedStyle(() => ({
     opacity: opacity.value,
-    transform: [{ scale: scale.value }],
+    transform: [{ scale: scale.value }, { translateY: translateY.value }],
   }));
 
-  if (!visible) return null;
+  if (!visible || !logoUrl) return null;
 
   return (
-    <Animated.View style={[styles.posterWrap, { width: cardW, height: cardH }, animStyle]}>
-      {posterUrl ? (
-        <Image
-          source={{ uri: posterUrl }}
-          style={{ width: cardW, height: cardH, borderRadius: 12 }}
-          resizeMode="cover"
-        />
-      ) : (
-        /* Fallback: app icon */
-        <Image
-          source={require("@/assets/images/icon.png")}
-          style={{ width: cardW, height: cardH, borderRadius: 12 }}
-          resizeMode="contain"
-        />
-      )}
-      {/* Glow halo around poster */}
-      <View style={[styles.posterGlow, { width: cardW * 1.6, height: cardH * 1.6,
-        borderRadius: cardH * 0.8, left: -cardW * 0.3, top: -cardH * 0.3 }]}
+    <Animated.View style={[styles.logoWrap, animStyle]}>
+      {/* White glow behind logo so it pops on dark BG */}
+      <View style={[styles.logoGlow, { width: logoW * 1.4, height: logoH * 2 }]} />
+      <Image
+        source={{ uri: logoUrl }}
+        style={{ width: logoW, height: logoH }}
+        resizeMode="contain"
       />
     </Animated.View>
   );
@@ -160,7 +148,7 @@ function PosterCard({ showAt, posterUrl, cardW, cardH }: {
 // ── NETPLAY brand text ────────────────────────────────────────────────────────
 function BrandText({ showAt, brandSize }: { showAt: number; brandSize: number }) {
   const opacity    = useSharedValue(0);
-  const translateY = useSharedValue(16);
+  const translateY = useSharedValue(14);
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
@@ -206,9 +194,9 @@ function Tagline({ showAt, tagSize }: { showAt: number; tagSize: number }) {
   return (
     <Animated.Text style={[{
       fontSize: tagSize, fontWeight: "500", letterSpacing: 3.5,
-      color: "rgba(255,255,255,0.55)", textAlign: "center", textTransform: "uppercase",
+      color: "rgba(255,255,255,0.5)", textAlign: "center",
     }, style]}>
-      Catálogo Premium • Entretenimento
+      CATÁLOGO PREMIUM • ENTRETENIMENTO
     </Animated.Text>
   );
 }
@@ -243,11 +231,11 @@ function ProgressBar({ totalMs, showAt, barW }: { totalMs: number; showAt: numbe
 
 // ── Main component ────────────────────────────────────────────────────────────
 interface StingAnimationProps {
-  onEnd:      () => void;
-  posterUrl?: string;
+  onEnd:     () => void;
+  logoUrl?:  string;
 }
 
-export default function StingAnimation({ onEnd, posterUrl }: StingAnimationProps) {
+export default function StingAnimation({ onEnd, logoUrl }: StingAnimationProps) {
   const { width: W, height: H } = useWindowDimensions();
   const onEndRef = useRef(onEnd);
   useEffect(() => { onEndRef.current = onEnd; });
@@ -258,11 +246,11 @@ export default function StingAnimation({ onEnd, posterUrl }: StingAnimationProps
   }, []);
 
   const HORIZON_Y  = H * 0.55;
-  // Poster card: portrait ratio ~2:3, fits above the text block
-  const CARD_W     = Math.round(Math.min(W * 0.26, 130));
-  const CARD_H     = Math.round(CARD_W * 1.5);
-  const BRAND_SIZE = Math.round(Math.min(W * 0.10, 38));
-  const TAG_SIZE   = Math.round(Math.min(W * 0.028, 12));
+  // Logo: wide format (content logos are usually 3:1 to 5:1 ratio)
+  const LOGO_W     = Math.round(Math.min(W * 0.65, 280));
+  const LOGO_H     = Math.round(LOGO_W * 0.38); // ~3:1 ratio container
+  const BRAND_SIZE = Math.round(Math.min(W * 0.09, 34));
+  const TAG_SIZE   = Math.round(Math.min(W * 0.026, 11));
 
   return (
     <View style={{ flex: 1, backgroundColor: "#080000", overflow: "hidden" }}>
@@ -270,14 +258,13 @@ export default function StingAnimation({ onEnd, posterUrl }: StingAnimationProps
       {/* ── Radial centre glow ─────────────────────────────────────────────── */}
       <View style={{
         position: "absolute",
-        width: W * 1.4, height: W * 1.4,
-        borderRadius: W * 0.7,
+        width: W * 1.4, height: W * 1.4, borderRadius: W * 0.7,
         left: W / 2 - W * 0.7, top: HORIZON_Y - W * 0.7,
         shadowColor: "#500000", shadowRadius: 130, shadowOpacity: 0.8,
         shadowOffset: { width: 0, height: 0 },
       }} />
 
-      {/* ── Top vignette ──────────────────────────────────────────────────── */}
+      {/* ── Top dark vignette ─────────────────────────────────────────────── */}
       <View style={{
         position: "absolute", top: 0, left: 0, right: 0, height: H * 0.32,
         backgroundColor: "rgba(0,0,0,0.6)",
@@ -307,15 +294,15 @@ export default function StingAnimation({ onEnd, posterUrl }: StingAnimationProps
         shadowOffset: { width: 0, height: 0 }, elevation: 6,
       }} />
 
-      {/* ── Logo block: poster + text centered above floor ────────────────── */}
+      {/* ── Logo block: title logo + NETPLAY text ─────────────────────────── */}
       <View style={{
         position: "absolute",
-        top: 0, left: 0, right: 0, bottom: H * 0.28,
-        alignItems: "center", justifyContent: "center", gap: 10,
+        top: 0, left: 0, right: 0, bottom: H * 0.26,
+        alignItems: "center", justifyContent: "center", gap: 14,
       }} pointerEvents="none">
-        <PosterCard showAt={2100} posterUrl={posterUrl} cardW={CARD_W} cardH={CARD_H} />
-        <BrandText  showAt={4900} brandSize={BRAND_SIZE} />
-        <Tagline    showAt={6700} tagSize={TAG_SIZE} />
+        <ContentLogo showAt={2100} logoUrl={logoUrl} logoW={LOGO_W} logoH={LOGO_H} />
+        <BrandText   showAt={5200} brandSize={BRAND_SIZE} />
+        <Tagline     showAt={7000} tagSize={TAG_SIZE} />
       </View>
 
       {/* ── Progress bar ──────────────────────────────────────────────────── */}
@@ -325,27 +312,23 @@ export default function StingAnimation({ onEnd, posterUrl }: StingAnimationProps
 }
 
 const styles = StyleSheet.create({
-  posterWrap: {
+  logoWrap: {
+    alignItems: "center",
+    justifyContent: "center",
     position: "relative",
-    borderRadius: 12,
-    overflow: "visible",
-    shadowColor: "#000",
-    shadowRadius: 20,
-    shadowOpacity: 0.8,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 12,
   },
-  posterGlow: {
+  logoGlow: {
     position: "absolute",
+    borderRadius: 999,
     backgroundColor: "transparent",
-    shadowColor: RED_GLOW,
-    shadowRadius: 40,
-    shadowOpacity: 0.45,
+    shadowColor: "#ffffff",
+    shadowRadius: 30,
+    shadowOpacity: 0.18,
     shadowOffset: { width: 0, height: 0 },
   },
   progressWrap: {
     position: "absolute",
-    bottom: "26%",
+    bottom: "24%",
     left: 0, right: 0,
     alignItems: "center",
   },
