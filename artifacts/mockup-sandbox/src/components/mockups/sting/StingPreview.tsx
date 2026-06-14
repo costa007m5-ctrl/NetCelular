@@ -1,85 +1,91 @@
-import { useEffect, useRef, useState } from "react";
 import "./sting.css";
 
-const STING_DURATION_MS = 5000;
-const NUM_RINGS = 9;
-const RING_CYCLE_MS = 2200;
-const RING_COLOR = "#e8400a";
-const GLOW_COLOR = "#ff3300";
+const NUM_RINGS  = 12;
+const RING_CYCLE = 1600; // ms
 
-export function StingPreview() {
-  const [progress, setProgress] = useState(0);
-  const startRef = useRef<number>(0);
-  const rafRef = useRef<number>(0);
-  const [key, setKey] = useState(0);
+// Radii — inner small to outer large (semicircular arches centered at horizon)
+const RING_RADII = [38, 72, 112, 160, 215, 278, 348, 425, 510, 600, 700, 810];
 
-  useEffect(() => {
-    startRef.current = performance.now();
-    const tick = (now: number) => {
-      const elapsed = now - startRef.current;
-      const pct = Math.min(1, elapsed / STING_DURATION_MS);
-      setProgress(pct);
-      if (pct < 1) rafRef.current = requestAnimationFrame(tick);
-      else {
-        setTimeout(() => {
-          startRef.current = performance.now();
-          setProgress(0);
-          setKey((k) => k + 1);
-          rafRef.current = requestAnimationFrame(tick);
-        }, 800);
-      }
-    };
-    rafRef.current = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(rafRef.current);
-  }, []);
+interface RingProps {
+  radius: number;
+  index:  number;
+}
+
+function Ring({ radius, index }: RingProps) {
+  const size       = radius * 2;
+  const phase      = index / NUM_RINGS;
+  const startDelay = -(phase * RING_CYCLE); // negative CSS delay → start mid-cycle
+  const thickness  = radius < 150 ? 1 : radius < 350 ? 1.5 : 2;
+  const glowPx     = Math.min(18, 5 + index);
 
   return (
+    <div
+      className="sting-ring"
+      style={{
+        width:              size,
+        height:             size,
+        marginLeft:         -radius,
+        marginTop:          -radius,
+        borderWidth:        thickness,
+        boxShadow:          `0 0 ${glowPx}px ${Math.round(glowPx / 2)}px rgba(220,40,40,0.5)`,
+        animationDuration:  `${RING_CYCLE}ms`,
+        animationDelay:     `${startDelay}ms`,
+      }}
+    />
+  );
+}
+
+export default function StingPreview() {
+  return (
     <div className="sting-root">
+      {/* Deep radial background */}
       <div className="sting-bg" />
 
-      {/* ── Ambient center glow ── */}
-      <div className="sting-center-glow" />
-
-      {/* ── Tunnel rings ── */}
-      <div className="sting-rings-wrap">
-        {Array.from({ length: NUM_RINGS }).map((_, i) => {
-          const baseSize = 60 + i * 68;
-          const delay = -(i * (RING_CYCLE_MS / NUM_RINGS));
-          return (
-            <div
-              key={i}
-              className="sting-ring"
-              style={{
-                width: baseSize,
-                height: baseSize,
-                borderRadius: baseSize / 2,
-                animationDelay: `${delay}ms`,
-                animationDuration: `${RING_CYCLE_MS}ms`,
-                boxShadow: `0 0 ${6 + i * 2}px 1px ${GLOW_COLOR}88, inset 0 0 ${4 + i}px 0 ${GLOW_COLOR}44`,
-                borderColor: RING_COLOR,
-              }}
-            />
-          );
-        })}
-      </div>
-
-      {/* ── Floor reflection (mirror glow beneath rings) ── */}
-      <div className="sting-floor" />
-
-      {/* ── Progress bar ── */}
-      <div className="sting-bar-wrap">
-        <div className="sting-bar-track">
-          <div
-            className="sting-bar-fill"
-            style={{ width: `${progress * 100}%` }}
-          />
+      {/* ── Arch rings — overflow clips lower half → semicircular arches ── */}
+      <div className="sting-arches">
+        {/* Origin sits at center-bottom of arch area; rings center here */}
+        <div className="sting-rings-origin">
+          {RING_RADII.map((r, i) => (
+            <Ring key={i} radius={r} index={i} />
+          ))}
         </div>
       </div>
 
-      {/* ── Brand text ── */}
-      <div className="sting-brand">
-        <span className="sting-brand-net">NET</span>
-        <span className="sting-brand-play">PLAY</span>
+      {/* ── Floor reflection (faint mirrored arches) ─────────────────────── */}
+      <div className="sting-floor-reflection">
+        <div className="sting-rings-origin">
+          {RING_RADII.slice(0, 6).map((r, i) => (
+            <Ring key={i} radius={r} index={i} />
+          ))}
+        </div>
+      </div>
+
+      {/* ── Solid floor — covers bottom 41%, hides lower half of rings ───── */}
+      <div className="sting-floor" />
+
+      {/* ── Horizon glow line ─────────────────────────────────────────────── */}
+      <div className="sting-horizon" />
+
+      {/* ── Logo block (icon + brand name + tagline) ──────────────────────── */}
+      <div className="sting-logo">
+        <div className="sting-icon-wrap">
+          <img className="sting-icon" src="/icon.png" alt="NETPLAY" />
+          <div className="sting-icon-glow" />
+        </div>
+        <div className="sting-brand-wrap">
+          <div className="sting-brand-name">
+            <span className="sting-net">NET</span>
+            <span className="sting-play">PLAY</span>
+          </div>
+          <div className="sting-tagline">CATÁLOGO PREMIUM • ENTRETENIMENTO</div>
+        </div>
+      </div>
+
+      {/* ── Progress bar ──────────────────────────────────────────────────── */}
+      <div className="sting-progress-wrap">
+        <div className="sting-progress-track">
+          <div className="sting-progress-fill" />
+        </div>
       </div>
     </div>
   );

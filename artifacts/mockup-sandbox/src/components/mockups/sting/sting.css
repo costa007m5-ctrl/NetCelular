@@ -1,142 +1,234 @@
-/* ── Root container ───────────────────────────────────────────── */
+/* ── Root ─────────────────────────────────────────────────────────────────── */
 .sting-root {
   position: relative;
   width: 100%;
   height: 100vh;
-  background: #050505;
+  background: #0a0202;
   overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
+  font-family: 'Arial Black', 'Arial', sans-serif;
 }
 
-/* ── Deep background gradient ─────────────────────────────────── */
+/* ── Deep background vignette ─────────────────────────────────────────────── */
 .sting-bg {
   position: absolute;
   inset: 0;
-  background: radial-gradient(ellipse 70% 55% at 50% 52%,
-    #1a0800 0%,
-    #0d0300 40%,
-    #050505 100%
-  );
+  background:
+    radial-gradient(ellipse 90% 70% at 50% 60%, #200404 0%, #0a0202 55%, #050000 100%);
 }
 
-/* ── Ambient center glow ──────────────────────────────────────── */
-.sting-center-glow {
+/* ── Arch ring container — overflow clips the lower half of circles ────────── */
+.sting-arches {
   position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 120px;
-  height: 120px;
-  border-radius: 50%;
-  background: radial-gradient(circle, #ff330022 0%, transparent 70%);
-  filter: blur(18px);
-  animation: centerPulse 2.2s ease-in-out infinite alternate;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 60%;
+  overflow: hidden;
 }
 
-@keyframes centerPulse {
-  0%   { opacity: 0.4; transform: translate(-50%, -50%) scale(0.9); }
-  100% { opacity: 1;   transform: translate(-50%, -50%) scale(1.3); }
-}
-
-/* ── Rings wrapper ────────────────────────────────────────────── */
-.sting-rings-wrap {
+/* ── Origin anchor at center-bottom of the arch area ─────────────────────── */
+.sting-rings-origin {
   position: absolute;
-  top: 50%;
+  bottom: 0;
   left: 50%;
-  transform: translate(-50%, -50%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
-/* ── Individual ring ──────────────────────────────────────────── */
+/* ── Individual ring: centered at origin, clips to arch ───────────────────── */
 .sting-ring {
   position: absolute;
-  border: 1.5px solid #e8400a;
-  animation: ringZoom linear infinite;
+  border-style: solid;
+  border-color: #cc2020;
+  border-radius: 50%;
+  animation: tunnelArch 1.6s linear infinite;
   will-change: transform, opacity;
 }
 
-@keyframes ringZoom {
-  0%   { transform: scale(1);    opacity: 0.85; }
-  70%  { transform: scale(0.18); opacity: 0.6; }
-  90%  { transform: scale(0.05); opacity: 0; }
-  100% { transform: scale(1);    opacity: 0; }
+@keyframes tunnelArch {
+  0%   { transform: scale(1);    opacity: 0;    }
+  4%   { opacity: 0.75; }
+  80%  { transform: scale(0.12); opacity: 0.55; }
+  92%  { transform: scale(0.03); opacity: 0;    }
+  100% { transform: scale(1);    opacity: 0;    }
 }
 
-/* ── Floor reflection ─────────────────────────────────────────── */
+/* ── Dark floor covers bottom 40% ─────────────────────────────────────────── */
 .sting-floor {
   position: absolute;
   bottom: 0;
   left: 0;
   right: 0;
-  height: 42%;
-  background: linear-gradient(
-    to top,
-    #050505 0%,
-    #050505 15%,
+  height: 41%;
+  background: linear-gradient(to top,
+    #050000 0%,
+    #080100 30%,
+    #0d0101 70%,
     transparent 100%
   );
-  /* subtle red sheen on floor */
-  box-shadow: inset 0 -1px 80px 0 #ff220008;
 }
 
-/* ── Progress bar area ────────────────────────────────────────── */
-.sting-bar-wrap {
+/* ── Horizon glow line ────────────────────────────────────────────────────── */
+.sting-horizon {
   position: absolute;
-  bottom: 14%;
+  top: 59%;
   left: 0;
   right: 0;
-  display: flex;
-  justify-content: center;
-  align-items: center;
+  height: 1px;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    #cc1010 20%,
+    #ff2020 50%,
+    #cc1010 80%,
+    transparent 100%
+  );
+  box-shadow: 0 0 12px 3px #ff202055;
+  animation: horizonPulse 2s ease-in-out infinite alternate;
 }
 
-.sting-bar-track {
-  width: 76%;
-  height: 5px;
-  border-radius: 3px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(232, 64, 10, 0.25);
+@keyframes horizonPulse {
+  from { opacity: 0.6; }
+  to   { opacity: 1.0; }
+}
+
+/* ── Floor reflection of arches ──────────────────────────────────────────── */
+.sting-floor-reflection {
+  position: absolute;
+  top: 60%;
+  left: 0;
+  right: 0;
+  height: 30%;
   overflow: hidden;
-  box-shadow: 0 0 10px 0 rgba(232, 64, 10, 0.2);
+  opacity: 0.2;
+  transform: scaleY(-1);
+  filter: blur(3px);
+  pointer-events: none;
 }
 
-.sting-bar-fill {
-  height: 100%;
-  border-radius: 3px;
-  background: linear-gradient(90deg, #cc2200, #ff5522);
-  box-shadow:
-    0 0 8px 2px #ff330066,
-    0 0 20px 4px #ff220033;
-  transition: width 0.1s linear;
+.sting-floor-reflection .sting-rings-origin {
+  bottom: auto;
+  top: 0;
 }
 
-/* ── Brand text (subtle, centered, above bar) ─────────────────── */
-.sting-brand {
+.sting-floor-reflection .sting-ring {
+  border-color: #cc2020;
+}
+
+/* ── Logo area — centered in upper half ──────────────────────────────────── */
+.sting-logo {
   position: absolute;
-  bottom: 20%;
+  top: 15%;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  z-index: 10;
+}
+
+.sting-icon-wrap {
+  position: relative;
+  animation: iconReveal 1.5s ease-out 2s both;
+}
+
+@keyframes iconReveal {
+  0%   { transform: scale(0.2); opacity: 0; filter: blur(30px) brightness(5); }
+  30%  { transform: scale(1.1); opacity: 1; filter: blur(8px) brightness(3); }
+  60%  { transform: scale(0.97); filter: blur(2px) brightness(1.5); }
+  100% { transform: scale(1);   opacity: 1; filter: blur(0) brightness(1); }
+}
+
+.sting-icon {
+  width: 110px;
+  height: 110px;
+  border-radius: 24px;
+  object-fit: contain;
+  display: block;
+}
+
+.sting-icon-glow {
+  position: absolute;
+  inset: -20px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #ff202060 0%, transparent 70%);
+  animation: iconGlow 2s ease-in-out 2s both;
+  pointer-events: none;
+}
+
+@keyframes iconGlow {
+  0%   { opacity: 0; transform: scale(0.5); }
+  40%  { opacity: 1; transform: scale(1.5); }
+  100% { opacity: 0; transform: scale(1);   }
+}
+
+/* ── NETPLAY text ─────────────────────────────────────────────────────────── */
+.sting-brand-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  animation: brandReveal 1.2s ease-out 4.8s both;
+}
+
+@keyframes brandReveal {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.sting-brand-name {
+  font-size: clamp(32px, 9vw, 52px);
+  font-weight: 900;
+  letter-spacing: 2px;
+  line-height: 1;
+}
+
+.sting-net  { color: #e50914; }
+.sting-play { color: #ffffff; }
+
+.sting-tagline {
+  font-size: clamp(9px, 2.2vw, 13px);
+  font-weight: 500;
+  letter-spacing: 3px;
+  color: rgba(255, 255, 255, 0.6);
+  font-family: Arial, sans-serif;
+  animation: brandReveal 1s ease-out 6.5s both;
+}
+
+/* ── Progress bar ─────────────────────────────────────────────────────────── */
+.sting-progress-wrap {
+  position: absolute;
+  bottom: 32%;
   left: 0;
   right: 0;
   display: flex;
   justify-content: center;
-  align-items: baseline;
-  gap: 0;
-  letter-spacing: 6px;
-  font-family: 'Arial Black', 'Arial', sans-serif;
-  font-size: clamp(24px, 8vw, 42px);
-  font-weight: 900;
-  opacity: 0.18;
-  user-select: none;
+  z-index: 10;
+  animation: fadeIn 0.6s ease 1.8s both;
 }
 
-.sting-brand-net {
-  color: #e50914;
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
-.sting-brand-play {
-  color: #ffffff;
+.sting-progress-track {
+  width: 72%;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(204, 32, 32, 0.3);
+  overflow: hidden;
+  box-shadow: 0 0 12px 0 rgba(204, 32, 32, 0.3);
+}
+
+.sting-progress-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, #aa1010, #ff3030);
+  box-shadow: 0 0 10px 2px #ff202066;
+  animation: progressFill 10s linear both;
+}
+
+@keyframes progressFill {
+  from { width: 0%; }
+  to   { width: 100%; }
 }
