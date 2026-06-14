@@ -873,8 +873,8 @@ export default function BuscarScreen() {
 
                 {/* ── Drive/R2 items ───────────────────────────────────────── */}
                 {driveItems.length > 0 && (
-                  <View style={{ marginTop: (tmdbItems.length > 0 || showFlix2Only) ? 24 : 0 }}>
-                    {(tmdbItems.length > 0 || showFlix2Only) && (
+                  <View style={{ marginTop: (tmdbExpanded.length > 0 || showFlix2Only) ? 24 : 0 }}>
+                    {(tmdbExpanded.length > 0 || showFlix2Only) && (
                       <View style={styles.flix2OnlyHeader}>
                         <View style={[styles.flix2OnlyAccent, { backgroundColor: "#22c55e" }]} />
                         <Feather name="hard-drive" size={13} color="#22c55e" />
