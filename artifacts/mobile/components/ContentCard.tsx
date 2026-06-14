@@ -181,6 +181,12 @@ const AnimatedCard = React.memo(function AnimatedCard({
           </View>
         )}
 
+        {item.exclusive && (
+          <View style={cardStyles.exclusiveBadge}>
+            <Text style={cardStyles.exclusiveText}>✦ EXCLUSIVO</Text>
+          </View>
+        )}
+
         <PlayOverlay visible={pressing} />
       </Animated.View>
     </Pressable>
@@ -353,6 +359,21 @@ const cardStyles = StyleSheet.create({
     fontSize: 7,
     fontWeight: "900",
     letterSpacing: 0.8,
+  },
+  exclusiveBadge: {
+    position: "absolute",
+    bottom: 5,
+    left: 4,
+    backgroundColor: "rgba(229,9,20,0.88)",
+    borderRadius: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+  },
+  exclusiveText: {
+    color: "#fff",
+    fontSize: 6.5,
+    fontWeight: "900",
+    letterSpacing: 0.7,
   },
   ratingBadge: {
     position: "absolute",

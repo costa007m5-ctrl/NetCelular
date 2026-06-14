@@ -86,7 +86,7 @@ interface RegistryItem {
   id: string; r2Key: string; teraboxUrl?: string; fileIndex?: number;
   tmdbId: number; tmdbType: "movie" | "tv";
   title: string; label: string; season: number | null; episode: number | null;
-  r2Folder?: string; quality?: string;
+  r2Folder?: string; quality?: string; exclusive?: boolean;
 }
 interface TmdbSearchResult {
   id: number; title: string; poster_path: string | null; media_type: "movie" | "tv";

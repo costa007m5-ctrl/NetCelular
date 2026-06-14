@@ -15,6 +15,7 @@ export type ContentItem = {
   duration?: string;
   progress?: number;
   channel?: string;
+  exclusive?: boolean;
 };
 
 const TMDB_POSTER = "https://image.tmdb.org/t/p/w342";

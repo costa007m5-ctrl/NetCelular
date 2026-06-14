@@ -15,6 +15,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  Switch,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -44,6 +45,7 @@ interface RegistryItem {
   tmdbId: number; tmdbType: "movie" | "tv";
   title: string; label: string; season: number | null; episode: number | null;
   quality?: string;
+  exclusive?: boolean;
 }
 
 interface SourceSettings {
@@ -323,6 +325,7 @@ export default function DetailScreen() {
   const [adminDiagnostic, setAdminDiagnostic] = useState<{ count: number; ids: number[]; titles: string[] } | null>(null);
   const [fixingIds, setFixingIds] = useState(false);
   const [fixDone, setFixDone] = useState<number | null>(null);
+  const [exclusiveLoading, setExclusiveLoading] = useState(false);
 
   // Load R2 registry items + source settings + Flix 2.0 live lookup
   // ─── Fase 1 (rápida): registry + settings → mostra botões imediatamente
@@ -2618,6 +2621,18 @@ export default function DetailScreen() {
                       <Feather name="chevron-right" size={16} color="#e50914" />
                     </Pressable>
                   )}
+                  {/* ── EXCLUSIVO NETPLAY badge ─────────────────────────── */}
+                  {r2Items.some(i => i.exclusive) && (
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 5,
+                        backgroundColor: "rgba(229,9,20,0.12)", borderWidth: 1, borderColor: "rgba(229,9,20,0.4)",
+                        borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 }}>
+                        <Text style={{ fontSize: 10, fontWeight: "900", color: "#e50914", letterSpacing: 1.2 }}>✦ EXCLUSIVO NETPLAY</Text>
+                      </View>
+                      <Text style={{ color: colors.mutedForeground, fontSize: 11 }}>Só aqui</Text>
+                    </View>
+                  )}
+
                   {overview ? (
                     <Text style={[styles.description, { color: colors.foreground }]}>{overview}</Text>
                   ) : (
@@ -2714,6 +2729,50 @@ export default function DetailScreen() {
                             </View>
                           );
                         })}
+                      </View>
+                    );
+                  })()}
+
+                  {/* ── ADMIN: Exclusivo NETPLAY toggle ─────────────────── */}
+                  {isAdmin && r2Items.length > 0 && (() => {
+                    const isExclusive = r2Items.some(i => i.exclusive);
+                    const toggleExclusive = async () => {
+                      setExclusiveLoading(true);
+                      try {
+                        const { r2Route } = await import("@/lib/r2-direct");
+                        const newVal = !isExclusive;
+                        await Promise.all(r2Items.map(item =>
+                          r2Route(`/registry/${item.id}`, {
+                            method: "PUT",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ item: { ...item, exclusive: newVal } }),
+                          }).catch(() => {})
+                        ));
+                        setR2Items(prev => prev.map(i => ({ ...i, exclusive: newVal })));
+                      } finally {
+                        setExclusiveLoading(false);
+                      }
+                    };
+                    return (
+                      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+                        backgroundColor: isExclusive ? "rgba(229,9,20,0.08)" : "rgba(255,255,255,0.04)",
+                        borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10,
+                        borderWidth: 1, borderColor: isExclusive ? "rgba(229,9,20,0.25)" : "rgba(255,255,255,0.08)",
+                        marginBottom: 12 }}>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                          <Text style={{ fontSize: 11, fontWeight: "700", color: isExclusive ? "#e50914" : colors.mutedForeground, letterSpacing: 0.5 }}>
+                            ✦ EXCLUSIVO NETPLAY
+                          </Text>
+                          {exclusiveLoading && <ActivityIndicator size={11} color="#e50914" />}
+                        </View>
+                        <Switch
+                          value={isExclusive}
+                          onValueChange={toggleExclusive}
+                          disabled={exclusiveLoading}
+                          trackColor={{ false: "rgba(255,255,255,0.1)", true: "rgba(229,9,20,0.5)" }}
+                          thumbColor={isExclusive ? "#e50914" : "rgba(255,255,255,0.4)"}
+                          ios_backgroundColor="rgba(255,255,255,0.1)"
+                        />
                       </View>
                     );
                   })()}

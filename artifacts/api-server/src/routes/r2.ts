@@ -189,6 +189,7 @@ export interface RegistryItem {
   r2Folder?: string;
   quality?: string;
   addedAt: string;
+  exclusive?: boolean;
 }
 
 interface Registry { version: number; items: RegistryItem[] }
@@ -3775,6 +3776,7 @@ router.get("/flix2/whats-new", async (req, res) => {
         overview:   "",
         added_at:   addedUnix,
         added_date: addedDate,
+        exclusive:  ri.exclusive ?? false,
       };
 
       // Push into the matching type bucket so it appears in the right carousel
