@@ -115,6 +115,8 @@ export const tmdb = {
     similar: (id: number) => tmdbFetch<TmdbPage<TmdbTv>>(`/tv/${id}/similar`),
     season: (id: number, seasonNum: number) =>
       tmdbFetch<TmdbSeason>(`/tv/${id}/season/${seasonNum}`),
+    episode: (id: number, seasonNum: number, episodeNum: number) =>
+      tmdbFetch<TmdbEpisode>(`/tv/${id}/season/${seasonNum}/episode/${episodeNum}`),
   },
 
   search: {

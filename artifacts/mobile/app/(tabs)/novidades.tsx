@@ -75,6 +75,7 @@ interface EpGroup {
   seriesId: string; seriesTitle: string; seriesPoster: string; seriesTmdbId: number;
   totalEps: number; latestEp: RawEp; allEps: RawEp[]; seriesOverview?: string;
   backdropPath?: string; logoPath?: string;
+  latestEpStill?: string; latestEpOverview?: string;
 }
 
 let EpVideoComp: any = null;
@@ -840,6 +841,7 @@ function EpPreviewRow({
 }: { item: EpModalItem; isPlaying: boolean; muted: boolean; onPlay: () => void; onViewSeries: () => void; }) {
   const [vidLoading, setVidLoading] = useState(false);
   const [vidReady, setVidReady] = useState(false);
+  const [stillErr, setStillErr] = useState(false);
   const [backdropErr, setBackdropErr] = useState(false);
   const [posterErr, setPosterErr] = useState(false);
   const ep = item.ep;
@@ -847,9 +849,12 @@ function EpPreviewRow({
   const epLabel = `S${String(ep.season).padStart(2, "0")} E${String(ep.episode).padStart(2, "0")}`;
   const canPreview = EpVideoComp !== null;
 
-  // Separate URLs with independent error states so one failure never blacks out both
-  const backdropUrl = (!backdropErr && g.backdropPath) ? TMDB_IMG(g.backdropPath, "w780") : null;
-  const hasPoster = !posterErr && !!g.seriesPoster;
+  // Episode still is the primary banner (landscape 16:9); falls back to series backdrop then poster
+  const stillUrl = (!stillErr && g.latestEpStill) ? TMDB_IMG(g.latestEpStill, "w780") : null;
+  const backdropUrl = (!stillUrl && !backdropErr && g.backdropPath) ? TMDB_IMG(g.backdropPath, "w780") : null;
+  const hasPoster = !posterErr && !!g.seriesPoster && !stillUrl && !backdropUrl;
+  // Synopsis: prefer episode-specific overview, fall back to series overview
+  const synopsis = g.latestEpOverview || g.seriesOverview || "";
 
   // TMDB logo image URL (PNG with transparency)
   const logoUrl = g.logoPath ? TMDB_IMG(g.logoPath, "w300") : null;
@@ -865,8 +870,24 @@ function EpPreviewRow({
       {/* ── Thumbnail 16:9 ─────────────────────────────────────────── */}
       <View style={epr.thumb}>
 
-        {/* Layer 1 — poster (portrait) as permanent base; always tries to show */}
-        {hasPoster ? (
+        {/* Layer 1 — base image: episode still (preferred) > series backdrop > poster > gradient */}
+        {stillUrl ? (
+          <Image
+            source={{ uri: stillUrl }}
+            style={StyleSheet.absoluteFill}
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            onError={() => setStillErr(true)}
+          />
+        ) : backdropUrl ? (
+          <Image
+            source={{ uri: backdropUrl }}
+            style={StyleSheet.absoluteFill}
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            onError={() => setBackdropErr(true)}
+          />
+        ) : hasPoster ? (
           <Image
             source={{ uri: g.seriesPoster }}
             style={StyleSheet.absoluteFill}
@@ -877,17 +898,6 @@ function EpPreviewRow({
         ) : (
           <LinearGradient colors={["#1a0c24", "#0c0818", "#080510"]} style={StyleSheet.absoluteFill} />
         )}
-
-        {/* Layer 2 — backdrop (landscape 16:9) overlaid on top of poster when available */}
-        {backdropUrl ? (
-          <Image
-            source={{ uri: backdropUrl }}
-            style={StyleSheet.absoluteFill}
-            contentFit="cover"
-            cachePolicy="memory-disk"
-            onError={() => setBackdropErr(true)}
-          />
-        ) : null}
 
         {/* Layer 3 — video preview, invisible until ready so layers 1+2 always show while buffering */}
         {isPlaying && canPreview && (
@@ -964,9 +974,9 @@ function EpPreviewRow({
           <Text style={epr.epName} numberOfLines={1}>{ep.title}</Text>
         )}
 
-        {/* Synopsis */}
-        {!!g.seriesOverview && (
-          <Text style={epr.synopsis} numberOfLines={3}>{g.seriesOverview}</Text>
+        {/* Synopsis — episode-specific overview preferred, falls back to series overview */}
+        {!!synopsis && (
+          <Text style={epr.synopsis} numberOfLines={3}>{synopsis}</Text>
         )}
 
         {/* Action buttons */}
@@ -1398,8 +1408,8 @@ export default function NovidadesScreen() {
       }
       setEpGroups(groups);
 
-      // ── TMDB enrichment: backdrop + logo + overview ───────────────────────
-      // Pass 1: groups WITH tmdbId — fetch details + logo in parallel
+      // ── TMDB enrichment: backdrop + logo + overview + episode still/synopsis ─
+      // Pass 1: groups WITH tmdbId — fetch series details, logo, AND episode details
       const withTmdb = groups.filter(g => g.seriesTmdbId > 0).slice(0, 30);
       if (withTmdb.length) {
         Promise.allSettled(
@@ -1407,15 +1417,20 @@ export default function NovidadesScreen() {
             Promise.all([
               r2Route<{ overview?: string; backdrop_path?: string }>(`/tmdb/tv/${g.seriesTmdbId}`),
               r2Route<{ logo_path: string | null }>(`/tmdb/franchise-logo?type=tv&id=${g.seriesTmdbId}`),
-            ]).then(([det, logo]) => ({
+              r2Route<{ still_path: string | null; overview?: string }>(
+                `/tmdb/tv/${g.seriesTmdbId}/season/${g.latestEp.season}/episode/${g.latestEp.episode}`
+              ).catch(() => ({ still_path: null, overview: "" })),
+            ]).then(([det, logo, ep]) => ({
               seriesId: g.seriesId,
               overview: det.overview || "",
               backdropPath: det.backdrop_path || "",
               logoPath: logo.logo_path || "",
+              latestEpStill: ep.still_path || "",
+              latestEpOverview: ep.overview || "",
             }))
           )
         ).then(enrichResults => {
-          const map: Record<string, { overview: string; backdropPath: string; logoPath: string }> = {};
+          const map: Record<string, { overview: string; backdropPath: string; logoPath: string; latestEpStill: string; latestEpOverview: string }> = {};
           for (const r2 of enrichResults) {
             if (r2.status !== "fulfilled") continue;
             map[r2.value.seriesId] = r2.value;
@@ -1429,6 +1444,8 @@ export default function NovidadesScreen() {
                 seriesOverview: g.seriesOverview || e.overview,
                 backdropPath: e.backdropPath || g.backdropPath,
                 logoPath: e.logoPath || g.logoPath,
+                latestEpStill: e.latestEpStill || g.latestEpStill,
+                latestEpOverview: e.latestEpOverview || g.latestEpOverview,
               };
             })
           );
