@@ -717,7 +717,19 @@ export default function DetailScreen() {
             tmdbApi.tmdb.providers("movie", tmdbId),
             videosPromise,
           ]);
-          setDetails(det);
+          let detWithOverview = det;
+          if (!det.overview) {
+            try {
+              const enRes = await fetch(
+                `https://api.themoviedb.org/3/movie/${tmdbId}?api_key=8f0beb08cf016ec8de49e454e09879ec&language=en-US`
+              );
+              if (enRes.ok) {
+                const enDet = await enRes.json();
+                if (enDet.overview) detWithOverview = { ...det, overview: enDet.overview };
+              }
+            } catch {}
+          }
+          setDetails(detWithOverview);
           setSimilar(sim.map(tmdbItemToContent));
           setProviders(prov?.flatrate ?? []);
           const colId = (det as any)?.belongs_to_collection?.id;
@@ -743,7 +755,20 @@ export default function DetailScreen() {
             tmdbApi.tmdb.providers("tv", tmdbId),
             videosPromise,
           ]);
-          setDetails(det);
+          // If pt-BR overview is empty, fetch en-US and use it as fallback
+          let detWithOverview = det;
+          if (!det.overview) {
+            try {
+              const enRes = await fetch(
+                `https://api.themoviedb.org/3/tv/${tmdbId}?api_key=8f0beb08cf016ec8de49e454e09879ec&language=en-US`
+              );
+              if (enRes.ok) {
+                const enDet = await enRes.json();
+                if (enDet.overview) detWithOverview = { ...det, overview: enDet.overview };
+              }
+            } catch {}
+          }
+          setDetails(detWithOverview);
           setSimilar(sim.map(tmdbItemToContent));
           setProviders(prov?.flatrate ?? []);
           const numSeasons = (det as any).number_of_seasons ?? 1;
@@ -808,8 +833,10 @@ export default function DetailScreen() {
     const loadEps = async () => {
       try {
         // Always fetch both locales in parallel — en-US needed for still_path + real names
+        // tvSeason is wrapped in .catch so a server error does NOT reject the whole Promise.all
+        // (en-US direct fetch acts as final fallback in that case)
         const [ptData, enRes] = await Promise.all([
-          tmdbApi.tmdb.tvSeason(resolvedTmdbId, selectedSeason),
+          tmdbApi.tmdb.tvSeason(resolvedTmdbId, selectedSeason).catch(() => ({ episodes: [] } as any)),
           fetch(
             `https://api.themoviedb.org/3/tv/${resolvedTmdbId}/season/${selectedSeason}?api_key=${TMDB_KEY_LOCAL}&language=en-US`
           ).catch(() => null),
@@ -2159,14 +2186,31 @@ export default function DetailScreen() {
                     // 3. Season folder only → show scanned episodes
                     // 4. Only flix2 → show flix2 episodes
                     // 5. No sources → show all TMDB episodes
+                    // 6. TMDB failed entirely but registry has episodes → synthesize from registry
                     const hasAnyPerEpSource = r2OnlySpecificEps.length > 0 || flix2SpecificEps.length > 0 || driveSpecificEps.length > 0;
+                    const allRegistryEpsForSeason = [...r2OnlySpecificEps, ...flix2SpecificEps, ...driveSpecificEps]
+                      .filter((i, idx, arr) => arr.findIndex((x) => Number(x.episode) === Number(i.episode)) === idx)
+                      .sort((a, b) => (Number(a.episode) || 0) - (Number(b.episode) || 0));
+                    const syntheticEpisodes: TmdbEpisode[] = allRegistryEpsForSeason.map((i) => ({
+                      id: Number(i.episode) || 0,
+                      episode_number: Number(i.episode) || 0,
+                      season_number: selectedSeason,
+                      name: `Episódio ${i.episode}`,
+                      overview: "",
+                      still_path: null,
+                      air_date: "",
+                      vote_average: 0,
+                      runtime: null,
+                    }));
                     const displayedEpisodes = hasAnyPerEpSource
-                      ? episodeList.filter((ep) =>
-                          r2OnlySpecificEps.some((i) => Number(i.episode) === ep.episode_number) ||
-                          flix2SpecificEps.some((i) => Number(i.episode) === ep.episode_number) ||
-                          driveSpecificEps.some((i) => Number(i.episode) === ep.episode_number) ||
-                          (hasFolderScan && r2EpisodeNums.has(ep.episode_number))
-                        )
+                      ? (episodeList.length > 0
+                          ? episodeList.filter((ep) =>
+                              r2OnlySpecificEps.some((i) => Number(i.episode) === ep.episode_number) ||
+                              flix2SpecificEps.some((i) => Number(i.episode) === ep.episode_number) ||
+                              driveSpecificEps.some((i) => Number(i.episode) === ep.episode_number) ||
+                              (hasFolderScan && r2EpisodeNums.has(ep.episode_number))
+                            )
+                          : syntheticEpisodes)
                       : hasFolderScan
                       ? episodeList.filter((ep) => r2EpisodeNums.has(ep.episode_number))
                       : episodeList;
