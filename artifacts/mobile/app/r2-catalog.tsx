@@ -27,6 +27,7 @@ import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/lib/auth-context";
 import { r2Route, teraboxResolve, extractTitleAndYear } from "@/lib/r2-direct";
 import { getApiDomainDisplay, getApiBase } from "@/lib/api";
+import { TeraboxFolderBrowser, type TBFolderFile } from "@/components/TeraboxFolderBrowser";
 import { listFolder, isFolder as driveIsFolder, isVideo as driveIsVideo, getStreamUrl, formatSize as driveFormatSize, DRIVE_ROOTS, DriveItem, parseEpisodeInfo } from "@/lib/gdrive-index";
 
 const UPLOADED_URLS_KEY = "r2_uploaded_urls_v1";
@@ -2262,6 +2263,9 @@ interface TeraBoxFile {
   // Added for multi-URL batch resolve:
   _sourceUrl?: string;
   _fileIndexInAlbum?: number;
+  // Added for folder browser:
+  _fromFolder?: boolean;
+  _folderPath?: string;
 }
 
 const TB_COLOR = "#f59e0b";
@@ -2332,6 +2336,8 @@ function TeraBoxRegisterTab() {
   const [showUrlSeasonPanel, setShowUrlSeasonPanel] = useState(false);
   // ── Detected subfolders count (from TeraBox API) ──
   const [detectedFolderCount, setDetectedFolderCount] = useState(0);
+  // ── TeraBox Folder Browser ──
+  const [showFolderBrowser, setShowFolderBrowser] = useState(false);
 
   const qualityColors: Record<string, string> = { "4K": "#a78bfa", "1080p": "#60a5fa", "720p": "#34d399", "480p": "#f59e0b", "360p": "#fb923c" };
 
@@ -2496,7 +2502,7 @@ function TeraBoxRegisterTab() {
       try {
         await apiPost("/terabox/register", {
           teraboxUrl: files[idx]?._sourceUrl ?? inputUrl.trim(),
-          fileIndex: files[idx]?._fileIndexInAlbum ?? idx,
+          fileIndex: files[idx]?._fromFolder ? undefined : (files[idx]?._fileIndexInAlbum ?? idx),
           fileName: files[idx]?.name,
           tmdbId: selectedTmdb.id,
           tmdbType: mediaKind,
@@ -2597,6 +2603,42 @@ function TeraBoxRegisterTab() {
     setDetectedFolderCount(0);
   };
 
+  const handleFolderFiles = (folderFiles: TBFolderFile[]) => {
+    if (folderFiles.length === 0) return;
+    const fmtBytes = (b: number) => {
+      if (!b) return "";
+      if (b < 1024 * 1024) return `${(b / 1024).toFixed(0)} KB`;
+      if (b < 1024 * 1024 * 1024) return `${(b / (1024 * 1024)).toFixed(1)} MB`;
+      return `${(b / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+    };
+    const newFiles: TeraBoxFile[] = folderFiles.map((f) => ({
+      name: f.name,
+      size: f.size,
+      size_formatted: fmtBytes(f.size),
+      type: "video",
+      quality: "",
+      duration: "",
+      fast_dlink: "",
+      stream_url: "",
+      fast_stream_url: {},
+      thumbnail: "",
+      fs_id: parseInt(f.fsId) || 0,
+      file_path: f.path,
+      _sourceUrl: f.folderUrl,
+      _fileIndexInAlbum: undefined,
+      _fromFolder: true,
+      _folderPath: f.path,
+    }));
+    reset();
+    setFiles(newFiles);
+    setSelected(new Set(newFiles.map((_, i) => i)));
+    const parsed = newFiles.map((f) => parseEpisode(f.name));
+    setParsedEps(parsed);
+    setSaveResults(new Array(newFiles.length).fill(null));
+    const guess = guessTitle(newFiles[0].name);
+    setTmdbQuery(guess);
+  };
+
   const registerDirect = async () => {
     const u = inputUrl.trim();
     if (!u) { setDirectError("Cole o link do TeraBox acima"); return; }
@@ -2690,6 +2732,13 @@ function TeraBoxRegisterTab() {
             >
               {loading ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="search" size={15} color="#fff" />}
               <Text style={styles.actionBtnText}>{loading ? "Consultando API…" : "Resolver TeraBox"}</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.actionBtn, { paddingHorizontal: 14, backgroundColor: "rgba(245,158,11,0.15)", borderWidth: 1, borderColor: "rgba(245,158,11,0.35)" }]}
+              onPress={() => setShowFolderBrowser(true)}
+            >
+              <Feather name="folder" size={15} color={TB_COLOR} />
+              <Text style={[styles.actionBtnText, { color: TB_COLOR }]}>Pasta</Text>
             </Pressable>
             {files.length > 0 && !saving && (
               <Pressable style={[styles.actionBtn, { paddingHorizontal: 14, backgroundColor: "rgba(255,255,255,0.08)" }]} onPress={reset}>
@@ -3326,6 +3375,14 @@ function TeraBoxRegisterTab() {
         <FolderPickerModal
           onSelect={(prefix) => { setR2Folder(prefix); setShowFolderPicker(false); }}
           onClose={() => setShowFolderPicker(false)}
+        />
+      )}
+
+      {showFolderBrowser && (
+        <TeraboxFolderBrowser
+          visible={showFolderBrowser}
+          onClose={() => setShowFolderBrowser(false)}
+          onFilesSelected={handleFolderFiles}
         />
       )}
     </>

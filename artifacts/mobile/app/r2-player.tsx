@@ -23,6 +23,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { apiList, apiSignedUrl, r2Route, drivePlayDirect } from "@/lib/r2-direct";
 import { getApiBase } from "@/lib/api";
+import { TeraboxWebViewResolver } from "@/lib/terabox-webview-resolver";
 import { downloadsManager } from "@/lib/downloads";
 import { CastModal } from "@/components/CastModal";
 import { getProxiedStreamUrl } from "@/lib/gdrive-index";
@@ -221,6 +222,7 @@ export default function R2PlayerScreen() {
   const [activeDriveOverride, setActiveDriveOverride] = useState<string | null>(null);
   const [activeFlix2Override, setActiveFlix2Override] = useState<string | null>(null);
   const [fallbackNotice, setFallbackNotice] = useState<string | null>(null);
+  const [tbWebViewMode, setTbWebViewMode] = useState<{ url: string; fileName: string } | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [videoSourceHeaders, setVideoSourceHeaders] = useState<Record<string, string> | null>(null);
   const [showCastModal, setShowCastModal] = useState(false);
@@ -468,12 +470,22 @@ export default function R2PlayerScreen() {
       fakeAnim.current.start();
       try {
         const data = await r2Route<{
-          url: string; urlType?: string; needsProxy?: boolean;
+          url: string; urlType?: string; needsProxy?: boolean; needsWebView?: boolean;
           fast_stream_url?: Record<string, string>;
           name?: string; error?: string;
         }>(`/terabox/play?id=${encodeURIComponent(params.teraboxItemId)}`);
         if (data.error) throw new Error(data.error);
         if (!data.url) throw new Error("URL de stream não disponível");
+
+        // Folder-based TeraBox item — open WebView resolver instead of direct play
+        if (data.needsWebView || data.urlType === "webview") {
+          fakeAnim.current?.stop();
+          loadProgress.setValue(100);
+          setTbWebViewMode({ url: data.url, fileName: data.name ?? "" });
+          phaseRef.current = "ready";
+          setPhase("ready");
+          return;
+        }
 
         // Build quality map: "Automático" = best quality chosen by server, then each HLS quality
         const qmap: Record<string, string> = { "Automático": data.url };
@@ -1240,6 +1252,31 @@ export default function R2PlayerScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: "#000", flexDirection: "row" }}>
       <StatusBar hidden />
+
+      {/* ── TeraBox Folder WebView resolver ───────────────────────────────────── */}
+      {tbWebViewMode && (
+        <TeraboxWebViewResolver
+          teraboxUrl={tbWebViewMode.url}
+          visible={!!tbWebViewMode}
+          onResolved={(url) => {
+            setTbWebViewMode(null);
+            setTeraboxQualities({ "Automático": url });
+            teraboxQualityRef.current = "Automático";
+            setTeraboxQuality("Automático");
+            setVideoUrl(url);
+            setIsPlaying(true);
+          }}
+          onError={(msg) => {
+            setTbWebViewMode(null);
+            setPhase("error");
+            setErrorMsg(msg);
+          }}
+          onCancel={() => {
+            setTbWebViewMode(null);
+            router.back();
+          }}
+        />
+      )}
 
       {/* ── Session blocked modal ────────────────────────────────────────────── */}
       <Modal visible={!!sessionBlocked} animationType="fade" transparent={false} onRequestClose={() => router.back()}>

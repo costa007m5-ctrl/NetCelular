@@ -1304,7 +1304,21 @@ router.get("/terabox/play", async (req, res) => {
     // Use shared cache + in-flight deduplication — all episodes from the same
     // TeraBox folder reuse one xAPIverse call. First call ~20s, subsequent calls instant.
     const list = await fetchTeraBoxList(normalizedUrl);
-    if (list.length === 0) { res.status(404).json({ error: "Nenhum arquivo encontrado no link TeraBox" }); return; }
+    if (list.length === 0) {
+      // Folder-based TeraBox item: xAPIverse returns empty list for folder share URLs.
+      // Return a WebView-fallback so the player can load the TeraBox page on-device.
+      if (item.fileName) {
+        res.json({
+          url: item.teraboxUrl,
+          urlType: "webview",
+          needsWebView: true,
+          name: item.fileName,
+        });
+        return;
+      }
+      res.status(404).json({ error: "Nenhum arquivo encontrado no link TeraBox" });
+      return;
+    }
 
     // Try to find file by stored fileName first (stable), then fall back to fileIndex
     let file: any;
