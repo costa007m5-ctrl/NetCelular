@@ -170,7 +170,7 @@ function SeekFlash({ side, anim }: { side: "left" | "right"; anim: Animated.Valu
 export default function R2PlayerScreen() {
   const { width: W } = useWindowDimensions();
   const params = useLocalSearchParams<{
-    key: string; registryItemId?: string; driveItemId?: string; flix2ItemUrl?: string;
+    key: string; registryItemId?: string; teraboxItemId?: string; driveItemId?: string; flix2ItemUrl?: string;
     fallbackDriveItemId?: string; fallbackFlix2Url?: string;
     title: string; episodeName?: string;
     season?: string; episode?: string; backdropPath?: string; posterPath?: string;
@@ -195,6 +195,7 @@ export default function R2PlayerScreen() {
   const savedProgressRatio = params.watchProgressRatio ? Number(params.watchProgressRatio) : 0;
   const isDrive = !!params.driveItemId;
   const isFlix2 = !!params.flix2ItemUrl;
+  const isTerabox = !!params.teraboxItemId;
   const hasFallbackDrive = !!params.fallbackDriveItemId;
   const hasFallbackFlix2 = !!params.fallbackFlix2Url;
   const r2Items: RegistryItem[] = (() => {
@@ -439,7 +440,44 @@ export default function R2PlayerScreen() {
     const isEffectiveDrive = !!effectiveDriveId && !effectiveFlix2Url;
     const isEffectiveFlix2 = !!effectiveFlix2Url;
 
-    if (!isEffectiveDrive && !isEffectiveFlix2 && !activeKeyRef.current) { setPhase("error"); setErrorMsg("Arquivo não especificado"); return; }
+    if (!isEffectiveDrive && !isEffectiveFlix2 && !activeKeyRef.current && !isTerabox) { setPhase("error"); setErrorMsg("Arquivo não especificado"); return; }
+
+    // ── TeraBox: resolve via server API (xAPIverse) ─────────────────────────
+    if (isTerabox && params.teraboxItemId) {
+      phaseRef.current = "loading";
+      setPhase("loading");
+      setVideoUrl(null);
+      setVideoSourceHeaders(null);
+      setIsPlaying(false);
+      setIsBuffering(false);
+      hasStartedPlayingRef.current = false;
+      setPositionMs(0);
+      setDurationMs(0);
+      hasSeekedRef.current = false;
+      preloadedNextUrlRef.current = null;
+      preloadingRef.current = false;
+      setVideoResolution(null);
+      fakeAnim.current = Animated.timing(loadProgress, { toValue: 80, duration: 6000, useNativeDriver: false });
+      fakeAnim.current.start();
+      try {
+        const data = await r2Route<{ url: string; name?: string; error?: string }>(
+          `/terabox/play?id=${encodeURIComponent(params.teraboxItemId)}`
+        );
+        if (data.error) throw new Error(data.error);
+        if (!data.url) throw new Error("URL de stream não disponível");
+        fakeAnim.current?.stop();
+        loadProgress.setValue(100);
+        setVideoUrl(data.url);
+        phaseRef.current = "ready";
+        setPhase("ready");
+        setIsPlaying(true);
+      } catch (e: any) {
+        fakeAnim.current?.stop();
+        setPhase("error");
+        setErrorMsg(e?.message ?? "Erro ao resolver TeraBox");
+      }
+      return;
+    }
 
     // ── Check for locally downloaded file ──────────────────────────────────
     if (tmdbId && Platform.OS !== "web") {

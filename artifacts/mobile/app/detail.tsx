@@ -1692,6 +1692,7 @@ export default function DetailScreen() {
       params: {
         key: item.r2Key ?? "",
         registryItemId: "",
+        teraboxItemId: item.teraboxUrl ? item.id : "",
         flix2ItemUrl: item.flix2Url ?? "",
         fallbackDriveItemId: fallbackDriveItemId ?? "",
         fallbackFlix2Url: fallbackFlix2Url ?? "",
