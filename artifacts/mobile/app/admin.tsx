@@ -36,6 +36,7 @@ import { sendPushNotificationsToTokens, sendContentAddedNotification, sendPushVi
 import { TMDB_IMG, getApiBase, setApiDomain, getApiDomainDisplay } from "@/lib/api";
 import { checkDriveApi, searchDriveByTitle, DriveMatch } from "@/lib/gdrive-search";
 import { listFolderAll, DRIVE_ROOTS, isFolder, isVideo, formatSize } from "@/lib/gdrive-index";
+import { TeraboxWebViewResolver } from "@/lib/terabox-webview-resolver";
 
 const RED = "#e50914";
 const GOLD = "#fbbf24";
@@ -298,7 +299,7 @@ export default function AdminScreen() {
   const [userCount, setUserCount] = useState<number | null>(null);
   const [watchlistCount, setWatchlistCount] = useState<number | null>(null);
   const [ratingsCount, setRatingsCount] = useState<number | null>(null);
-  const [activeTab, setActiveTab] = useState<"sistema" | "emails" | "indicacoes" | "notifs" | "acervo" | "gstream" | "warez" | "contas" | "firebase" | "logs">("sistema");
+  const [activeTab, setActiveTab] = useState<"sistema" | "emails" | "indicacoes" | "notifs" | "acervo" | "gstream" | "warez" | "terabox" | "contas" | "firebase" | "logs">("sistema");
   const [logsData, setLogsData] = useState<Array<{ id: number; level: string; category: string; message: string; details?: any; userId?: string; device?: string; createdAt: string }>>([]);
   const [logsLoading, setLogsLoading] = useState(false);
   const [logsFilter, setLogsFilter] = useState<"all" | "error" | "warn" | "info">("all");
@@ -360,6 +361,95 @@ export default function AdminScreen() {
   const [gPlayerTitle, setGPlayerTitle] = useState("");
 
   const EMBED_BASE = "https://embed.embedplayer.site";
+
+  // ── Terabox state ───────────────────────────────────────────────────────────
+  interface TbFile { fs_id: string; server_filename: string; path: string; isdir: number; size: number; category: number; }
+  const [tbInputUrl, setTbInputUrl] = useState("https://www.terabox.app/wap/share/filelist?surl=YvIpBr3CaDXDWg5gFTviYA&path=%2Fchaves");
+  const [tbSurl, setTbSurl] = useState("");
+  const [tbFiles, setTbFiles] = useState<TbFile[]>([]);
+  const [tbLoading, setTbLoading] = useState(false);
+  const [tbError, setTbError] = useState<string | null>(null);
+  const [tbCurrentPath, setTbCurrentPath] = useState("/");
+  const [tbBreadcrumb, setTbBreadcrumb] = useState<{ label: string; path: string }[]>([]);
+  const [tbResolverVisible, setTbResolverVisible] = useState(false);
+  const [tbResolverUrl, setTbResolverUrl] = useState("");
+  const [tbPlayerVisible, setTbPlayerVisible] = useState(false);
+  const [tbPlayerUrl, setTbPlayerUrl] = useState("");
+  const [tbPlayerTitle, setTbPlayerTitle] = useState("");
+
+  function parseTbSurl(url: string): { surl: string; path: string } | null {
+    try {
+      const u = new URL(url.trim());
+      const surl = u.searchParams.get("surl") ?? "";
+      const path = u.searchParams.get("path") ?? "/";
+      if (!surl) return null;
+      return { surl, path };
+    } catch { return null; }
+  }
+
+  const loadTbFiles = async (surl: string, dir: string) => {
+    setTbLoading(true);
+    setTbError(null);
+    setTbFiles([]);
+    try {
+      const encodedDir = encodeURIComponent(dir);
+      const apiUrl = `https://www.terabox.com/share/list?app_id=250528&shorturl=${surl}&root=1&dir=${encodedDir}&num=200&page=1&order=name&asc=1&web=1&channel=dubox&clienttype=0`;
+      const res = await fetch(apiUrl, {
+        headers: { "User-Agent": "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36" },
+        signal: mkSignal(15000),
+      });
+      const json = await res.json();
+      if (json.errno !== 0 && json.errno !== undefined) {
+        setTbError(`API retornou erro ${json.errno}: ${json.errmsg ?? "erro desconhecido"}`);
+        return;
+      }
+      const list: TbFile[] = (json.list ?? json.data?.list ?? []).map((f: any) => ({
+        fs_id: String(f.fs_id ?? ""),
+        server_filename: f.server_filename ?? f.filename ?? "",
+        path: f.path ?? "",
+        isdir: f.isdir ?? 0,
+        size: f.size ?? 0,
+        category: f.category ?? 0,
+      }));
+      setTbFiles(list);
+      if (list.length === 0) setTbError("Nenhum arquivo encontrado nesta pasta.");
+    } catch (e: any) {
+      setTbError("Falha ao conectar na API do Terabox. " + (e?.message ?? ""));
+    } finally {
+      setTbLoading(false);
+    }
+  };
+
+  const openTbFolder = (surl: string, file: TbFile) => {
+    const newPath = file.path;
+    setTbCurrentPath(newPath);
+    setTbBreadcrumb((prev) => [...prev, { label: file.server_filename, path: newPath }]);
+    loadTbFiles(surl, newPath);
+  };
+
+  const tbNavigateTo = (surl: string, path: string, idx: number) => {
+    setTbCurrentPath(path);
+    setTbBreadcrumb((prev) => prev.slice(0, idx));
+    loadTbFiles(surl, path);
+  };
+
+  const playTbFile = (surl: string, file: TbFile) => {
+    const fileUrl = `https://www.terabox.com/wap/share/filelist?surl=${surl}&path=${encodeURIComponent(file.path)}`;
+    setTbResolverUrl(fileUrl);
+    setTbPlayerTitle(file.server_filename);
+    setTbResolverVisible(true);
+  };
+
+  function tbFormatSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+    return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
+  }
+
+  function isTbVideo(f: TbFile): boolean {
+    return f.category === 1 || /\.(mp4|mkv|avi|mov|ts|m3u8|flv|wmv|webm|rmvb)$/i.test(f.server_filename);
+  }
 
   // ── WarezCDN state ──────────────────────────────────────────────────────────
   const WAREZ_BASE = "https://warezcdn.lat";
@@ -834,8 +924,8 @@ export default function AdminScreen() {
       {/* ── TABS ── */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
         <View style={[styles.tabsRow, { borderBottomColor: colors.border }]}>
-          {(["sistema", "notifs", "indicacoes", "emails", "acervo", "gstream", "warez", "contas", "firebase", "logs"] as const).map((tab) => {
-            const tabColor = tab === "gstream" ? "#6366f1" : tab === "warez" ? "#f97316" : tab === "contas" ? "#22c55e" : tab === "firebase" ? "#ff6d00" : tab === "logs" ? "#e879f9" : RED;
+          {(["sistema", "notifs", "indicacoes", "emails", "acervo", "gstream", "warez", "terabox", "contas", "firebase", "logs"] as const).map((tab) => {
+            const tabColor = tab === "gstream" ? "#6366f1" : tab === "warez" ? "#f97316" : tab === "terabox" ? "#06b6d4" : tab === "contas" ? "#22c55e" : tab === "firebase" ? "#ff6d00" : tab === "logs" ? "#e879f9" : RED;
             const isActive = activeTab === tab;
             return (
               <Pressable
@@ -867,12 +957,12 @@ export default function AdminScreen() {
                 style={[styles.tab, isActive && { borderBottomColor: tabColor, borderBottomWidth: 2 }]}
               >
                 <Feather
-                  name={tab === "sistema" ? "activity" : tab === "notifs" ? "send" : tab === "indicacoes" ? "inbox" : tab === "acervo" ? "hard-drive" : tab === "gstream" ? "play-circle" : tab === "warez" ? "globe" : tab === "contas" ? "users" : tab === "firebase" ? "zap" : tab === "logs" ? "terminal" : "mail"}
+                  name={tab === "sistema" ? "activity" : tab === "notifs" ? "send" : tab === "indicacoes" ? "inbox" : tab === "acervo" ? "hard-drive" : tab === "gstream" ? "play-circle" : tab === "warez" ? "globe" : tab === "terabox" ? "box" : tab === "contas" ? "users" : tab === "firebase" ? "zap" : tab === "logs" ? "terminal" : "mail"}
                   size={14}
                   color={isActive ? tabColor : colors.mutedForeground}
                 />
                 <Text style={[styles.tabTxt, { color: isActive ? tabColor : colors.mutedForeground }]}>
-                  {tab === "sistema" ? "Sistema" : tab === "notifs" ? "Push" : tab === "indicacoes" ? "Pedidos" : tab === "acervo" ? "Acervo" : tab === "gstream" ? "GStream" : tab === "warez" ? "WarezCDN" : tab === "contas" ? "Contas" : tab === "firebase" ? "Firebase" : tab === "logs" ? "Logs" : "E-mails"}
+                  {tab === "sistema" ? "Sistema" : tab === "notifs" ? "Push" : tab === "indicacoes" ? "Pedidos" : tab === "acervo" ? "Acervo" : tab === "gstream" ? "GStream" : tab === "warez" ? "WarezCDN" : tab === "terabox" ? "Terabox" : tab === "contas" ? "Contas" : tab === "firebase" ? "Firebase" : tab === "logs" ? "Logs" : "E-mails"}
                 </Text>
                 {tab === "indicacoes" && pendingCount > 0 && (
                   <View style={[styles.badge, { backgroundColor: RED }]}>
@@ -3607,7 +3697,215 @@ export default function AdminScreen() {
             )}
           </>
         )}
+        {/* ── TERABOX TAB ── */}
+        {activeTab === "terabox" && (
+          <>
+            {/* Header */}
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 14, borderWidth: 1, borderColor: "#06b6d430", backgroundColor: "#06b6d415", padding: 14, marginTop: 16, marginBottom: 12 }}>
+              <View style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: "#06b6d418", alignItems: "center", justifyContent: "center" }}>
+                <Feather name="box" size={22} color="#06b6d4" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 16, fontWeight: "800", letterSpacing: 0.3, color: colors.foreground }}>Terabox</Text>
+                <Text style={{ fontSize: 12, marginTop: 2, color: colors.mutedForeground }}>Explorar pastas e testar reprodução de vídeos</Text>
+              </View>
+            </View>
+
+            {/* URL input */}
+            <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginBottom: 8 }]}>URL DO COMPARTILHAMENTO TERABOX</Text>
+            <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
+              <TextInput
+                style={[{ flex: 1, borderRadius: 10, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 11, fontSize: 12 }, { backgroundColor: colors.card, borderColor: colors.border, color: colors.foreground }]}
+                placeholder="https://www.terabox.app/wap/share/filelist?surl=..."
+                placeholderTextColor={colors.mutedForeground}
+                value={tbInputUrl}
+                onChangeText={setTbInputUrl}
+                autoCapitalize="none"
+                autoCorrect={false}
+                multiline={false}
+              />
+              <Pressable
+                onPress={() => {
+                  const parsed = parseTbSurl(tbInputUrl);
+                  if (!parsed) { setTbError("URL inválida. Use o link de compartilhamento do Terabox."); return; }
+                  setTbSurl(parsed.surl);
+                  setTbCurrentPath(parsed.path);
+                  setTbBreadcrumb([]);
+                  loadTbFiles(parsed.surl, parsed.path);
+                }}
+                style={{ width: 46, height: 46, borderRadius: 10, backgroundColor: "#06b6d4", alignItems: "center", justifyContent: "center" }}
+              >
+                <Feather name="search" size={18} color="#fff" />
+              </Pressable>
+            </View>
+
+            {/* Info banner */}
+            <View style={{ flexDirection: "row", alignItems: "flex-start", borderRadius: 10, borderWidth: 1, borderColor: "#06b6d430", backgroundColor: "#06b6d412", padding: 12, gap: 8, marginBottom: 14 }}>
+              <Feather name="info" size={14} color="#06b6d4" />
+              <Text style={{ fontSize: 12, lineHeight: 17, flex: 1, color: colors.mutedForeground }}>
+                Cola o link de compartilhamento. Os arquivos serão listados via API do Terabox. Toque em <Text style={{ color: "#06b6d4", fontWeight: "700" }}>▶ Play</Text> num vídeo para testar a reprodução.
+              </Text>
+            </View>
+
+            {/* Breadcrumb */}
+            {tbSurl !== "" && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                  <Pressable onPress={() => tbNavigateTo(tbSurl, tbCurrentPath.split("/").slice(0, 2).join("/") || "/", 0)}>
+                    <Text style={{ fontSize: 12, fontWeight: "700", color: "#06b6d4" }}>Raiz</Text>
+                  </Pressable>
+                  {tbBreadcrumb.map((crumb, i) => (
+                    <React.Fragment key={i}>
+                      <Feather name="chevron-right" size={12} color={colors.mutedForeground} />
+                      <Pressable onPress={() => tbNavigateTo(tbSurl, crumb.path, i + 1)}>
+                        <Text style={{ fontSize: 12, fontWeight: "700", color: i === tbBreadcrumb.length - 1 ? colors.foreground : "#06b6d4" }} numberOfLines={1}>{crumb.label}</Text>
+                      </Pressable>
+                    </React.Fragment>
+                  ))}
+                </View>
+              </ScrollView>
+            )}
+
+            {/* Loading */}
+            {tbLoading && (
+              <View style={{ alignItems: "center", paddingVertical: 40, gap: 12 }}>
+                <ActivityIndicator size="large" color="#06b6d4" />
+                <Text style={{ color: colors.mutedForeground, fontSize: 13 }}>Carregando arquivos do Terabox…</Text>
+              </View>
+            )}
+
+            {/* Error */}
+            {!tbLoading && tbError && (
+              <View style={{ borderRadius: 12, borderWidth: 1, borderColor: "#ef444440", backgroundColor: "#ef444410", padding: 16, marginBottom: 12, flexDirection: "row", gap: 10, alignItems: "flex-start" }}>
+                <Feather name="alert-circle" size={16} color="#ef4444" />
+                <Text style={{ fontSize: 13, color: "#ef4444", flex: 1, lineHeight: 19 }}>{tbError}</Text>
+              </View>
+            )}
+
+            {/* File list */}
+            {!tbLoading && tbFiles.length > 0 && (
+              <>
+                <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginBottom: 10 }]}>
+                  {tbFiles.length} ARQUIVO{tbFiles.length !== 1 ? "S" : ""} ENCONTRADO{tbFiles.length !== 1 ? "S" : ""}
+                </Text>
+                {tbFiles.map((file) => {
+                  const isDir = file.isdir === 1;
+                  const isVid = isTbVideo(file);
+                  return (
+                    <View
+                      key={file.fs_id || file.path}
+                      style={{ flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card, padding: 10, marginBottom: 8 }}
+                    >
+                      <View style={{ width: 36, height: 36, borderRadius: 8, backgroundColor: isDir ? "#06b6d418" : isVid ? "#e5091415" : "#ffffff08", alignItems: "center", justifyContent: "center" }}>
+                        <Feather name={isDir ? "folder" : isVid ? "film" : "file"} size={18} color={isDir ? "#06b6d4" : isVid ? RED : colors.mutedForeground} />
+                      </View>
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={{ fontSize: 13, fontWeight: "600", color: colors.foreground }} numberOfLines={2}>{file.server_filename}</Text>
+                        {!isDir && <Text style={{ fontSize: 11, color: colors.mutedForeground, marginTop: 2 }}>{tbFormatSize(file.size)}</Text>}
+                      </View>
+                      {isDir ? (
+                        <Pressable
+                          onPress={() => openTbFolder(tbSurl, file)}
+                          style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, backgroundColor: "#06b6d420", flexDirection: "row", alignItems: "center", gap: 5 }}
+                        >
+                          <Feather name="folder-open" size={13} color="#06b6d4" />
+                          <Text style={{ fontSize: 12, fontWeight: "700", color: "#06b6d4" }}>Abrir</Text>
+                        </Pressable>
+                      ) : isVid ? (
+                        <Pressable
+                          onPress={() => playTbFile(tbSurl, file)}
+                          style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, backgroundColor: RED + "20", flexDirection: "row", alignItems: "center", gap: 5 }}
+                        >
+                          <Feather name="play" size={13} color={RED} />
+                          <Text style={{ fontSize: 12, fontWeight: "700", color: RED }}>Play</Text>
+                        </Pressable>
+                      ) : null}
+                    </View>
+                  );
+                })}
+              </>
+            )}
+
+            {/* Empty state */}
+            {!tbLoading && !tbError && tbFiles.length === 0 && tbSurl === "" && (
+              <View style={{ borderRadius: 16, borderWidth: 1, borderColor: colors.border, padding: 32, alignItems: "center", gap: 12, marginTop: 8 }}>
+                <Feather name="box" size={36} color={colors.mutedForeground} />
+                <Text style={{ fontSize: 14, color: colors.mutedForeground, textAlign: "center" }}>
+                  Cole o link de compartilhamento do Terabox acima e toque na lupa para listar os arquivos.
+                </Text>
+              </View>
+            )}
+          </>
+        )}
+
       </ScrollView>
+
+      {/* ── Terabox Resolver (hidden WebView to extract direct URL) ── */}
+      <TeraboxWebViewResolver
+        teraboxUrl={tbResolverUrl}
+        visible={tbResolverVisible}
+        onResolved={(url) => {
+          setTbResolverVisible(false);
+          setTbPlayerUrl(url);
+          setTbPlayerVisible(true);
+        }}
+        onError={(msg) => {
+          setTbResolverVisible(false);
+          Alert.alert("Terabox", `Não foi possível obter a URL do vídeo.\n\n${msg}\n\nTente abrir o link manualmente.`);
+        }}
+        onCancel={() => setTbResolverVisible(false)}
+      />
+
+      {/* ── Terabox Player Modal ── */}
+      <Modal
+        visible={tbPlayerVisible}
+        animationType="slide"
+        onRequestClose={() => setTbPlayerVisible(false)}
+        statusBarTranslucent
+      >
+        <View style={{ flex: 1, backgroundColor: "#000" }}>
+          <View style={[gs.playerHeader, { paddingTop: insets.top + 8 }]}>
+            <Pressable onPress={() => setTbPlayerVisible(false)} style={gs.playerClose}>
+              <Feather name="x" size={22} color="#fff" />
+            </Pressable>
+            <Text style={gs.playerTitle} numberOfLines={1}>{tbPlayerTitle}</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "#06b6d420", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
+              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: "#06b6d4" }} />
+              <Text style={{ color: "#06b6d4", fontSize: 11, fontWeight: "700" }}>Terabox</Text>
+            </View>
+          </View>
+
+          <View style={{ flex: 1 }}>
+            {WebView ? (
+              <WebView
+                source={{ uri: tbPlayerUrl }}
+                style={{ flex: 1, backgroundColor: "#000" }}
+                allowsFullscreenVideo
+                javaScriptEnabled
+                domStorageEnabled
+                allowsInlineMediaPlayback
+                mediaPlaybackRequiresUserAction={false}
+                mixedContentMode="always"
+              />
+            ) : (
+              <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 12 }}>
+                <Feather name="alert-circle" size={40} color="#06b6d4" />
+                <Text style={{ color: "#fff", fontSize: 15, fontWeight: "600" }}>WebView indisponível</Text>
+                <Text style={{ color: "#888", fontSize: 13, textAlign: "center", paddingHorizontal: 32 }}>
+                  Instale o app nativo para reproduzir via WebView.
+                </Text>
+              </View>
+            )}
+          </View>
+
+          <View style={[gs.playerUrlBar, { paddingBottom: insets.bottom + 8, backgroundColor: "#0a0a0a" }]}>
+            <Text style={[gs.playerUrlTxt, { color: "#06b6d4", flex: 1 }]} numberOfLines={1}>{tbPlayerUrl}</Text>
+            <Pressable onPress={() => copyText(tbPlayerUrl)}>
+              <Feather name="copy" size={14} color="#06b6d4" />
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
 
       {/* ── WarezCDN Player Modal (Sandbox) ── */}
       <Modal
