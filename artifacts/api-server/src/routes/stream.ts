@@ -47,6 +47,8 @@ function isAllowedHost(urlStr: string): boolean {
     if (host.endsWith(".workers.dev") && host.includes("animezey")) return true;
     // Allow any workers.dev subdomain for BHA Cloud
     if (host.endsWith(".workers.dev") && (host.includes("3112022") || host.includes("animezey"))) return true;
+    // Allow xAPIverse Cloudflare Workers streaming proxy (sibemy.workers.dev and any *.workers.dev used by xAPIverse)
+    if (host.endsWith(".workers.dev")) return true;
     // Allow TeraBox CDN (d.terabox.com, d2.terabox.com, etc.)
     if (host.endsWith(".terabox.com") || host.endsWith(".teraboxapp.com")) return true;
     // Allow any d*.baidupcs.com or d*.bdstatic.com (TeraBox/Baidu CDN)

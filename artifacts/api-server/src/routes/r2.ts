@@ -23,9 +23,12 @@ const upload = multer({ storage: multer.memoryStorage(), limits: {} });
 
 // ── TeraBox URL normalizer ─────────────────────────────────────────────────────
 // Many alternative domains exist (1024terabox.com, 1024tera.com, teraboxapp.com…)
-// but the xAPIverse API only accepts www.terabox.com links.
+// xAPIverse only accepts 1024tera.com or teraboxapp.com — NOT www.terabox.com.
 function normalizeTeraboxUrl(url: string): string {
+  // xAPIverse only accepts 1024tera.com or teraboxapp.com — NOT www.terabox.com.
+  // Convert all known TeraBox aliases (including www.terabox.com) to 1024tera.com.
   const TERABOX_ALIASES = [
+    "terabox.com",
     "1024terabox.com",
     "1024tera.com",
     "teraboxapp.com",
@@ -41,7 +44,7 @@ function normalizeTeraboxUrl(url: string): string {
     const u = new URL(url);
     const host = u.hostname.replace(/^www\./, "");
     if (TERABOX_ALIASES.includes(host)) {
-      u.hostname = "www.terabox.com";
+      u.hostname = "1024tera.com";
       return u.toString();
     }
   } catch {}
