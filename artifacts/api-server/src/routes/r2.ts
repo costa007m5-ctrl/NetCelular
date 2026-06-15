@@ -1257,11 +1257,29 @@ router.get("/terabox/play", async (req, res) => {
       const idx = typeof item.fileIndex === "number" && item.fileIndex < list.length ? item.fileIndex : 0;
       file = list[idx];
     }
-    const streamUrl = file.fast_dlink ?? file.stream_url ?? null;
+    // Priority: stream_url (no auth, direct) → fast_stream_url best quality → fast_dlink (may need auth)
+    let streamUrl: string | null = file.stream_url ?? null;
+    let urlType: "stream_url" | "fast_stream_url" | "fast_dlink" = "stream_url";
+
+    if (!streamUrl && file.fast_stream_url && typeof file.fast_stream_url === "object") {
+      const qualityOrder = ["1080p", "720p", "480p", "360p", "240p"];
+      for (const q of qualityOrder) {
+        if (file.fast_stream_url[q]) { streamUrl = file.fast_stream_url[q]; urlType = "fast_stream_url"; break; }
+      }
+      if (!streamUrl) {
+        const vals = Object.values(file.fast_stream_url) as string[];
+        if (vals.length > 0) { streamUrl = vals[0]; urlType = "fast_stream_url"; }
+      }
+    }
+
+    if (!streamUrl && file.fast_dlink) { streamUrl = file.fast_dlink; urlType = "fast_dlink"; }
+
     if (!streamUrl) { res.status(404).json({ error: "URL de stream não disponível" }); return; }
 
     res.json({
       url: streamUrl,
+      urlType,
+      needsProxy: urlType === "fast_dlink",
       name: file.name,
       quality: file.quality,
       duration: file.duration,
