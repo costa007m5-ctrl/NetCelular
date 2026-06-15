@@ -1260,11 +1260,14 @@ router.get("/terabox/play", async (req, res) => {
       const idx = typeof item.fileIndex === "number" && item.fileIndex < list.length ? item.fileIndex : 0;
       file = list[idx];
     }
-    // Priority: stream_url (no auth, direct) → fast_stream_url best quality → fast_dlink (may need auth)
-    let streamUrl: string | null = file.stream_url ?? null;
-    let urlType: "stream_url" | "fast_stream_url" | "fast_dlink" = "stream_url";
+    // Priority:
+    // 1. fast_stream_url HLS (m3u8) via xAPIverse CF Workers proxy — CORS open, no auth needed
+    // 2. fast_dlink — direct download link (may need browser-like headers)
+    // NOTE: stream_url is the raw TeraBox CDN URL requiring browser cookies ("need verify_v2") — skip it.
+    let streamUrl: string | null = null;
+    let urlType: "fast_stream_url" | "fast_dlink" = "fast_dlink";
 
-    if (!streamUrl && file.fast_stream_url && typeof file.fast_stream_url === "object") {
+    if (file.fast_stream_url && typeof file.fast_stream_url === "object") {
       const qualityOrder = ["1080p", "720p", "480p", "360p", "240p"];
       for (const q of qualityOrder) {
         if (file.fast_stream_url[q]) { streamUrl = file.fast_stream_url[q]; urlType = "fast_stream_url"; break; }
@@ -1279,15 +1282,22 @@ router.get("/terabox/play", async (req, res) => {
 
     if (!streamUrl) { res.status(404).json({ error: "URL de stream não disponível" }); return; }
 
+    // Build quality list (all available HLS qualities + fast_dlink fallback)
+    const qualityMap: Record<string, string> = {};
+    if (file.fast_stream_url && typeof file.fast_stream_url === "object") {
+      Object.assign(qualityMap, file.fast_stream_url);
+    }
+    if (file.fast_dlink) qualityMap["download"] = file.fast_dlink;
+
     res.json({
       url: streamUrl,
       urlType,
-      needsProxy: urlType === "fast_dlink",
+      needsProxy: false, // xAPIverse CF Workers URLs have CORS open — no proxy needed
       name: file.name,
       quality: file.quality,
       duration: file.duration,
       size: file.size_formatted,
-      fast_stream_url: file.fast_stream_url ?? {},
+      fast_stream_url: qualityMap,
       thumbnail: file.thumbnail ?? null,
     });
   } catch (err: any) {

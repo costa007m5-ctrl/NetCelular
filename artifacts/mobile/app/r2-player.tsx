@@ -468,51 +468,16 @@ export default function R2PlayerScreen() {
         if (data.error) throw new Error(data.error);
         if (!data.url) throw new Error("URL de stream não disponível");
 
-        // Quality fallback list: try stream_url first, then each quality from fast_stream_url
-        const qualityOrder = ["1080p", "720p", "480p", "360p", "240p"];
-        const candidates: string[] = [data.url];
-        if (data.fast_stream_url) {
-          for (const q of qualityOrder) {
-            const qUrl = data.fast_stream_url[q];
-            if (qUrl && !candidates.includes(qUrl)) candidates.push(qUrl);
-          }
-        }
-
-        // For web: always proxy (CORS). For native: proxy only if needsProxy (fast_dlink).
-        const shouldProxy = Platform.OS === "web" || !!data.needsProxy;
-        const resolveUrl = (u: string) => shouldProxy ? getProxiedStreamUrl(u) : u;
-
-        let played = false;
-        for (const candidate of candidates) {
-          const playUrl = resolveUrl(candidate);
-          // Quick HEAD check on native to verify URL is reachable before committing
-          if (Platform.OS !== "web" && candidates.length > 1) {
-            try {
-              const ctrl = new AbortController();
-              const tid = setTimeout(() => ctrl.abort(), 5000);
-              const r = await fetch(playUrl, { method: "HEAD", signal: ctrl.signal });
-              clearTimeout(tid);
-              if (!r.ok && r.status !== 206) continue;
-            } catch { continue; }
-          }
-          fakeAnim.current?.stop();
-          loadProgress.setValue(100);
-          setVideoUrl(playUrl);
-          phaseRef.current = "ready";
-          setPhase("ready");
-          setIsPlaying(true);
-          played = true;
-          break;
-        }
-        if (!played) {
-          // All candidates failed — use proxied primary as last resort
-          fakeAnim.current?.stop();
-          loadProgress.setValue(100);
-          setVideoUrl(getProxiedStreamUrl(data.url));
-          phaseRef.current = "ready";
-          setPhase("ready");
-          setIsPlaying(true);
-        }
+        // xAPIverse returns HLS m3u8 URLs via CF Workers (CORS open, no auth needed).
+        // Do NOT do a HEAD check — it consumes the short-lived signed token before the player uses it.
+        // Just play the primary URL directly. Quality map is stored for a future quality picker.
+        const playUrl = data.url;
+        fakeAnim.current?.stop();
+        loadProgress.setValue(100);
+        setVideoUrl(playUrl);
+        phaseRef.current = "ready";
+        setPhase("ready");
+        setIsPlaying(true);
       } catch (e: any) {
         fakeAnim.current?.stop();
         setPhase("error");
