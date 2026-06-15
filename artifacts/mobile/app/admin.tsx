@@ -438,10 +438,9 @@ export default function AdminScreen() {
     const wapUrl = `https://www.terabox.com/wap/share/filelist?surl=${surl}&path=${encodeURIComponent(file.path)}`;
     setTbPlayerTitle(file.server_filename);
     if (Platform.OS === "web") {
-      // Web: load Terabox WAP page via our reverse proxy (strips X-Frame-Options for iframe embed)
-      const apiBase = await getApiBase();
-      const proxyUrl = `${apiBase}/api/terabox/proxy-page?url=${encodeURIComponent(wapUrl)}`;
-      setTbPlayerUrl(proxyUrl);
+      // Web: Terabox WAP requires direct browser session (JS makes cross-origin API calls
+      // that only work with real Terabox cookies). Open in a new tab via Linking.
+      setTbPlayerUrl(wapUrl);
       setTbPlayerVisible(true);
     } else {
       // Native: use hidden WebView resolver to capture direct stream URL
@@ -3887,11 +3886,28 @@ export default function AdminScreen() {
 
           <View style={{ flex: 1 }}>
             {Platform.OS === "web" ? (
-              <iframe
-                src={tbPlayerUrl}
-                style={{ flex: 1, width: "100%", height: "100%", border: "none", backgroundColor: "#000" } as any}
-                allowFullScreen
-              />
+              <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 20, paddingHorizontal: 32 }}>
+                <View style={{ width: 72, height: 72, borderRadius: 36, backgroundColor: "#06b6d420", alignItems: "center", justifyContent: "center" }}>
+                  <Feather name="play-circle" size={36} color="#06b6d4" />
+                </View>
+                <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700", textAlign: "center" }}>
+                  {tbPlayerTitle}
+                </Text>
+                <Text style={{ color: "#888", fontSize: 13, textAlign: "center", lineHeight: 20 }}>
+                  O Terabox requer autenticação direta no navegador.{"\n"}
+                  Toque em "Abrir" para assistir na aba do Terabox.
+                </Text>
+                <Pressable
+                  onPress={() => Linking.openURL(tbPlayerUrl)}
+                  style={{ backgroundColor: "#06b6d4", borderRadius: 12, paddingHorizontal: 28, paddingVertical: 14, flexDirection: "row", alignItems: "center", gap: 8 }}
+                >
+                  <Feather name="external-link" size={18} color="#fff" />
+                  <Text style={{ color: "#fff", fontSize: 15, fontWeight: "700" }}>Abrir no Terabox</Text>
+                </Pressable>
+                <Text style={{ color: "#555", fontSize: 11, textAlign: "center" }}>
+                  No app nativo (Expo Go), o vídeo reproduz diretamente aqui.
+                </Text>
+              </View>
             ) : WebView ? (
               <WebView
                 source={{ uri: tbPlayerUrl }}

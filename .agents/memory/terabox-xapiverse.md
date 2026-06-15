@@ -30,3 +30,11 @@ Added `if (host.endsWith(".workers.dev")) return true;` to `isAllowedHost()` in 
 ## How to apply
 - Any time `normalizeTeraboxUrl` is called or the TeraBox play endpoint is touched, ensure the target domain is `1024tera.com`.
 - In the player (`r2-player.tsx`), set `videoUrl` directly from the API response — no HEAD check, no proxy wrapping needed (CORS is open on xAPIverse CF Workers URLs).
+
+## TeraboxWebViewResolver bugs (fixed)
+- **Wrong normalize direction**: the original normalizeUrl was converting 1024tera.com → www.terabox.com. Should be the REVERSE: www.terabox.com → 1024tera.com.
+- **Video URL filter**: original had `src.indexOf('terabox') < 0` which excluded Terabox CDN URLs (e.g. `d5.terabox.com`). Remove this filter — accept ANY `http` video URL.
+- **Hidden WebView**: opacity 0.01 prevents user from manually clicking play. Use opacity 0.85 so the page is visible and interactive.
+- **Web platform**: react-native-webview doesn't work in Chrome/web. On `Platform.OS === 'web'`, skip the resolver entirely and show "Abrir no Terabox" button with `Linking.openURL()`.
+- **XHR response interception**: also intercept XHR *responses* (not just requests) to catch `fast_stream_url`/`fast_dlink` in JSON bodies.
+- **Iframe blocked**: Terabox sets `X-Frame-Options: SAMEORIGIN` AND its Vue.js SPA makes direct cross-origin API calls — iframe proxy approach doesn't work even after stripping headers.
