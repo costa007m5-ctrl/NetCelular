@@ -3693,40 +3693,259 @@ function TeraBoxTestTab() {
   );
 }
 
+const RAPIDAPI_KEY = "02252fd844msh16baa4172748b1ap16f365jsn9dcc30d819e5";
+const RAPIDAPI_HOST = "terabox-downloader-online-viewer-player-api.p.rapidapi.com";
+
+type RapidApiResolution = { stream?: string; download?: string };
+type RapidApiItem = {
+  title?: string;
+  thumbnail?: string;
+  size?: string;
+  resolutions?: Record<string, RapidApiResolution>;
+  url?: string;
+  download?: string;
+  stream?: string;
+};
+type RapidApiResponse = { response?: RapidApiItem[]; [key: string]: any };
+
+function extractPlayableUrls(data: RapidApiResponse): { label: string; url: string }[] {
+  const results: { label: string; url: string }[] = [];
+  const items: RapidApiItem[] = data?.response ?? (Array.isArray(data) ? (data as any[]) : [data]);
+  for (const item of items) {
+    if (item?.resolutions && typeof item.resolutions === "object") {
+      for (const [label, res] of Object.entries(item.resolutions)) {
+        if (res?.stream) results.push({ label: `${label} (stream)`, url: res.stream });
+        if (res?.download) results.push({ label: `${label} (download)`, url: res.download });
+      }
+    }
+    if (item?.stream) results.push({ label: "stream", url: item.stream });
+    if (item?.download) results.push({ label: "download", url: item.download });
+    if (item?.url && !results.find((r) => r.url === item.url)) results.push({ label: "url", url: item.url! });
+  }
+  return results.filter((r) => r.url && (r.url.startsWith("http://") || r.url.startsWith("https://")));
+}
+
+function TeraBoxRapidAPITab() {
+  const insets = useSafeAreaInsets();
+  const [inputUrl, setInputUrl] = useState("https://teraboxapp.com/s/1EWkWY66FhZKS2WfxwBgd0Q");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [rawJson, setRawJson] = useState<string | null>(null);
+  const [playableUrls, setPlayableUrls] = useState<{ label: string; url: string }[]>([]);
+  const [activeVideoUrl, setActiveVideoUrl] = useState<string | null>(null);
+  const [activeLabel, setActiveLabel] = useState<string>("");
+
+  const RAPID_COLOR = "#06b6d4";
+
+  const testApi = async () => {
+    const u = inputUrl.trim();
+    if (!u) { setError("Cole um link do TeraBox"); return; }
+    setLoading(true);
+    setError(null);
+    setRawJson(null);
+    setPlayableUrls([]);
+    setActiveVideoUrl(null);
+    try {
+      const ctrl = new AbortController();
+      const tid = setTimeout(() => ctrl.abort(), 20000);
+      const encodedUrl = encodeURIComponent(u);
+      const res = await fetch(
+        `https://${RAPIDAPI_HOST}/rapidapi?url=${encodedUrl}`,
+        {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            "x-rapidapi-host": RAPIDAPI_HOST,
+            "x-rapidapi-key": RAPIDAPI_KEY,
+          },
+          signal: ctrl.signal,
+        }
+      );
+      clearTimeout(tid);
+      const text = await res.text();
+      setRawJson(text);
+      try {
+        const json: RapidApiResponse = JSON.parse(text);
+        const urls = extractPlayableUrls(json);
+        setPlayableUrls(urls);
+        if (urls.length > 0) {
+          setActiveVideoUrl(urls[0].url);
+          setActiveLabel(urls[0].label);
+        } else {
+          setError("Nenhuma URL de vídeo encontrada na resposta.");
+        }
+      } catch {
+        setError("Resposta não é JSON válido. Veja o raw abaixo.");
+      }
+    } catch (e: any) {
+      setError(e?.message ?? "Erro de conexão");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 100 }} keyboardShouldPersistTaps="handled">
+      {/* Header info */}
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 14, backgroundColor: `${RAPID_COLOR}12`, borderRadius: 10, padding: 12, borderWidth: 1, borderColor: `${RAPID_COLOR}30` }}>
+        <Feather name="zap" size={15} color={RAPID_COLOR} />
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: RAPID_COLOR, fontWeight: "700", fontSize: 12 }}>RapidAPI · TeraBox Downloader</Text>
+          <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 11, marginTop: 2 }}>terabox-downloader-online-viewer-player-api</Text>
+        </View>
+      </View>
+
+      {/* URL Input */}
+      <View style={[styles.sectionCard, { borderColor: `${RAPID_COLOR}30` }]}>
+        <View style={styles.sectionTitleRow}>
+          <Feather name="link" size={14} color={RAPID_COLOR} />
+          <Text style={[styles.sectionTitle, { color: RAPID_COLOR }]}>Link TeraBox</Text>
+        </View>
+        <TextInput
+          style={[styles.input, loading && { opacity: 0.5 }]}
+          placeholder="https://teraboxapp.com/s/..."
+          placeholderTextColor="rgba(255,255,255,0.25)"
+          value={inputUrl}
+          onChangeText={(v) => { setInputUrl(v); setRawJson(null); setPlayableUrls([]); setActiveVideoUrl(null); setError(null); }}
+          autoCapitalize="none"
+          autoCorrect={false}
+          editable={!loading}
+          multiline
+        />
+        <Pressable
+          style={[styles.actionBtn, { backgroundColor: RAPID_COLOR, marginTop: 10 }, loading && { opacity: 0.5 }]}
+          onPress={testApi}
+          disabled={loading}
+        >
+          {loading
+            ? <ActivityIndicator color="#fff" size="small" />
+            : <Feather name="zap" size={16} color="#fff" />}
+          <Text style={styles.actionBtnText}>{loading ? "Chamando API…" : "Testar RapidAPI"}</Text>
+        </Pressable>
+        {error && (
+          <View style={styles.errorBox}>
+            <Feather name="alert-circle" size={14} color="#f87171" />
+            <Text style={styles.errorBoxText}>{error}</Text>
+          </View>
+        )}
+      </View>
+
+      {/* Playable URLs */}
+      {playableUrls.length > 0 && (
+        <View style={[styles.sectionCard, { marginTop: 12, borderColor: `${RAPID_COLOR}30` }]}>
+          <View style={styles.sectionTitleRow}>
+            <Feather name="film" size={14} color={RAPID_COLOR} />
+            <Text style={[styles.sectionTitle, { color: RAPID_COLOR }]}>URLs Disponíveis ({playableUrls.length})</Text>
+          </View>
+          {playableUrls.map((item, i) => (
+            <Pressable
+              key={i}
+              onPress={() => { setActiveVideoUrl(item.url); setActiveLabel(item.label); }}
+              style={{
+                flexDirection: "row", alignItems: "center", gap: 10,
+                paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.05)",
+              }}
+            >
+              <Feather
+                name={activeVideoUrl === item.url ? "check-circle" : "play-circle"}
+                size={18}
+                color={activeVideoUrl === item.url ? RAPID_COLOR : "rgba(255,255,255,0.3)"}
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: activeVideoUrl === item.url ? RAPID_COLOR : "#fff", fontSize: 12, fontWeight: "600" }}>{item.label}</Text>
+                <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 10 }} numberOfLines={1}>{item.url}</Text>
+              </View>
+            </Pressable>
+          ))}
+        </View>
+      )}
+
+      {/* Video Player */}
+      {activeVideoUrl && (
+        <View style={[styles.sectionCard, { marginTop: 12, borderColor: "rgba(74,222,128,0.2)" }]}>
+          <View style={styles.sectionTitleRow}>
+            <Feather name="monitor" size={14} color="#4ade80" />
+            <Text style={[styles.sectionTitle, { color: "#4ade80" }]}>Player — {activeLabel}</Text>
+          </View>
+          <Text style={{ color: "rgba(255,255,255,0.25)", fontSize: 10, marginBottom: 10 }} numberOfLines={2}>{activeVideoUrl}</Text>
+          <View style={{ borderRadius: 10, overflow: "hidden", backgroundColor: "#000", aspectRatio: 16 / 9, marginBottom: 8 }}>
+            {Platform.OS === "web" ? (
+              <video
+                key={activeVideoUrl}
+                src={activeVideoUrl}
+                controls
+                autoPlay={false}
+                style={{ width: "100%", height: "100%", objectFit: "contain" } as any}
+              />
+            ) : (
+              <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 12 }}>
+                <Feather name="play-circle" size={48} color={RAPID_COLOR} />
+                <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 13, textAlign: "center" }}>URL resolvida com sucesso</Text>
+                <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 10, textAlign: "center", paddingHorizontal: 20 }} numberOfLines={3}>{activeVideoUrl}</Text>
+              </View>
+            )}
+          </View>
+        </View>
+      )}
+
+      {/* Raw JSON */}
+      {rawJson && (
+        <View style={[styles.sectionCard, { marginTop: 12, borderColor: "rgba(255,255,255,0.08)" }]}>
+          <View style={styles.sectionTitleRow}>
+            <Feather name="code" size={14} color="rgba(255,255,255,0.5)" />
+            <Text style={[styles.sectionTitle, { color: "rgba(255,255,255,0.5)" }]}>Resposta Raw JSON</Text>
+          </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            <Text selectable style={{ color: "#a3e635", fontSize: 10, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace", lineHeight: 16 }}>
+              {(() => { try { return JSON.stringify(JSON.parse(rawJson), null, 2); } catch { return rawJson; } })()}
+            </Text>
+          </ScrollView>
+        </View>
+      )}
+    </ScrollView>
+  );
+}
+
 function TeraBoxPanel() {
-  const [subTab, setSubTab] = useState<"register" | "upload" | "test">("register");
+  const [subTab, setSubTab] = useState<"register" | "upload" | "test" | "rapidapi">("register");
 
   const subTabs = [
     { id: "register" as const, label: "Registrar", icon: "bookmark" as const },
     { id: "upload" as const, label: "Upload R2", icon: "upload-cloud" as const },
     { id: "test" as const, label: "Testar", icon: "play-circle" as const },
+    { id: "rapidapi" as const, label: "RapidAPI", icon: "zap" as const },
   ];
 
   return (
     <View style={{ flex: 1 }}>
-      <View style={{ flexDirection: "row", paddingHorizontal: 12, paddingVertical: 8, gap: 6, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)", alignItems: "center" }}>
+      <View style={{ flexDirection: "row", paddingHorizontal: 12, paddingVertical: 8, gap: 6, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)", alignItems: "center", flexWrap: "wrap" }}>
         <Feather name="zap" size={12} color={TB_COLOR} />
         <Text style={{ color: TB_COLOR, fontWeight: "700", fontSize: 11, flex: 1 }}>TeraBox API Pro</Text>
-        {subTabs.map((t) => (
-          <Pressable
-            key={t.id}
-            onPress={() => setSubTab(t.id)}
-            style={{
-              flexDirection: "row", alignItems: "center", gap: 4,
-              paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8,
-              backgroundColor: subTab === t.id ? `${TB_COLOR}22` : "rgba(255,255,255,0.06)",
-              borderWidth: 1, borderColor: subTab === t.id ? `${TB_COLOR}55` : "rgba(255,255,255,0.08)",
-            }}
-          >
-            <Feather name={t.icon} size={12} color={subTab === t.id ? TB_COLOR : "rgba(255,255,255,0.4)"} />
-            <Text style={{ color: subTab === t.id ? TB_COLOR : "rgba(255,255,255,0.4)", fontSize: 11, fontWeight: subTab === t.id ? "700" : "400" }}>{t.label}</Text>
-          </Pressable>
-        ))}
+        {subTabs.map((t) => {
+          const activeColor = t.id === "rapidapi" ? "#06b6d4" : TB_COLOR;
+          const isActive = subTab === t.id;
+          return (
+            <Pressable
+              key={t.id}
+              onPress={() => setSubTab(t.id)}
+              style={{
+                flexDirection: "row", alignItems: "center", gap: 4,
+                paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8,
+                backgroundColor: isActive ? `${activeColor}22` : "rgba(255,255,255,0.06)",
+                borderWidth: 1, borderColor: isActive ? `${activeColor}55` : "rgba(255,255,255,0.08)",
+              }}
+            >
+              <Feather name={t.icon} size={12} color={isActive ? activeColor : "rgba(255,255,255,0.4)"} />
+              <Text style={{ color: isActive ? activeColor : "rgba(255,255,255,0.4)", fontSize: 11, fontWeight: isActive ? "700" : "400" }}>{t.label}</Text>
+            </Pressable>
+          );
+        })}
       </View>
 
       {subTab === "register" && <TeraBoxRegisterTab />}
       {subTab === "upload" && <TeraBoxUploadTab />}
       {subTab === "test" && <TeraBoxTestTab />}
+      {subTab === "rapidapi" && <TeraBoxRapidAPITab />}
     </View>
   );
 }
