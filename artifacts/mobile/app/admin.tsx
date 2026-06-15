@@ -434,11 +434,20 @@ export default function AdminScreen() {
     loadTbFiles(surl, path);
   };
 
-  const playTbFile = (surl: string, file: TbFile) => {
-    const fileUrl = `https://www.terabox.com/wap/share/filelist?surl=${surl}&path=${encodeURIComponent(file.path)}`;
-    setTbResolverUrl(fileUrl);
+  const playTbFile = async (surl: string, file: TbFile) => {
+    const wapUrl = `https://www.terabox.com/wap/share/filelist?surl=${surl}&path=${encodeURIComponent(file.path)}`;
     setTbPlayerTitle(file.server_filename);
-    setTbResolverVisible(true);
+    if (Platform.OS === "web") {
+      // Web: load Terabox WAP page via our reverse proxy (strips X-Frame-Options for iframe embed)
+      const apiBase = await getApiBase();
+      const proxyUrl = `${apiBase}/api/terabox/proxy-page?url=${encodeURIComponent(wapUrl)}`;
+      setTbPlayerUrl(proxyUrl);
+      setTbPlayerVisible(true);
+    } else {
+      // Native: use hidden WebView resolver to capture direct stream URL
+      setTbResolverUrl(wapUrl);
+      setTbResolverVisible(true);
+    }
   };
 
   function tbFormatSize(bytes: number): string {
@@ -3877,7 +3886,13 @@ export default function AdminScreen() {
           </View>
 
           <View style={{ flex: 1 }}>
-            {WebView ? (
+            {Platform.OS === "web" ? (
+              <iframe
+                src={tbPlayerUrl}
+                style={{ flex: 1, width: "100%", height: "100%", border: "none", backgroundColor: "#000" } as any}
+                allowFullScreen
+              />
+            ) : WebView ? (
               <WebView
                 source={{ uri: tbPlayerUrl }}
                 style={{ flex: 1, backgroundColor: "#000" }}
