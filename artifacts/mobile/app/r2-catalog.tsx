@@ -3708,26 +3708,74 @@ type RapidApiItem = {
 };
 type RapidApiResponse = { response?: RapidApiItem[]; [key: string]: any };
 
-function extractPlayableUrls(data: RapidApiResponse): { label: string; url: string }[] {
+const VIDEO_EXTS = /\.(mp4|m3u8|mkv|avi|mov|ts|webm|flv|m4v)(\?|$)/i;
+const SKIP_DOMAINS = /\.(terabox\.app\/thumbnail|tmdb\.org|image\.|\.png|\.jpg|\.jpeg|\.gif|\.svg|\.webp)/i;
+
+function isVideoUrl(url: string): boolean {
+  if (!url.startsWith("http://") && !url.startsWith("https://")) return false;
+  if (SKIP_DOMAINS.test(url)) return false;
+  if (VIDEO_EXTS.test(url)) return true;
+  if (url.includes("dlink") || url.includes("stream") || url.includes("download") ||
+      url.includes("play") || url.includes("video") || url.includes("media") ||
+      url.includes("cdn") || url.includes("file")) return true;
+  return false;
+}
+
+function deepScanUrls(obj: any, keyPath = "", seen = new Set<string>()): { label: string; url: string }[] {
   const results: { label: string; url: string }[] = [];
-  const items: RapidApiItem[] = data?.response ?? (Array.isArray(data) ? (data as any[]) : [data]);
-  for (const item of items) {
-    if (item?.resolutions && typeof item.resolutions === "object") {
-      for (const [label, res] of Object.entries(item.resolutions)) {
-        if (res?.stream) results.push({ label: `${label} (stream)`, url: res.stream });
-        if (res?.download) results.push({ label: `${label} (download)`, url: res.download });
+  if (!obj || typeof obj !== "object") return results;
+  for (const [key, value] of Object.entries(obj)) {
+    const path = keyPath ? `${keyPath}.${key}` : key;
+    if (typeof value === "string" && value.startsWith("http") && !seen.has(value)) {
+      seen.add(value);
+      if (isVideoUrl(value)) {
+        results.push({ label: path, url: value });
+      }
+    } else if (value && typeof value === "object") {
+      results.push(...deepScanUrls(value, path, seen));
+    }
+  }
+  return results;
+}
+
+function extractPlayableUrls(data: RapidApiResponse): { label: string; url: string }[] {
+  const seen = new Set<string>();
+  const results: { label: string; url: string }[] = [];
+
+  const VIDEO_KEYS = ["dlink", "fast_stream_url", "stream_url", "stream", "download", "url", "play_url", "direct_url", "hls_url"];
+  function pickPriority(obj: any, prefix = "") {
+    if (!obj || typeof obj !== "object") return;
+    for (const key of VIDEO_KEYS) {
+      const val = obj[key];
+      if (typeof val === "string" && val.startsWith("http") && !seen.has(val)) {
+        seen.add(val);
+        if (!SKIP_DOMAINS.test(val)) {
+          const label = prefix ? `${prefix} · ${key}` : key;
+          results.push({ label, url: val });
+        }
       }
     }
-    if (item?.stream) results.push({ label: "stream", url: item.stream });
-    if (item?.download) results.push({ label: "download", url: item.download });
-    if (item?.url && !results.find((r) => r.url === item.url)) results.push({ label: "url", url: item.url! });
+    if (obj.resolutions && typeof obj.resolutions === "object") {
+      for (const [res, v] of Object.entries(obj.resolutions as Record<string, any>)) {
+        pickPriority(v, res);
+      }
+    }
   }
-  return results.filter((r) => r.url && (r.url.startsWith("http://") || r.url.startsWith("https://")));
+
+  const list: any[] = data?.response ?? data?.data?.list ?? data?.list ?? [];
+  if (Array.isArray(list) && list.length > 0) {
+    list.forEach((item, i) => pickPriority(item, list.length > 1 ? `arquivo ${i + 1}` : ""));
+  }
+  if (data?.data?.structure) pickPriority(data.data.structure);
+  if (results.length === 0) pickPriority(data);
+  if (results.length === 0) results.push(...deepScanUrls(data));
+
+  return results;
 }
 
 function TeraBoxRapidAPITab() {
   const insets = useSafeAreaInsets();
-  const [inputUrl, setInputUrl] = useState("https://teraboxapp.com/s/1EWkWY66FhZKS2WfxwBgd0Q");
+  const [inputUrl, setInputUrl] = useState("https://1024terabox.com/s/1Rwf7GWsDT6Wf_MrDeA4JNg");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rawJson, setRawJson] = useState<string | null>(null);
