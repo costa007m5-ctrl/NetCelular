@@ -219,6 +219,7 @@ export default function R2PlayerScreen() {
   const [retryCount, setRetryCount] = useState(0);
   const [autoRetryCountdown, setAutoRetryCountdown] = useState<number | null>(null);
   const autoRetryTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const teraboxTotalAttemptsRef = useRef(0);
   const [tbUploadState, setTbUploadState] = useState<{ jobId: string; progress: number; status: string; message: string } | null>(null);
   const tbPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [activeDriveOverride, setActiveDriveOverride] = useState<string | null>(null);
@@ -720,6 +721,7 @@ export default function R2PlayerScreen() {
     activeKeyRef.current = params.key ?? "";
     setRetryCount(0);
     setAutoRetryCountdown(null);
+    teraboxTotalAttemptsRef.current = 0;
     if (autoRetryTimerRef.current) { clearInterval(autoRetryTimerRef.current); autoRetryTimerRef.current = null; }
     loadVideoUrl();
   }, [params.key, params.registryItemId, params.flix2ItemUrl, params.driveItemId]);
@@ -741,6 +743,29 @@ export default function R2PlayerScreen() {
         });
       }, 1000);
     } else if (phase === "error" && retryCount === 1) {
+      // For TeraBox: keep auto-retrying (server gets fresh tokens on each call)
+      if (isTerabox) {
+        teraboxTotalAttemptsRef.current += 1;
+        const MAX_TB_RETRIES = 4;
+        if (teraboxTotalAttemptsRef.current <= MAX_TB_RETRIES) {
+          const delay = Math.min(5 + teraboxTotalAttemptsRef.current * 3, 15);
+          setAutoRetryCountdown(delay);
+          autoRetryTimerRef.current = setInterval(() => {
+            setAutoRetryCountdown((prev) => {
+              if (prev === null || prev <= 1) {
+                clearInterval(autoRetryTimerRef.current!);
+                autoRetryTimerRef.current = null;
+                setRetryCount(0);
+                loadVideoUrl();
+                return null;
+              }
+              return prev - 1;
+            });
+          }, 1000);
+        }
+        return;
+      }
+
       // After first retry failed, try fallback source if available
       const effectiveFlix2 = activeFlix2Override ?? (isFlix2 ? params.flix2ItemUrl! : null);
       const effectiveDriveId = activeDriveOverride ?? (isDrive ? params.driveItemId! : null);
@@ -1279,7 +1304,7 @@ export default function R2PlayerScreen() {
           </View>
         )}
         {videoUrl ? (
-          <video src={videoUrl} controls autoPlay style={{ width: "100%", height: "100%", backgroundColor: "#000", display: phase === "loading" ? "none" : "block" } as any} />
+          <video src={videoUrl} controls autoPlay style={{ width: "100%", height: "100%", backgroundColor: "#000", display: phase === "loading" ? "none" : "block" } as any} onError={() => { if (isTerabox && phase !== "error") { setPhase("error"); setErrorMsg("Stream TeraBox expirou — renovando token…"); setRetryCount(0); } }} />
         ) : null}
         <Pressable style={[styles.backBtn, { top: topPad + 8 }]} onPress={() => router.back()}>
           <Feather name="arrow-left" size={22} color="#fff" />

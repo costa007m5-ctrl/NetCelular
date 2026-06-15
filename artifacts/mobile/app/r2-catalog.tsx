@@ -3609,15 +3609,21 @@ function TeraBoxTestTab() {
   const [activeLabel, setActiveLabel] = useState("");
   const [videoError, setVideoError] = useState(false);
   const [reresolving, setReresolving] = useState(false);
+  const [reResolveCountdown, setReResolveCountdown] = useState<number | null>(null);
   const lastTbUrl = useRef("");
+  const reResolveAttemptsRef = useRef(0);
+  const reResolveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const doResolve = async (u: string): Promise<void> => {
     lastTbUrl.current = u;
+    reResolveAttemptsRef.current = 0;
     setLoading(true);
     setError(null);
     setActiveUrl(null);
     setFiles([]);
     setVideoError(false);
+    setReResolveCountdown(null);
+    if (reResolveTimerRef.current) { clearInterval(reResolveTimerRef.current); reResolveTimerRef.current = null; }
     try {
       const r = await callXApiverseDirect(u);
       if (r.list.length === 0) { setError("Nenhum arquivo encontrado"); return; }
@@ -3660,19 +3666,48 @@ function TeraBoxTestTab() {
     setVideoError(false);
   };
 
-  const handleVideoError = async () => {
-    if (reresolving || !lastTbUrl.current) { setVideoError(true); return; }
+  const MAX_AUTO_RERESOLVE = 4;
+
+  const doAutoReResolve = async () => {
+    if (!lastTbUrl.current) { setVideoError(true); return; }
+    reResolveAttemptsRef.current += 1;
     setReresolving(true);
     setVideoError(false);
+    setReResolveCountdown(null);
     try {
       const r = await callXApiverseDirect(lastTbUrl.current);
       if (r.list.length > 0) {
         const best = pickBestStream(r.list[selectedIdx] ?? r.list[0]);
-        if (best) { setActiveUrl(best.url); setActiveLabel(`${best.label} (re-resolve)`); return; }
+        if (best) {
+          setActiveUrl(best.url);
+          setActiveLabel(`${best.label} (auto-renovado)`);
+          setReresolving(false);
+          return;
+        }
       }
     } catch {}
     setReresolving(false);
-    setVideoError(true);
+    if (reResolveAttemptsRef.current < MAX_AUTO_RERESOLVE) {
+      let cd = 6;
+      setReResolveCountdown(cd);
+      reResolveTimerRef.current = setInterval(() => {
+        cd -= 1;
+        setReResolveCountdown(cd);
+        if (cd <= 0) {
+          if (reResolveTimerRef.current) { clearInterval(reResolveTimerRef.current); reResolveTimerRef.current = null; }
+          setReResolveCountdown(null);
+          doAutoReResolve();
+        }
+      }, 1000);
+    } else {
+      setVideoError(true);
+    }
+  };
+
+  const handleVideoError = () => {
+    if (reresolving || reResolveCountdown !== null) return;
+    if (!lastTbUrl.current) { setVideoError(true); return; }
+    doAutoReResolve();
   };
 
   const isHls = activeUrl?.includes("m3u8") ?? false;
@@ -3753,14 +3788,29 @@ function TeraBoxTestTab() {
           {reresolving && (
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10, backgroundColor: "rgba(245,158,11,0.08)", borderRadius: 8, padding: 8 }}>
               <ActivityIndicator size="small" color={TB_COLOR} />
-              <Text style={{ color: TB_COLOR, fontSize: 12 }}>Token expirado — buscando novo link…</Text>
+              <Text style={{ color: TB_COLOR, fontSize: 12, flex: 1 }}>Token expirado — buscando novo link… (tentativa {reResolveAttemptsRef.current}/{MAX_AUTO_RERESOLVE})</Text>
+            </View>
+          )}
+          {reResolveCountdown !== null && !reresolving && (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10, backgroundColor: "rgba(245,158,11,0.08)", borderRadius: 8, padding: 8 }}>
+              <View style={{ width: 24, height: 24, borderRadius: 12, borderWidth: 1.5, borderColor: TB_COLOR, alignItems: "center", justifyContent: "center" }}>
+                <Text style={{ color: TB_COLOR, fontSize: 11, fontWeight: "700" }}>{reResolveCountdown}</Text>
+              </View>
+              <Text style={{ color: TB_COLOR, fontSize: 12, flex: 1 }}>Renovando token automaticamente…</Text>
+              <Pressable onPress={() => {
+                if (reResolveTimerRef.current) { clearInterval(reResolveTimerRef.current); reResolveTimerRef.current = null; }
+                setReResolveCountdown(null);
+                doAutoReResolve();
+              }} style={{ backgroundColor: "rgba(245,158,11,0.2)", borderRadius: 6, paddingHorizontal: 10, paddingVertical: 5 }}>
+                <Text style={{ color: TB_COLOR, fontSize: 11, fontWeight: "700" }}>Agora</Text>
+              </Pressable>
             </View>
           )}
           {videoError && (
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10, backgroundColor: "rgba(248,113,113,0.08)", borderRadius: 8, padding: 8 }}>
               <Feather name="alert-circle" size={14} color="#f87171" />
-              <Text style={{ color: "#f87171", fontSize: 12, flex: 1 }}>Stream indisponível — token pode ter expirado ou IP bloqueado.</Text>
-              <Pressable onPress={() => lastTbUrl.current && doResolve(lastTbUrl.current)} style={{ backgroundColor: "rgba(245,158,11,0.2)", borderRadius: 6, paddingHorizontal: 10, paddingVertical: 5 }}>
+              <Text style={{ color: "#f87171", fontSize: 12, flex: 1 }}>Stream indisponível após {MAX_AUTO_RERESOLVE} tentativas. Token pode ter expirado ou IP bloqueado.</Text>
+              <Pressable onPress={() => { reResolveAttemptsRef.current = 0; setVideoError(false); doAutoReResolve(); }} style={{ backgroundColor: "rgba(245,158,11,0.2)", borderRadius: 6, paddingHorizontal: 10, paddingVertical: 5 }}>
                 <Text style={{ color: TB_COLOR, fontSize: 11, fontWeight: "700" }}>Re-resolver</Text>
               </Pressable>
             </View>
