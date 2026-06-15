@@ -301,6 +301,14 @@ export default function DetailScreen() {
   const [editEpisodes, setEditEpisodes] = useState<number | null>(null);
   const [editVoteAverage, setEditVoteAverage] = useState<number | null>(null);
 
+  const [flix2LinkQuery, setFlix2LinkQuery] = useState("");
+  const [flix2LinkCatalogType, setFlix2LinkCatalogType] = useState<"movies" | "series" | "animes">("movies");
+  const [flix2LinkResults, setFlix2LinkResults] = useState<Array<{ id: string; title: string; year: number; poster: string; stream_url: string | null }>>([]);
+  const [flix2LinkLoading, setFlix2LinkLoading] = useState(false);
+  const [flix2LinkSelected, setFlix2LinkSelected] = useState<{ id: string; title: string; poster: string; catalogType: string } | null>(null);
+  const [flix2LinkBusy, setFlix2LinkBusy] = useState(false);
+  const [flix2LinkDone, setFlix2LinkDone] = useState(false);
+
   const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null);
   const [convertingLinkId, setConvertingLinkId] = useState<string | null>(null);
   const [convertedLinks, setConvertedLinks] = useState<Record<string, string>>({});
@@ -1387,6 +1395,12 @@ export default function DetailScreen() {
     setEditSeasons(contentOverride?.number_of_seasons ?? null);
     setEditEpisodes(contentOverride?.number_of_episodes ?? null);
     setEditVoteAverage(contentOverride?.vote_average ?? null);
+    setFlix2LinkQuery("");
+    setFlix2LinkCatalogType(type === "movie" ? "movies" : "series");
+    setFlix2LinkResults([]);
+    setFlix2LinkSelected(null);
+    setFlix2LinkBusy(false);
+    setFlix2LinkDone(false);
     setShowEditModal(true);
     // Auto-busca dados do TMDB se já tem ID (para popular poster/backdrop mesmo que não estejam salvos)
     if (existingId) {
@@ -1489,6 +1503,69 @@ export default function DetailScreen() {
       setEditErr(e?.message ?? "Erro ao salvar. Verifique se a tabela content_overrides existe no Supabase.");
     } finally {
       setEditBusy(false);
+    }
+  };
+
+  const flix2LinkSearch = async () => {
+    const q = flix2LinkQuery.trim();
+    if (!q) return;
+    setFlix2LinkLoading(true);
+    setFlix2LinkResults([]);
+    setFlix2LinkSelected(null);
+    setFlix2LinkDone(false);
+    try {
+      const { r2Route } = await import("@/lib/r2-direct");
+      const data = await r2Route<{ results: any[]; total: number }>(
+        `/flix2/search?q=${encodeURIComponent(q)}&type=${flix2LinkCatalogType}&limit=30`
+      );
+      const results = (data.results ?? []).map((item: any) => ({
+        id: String(item.id),
+        title: item.title ?? item.name ?? "",
+        year: item.year ?? 0,
+        poster: item.poster ?? "",
+        stream_url: item.stream_url ?? null,
+      }));
+      setFlix2LinkResults(results);
+      if (results.length === 0) setEditErr("Nenhum resultado no Flix 2.0. Tente outro nome.");
+      else setEditErr(null);
+    } catch (e: any) {
+      setEditErr("Erro ao buscar no Flix 2.0: " + (e?.message ?? ""));
+    } finally {
+      setFlix2LinkLoading(false);
+    }
+  };
+
+  const saveNewFlix2Link = async () => {
+    if (!flix2LinkSelected) return;
+    setFlix2LinkBusy(true);
+    setEditErr(null);
+    try {
+      const { r2Route, apiGetRegistry } = await import("@/lib/r2-direct");
+      const { flix2Url } = await r2Route<{ flix2Url: string }>(
+        `/flix2/build-url?streamId=${flix2LinkSelected.id}&catalogType=${flix2LinkSelected.catalogType}`
+      );
+      const title = details?.title ?? details?.name ?? flix2LinkSelected.title;
+      await r2Route("/flix2/replace-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tmdbId: resolvedTmdbId || tmdbId,
+          tmdbType: type,
+          newFlix2Url: flix2Url,
+          title,
+        }),
+      });
+      const reg = await apiGetRegistry();
+      const fresh = (reg.items ?? []).filter(
+        (i: RegistryItem) => i.tmdbId === (resolvedTmdbId || tmdbId) && i.tmdbType === type
+      );
+      setR2Items(fresh);
+      setFlix2LinkDone(true);
+      setFlix2LinkResults([]);
+    } catch (e: any) {
+      setEditErr("Erro ao aplicar link: " + (e?.message ?? ""));
+    } finally {
+      setFlix2LinkBusy(false);
     }
   };
 
@@ -2219,6 +2296,133 @@ export default function DetailScreen() {
                       multiline
                       autoCorrect={false}
                     />
+                  )}
+                </View>
+
+                {/* ── Seção 5: Modificar Link de Vídeo (Flix 2.0) ── */}
+                <View style={{ gap: 8 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                    <Feather name="link" size={13} color="#f97316" />
+                    <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 13, fontWeight: "600" }}>Modificar Link de Vídeo (Flix 2.0)</Text>
+                  </View>
+
+                  {/* Tipo: Filme / Série / Anime */}
+                  <View style={{ flexDirection: "row", gap: 6 }}>
+                    {(["movies", "series", "animes"] as const).map((ct) => (
+                      <Pressable
+                        key={ct}
+                        onPress={() => { setFlix2LinkCatalogType(ct); setFlix2LinkResults([]); setFlix2LinkSelected(null); }}
+                        style={({ pressed }) => [{ flex: 1, paddingVertical: 6, borderRadius: 8, alignItems: "center", borderWidth: 1, backgroundColor: flix2LinkCatalogType === ct ? "rgba(249,115,22,0.15)" : "rgba(255,255,255,0.05)", borderColor: flix2LinkCatalogType === ct ? "rgba(249,115,22,0.55)" : "rgba(255,255,255,0.1)" }, pressed && { opacity: 0.7 }]}
+                      >
+                        <Text style={{ color: flix2LinkCatalogType === ct ? "#fb923c" : "rgba(255,255,255,0.4)", fontSize: 11, fontWeight: "600" }}>
+                          {ct === "movies" ? "🎬 Filme" : ct === "series" ? "📺 Série" : "🎌 Anime"}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+
+                  {/* Campo de busca + botão */}
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    <TextInput
+                      style={{ flex: 1, backgroundColor: "rgba(255,255,255,0.07)", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, color: "#fff", fontSize: 14, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)" }}
+                      placeholder="Nome do conteúdo no Flix 2.0…"
+                      placeholderTextColor="rgba(255,255,255,0.3)"
+                      value={flix2LinkQuery}
+                      onChangeText={setFlix2LinkQuery}
+                      onSubmitEditing={flix2LinkSearch}
+                      returnKeyType="search"
+                      autoCorrect={false}
+                    />
+                    <Pressable
+                      onPress={flix2LinkSearch}
+                      disabled={flix2LinkLoading || !flix2LinkQuery.trim()}
+                      style={({ pressed }) => [{ paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10, backgroundColor: "rgba(249,115,22,0.15)", borderWidth: 1, borderColor: "rgba(249,115,22,0.5)", justifyContent: "center", alignItems: "center" }, (pressed || !flix2LinkQuery.trim()) && { opacity: 0.5 }]}
+                    >
+                      {flix2LinkLoading
+                        ? <ActivityIndicator size={16} color="#fb923c" />
+                        : <Feather name="search" size={16} color="#fb923c" />}
+                    </Pressable>
+                  </View>
+
+                  {/* Resultados da busca */}
+                  {flix2LinkResults.length > 0 && (
+                    <View style={{ borderRadius: 12, borderWidth: 1, borderColor: "rgba(249,115,22,0.15)", backgroundColor: "rgba(249,115,22,0.04)", overflow: "hidden" }}>
+                      <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11, paddingHorizontal: 10, paddingTop: 8, paddingBottom: 4 }}>
+                        Toque para selecionar ({flix2LinkResults.length} resultados):
+                      </Text>
+                      <ScrollView
+                        style={{ maxHeight: 240 }}
+                        nestedScrollEnabled
+                        keyboardShouldPersistTaps="handled"
+                        showsVerticalScrollIndicator
+                        contentContainerStyle={{ padding: 8, paddingTop: 0, gap: 6 }}
+                      >
+                        {flix2LinkResults.map((res) => {
+                          const isSelected = flix2LinkSelected?.id === res.id;
+                          return (
+                            <Pressable
+                              key={res.id}
+                              onPress={() => setFlix2LinkSelected({ id: res.id, title: res.title, poster: res.poster, catalogType: flix2LinkCatalogType })}
+                              style={({ pressed }) => [{ flexDirection: "row", alignItems: "center", gap: 10, padding: 8, borderRadius: 10, backgroundColor: isSelected ? "rgba(249,115,22,0.12)" : "rgba(255,255,255,0.04)", borderWidth: 1, borderColor: isSelected ? "rgba(249,115,22,0.45)" : "rgba(255,255,255,0.07)" }, pressed && { opacity: 0.7 }]}
+                            >
+                              {res.poster ? (
+                                <Image source={{ uri: res.poster }} style={{ width: 36, height: 52, borderRadius: 5, backgroundColor: "#222" }} resizeMode="cover" />
+                              ) : (
+                                <View style={{ width: 36, height: 52, borderRadius: 5, backgroundColor: "#222", alignItems: "center", justifyContent: "center" }}>
+                                  <Feather name="film" size={15} color="rgba(255,255,255,0.3)" />
+                                </View>
+                              )}
+                              <View style={{ flex: 1, gap: 3 }}>
+                                <Text style={{ color: isSelected ? "#fb923c" : "#fff", fontWeight: "600", fontSize: 13 }} numberOfLines={2}>{res.title}</Text>
+                                <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                                  {res.year > 0 && <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11 }}>{res.year}</Text>}
+                                  <Text style={{ color: "rgba(255,255,255,0.25)", fontSize: 11 }}>ID: {res.id}</Text>
+                                </View>
+                              </View>
+                              {isSelected && <Feather name="check-circle" size={18} color="#fb923c" />}
+                            </Pressable>
+                          );
+                        })}
+                      </ScrollView>
+                    </View>
+                  )}
+
+                  {/* Card do item selecionado */}
+                  {flix2LinkSelected && flix2LinkResults.length === 0 && !flix2LinkDone && (
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 10, padding: 10, borderRadius: 10, backgroundColor: "rgba(249,115,22,0.08)", borderWidth: 1, borderColor: "rgba(249,115,22,0.3)" }}>
+                      {flix2LinkSelected.poster ? (
+                        <Image source={{ uri: flix2LinkSelected.poster }} style={{ width: 32, height: 46, borderRadius: 4, backgroundColor: "#222" }} resizeMode="cover" />
+                      ) : null}
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: "#fb923c", fontWeight: "700", fontSize: 13 }} numberOfLines={1}>{flix2LinkSelected.title}</Text>
+                        <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11 }}>ID: {flix2LinkSelected.id} · {flix2LinkSelected.catalogType}</Text>
+                      </View>
+                      <Feather name="check-circle" size={16} color="#fb923c" />
+                    </View>
+                  )}
+
+                  {/* Sucesso */}
+                  {flix2LinkDone && (
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(34,197,94,0.08)", padding: 10, borderRadius: 10, borderWidth: 1, borderColor: "rgba(34,197,94,0.3)" }}>
+                      <Feather name="check-circle" size={16} color="#4ade80" />
+                      <Text style={{ color: "#4ade80", fontSize: 13, fontWeight: "600" }}>Link atualizado com sucesso!</Text>
+                    </View>
+                  )}
+
+                  {/* Botão Aplicar Link */}
+                  {flix2LinkSelected && !flix2LinkDone && (
+                    <Pressable
+                      onPress={saveNewFlix2Link}
+                      disabled={flix2LinkBusy}
+                      style={({ pressed }) => [{ paddingVertical: 12, borderRadius: 10, alignItems: "center", backgroundColor: "#ea580c", flexDirection: "row", justifyContent: "center", gap: 7 }, (pressed || flix2LinkBusy) && { opacity: 0.7 }]}
+                    >
+                      {flix2LinkBusy
+                        ? <ActivityIndicator size="small" color="#fff" />
+                        : <>
+                            <Feather name="link" size={15} color="#fff" />
+                            <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14 }}>Aplicar Link Selecionado</Text>
+                          </>}
+                    </Pressable>
                   )}
                 </View>
 

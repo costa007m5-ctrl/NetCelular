@@ -897,6 +897,8 @@ const SERVER_ONLY_ROUTES = new Set([
   "/flix2/cinema-2026",
   "/flix2/warm-status",
   "/flix2/stats",
+  "/flix2/build-url",
+  "/flix2/replace-link",
   "/source-settings",
 ]);
 

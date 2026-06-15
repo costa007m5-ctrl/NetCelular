@@ -2065,6 +2065,82 @@ router.post("/flix2/register", async (req, res) => {
   }
 });
 
+// ── GET /flix2/build-url — build a playable flix2Url from a catalog stream ID ─
+// Constructs the URL server-side so credentials never leave the server.
+// catalogType: "movies" | "series" | "animes"
+router.get("/flix2/build-url", (req, res) => {
+  const { streamId, catalogType } = req.query as Record<string, string>;
+  if (!streamId || !catalogType) {
+    res.status(400).json({ error: "streamId e catalogType são obrigatórios" }); return;
+  }
+  let flix2Url: string;
+  if (catalogType === "movies") {
+    const ext = (() => {
+      const c = FULL_CATALOG_CACHE.get("movies");
+      if (c) { const i = c.data.find((x: any) => String(x.id) === streamId); if (i?.container_extension) return i.container_extension; }
+      const r = XTREAM_RAW_CACHE.get("movies");
+      if (r) { const i = r.items.find((x: any) => String(x.stream_id ?? x.num) === streamId); if (i?.container_extension) return i.container_extension; }
+      return "mp4";
+    })();
+    flix2Url = `${FLIX2_SERVER}/movie/${FLIX2_USER}/${FLIX2_PASS}/${streamId}.${ext}`;
+  } else {
+    flix2Url = `${FLIX2_SERVER}/player_api.php?username=${FLIX2_USER}&password=${FLIX2_PASS}&action=get_series_info&series_id=${streamId}`;
+  }
+  res.json({ ok: true, flix2Url });
+});
+
+// ── POST /flix2/replace-link — replace all flix2Url entries for a content item ─
+// Finds all registry items matching tmdbId+tmdbType with a flix2Url and updates
+// the first one to the new URL (removing duplicates). Adds a new entry if none exist.
+router.post("/flix2/replace-link", async (req, res) => {
+  try {
+    const { tmdbId, tmdbType, newFlix2Url, title, label } = req.body ?? {};
+    if (!newFlix2Url || !tmdbType || !title) {
+      res.status(400).json({ error: "newFlix2Url, tmdbType e title são obrigatórios" }); return;
+    }
+    const client = getClient();
+    const bucket = getBucket();
+    const registry = await readRegistry(client, bucket);
+    const id = Number(tmdbId) || 0;
+
+    const existingIdxs: number[] = [];
+    registry.items.forEach((item, i) => {
+      if (item.tmdbId === id && item.tmdbType === tmdbType && !!item.flix2Url) {
+        existingIdxs.push(i);
+      }
+    });
+
+    if (existingIdxs.length > 0) {
+      registry.items[existingIdxs[0]] = {
+        ...registry.items[existingIdxs[0]],
+        flix2Url: String(newFlix2Url),
+        title: String(title),
+        label: String(label ?? registry.items[existingIdxs[0]].label ?? "HD"),
+      };
+      const toRemove = new Set(existingIdxs.slice(1));
+      registry.items = registry.items.filter((_, i) => !toRemove.has(i));
+    } else {
+      registry.items.push({
+        id: crypto.randomUUID(),
+        r2Key: "",
+        flix2Url: String(newFlix2Url),
+        tmdbId: id,
+        tmdbType: tmdbType as "movie" | "tv",
+        title: String(title),
+        label: String(label ?? "HD"),
+        season: null,
+        episode: null,
+        addedAt: new Date().toISOString(),
+      } as any);
+    }
+
+    await writeRegistry(client, bucket, registry);
+    res.json({ ok: true, updated: existingIdxs.length > 0, newFlix2Url });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "error" });
+  }
+});
+
 // ── Source Settings (global on/off per source, stored in R2) ─────────────────
 
 interface SourceSettings {
