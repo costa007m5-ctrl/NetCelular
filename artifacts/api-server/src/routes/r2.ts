@@ -60,6 +60,11 @@ interface TeraBoxCacheEntry { list: any[]; expiresAt: number; }
 const teraboxListCache = new Map<string, TeraBoxCacheEntry>();
 const teraboxListInFlight = new Map<string, Promise<any[]>>();
 
+// Retry detection: if the same item ID is requested again within 30s it likely
+// means the player failed on the first URL. Force a fresh xAPIverse call.
+const TERABOX_RETRY_WINDOW_MS = 30_000;
+const teraboxLastRequested = new Map<string, number>(); // itemId → timestamp
+
 async function fetchTeraBoxList(normalizedUrl: string, forceRefresh = false): Promise<any[]> {
   // Cache hit (skip if forceRefresh)
   if (!forceRefresh) {
@@ -1332,41 +1337,44 @@ router.get("/terabox/play", async (req, res) => {
 
     if (!streamUrl) { res.status(404).json({ error: "URL de stream não disponível" }); return; }
 
-    // ── m3u8 URL health check + auto cache-bust ───────────────────────────────
-    // Some xAPIverse CF Worker instances return empty m3u8 bodies for certain
-    // files in the list (observed for ep2+). If we detect an empty m3u8,
-    // invalidate the cache and retry once with a fresh xAPIverse call.
-    let usedFreshFetch = false;
-    if (urlType === "fast_stream_url" && streamUrl) {
-      const isValid = await verifyM3u8Url(streamUrl);
-      if (!isValid) {
-        // Bust cache and re-fetch from xAPIverse
-        teraboxListCache.delete(normalizedUrl);
-        const freshList = await fetchTeraBoxList(normalizedUrl, true);
-        // Re-find the file in the fresh list
-        let freshFile: any;
-        if (item.fileName) freshFile = freshList.find((f: any) => f.name === item.fileName);
-        if (!freshFile) {
-          const idx = typeof item.fileIndex === "number" && item.fileIndex < freshList.length ? item.fileIndex : 0;
-          freshFile = freshList[idx];
-        }
-        if (freshFile) {
-          file = freshFile;
-          streamUrl = null;
-          urlType = "fast_dlink";
-          if (file.fast_stream_url && typeof file.fast_stream_url === "object") {
-            const qualityOrder = ["1080p", "720p", "480p", "360p", "240p"];
-            for (const q of qualityOrder) {
-              if (file.fast_stream_url[q]) { streamUrl = file.fast_stream_url[q]; urlType = "fast_stream_url"; break; }
-            }
-            if (!streamUrl) {
-              const vals = Object.values(file.fast_stream_url) as string[];
-              if (vals.length > 0) { streamUrl = vals[0]; urlType = "fast_stream_url"; }
-            }
+    // ── Retry detection: bust cache if player likely failed on last URL ────────
+    // CF Worker tokens are single-use. Fetching them server-side to "verify"
+    // would consume the token. Instead, detect retries by checking if the same
+    // item was requested recently (within 30s = player auto-retry window).
+    const now = Date.now();
+    const lastReq = teraboxLastRequested.get(id);
+    const isRetry = lastReq !== undefined && (now - lastReq) < TERABOX_RETRY_WINDOW_MS;
+    teraboxLastRequested.set(id, now);
+    // Prune stale entries to avoid unbounded growth
+    if (teraboxLastRequested.size > 500) {
+      const cutoff = now - TERABOX_RETRY_WINDOW_MS * 2;
+      for (const [k, t] of teraboxLastRequested) { if (t < cutoff) teraboxLastRequested.delete(k); }
+    }
+
+    if (isRetry && urlType === "fast_stream_url") {
+      // Player failed on the previous URL from this cached list — get a fresh list
+      teraboxListCache.delete(normalizedUrl);
+      const freshList = await fetchTeraBoxList(normalizedUrl, true);
+      let freshFile: any;
+      if (item.fileName) freshFile = freshList.find((f: any) => f.name === item.fileName);
+      if (!freshFile) {
+        const idx = typeof item.fileIndex === "number" && item.fileIndex < freshList.length ? item.fileIndex : 0;
+        freshFile = freshList[idx];
+      }
+      if (freshFile) {
+        file = freshFile;
+        streamUrl = null; urlType = "fast_dlink";
+        if (file.fast_stream_url && typeof file.fast_stream_url === "object") {
+          const qualityOrder = ["1080p", "720p", "480p", "360p", "240p"];
+          for (const q of qualityOrder) {
+            if (file.fast_stream_url[q]) { streamUrl = file.fast_stream_url[q]; urlType = "fast_stream_url"; break; }
           }
-          if (!streamUrl && file.fast_dlink) { streamUrl = file.fast_dlink; urlType = "fast_dlink"; }
-          usedFreshFetch = true;
+          if (!streamUrl) {
+            const vals = Object.values(file.fast_stream_url) as string[];
+            if (vals.length > 0) { streamUrl = vals[0]; urlType = "fast_stream_url"; }
+          }
         }
+        if (!streamUrl && file.fast_dlink) { streamUrl = file.fast_dlink; urlType = "fast_dlink"; }
       }
     }
     // ─────────────────────────────────────────────────────────────────────────
@@ -1390,7 +1398,6 @@ router.get("/terabox/play", async (req, res) => {
       size: file.size_formatted,
       fast_stream_url: qualityMap,
       thumbnail: file.thumbnail ?? null,
-      _freshFetch: usedFreshFetch || undefined,
     });
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? "error" });
