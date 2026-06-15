@@ -7336,32 +7336,26 @@ function DiagnosePanel() {
   const [suppressedUrls, setSuppressedUrls] = useState<Set<string>>(new Set());
   const [suppressing, setSuppressing] = useState<Set<string>>(new Set());
 
-  const fetchSuppressions = useCallback(async (base: string) => {
+  const fetchSuppressions = useCallback(async () => {
     try {
-      const r = await fetch(`${base}/flix2/suppress`);
-      const j = await r.json();
-      if (j.ok) setSuppressedUrls(new Set((j.suppressions as Array<{ url: string }>).map((s) => s.url)));
+      const j = await apiFetch<{ ok: boolean; suppressions: Array<{ url: string }> }>("/flix2/suppress");
+      if (j.ok) setSuppressedUrls(new Set(j.suppressions.map((s) => s.url)));
     } catch {}
   }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
-    const [sig, clear] = mkAbort(30000);
     try {
-      const base = getApiBase();
-      if (!base) throw new Error("API server não configurado");
-      const [diagRes] = await Promise.all([
-        fetch(`${base}/flix2/diagnose?limit=200`, { signal: sig }),
-        fetchSuppressions(base),
+      const [j] = await Promise.all([
+        apiFetch<DiagnoseData>("/flix2/diagnose?limit=200"),
+        fetchSuppressions(),
       ]);
-      const j = await diagRes.json();
-      if (!j.ok) throw new Error(j.error ?? "Erro desconhecido");
+      if (!j.ok) throw new Error("Erro ao analisar catálogo");
       setData(j);
     } catch (e: any) {
       setError(e.message ?? String(e));
     } finally {
-      clear();
       setLoading(false);
     }
   }, [fetchSuppressions]);
@@ -7369,8 +7363,6 @@ function DiagnosePanel() {
   useEffect(() => { load(); }, [load]);
 
   const handleSuppress = useCallback(async (url: string, title: string) => {
-    const base = getApiBase();
-    if (!base) return;
     Alert.alert(
       "Suprimir URL",
       `"${title}" (e todos os títulos com a mesma URL) será excluído dos resultados de busca do Flix 2.0.\n\nIsso não remove o conteúdo do catálogo — apenas impede que apareça no detail screen. Pode ser revertido a qualquer momento.`,
@@ -7382,12 +7374,11 @@ function DiagnosePanel() {
           onPress: async () => {
             setSuppressing((prev) => new Set([...prev, url]));
             try {
-              const r = await fetch(`${base}/flix2/suppress`, {
+              const j = await r2Route<{ ok: boolean }>("/flix2/suppress", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ url, reason: `Admin suprimido via diagnose — ${title}` }),
               });
-              const j = await r.json();
               if (j.ok) setSuppressedUrls((prev) => new Set([...prev, url]));
             } catch {}
             setSuppressing((prev) => { const s = new Set(prev); s.delete(url); return s; });
@@ -7398,16 +7389,13 @@ function DiagnosePanel() {
   }, []);
 
   const handleUnSuppress = useCallback(async (url: string) => {
-    const base = getApiBase();
-    if (!base) return;
     setSuppressing((prev) => new Set([...prev, url]));
     try {
-      const r = await fetch(`${base}/flix2/suppress`, {
+      const j = await r2Route<{ ok: boolean }>("/flix2/suppress", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url }),
       });
-      const j = await r.json();
       if (j.ok) setSuppressedUrls((prev) => { const s = new Set(prev); s.delete(url); return s; });
     } catch {}
     setSuppressing((prev) => { const s = new Set(prev); s.delete(url); return s; });
