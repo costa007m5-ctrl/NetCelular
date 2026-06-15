@@ -3914,21 +3914,36 @@ function TeraBoxRapidAPITab() {
           <View style={styles.sectionTitleRow}>
             <Feather name="monitor" size={14} color="#4ade80" />
             <Text style={[styles.sectionTitle, { color: "#4ade80" }]}>Player — {activeLabel}</Text>
+            <View style={{ marginLeft: "auto", backgroundColor: activeVideoUrl.includes("m3u8") ? "rgba(139,92,246,0.2)" : "rgba(34,197,94,0.15)", borderRadius: 5, paddingHorizontal: 7, paddingVertical: 2, borderWidth: 1, borderColor: activeVideoUrl.includes("m3u8") ? "rgba(139,92,246,0.4)" : "rgba(34,197,94,0.3)" }}>
+              <Text style={{ color: activeVideoUrl.includes("m3u8") ? "#a78bfa" : "#4ade80", fontSize: 10, fontWeight: "700" }}>{activeVideoUrl.includes("m3u8") ? "HLS" : "MP4"}</Text>
+            </View>
           </View>
           <Text style={{ color: "rgba(255,255,255,0.25)", fontSize: 10, marginBottom: 10 }} numberOfLines={2}>{activeVideoUrl}</Text>
           <View style={{ borderRadius: 10, overflow: "hidden", backgroundColor: "#000", aspectRatio: 16 / 9, marginBottom: 8 }}>
             {Platform.OS === "web" ? (
-              <video
-                key={activeVideoUrl}
-                src={activeVideoUrl}
-                controls
-                autoPlay={false}
-                style={{ width: "100%", height: "100%", objectFit: "contain" } as any}
-              />
+              activeVideoUrl.includes("m3u8") ? (
+                <iframe
+                  key={activeVideoUrl}
+                  srcDoc={`<!DOCTYPE html><html><head><style>*{margin:0;padding:0;box-sizing:border-box}body{background:#000;overflow:hidden}video{width:100vw;height:100vh;object-fit:contain;display:block}</style></head><body><video id="v" controls playsinline></video><script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.13/dist/hls.min.js"><\/script><script>var v=document.getElementById('v'),src="${activeVideoUrl.replace(/"/g, '\\"')}";if(typeof Hls!=='undefined'&&Hls.isSupported()){var h=new Hls({enableWorker:false,maxBufferLength:20});h.loadSource(src);h.attachMedia(v);h.on(Hls.Events.MANIFEST_PARSED,function(){v.play&&v.play().catch(function(){})});}else if(v.canPlayType('application/vnd.apple.mpegurl')){v.src=src;}<\/script></body></html>`}
+                  style={{ width: "100%", height: "100%", border: "none" } as any}
+                  allow="autoplay"
+                  sandbox="allow-scripts allow-same-origin"
+                />
+              ) : (
+                <video
+                  key={activeVideoUrl}
+                  src={activeVideoUrl}
+                  controls
+                  autoPlay={false}
+                  style={{ width: "100%", height: "100%", objectFit: "contain" } as any}
+                />
+              )
             ) : (
               <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 12 }}>
                 <Feather name="play-circle" size={48} color={RAPID_COLOR} />
-                <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 13, textAlign: "center" }}>URL resolvida com sucesso</Text>
+                <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 13, textAlign: "center" }}>
+                  {activeVideoUrl.includes("m3u8") ? "Stream HLS detectado" : "URL de vídeo resolvida"}
+                </Text>
                 <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 10, textAlign: "center", paddingHorizontal: 20 }} numberOfLines={3}>{activeVideoUrl}</Text>
               </View>
             )}
