@@ -30,7 +30,7 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
-import type { ContentRequest } from "@/lib/supabase";
+import type { ContentRequest, ContentReport } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { sendPushNotificationsToTokens, sendContentAddedNotification, sendPushViaServer } from "@/lib/notifications";
 import { TMDB_IMG, getApiBase, setApiDomain, getApiDomainDisplay } from "@/lib/api";
@@ -547,8 +547,10 @@ export default function AdminScreen() {
   const [driveTestLoading, setDriveTestLoading] = useState(false);
 
   const [contentRequests, setContentRequests] = useState<ContentRequest[]>([]);
+  const [contentReports, setContentReports] = useState<ContentReport[]>([]);
   const [pendingCount, setPendingCount] = useState(0);
   const [addingContent, setAddingContent] = useState<string | null>(null);
+  const [resolvingReport, setResolvingReport] = useState<string | null>(null);
 
   const [tokenCount, setTokenCount] = useState<number | null>(null);
   const [sendingTest, setSendingTest] = useState(false);
@@ -568,9 +570,15 @@ export default function AdminScreen() {
   const loadRequests = useCallback(async () => {
     if (!isSupabaseConfigured) return;
     try {
-      const all = await db.contentRequests.getAll();
+      const [all, reports] = await Promise.all([
+        db.contentRequests.getAll(),
+        db.contentReports.getAll(),
+      ]);
       setContentRequests(all);
-      setPendingCount(all.filter((r) => r.status === "pending").length);
+      setContentReports(reports);
+      const pendingReqs = all.filter((r) => r.status === "pending").length;
+      const pendingReps = reports.filter((r) => r.status === "pending").length;
+      setPendingCount(pendingReqs + pendingReps);
     } catch {}
   }, []);
 
@@ -638,6 +646,16 @@ export default function AdminScreen() {
         .finally(() => setLogsLoading(false));
     }
   }, [activeTab, loadRequests, loadTokenCount, loadPushLog]);
+
+  const handleMarkAsResolved = async (reportId: string) => {
+    setResolvingReport(reportId);
+    try {
+      await db.contentReports.markResolved(reportId);
+      setContentReports((prev) => prev.map((r) => r.id === reportId ? { ...r, status: "resolved" } : r));
+      setPendingCount((prev) => Math.max(0, prev - 1));
+    } catch {}
+    finally { setResolvingReport(null); }
+  };
 
   const handleMarkAsAdded = async (tmdbId: number, type: "movie" | "tv", title: string) => {
     const key = `${type}_${tmdbId}`;
@@ -1815,6 +1833,118 @@ export default function AdminScreen() {
                   });
               })()
             )}
+
+            {/* ── CONTEÚDOS REPORTADOS ── */}
+            <View style={styles.sectionHeader}>
+              <Text style={[styles.sectionLabel, { color: colors.mutedForeground, marginTop: 20 }]}>
+                CONTEÚDOS REPORTADOS
+              </Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                {contentReports.filter((r) => r.status === "pending").length > 0 && (
+                  <View style={{ backgroundColor: "#f97316", borderRadius: 10, paddingHorizontal: 7, paddingVertical: 2 }}>
+                    <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>{contentReports.filter((r) => r.status === "pending").length}</Text>
+                  </View>
+                )}
+                <Pressable onPress={loadRequests} style={[styles.refreshBtn, { backgroundColor: colors.card }]}>
+                  <Feather name="refresh-cw" size={14} color="#f97316" />
+                  <Text style={[styles.refreshText, { color: "#f97316" }]}>Atualizar</Text>
+                </Pressable>
+              </View>
+            </View>
+
+            <View style={[styles.infoBox, { backgroundColor: "#f9731610", borderColor: "#f9731630", marginBottom: 12 }]}>
+              <Feather name="alert-triangle" size={15} color="#fb923c" />
+              <Text style={[styles.infoBoxText, { color: colors.mutedForeground, flex: 1 }]}>
+                Quando um usuário clica em "Conteúdo Errado" na sinopse, o reporte aparece aqui para você corrigir.
+              </Text>
+            </View>
+
+            {contentReports.length === 0 ? (
+              <View style={[styles.emptyBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <Feather name="check-circle" size={32} color={colors.mutedForeground} />
+                <Text style={[styles.emptyTxt, { color: colors.mutedForeground }]}>
+                  Nenhum reporte pendente
+                </Text>
+              </View>
+            ) : (
+              contentReports.map((report) => {
+                const isPending = report.status === "pending";
+                const isResolving = resolvingReport === report.id;
+                const posterUri = report.poster_path ? TMDB_IMG(report.poster_path, "w500") : null;
+                const reasonColors: Record<string, string> = {
+                  wrong_content: "#f97316",
+                  not_working: "#ef4444",
+                  wrong_audio_sub: "#a78bfa",
+                  other: "#6b7280",
+                };
+                const rColor = reasonColors[report.reason] ?? "#6b7280";
+                return (
+                  <View key={report.id ?? report.created_at} style={[styles.requestCard, { backgroundColor: colors.card, borderColor: isPending ? `${rColor}40` : "#4caf5040" }]}>
+                    {posterUri ? (
+                      <Image source={{ uri: posterUri }} style={styles.requestPoster} resizeMode="cover" />
+                    ) : (
+                      <View style={[styles.requestPoster, { backgroundColor: colors.border, alignItems: "center", justifyContent: "center" }]}>
+                        <Feather name="film" size={20} color={colors.mutedForeground} />
+                      </View>
+                    )}
+                    <View style={{ flex: 1, gap: 4 }}>
+                      <Text style={[styles.requestTitle, { color: colors.foreground }]} numberOfLines={2}>{report.title}</Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                        <View style={[styles.typeBadge, { backgroundColor: `${rColor}20`, borderColor: `${rColor}40` }]}>
+                          <Feather name="alert-triangle" size={10} color={rColor} />
+                          <Text style={[styles.typeTxt, { color: rColor }]}>{report.reason_label}</Text>
+                        </View>
+                        <View style={[styles.typeBadge, { backgroundColor: report.type === "movie" ? "#3b82f620" : "#8b5cf620", borderColor: report.type === "movie" ? "#3b82f640" : "#8b5cf640" }]}>
+                          <Text style={[styles.typeTxt, { color: report.type === "movie" ? "#3b82f6" : "#8b5cf6" }]}>{report.type === "movie" ? "Filme" : "Série"}</Text>
+                        </View>
+                      </View>
+                      {report.created_at && (
+                        <Text style={{ color: colors.mutedForeground, fontSize: 11 }}>
+                          {new Date(report.created_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+                        </Text>
+                      )}
+                      {isPending ? (
+                        <TouchableOpacity
+                          style={[styles.addBtn, { backgroundColor: isResolving ? colors.border : "#16a34a", opacity: isResolving ? 0.7 : 1, marginTop: 4 }]}
+                          onPress={() => report.id && handleMarkAsResolved(report.id)}
+                          disabled={isResolving}
+                        >
+                          <Feather name={isResolving ? "loader" : "check-circle"} size={13} color="#fff" />
+                          <Text style={styles.addBtnTxt}>{isResolving ? "Resolvendo..." : "Marcar como resolvido"}</Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <View style={styles.addedBadge}>
+                          <Feather name="check-circle" size={13} color="#4caf50" />
+                          <Text style={[styles.addedTxt, { color: "#4caf50" }]}>Resolvido</Text>
+                        </View>
+                      )}
+                    </View>
+                  </View>
+                );
+              })
+            )}
+
+            <View style={[styles.infoBox, { backgroundColor: "#fbbf2410", borderColor: "#fbbf2430", marginTop: 16 }]}>
+              <Feather name="database" size={16} color={GOLD} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.infoBoxTitle, { color: GOLD }]}>Setup Supabase para reports</Text>
+                <Text style={[styles.infoBoxText, { color: colors.mutedForeground }]}>
+                  Execute este SQL no Supabase para ativar os reports de conteúdo:
+                </Text>
+                <TouchableOpacity
+                  style={[styles.copyBtn, { backgroundColor: colors.card, borderColor: colors.border, marginTop: 8 }]}
+                  onPress={() => {
+                    const sql = `CREATE TABLE IF NOT EXISTS content_reports (\n  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,\n  user_id UUID NOT NULL,\n  tmdb_id INTEGER NOT NULL,\n  type TEXT NOT NULL,\n  title TEXT NOT NULL,\n  poster_path TEXT,\n  reason TEXT NOT NULL,\n  reason_label TEXT NOT NULL,\n  status TEXT NOT NULL DEFAULT 'pending',\n  created_at TIMESTAMPTZ DEFAULT NOW()\n);\nALTER TABLE content_reports ENABLE ROW LEVEL SECURITY;\nDROP POLICY IF EXISTS "public_content_reports" ON content_reports;\nCREATE POLICY "public_content_reports"\n  ON content_reports FOR ALL\n  USING (true) WITH CHECK (true);`;
+                    Clipboard.setString(sql);
+                    Alert.alert("Copiado!", "Cole o SQL no Supabase → SQL Editor e clique em Run.");
+                  }}
+                >
+                  <Feather name="copy" size={13} color={GOLD} />
+                  <Text style={[styles.copyBtnTxt, { color: GOLD }]}>Copiar SQL de setup</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
           </>
         )}
 

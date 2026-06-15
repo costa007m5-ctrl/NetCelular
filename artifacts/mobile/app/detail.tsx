@@ -33,7 +33,7 @@ import type { TmdbItem, TmdbEpisode, TmdbSeason } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
 import { addCatalogWatch, removeCatalogWatch, isWatchingCatalog } from "@/lib/catalog-watch";
-import type { ContentOverride, WatchProgress } from "@/lib/supabase";
+import type { ContentOverride, WatchProgress, ContentReport } from "@/lib/supabase";
 import type { ContentItem } from "@/constants/content";
 import { searchDriveByTitle, getDriveSeasonEpisodes, DriveMatch } from "@/lib/gdrive-search";
 import { DriveItem, parseEpisodeInfo } from "@/lib/gdrive-index";
@@ -251,6 +251,10 @@ export default function DetailScreen() {
   const [watchProgress, setWatchProgress] = useState<WatchProgress | null>(null);
   const [unavailableVisible, setUnavailableVisible] = useState(false);
   const [indicated, setIndicated] = useState(false);
+  const [reportModalVisible, setReportModalVisible] = useState(false);
+  const [reportReason, setReportReason] = useState<ContentReport["reason"] | null>(null);
+  const [reportBusy, setReportBusy] = useState(false);
+  const [reportDone, setReportDone] = useState(false);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [collectionData, setCollectionData] = useState<{ id: number; name: string; parts: any[] } | null>(null);
   const [loadingCollection, setLoadingCollection] = useState(false);
@@ -1279,6 +1283,30 @@ export default function DetailScreen() {
     }
   };
 
+  const handleReport = async () => {
+    if (!reportReason) return;
+    setReportBusy(true);
+    const reasonLabels: Record<ContentReport["reason"], string> = {
+      wrong_content: "Conteúdo incorreto (vídeo errado)",
+      not_working: "Não está funcionando",
+      wrong_audio_sub: "Áudio/legenda errado",
+      other: "Outro problema",
+    };
+    if (userId && details) {
+      await db.contentReports.add({
+        user_id: userId,
+        tmdb_id: tmdbId,
+        type,
+        title: details.title ?? details.name ?? params.title ?? "",
+        poster_path: effectivePosterPath ?? undefined,
+        reason: reportReason,
+        reason_label: reasonLabels[reportReason],
+      });
+    }
+    setReportBusy(false);
+    setReportDone(true);
+  };
+
   const handleIndicate = async () => {
     setIndicated(true);
     setUnavailableVisible(false);
@@ -1798,6 +1826,85 @@ export default function DetailScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <StatusBar style="light" />
+
+      {/* ── MODAL: Conteúdo Errado ── */}
+      <Modal
+        visible={reportModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => { setReportModalVisible(false); setReportDone(false); }}
+      >
+        <Pressable style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end" }} onPress={() => setReportModalVisible(false)}>
+          <Pressable onPress={(e) => e.stopPropagation()} style={{ backgroundColor: "#1a1a1a", borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 24, paddingBottom: 36, gap: 16 }}>
+            {reportDone ? (
+              <View style={{ alignItems: "center", gap: 12, paddingVertical: 16 }}>
+                <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: "rgba(34,197,94,0.15)", alignItems: "center", justifyContent: "center" }}>
+                  <Feather name="check-circle" size={28} color="#4ade80" />
+                </View>
+                <Text style={{ color: "#fff", fontSize: 17, fontWeight: "700", textAlign: "center" }}>Obrigado pelo feedback!</Text>
+                <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 14, textAlign: "center", lineHeight: 20 }}>Nosso time vai revisar e corrigir o conteúdo em breve.</Text>
+                <Pressable onPress={() => { setReportModalVisible(false); }} style={{ marginTop: 8, paddingVertical: 12, paddingHorizontal: 32, borderRadius: 12, backgroundColor: "rgba(255,255,255,0.1)" }}>
+                  <Text style={{ color: "#fff", fontWeight: "600" }}>Fechar</Text>
+                </Pressable>
+              </View>
+            ) : (
+              <>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                  <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(239,68,68,0.15)", alignItems: "center", justifyContent: "center" }}>
+                    <Feather name="alert-triangle" size={18} color="#f87171" />
+                  </View>
+                  <View>
+                    <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700" }}>Reportar Problema</Text>
+                    <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }} numberOfLines={1}>{details?.title ?? details?.name ?? ""}</Text>
+                  </View>
+                </View>
+
+                <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 13 }}>Qual é o problema?</Text>
+
+                {(
+                  [
+                    { key: "wrong_content" as const, icon: "shuffle", label: "Conteúdo incorreto", desc: "O vídeo que está tocando não é o correto" },
+                    { key: "not_working" as const, icon: "wifi-off", label: "Não está funcionando", desc: "O vídeo não carrega ou dá erro" },
+                    { key: "wrong_audio_sub" as const, icon: "mic-off", label: "Áudio/legenda errado", desc: "Idioma, dublagem ou legenda incorretos" },
+                    { key: "other" as const, icon: "more-horizontal", label: "Outro problema", desc: "Qualquer outro problema com este conteúdo" },
+                  ] as { key: ContentReport["reason"]; icon: string; label: string; desc: string }[]
+                ).map((opt) => {
+                  const isSelected = reportReason === opt.key;
+                  return (
+                    <Pressable
+                      key={opt.key}
+                      onPress={() => setReportReason(opt.key)}
+                      style={({ pressed }) => [{ flexDirection: "row", alignItems: "center", gap: 12, padding: 12, borderRadius: 12, borderWidth: 1.5, backgroundColor: isSelected ? "rgba(239,68,68,0.1)" : "rgba(255,255,255,0.04)", borderColor: isSelected ? "rgba(239,68,68,0.5)" : "rgba(255,255,255,0.1)" }, pressed && { opacity: 0.7 }]}
+                    >
+                      <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: isSelected ? "rgba(239,68,68,0.2)" : "rgba(255,255,255,0.08)", alignItems: "center", justifyContent: "center" }}>
+                        <Feather name={opt.icon as any} size={17} color={isSelected ? "#f87171" : "rgba(255,255,255,0.5)"} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: isSelected ? "#fca5a5" : "#fff", fontWeight: "600", fontSize: 14 }}>{opt.label}</Text>
+                        <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 12, marginTop: 1 }}>{opt.desc}</Text>
+                      </View>
+                      {isSelected && <Feather name="check-circle" size={18} color="#f87171" />}
+                    </Pressable>
+                  );
+                })}
+
+                <Pressable
+                  onPress={handleReport}
+                  disabled={!reportReason || reportBusy}
+                  style={({ pressed }) => [{ paddingVertical: 14, borderRadius: 12, alignItems: "center", flexDirection: "row", justifyContent: "center", gap: 8, backgroundColor: reportReason ? "#dc2626" : "rgba(255,255,255,0.08)" }, (pressed || reportBusy || !reportReason) && { opacity: 0.6 }]}
+                >
+                  {reportBusy
+                    ? <ActivityIndicator size="small" color="#fff" />
+                    : <>
+                        <Feather name="send" size={15} color={reportReason ? "#fff" : "rgba(255,255,255,0.3)"} />
+                        <Text style={{ color: reportReason ? "#fff" : "rgba(255,255,255,0.3)", fontWeight: "700", fontSize: 15 }}>Enviar Reporte</Text>
+                      </>}
+                </Pressable>
+              </>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {/* Not available modal */}
       <Modal
@@ -2920,6 +3027,22 @@ export default function DetailScreen() {
                     <Text style={[styles.description, { color: colors.foreground }]}>{overview}</Text>
                   ) : (
                     <Text style={{ color: colors.mutedForeground }}>Sem descrição disponível.</Text>
+                  )}
+
+                  {/* ── Botão Conteúdo Errado ── */}
+                  {!reportDone ? (
+                    <Pressable
+                      onPress={() => { setReportReason(null); setReportModalVisible(true); }}
+                      style={({ pressed }) => [{ flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start", paddingVertical: 5, paddingHorizontal: 10, borderRadius: 20, borderWidth: 1, borderColor: "rgba(239,68,68,0.35)", backgroundColor: "rgba(239,68,68,0.07)" }, pressed && { opacity: 0.7 }]}
+                    >
+                      <Feather name="alert-triangle" size={12} color="#f87171" />
+                      <Text style={{ color: "#f87171", fontSize: 12, fontWeight: "600" }}>Conteúdo Errado</Text>
+                    </Pressable>
+                  ) : (
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start", paddingVertical: 5, paddingHorizontal: 10, borderRadius: 20, borderWidth: 1, borderColor: "rgba(34,197,94,0.35)", backgroundColor: "rgba(34,197,94,0.07)" }}>
+                      <Feather name="check-circle" size={12} color="#4ade80" />
+                      <Text style={{ color: "#4ade80", fontSize: 12, fontWeight: "600" }}>Problema reportado!</Text>
+                    </View>
                   )}
 
                   {/* ── ADMIN: links de vídeo ─────────────────────────────── */}

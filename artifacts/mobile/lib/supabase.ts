@@ -113,6 +113,19 @@ export type ContentRequest = {
   created_at?: string;
 };
 
+export type ContentReport = {
+  id?: string;
+  user_id: string;
+  tmdb_id: number;
+  type: "movie" | "tv";
+  title: string;
+  poster_path?: string;
+  reason: "wrong_content" | "not_working" | "wrong_audio_sub" | "other";
+  reason_label: string;
+  status: "pending" | "resolved";
+  created_at?: string;
+};
+
 export type PushToken = {
   id?: string;
   user_id: string;
@@ -373,6 +386,39 @@ export const db = {
         .select("*", { count: "exact", head: true })
         .eq("status", "pending");
       return count ?? 0;
+    },
+  },
+
+  contentReports: {
+    add: async (report: Omit<ContentReport, "id" | "created_at" | "status">): Promise<{ error?: string }> => {
+      const { error } = await supabase
+        .from("content_reports")
+        .insert({ ...report, status: "pending", created_at: new Date().toISOString() });
+      return error ? { error: error.message } : {};
+    },
+
+    getAll: async (): Promise<ContentReport[]> => {
+      const { data } = await supabase
+        .from("content_reports")
+        .select("*")
+        .order("created_at", { ascending: false });
+      return (data ?? []) as ContentReport[];
+    },
+
+    countPending: async (): Promise<number> => {
+      const { count } = await supabase
+        .from("content_reports")
+        .select("*", { count: "exact", head: true })
+        .eq("status", "pending");
+      return count ?? 0;
+    },
+
+    markResolved: async (id: string): Promise<{ error?: string }> => {
+      const { error } = await supabase
+        .from("content_reports")
+        .update({ status: "resolved" })
+        .eq("id", id);
+      return error ? { error: error.message } : {};
     },
   },
 
