@@ -51,6 +51,52 @@ function normalizeTeraboxUrl(url: string): string {
   return url;
 }
 
+// ── TeraBox list cache ────────────────────────────────────────────────────────
+// Caches the full xAPIverse list response per TeraBox URL.
+// TTL: 8 minutes. In-flight deduplication prevents concurrent episodes from
+// triggering multiple simultaneous calls to xAPIverse for the same folder.
+const TERABOX_CACHE_TTL_MS = 8 * 60 * 1000;
+interface TeraBoxCacheEntry { list: any[]; expiresAt: number; }
+const teraboxListCache = new Map<string, TeraBoxCacheEntry>();
+const teraboxListInFlight = new Map<string, Promise<any[]>>();
+
+async function fetchTeraBoxList(normalizedUrl: string): Promise<any[]> {
+  // Cache hit
+  const cached = teraboxListCache.get(normalizedUrl);
+  if (cached && cached.expiresAt > Date.now()) return cached.list;
+
+  // Deduplicate: if there's already an in-flight request for this URL, reuse it
+  const inflight = teraboxListInFlight.get(normalizedUrl);
+  if (inflight) return inflight;
+
+  const promise = (async (): Promise<any[]> => {
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 60_000);
+    let r: Response;
+    try {
+      r = await fetch("https://xapiverse.com/api/terabox-pro", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "xAPIverse-Key": "sk_6d7363a619840df0a07afe194613bf9a" },
+        body: JSON.stringify({ url: normalizedUrl }),
+        signal: ctrl.signal,
+      });
+    } finally { clearTimeout(tid); }
+
+    const data = await r.json() as any;
+    if (!r.ok || data.status !== "success") {
+      throw new Error(data.message ?? data.error ?? "TeraBox API error");
+    }
+    const list: any[] = data.list ?? [];
+    // Store in cache
+    teraboxListCache.set(normalizedUrl, { list, expiresAt: Date.now() + TERABOX_CACHE_TTL_MS });
+    return list;
+  })();
+
+  teraboxListInFlight.set(normalizedUrl, promise);
+  promise.finally(() => teraboxListInFlight.delete(normalizedUrl));
+  return promise;
+}
+
 // ── S3 client ─────────────────────────────────────────────────────────────────
 
 function getClient(): S3Client {
@@ -1227,28 +1273,9 @@ router.get("/terabox/play", async (req, res) => {
 
     const normalizedUrl = normalizeTeraboxUrl(item.teraboxUrl);
 
-    const ctrl = new AbortController();
-    const tid = setTimeout(() => ctrl.abort(), 60_000);
-    let r: Response;
-    try {
-      r = await fetch("https://xapiverse.com/api/terabox-pro", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "xAPIverse-Key": "sk_6d7363a619840df0a07afe194613bf9a",
-        },
-        body: JSON.stringify({ url: normalizedUrl }),
-        signal: ctrl.signal,
-      });
-    } finally { clearTimeout(tid); }
-
-    const data = await r.json() as any;
-    if (!r.ok || data.status !== "success") {
-      res.status(400).json({ error: data.message ?? data.error ?? "TeraBox API error" });
-      return;
-    }
-
-    const list: any[] = data.list ?? [];
+    // Use shared cache + in-flight deduplication — all episodes from the same
+    // TeraBox folder reuse one xAPIverse call. First call ~20s, subsequent calls instant.
+    const list = await fetchTeraBoxList(normalizedUrl);
     if (list.length === 0) { res.status(404).json({ error: "Nenhum arquivo encontrado no link TeraBox" }); return; }
 
     // Try to find file by stored fileName first (stable), then fall back to fileIndex
@@ -1390,28 +1417,8 @@ router.post("/terabox-resolve", async (req, res) => {
     if (!url) { res.status(400).json({ error: "url required" }); return; }
 
     const normalizedUrl = normalizeTeraboxUrl(url.trim());
-
-    const ctrl = new AbortController();
-    const tid = setTimeout(() => ctrl.abort(), 30_000);
-    let r: Response;
-    try {
-      r = await fetch("https://xapiverse.com/api/terabox-pro", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "xAPIverse-Key": "sk_6d7363a619840df0a07afe194613bf9a",
-        },
-        body: JSON.stringify({ url: normalizedUrl }),
-        signal: ctrl.signal,
-      });
-    } finally { clearTimeout(tid); }
-
-    const data = await r.json() as any;
-    if (!r.ok || data.status !== "success") {
-      res.status(400).json({ error: data.message ?? data.error ?? "TeraBox API error" });
-      return;
-    }
-    res.json({ list: data.list ?? [], total_files: data.total_files ?? 0, total_folders: data.total_folders ?? 0 });
+    const list = await fetchTeraBoxList(normalizedUrl);
+    res.json({ list, total_files: list.length, total_folders: 0 });
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? "error" });
   }
@@ -3336,26 +3343,12 @@ function isTeraboxUrl(url: string): boolean {
 }
 
 async function resolveTeraboxDirect(shareUrl: string): Promise<string | null> {
-  const normalized = normalizeTeraboxUrl(shareUrl);
-  const ctrl = new AbortController();
-  const tid = setTimeout(() => ctrl.abort(), 25000);
   try {
-    const r = await fetch("https://xapiverse.com/api/terabox-pro", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "xAPIverse-Key": "sk_6d7363a619840df0a07afe194613bf9a" },
-      body: JSON.stringify({ url: normalized }),
-      signal: ctrl.signal,
-    });
-    clearTimeout(tid);
-    const data = await r.json() as any;
-    if (r.ok && data.status === "success") {
-      // Pick the best quality direct link
-      const list: any[] = data.list ?? [];
-      const best = list.find((f: any) => f.direct_link && f.size) ?? list.find((f: any) => f.direct_link);
-      return best?.direct_link ?? null;
-    }
-    return null;
-  } catch { clearTimeout(tid); return null; }
+    const normalized = normalizeTeraboxUrl(shareUrl);
+    const list = await fetchTeraBoxList(normalized);
+    const best = list.find((f: any) => f.direct_link && f.size) ?? list.find((f: any) => f.direct_link);
+    return best?.direct_link ?? null;
+  } catch { return null; }
 }
 
 // ── Stream URL redirect cache (20s TTL) — CDN signed URLs can expire in ~30-60s ─
