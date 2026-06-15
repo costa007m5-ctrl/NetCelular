@@ -2505,9 +2505,18 @@ async function warmCatalogType(type: string): Promise<void> {
             }
           } else if (item?.title) {
             const titleKey = `title:${normalizeTitleForSearch(item.title)}`;
-            if (titleKey !== "title:" && !index[titleKey]) {
+            if (titleKey !== "title:") {
               const val = item.stream_url || (item.id ? `flix2id:${item.id}` : "");
-              if (val) index[titleKey] = val;
+              if (val) {
+                if (!index[titleKey]) index[titleKey] = val;
+                // Year-qualified key: "title:o rei leao:1994" → correct version
+                // Allows lookup with &year= to disambiguate same-name different-year titles
+                const yr = Number(item.year ?? 0);
+                if (yr > 0) {
+                  const yearKey = `${titleKey}:${yr}`;
+                  if (!index[yearKey]) index[yearKey] = val;
+                }
+              }
             }
           }
         }
@@ -3714,9 +3723,17 @@ router.post("/flix2/build-index", async (req, res) => {
             }
           } else if (item?.title) {
             const titleKey = `title:${normalizeTitleForSearch(item.title)}`;
-            if (titleKey !== "title:" && !index[titleKey]) {
+            if (titleKey !== "title:") {
               const val = item.stream_url || (item.id ? `flix2id:${item.id}` : "");
-              if (val) index[titleKey] = val;
+              if (val) {
+                if (!index[titleKey]) index[titleKey] = val;
+                // Year-qualified key for disambiguation (e.g., "O Rei Leão 1994 vs 2019")
+                const yr = Number(item.year ?? 0);
+                if (yr > 0) {
+                  const yearKey = `${titleKey}:${yr}`;
+                  if (!index[yearKey]) index[yearKey] = val;
+                }
+              }
             }
           }
         };
