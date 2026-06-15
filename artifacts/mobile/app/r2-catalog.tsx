@@ -92,7 +92,7 @@ interface TmdbSearchResult {
   id: number; title: string; poster_path: string | null; media_type: "movie" | "tv";
 }
 
-type Tab = "catalog" | "upload" | "manage" | "terabox" | "flix2";
+type Tab = "catalog" | "upload" | "manage" | "terabox" | "flix2" | "diagnose";
 type UploadMode = "url" | "gdrive" | "terabox" | "local" | "drive";
 type MediaKind = "tv" | "movie";
 type CatalogView =
@@ -7152,6 +7152,298 @@ function Flix2RegisterModal({ item, onClose, onDone }: { item: Flix2Item; onClos
   );
 }
 
+// ── Diagnose Panel ─────────────────────────────────────────────────────────────
+
+const DX_GREEN = "#22c55e";
+const DX_AMBER = "#f59e0b";
+const DX_RED   = "#f87171";
+
+type DiagnoseItem = { type: string; id: string; title: string; year: number; tmdb_id: number };
+type DiagnoseGroup = { url: string; items: DiagnoseItem[] };
+type DiagnoseData = {
+  ok: boolean;
+  cacheWarm: string[];
+  stats: Record<string, { total: number; withTmdb: number; withoutTmdb: number }>;
+  totalDuplicateGroups: number;
+  totalTmdbConflicts: number;
+  duplicateGroups: DiagnoseGroup[];
+  tmdbConflicts: DiagnoseGroup[];
+};
+
+function DxStatCard({ label, value, sub, color }: { label: string; value: string | number; sub?: string; color?: string }) {
+  return (
+    <View style={{ flex: 1, backgroundColor: "rgba(255,255,255,0.05)", borderRadius: 12, padding: 12, borderWidth: 1, borderColor: "rgba(255,255,255,0.08)", alignItems: "center" }}>
+      <Text style={{ color: color ?? "#fff", fontSize: 22, fontWeight: "800" }}>{value}</Text>
+      <Text style={{ color: "rgba(255,255,255,0.55)", fontSize: 11, marginTop: 2, textAlign: "center" }}>{label}</Text>
+      {!!sub && <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 10, marginTop: 2, textAlign: "center" }}>{sub}</Text>}
+    </View>
+  );
+}
+
+function DxGroupRow({ group, defaultExpanded }: { group: DiagnoseGroup; defaultExpanded?: boolean }) {
+  const [open, setOpen] = useState(!!defaultExpanded);
+  const router = useRouter();
+  const urlShort = group.url.split("/").pop() ?? group.url;
+  const hasConflict = (() => {
+    const ids = group.items.map((i) => i.tmdb_id).filter((id) => id > 0);
+    return new Set(ids).size > 1;
+  })();
+
+  return (
+    <View style={{ marginBottom: 8, borderRadius: 10, borderWidth: 1, borderColor: hasConflict ? "rgba(248,113,113,0.3)" : "rgba(255,255,255,0.08)", overflow: "hidden" }}>
+      <Pressable
+        onPress={() => setOpen((v) => !v)}
+        style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 12, backgroundColor: hasConflict ? "rgba(248,113,113,0.06)" : "rgba(255,255,255,0.04)" }}
+      >
+        <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: hasConflict ? "rgba(248,113,113,0.15)" : "rgba(255,255,255,0.08)", alignItems: "center", justifyContent: "center" }}>
+          <Text style={{ color: hasConflict ? DX_RED : "rgba(255,255,255,0.5)", fontSize: 11, fontWeight: "700" }}>{group.items.length}</Text>
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text numberOfLines={1} style={{ color: hasConflict ? "#fca5a5" : "#fff", fontSize: 12, fontWeight: "600" }}>
+            {group.items[0]?.title ?? "(sem título)"}
+            {group.items.length > 1 && ` +${group.items.length - 1} duplicata${group.items.length > 2 ? "s" : ""}`}
+          </Text>
+          <Text numberOfLines={1} style={{ color: "rgba(255,255,255,0.28)", fontSize: 10, marginTop: 1, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" }}>{urlShort}</Text>
+        </View>
+        {hasConflict && (
+          <View style={{ backgroundColor: "rgba(248,113,113,0.15)", borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+            <Text style={{ color: DX_RED, fontSize: 9, fontWeight: "800" }}>CONFLITO</Text>
+          </View>
+        )}
+        <Feather name={open ? "chevron-up" : "chevron-down"} size={14} color="rgba(255,255,255,0.3)" />
+      </Pressable>
+
+      {open && (
+        <View style={{ borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.06)" }}>
+          {group.items.map((item, idx) => (
+            <Pressable
+              key={`${item.id}-${idx}`}
+              onPress={() => item.tmdb_id > 0
+                ? router.push({ pathname: "/detail", params: { type: item.type === "movies" ? "movie" : "tv", id: String(item.tmdb_id), title: item.title } })
+                : undefined
+              }
+              style={({ pressed }) => ({
+                flexDirection: "row", alignItems: "center", gap: 10, padding: 10,
+                backgroundColor: pressed ? "rgba(255,255,255,0.04)" : "transparent",
+                borderTopWidth: idx > 0 ? 1 : 0, borderTopColor: "rgba(255,255,255,0.05)",
+              })}
+            >
+              <View style={{ width: 28, height: 28, borderRadius: 6, backgroundColor: item.type === "movies" ? "rgba(229,9,20,0.15)" : item.type === "series" ? "rgba(139,92,246,0.15)" : "rgba(245,158,11,0.15)", alignItems: "center", justifyContent: "center" }}>
+                <Text style={{ color: item.type === "movies" ? RED : item.type === "series" ? "#8b5cf6" : DX_AMBER, fontSize: 9, fontWeight: "800" }}>
+                  {item.type === "movies" ? "MOV" : item.type === "series" ? "SER" : "ANI"}
+                </Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text numberOfLines={1} style={{ color: "#fff", fontSize: 12, fontWeight: "600" }}>{item.title || "(sem título)"}</Text>
+                <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 10, marginTop: 1 }}>
+                  {item.year > 0 ? `${item.year} · ` : ""}
+                  {item.tmdb_id > 0 ? `TMDB #${item.tmdb_id}` : "sem TMDB ID"}
+                </Text>
+              </View>
+              {item.tmdb_id > 0 && <Feather name="external-link" size={12} color="rgba(255,255,255,0.2)" />}
+            </Pressable>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
+function DiagnosePanel() {
+  const [data, setData] = useState<DiagnoseData | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<"all" | "conflicts">("all");
+  const [search, setSearch] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    const [sig, clear] = mkAbort(30000);
+    try {
+      const base = getApiBase();
+      if (!base) throw new Error("API server não configurado");
+      const r = await fetch(`${base}/flix2/diagnose?limit=200`, { signal: sig });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.error ?? "Erro desconhecido");
+      setData(j);
+    } catch (e: any) {
+      setError(e.message ?? String(e));
+    } finally {
+      clear();
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const groups = useMemo(() => {
+    if (!data) return [];
+    const src = filter === "conflicts" ? data.tmdbConflicts : data.duplicateGroups;
+    if (!search.trim()) return src;
+    const q = search.toLowerCase();
+    return src.filter((g) => g.items.some((i) => i.title.toLowerCase().includes(q)));
+  }, [data, filter, search]);
+
+  const totalItems = useMemo(() => {
+    if (!data) return 0;
+    return Object.values(data.stats).reduce((s, v) => s + v.total, 0);
+  }, [data]);
+
+  const totalWithTmdb = useMemo(() => {
+    if (!data) return 0;
+    return Object.values(data.stats).reduce((s, v) => s + v.withTmdb, 0);
+  }, [data]);
+
+  if (loading && !data) {
+    return (
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 12 }}>
+        <ActivityIndicator color={DX_GREEN} />
+        <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 13 }}>Analisando catálogo…</Text>
+      </View>
+    );
+  }
+
+  if (error && !data) {
+    return (
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24, gap: 12 }}>
+        <Feather name="alert-triangle" size={36} color={DX_AMBER} />
+        <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 14, textAlign: "center" }}>{error}</Text>
+        <Pressable onPress={load} style={{ backgroundColor: DX_GREEN + "22", borderRadius: 10, paddingHorizontal: 18, paddingVertical: 10, borderWidth: 1, borderColor: DX_GREEN + "55" }}>
+          <Text style={{ color: DX_GREEN, fontWeight: "700" }}>Tentar novamente</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  const tmdbPct = totalItems > 0 ? Math.round((totalWithTmdb / totalItems) * 100) : 0;
+
+  return (
+    <View style={{ flex: 1 }}>
+      {/* Header bar */}
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)" }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <Feather name="activity" size={14} color={DX_GREEN} />
+          <Text style={{ color: DX_GREEN, fontWeight: "700", fontSize: 13 }}>Diagnóstico de Conteúdo</Text>
+        </View>
+        <Pressable onPress={load} disabled={loading} style={{ flexDirection: "row", alignItems: "center", gap: 4, opacity: loading ? 0.5 : 1 }}>
+          <Feather name="refresh-cw" size={13} color="rgba(255,255,255,0.4)" />
+          <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11 }}>Atualizar</Text>
+        </Pressable>
+      </View>
+
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 14 }} showsVerticalScrollIndicator={false}>
+
+        {/* Cache status */}
+        {data && data.cacheWarm.length < 3 && (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(245,158,11,0.1)", borderWidth: 1, borderColor: "rgba(245,158,11,0.3)", borderRadius: 10, padding: 10, marginBottom: 14 }}>
+            <Feather name="clock" size={14} color={DX_AMBER} />
+            <Text style={{ color: DX_AMBER, fontSize: 12, flex: 1 }}>Cache parcial — apenas {data.cacheWarm.join(", ")} carregados. Aguarde warm-up (~30s) e atualize.</Text>
+          </View>
+        )}
+
+        {/* Stats cards */}
+        {data && (
+          <>
+            <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
+              <DxStatCard label="Itens no catálogo" value={totalItems.toLocaleString()} color="#fff" />
+              <DxStatCard label="Cobertura TMDB" value={`${tmdbPct}%`} color={tmdbPct >= 80 ? DX_GREEN : tmdbPct >= 50 ? DX_AMBER : DX_RED} sub={`${totalWithTmdb.toLocaleString()} com ID`} />
+            </View>
+            <View style={{ flexDirection: "row", gap: 8, marginBottom: 14 }}>
+              <DxStatCard label="URLs duplicadas" value={data.totalDuplicateGroups} color={data.totalDuplicateGroups > 0 ? DX_AMBER : DX_GREEN} sub="mesma URL, títulos diferentes" />
+              <DxStatCard label="Conflitos TMDB" value={data.totalTmdbConflicts} color={data.totalTmdbConflicts > 0 ? DX_RED : DX_GREEN} sub="mesmo arquivo, IDs distintos" />
+            </View>
+
+            {/* Per-type breakdown */}
+            <View style={{ backgroundColor: "rgba(255,255,255,0.04)", borderRadius: 12, padding: 12, borderWidth: 1, borderColor: "rgba(255,255,255,0.07)", marginBottom: 14 }}>
+              <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 11, fontWeight: "700", letterSpacing: 0.8, marginBottom: 10 }}>COBERTURA POR TIPO</Text>
+              {(["movies", "series", "animes"] as const).map((t) => {
+                const s = data.stats[t];
+                if (!s || s.total === 0) return null;
+                const pct = Math.round((s.withTmdb / s.total) * 100);
+                const col = pct >= 80 ? DX_GREEN : pct >= 50 ? DX_AMBER : DX_RED;
+                return (
+                  <View key={t} style={{ marginBottom: 10 }}>
+                    <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 4 }}>
+                      <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600", textTransform: "capitalize" }}>{t === "movies" ? "Filmes" : t === "series" ? "Séries" : "Animes"}</Text>
+                      <Text style={{ color: col, fontSize: 12, fontWeight: "700" }}>{pct}% <Text style={{ color: "rgba(255,255,255,0.3)", fontWeight: "400" }}>({s.withTmdb.toLocaleString()}/{s.total.toLocaleString()})</Text></Text>
+                    </View>
+                    <View style={{ height: 5, backgroundColor: "rgba(255,255,255,0.08)", borderRadius: 3, overflow: "hidden" }}>
+                      <View style={{ width: `${pct}%`, height: "100%", backgroundColor: col, borderRadius: 3 }} />
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          </>
+        )}
+
+        {/* Filter + search */}
+        {data && data.totalDuplicateGroups > 0 && (
+          <>
+            <View style={{ flexDirection: "row", gap: 8, marginBottom: 10 }}>
+              {(["all", "conflicts"] as const).map((f) => (
+                <Pressable key={f} onPress={() => setFilter(f)} style={{
+                  flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: "center",
+                  backgroundColor: filter === f ? (f === "conflicts" ? "rgba(248,113,113,0.15)" : "rgba(34,197,94,0.12)") : "rgba(255,255,255,0.05)",
+                  borderWidth: 1, borderColor: filter === f ? (f === "conflicts" ? "rgba(248,113,113,0.4)" : "rgba(34,197,94,0.35)") : "rgba(255,255,255,0.08)",
+                }}>
+                  <Text style={{ color: filter === f ? (f === "conflicts" ? DX_RED : DX_GREEN) : "rgba(255,255,255,0.45)", fontSize: 12, fontWeight: "700" }}>
+                    {f === "all" ? `Todas (${data.totalDuplicateGroups})` : `Conflitos (${data.totalTmdbConflicts})`}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(255,255,255,0.07)", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 12 }}>
+              <Feather name="search" size={13} color="rgba(255,255,255,0.35)" />
+              <TextInput
+                style={{ flex: 1, color: "#fff", fontSize: 13 }}
+                placeholder="Buscar título…"
+                placeholderTextColor="rgba(255,255,255,0.25)"
+                value={search}
+                onChangeText={setSearch}
+                autoCorrect={false}
+              />
+              {!!search && (
+                <Pressable onPress={() => setSearch("")}>
+                  <Feather name="x" size={13} color="rgba(255,255,255,0.35)" />
+                </Pressable>
+              )}
+            </View>
+
+            <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 11, marginBottom: 8 }}>
+              {groups.length} grupo{groups.length !== 1 ? "s" : ""} encontrado{groups.length !== 1 ? "s" : ""}
+              {filter === "conflicts" ? " com conflito de TMDB ID" : " com URL duplicada"}
+            </Text>
+
+            {groups.length === 0 && (
+              <View style={{ alignItems: "center", padding: 24 }}>
+                <Feather name="check-circle" size={32} color={DX_GREEN} />
+                <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 13, marginTop: 10, textAlign: "center" }}>Nenhum problema encontrado com o filtro atual.</Text>
+              </View>
+            )}
+
+            {groups.map((g, i) => (
+              <DxGroupRow key={`${g.url}-${i}`} group={g} defaultExpanded={i === 0 && groups.length <= 3} />
+            ))}
+          </>
+        )}
+
+        {data && data.totalDuplicateGroups === 0 && (
+          <View style={{ alignItems: "center", padding: 32 }}>
+            <Feather name="check-circle" size={40} color={DX_GREEN} />
+            <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700", marginTop: 12 }}>Catálogo saudável!</Text>
+            <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 13, marginTop: 6, textAlign: "center" }}>Nenhuma URL duplicada detectada.</Text>
+          </View>
+        )}
+
+        <View style={{ height: 40 }} />
+      </ScrollView>
+    </View>
+  );
+}
+
 // ── Main Screen ────────────────────────────────────────────────────────────────
 
 export default function R2CatalogScreen() {
@@ -7231,17 +7523,18 @@ export default function R2CatalogScreen() {
             { id: "manage", icon: "folder", label: "Gerenciar" },
             { id: "terabox", icon: "package", label: "TeraBox" },
             { id: "flix2", icon: "zap", label: "Flix 2.0" },
+            { id: "diagnose", icon: "activity", label: "Diagnose" },
           ] as { id: Tab; icon: string; label: string }[]).map((t) => (
             <Pressable key={t.id} style={[styles.tabItem, activeTab === t.id && styles.tabItemActive]} onPress={() => setActiveTab(t.id)}>
               <Feather
                 name={t.icon as any}
                 size={14}
                 color={activeTab === t.id
-                  ? t.id === "terabox" ? "#f59e0b" : t.id === "flix2" ? "#8b5cf6" : RED
+                  ? t.id === "terabox" ? "#f59e0b" : t.id === "flix2" ? "#8b5cf6" : t.id === "diagnose" ? "#22c55e" : RED
                   : "rgba(255,255,255,0.4)"}
               />
               <Text style={[styles.tabLabel, activeTab === t.id && {
-                color: t.id === "terabox" ? "#f59e0b" : t.id === "flix2" ? "#8b5cf6" : RED,
+                color: t.id === "terabox" ? "#f59e0b" : t.id === "flix2" ? "#8b5cf6" : t.id === "diagnose" ? "#22c55e" : RED,
               }]} numberOfLines={1}>
                 {t.label}
               </Text>
@@ -7283,6 +7576,7 @@ export default function R2CatalogScreen() {
         {activeTab === "manage" && <ManagePanel onRegister={openRegister} />}
         {activeTab === "terabox" && <TeraBoxPanel />}
         {activeTab === "flix2" && <Flix2Panel />}
+        {activeTab === "diagnose" && <DiagnosePanel />}
       </View>
 
       {/* Register modal */}

@@ -4322,4 +4322,70 @@ router.get("/flix2/catalog-diff", (req, res) => {
   });
 });
 
+// ── GET /flix2/diagnose ────────────────────────────────────────────────────────
+// Analyzes the Flix 2.0 catalog for data quality issues:
+//   • Duplicate stream URLs (same .mp4 assigned to multiple titles/tmdb_ids)
+//   • tmdb_id coverage stats (how many items have a valid TMDB mapping)
+//   • tmdb_id conflicts (same stream URL under different TMDB IDs — wrong year labeling)
+// Only reads from in-memory caches — no R2 or Xtream API calls.
+router.get("/flix2/diagnose", (req, res) => {
+  const limit = Math.min(Number(req.query.limit ?? 100), 500);
+  const types = ["movies", "series", "animes"];
+
+  const stats: Record<string, { total: number; withTmdb: number; withoutTmdb: number }> = {};
+  // url → list of { type, id, title, year, tmdb_id }
+  const urlMap = new Map<string, Array<{ type: string; id: string; title: string; year: number; tmdb_id: number }>>();
+
+  for (const t of types) {
+    const raw = XTREAM_RAW_CACHE.get(t);
+    if (!raw) { stats[t] = { total: 0, withTmdb: 0, withoutTmdb: 0 }; continue; }
+
+    let withTmdb = 0;
+    let withoutTmdb = 0;
+
+    for (const item of raw.items) {
+      const hasTmdb = Number(item.tmdb_id) > 0;
+      if (hasTmdb) withTmdb++; else withoutTmdb++;
+
+      const url = item.stream_url ?? "";
+      if (!url) continue;
+      if (!urlMap.has(url)) urlMap.set(url, []);
+      urlMap.get(url)!.push({
+        type:    t,
+        id:      String(item.id ?? item.series_id ?? ""),
+        title:   item.title ?? item.name ?? "",
+        year:    Number(item.year ?? 0),
+        tmdb_id: Number(item.tmdb_id ?? 0),
+      });
+    }
+
+    stats[t] = { total: raw.items.length, withTmdb, withoutTmdb };
+  }
+
+  // Collect duplicates: url groups with more than 1 item
+  const duplicateGroups: Array<{ url: string; items: typeof urlMap extends Map<string, infer V> ? V : never }> = [];
+  for (const [url, items] of urlMap.entries()) {
+    if (items.length > 1) duplicateGroups.push({ url, items });
+  }
+
+  // Sort by item count desc (most conflicts first)
+  duplicateGroups.sort((a, b) => b.items.length - a.items.length);
+
+  // tmdb_id conflicts: groups where same url has items with different tmdb_ids (both > 0)
+  const tmdbConflicts = duplicateGroups.filter((g) => {
+    const ids = g.items.map((i) => i.tmdb_id).filter((id) => id > 0);
+    return new Set(ids).size > 1;
+  });
+
+  res.json({
+    ok: true,
+    cacheWarm: types.filter((t) => XTREAM_RAW_CACHE.has(t)),
+    stats,
+    totalDuplicateGroups: duplicateGroups.length,
+    totalTmdbConflicts:   tmdbConflicts.length,
+    duplicateGroups:      duplicateGroups.slice(0, limit),
+    tmdbConflicts:        tmdbConflicts.slice(0, 50),
+  });
+});
+
 export default router;
