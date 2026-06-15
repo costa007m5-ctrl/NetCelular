@@ -9,6 +9,7 @@ import castRouter from "./cast";
 import appLogsRouter from "./app-logs";
 import adminRouter from "./admin";
 import tmdbRouter from "./tmdb";
+import teraboxRouter from "./terabox";
 
 const router: IRouter = Router();
 
@@ -16,6 +17,7 @@ router.use(healthRouter);
 router.use("/drive", driveRouter);
 router.use("/r2", r2Router);
 router.use("/tmdb", tmdbRouter);
+router.use("/terabox", teraboxRouter);
 router.use("/push", pushRouter);
 router.use("/stream", streamRouter);
 router.use("/live", liveTvRouter);

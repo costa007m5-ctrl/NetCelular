@@ -392,15 +392,16 @@ export default function AdminScreen() {
     setTbError(null);
     setTbFiles([]);
     try {
-      const encodedDir = encodeURIComponent(dir);
-      const apiUrl = `https://www.terabox.com/share/list?app_id=250528&shorturl=${surl}&root=1&dir=${encodedDir}&num=200&page=1&order=name&asc=1&web=1&channel=dubox&clienttype=0`;
-      const res = await fetch(apiUrl, {
-        headers: { "User-Agent": "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36" },
-        signal: mkSignal(15000),
-      });
+      const base = getApiBase();
+      const apiUrl = `${base}/terabox/list?surl=${encodeURIComponent(surl)}&dir=${encodeURIComponent(dir)}`;
+      const res = await fetch(apiUrl, { signal: mkSignal(20000) });
       const json = await res.json();
+      if (!res.ok) {
+        setTbError(`Erro ${res.status}: ${json.error ?? "resposta inválida do servidor"}`);
+        return;
+      }
       if (json.errno !== 0 && json.errno !== undefined) {
-        setTbError(`API retornou erro ${json.errno}: ${json.errmsg ?? "erro desconhecido"}`);
+        setTbError(`Terabox retornou erro ${json.errno}: ${json.errmsg ?? "erro desconhecido"}`);
         return;
       }
       const list: TbFile[] = (json.list ?? json.data?.list ?? []).map((f: any) => ({
@@ -414,7 +415,7 @@ export default function AdminScreen() {
       setTbFiles(list);
       if (list.length === 0) setTbError("Nenhum arquivo encontrado nesta pasta.");
     } catch (e: any) {
-      setTbError("Falha ao conectar na API do Terabox. " + (e?.message ?? ""));
+      setTbError("Falha ao carregar arquivos: " + (e?.message ?? "erro desconhecido"));
     } finally {
       setTbLoading(false);
     }
