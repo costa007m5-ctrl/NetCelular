@@ -60,41 +60,64 @@ interface TeraBoxCacheEntry { list: any[]; expiresAt: number; }
 const teraboxListCache = new Map<string, TeraBoxCacheEntry>();
 const teraboxListInFlight = new Map<string, Promise<any[]>>();
 
-async function fetchTeraBoxList(normalizedUrl: string): Promise<any[]> {
-  // Cache hit
-  const cached = teraboxListCache.get(normalizedUrl);
-  if (cached && cached.expiresAt > Date.now()) return cached.list;
+async function fetchTeraBoxList(normalizedUrl: string, forceRefresh = false): Promise<any[]> {
+  // Cache hit (skip if forceRefresh)
+  if (!forceRefresh) {
+    const cached = teraboxListCache.get(normalizedUrl);
+    if (cached && cached.expiresAt > Date.now()) return cached.list;
+  }
 
   // Deduplicate: if there's already an in-flight request for this URL, reuse it
   const inflight = teraboxListInFlight.get(normalizedUrl);
   if (inflight) return inflight;
 
   const promise = (async (): Promise<any[]> => {
-    const ctrl = new AbortController();
-    const tid = setTimeout(() => ctrl.abort(), 60_000);
-    let r: Response;
     try {
-      r = await fetch("https://xapiverse.com/api/terabox-pro", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "xAPIverse-Key": "sk_6d7363a619840df0a07afe194613bf9a" },
-        body: JSON.stringify({ url: normalizedUrl }),
-        signal: ctrl.signal,
-      });
-    } finally { clearTimeout(tid); }
+      const ctrl = new AbortController();
+      const tid = setTimeout(() => ctrl.abort(), 60_000);
+      let r: Response;
+      try {
+        r = await fetch("https://xapiverse.com/api/terabox-pro", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "xAPIverse-Key": "sk_6d7363a619840df0a07afe194613bf9a" },
+          body: JSON.stringify({ url: normalizedUrl }),
+          signal: ctrl.signal,
+        });
+      } finally { clearTimeout(tid); }
 
-    const data = await r.json() as any;
-    if (!r.ok || data.status !== "success") {
-      throw new Error(data.message ?? data.error ?? "TeraBox API error");
+      const data = await r.json() as any;
+      if (!r.ok || data.status !== "success") {
+        throw new Error(data.message ?? data.error ?? "TeraBox API error");
+      }
+      const list: any[] = data.list ?? [];
+      teraboxListCache.set(normalizedUrl, { list, expiresAt: Date.now() + TERABOX_CACHE_TTL_MS });
+      return list;
+    } finally {
+      // Always remove from in-flight map, even on error
+      teraboxListInFlight.delete(normalizedUrl);
     }
-    const list: any[] = data.list ?? [];
-    // Store in cache
-    teraboxListCache.set(normalizedUrl, { list, expiresAt: Date.now() + TERABOX_CACHE_TTL_MS });
-    return list;
   })();
 
   teraboxListInFlight.set(normalizedUrl, promise);
-  promise.finally(() => teraboxListInFlight.delete(normalizedUrl));
+  // Suppress unhandled-rejection for the stored promise reference —
+  // actual errors still propagate to callers that await it.
+  promise.catch(() => {});
   return promise;
+}
+
+/** Quick check: fetch first ~200 bytes of an m3u8 URL and verify it has real content */
+async function verifyM3u8Url(url: string): Promise<boolean> {
+  try {
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 4_000);
+    let r: Response;
+    try {
+      r = await fetch(url, { signal: ctrl.signal });
+    } finally { clearTimeout(tid); }
+    if (!r.ok) return false;
+    const text = await r.text();
+    return text.startsWith("#EXTM3U") && text.length > 50;
+  } catch { return false; }
 }
 
 // ── S3 client ─────────────────────────────────────────────────────────────────
@@ -1309,6 +1332,47 @@ router.get("/terabox/play", async (req, res) => {
 
     if (!streamUrl) { res.status(404).json({ error: "URL de stream não disponível" }); return; }
 
+    // ── m3u8 URL health check + auto cache-bust ───────────────────────────────
+    // Some xAPIverse CF Worker instances return empty m3u8 bodies for certain
+    // files in the list (observed for ep2+). If we detect an empty m3u8,
+    // invalidate the cache and retry once with a fresh xAPIverse call.
+    let usedFreshFetch = false;
+    if (urlType === "fast_stream_url" && streamUrl) {
+      const isValid = await verifyM3u8Url(streamUrl);
+      if (!isValid) {
+        // Bust cache and re-fetch from xAPIverse
+        teraboxListCache.delete(normalizedUrl);
+        const freshList = await fetchTeraBoxList(normalizedUrl, true);
+        // Re-find the file in the fresh list
+        let freshFile: any;
+        if (item.fileName) freshFile = freshList.find((f: any) => f.name === item.fileName);
+        if (!freshFile) {
+          const idx = typeof item.fileIndex === "number" && item.fileIndex < freshList.length ? item.fileIndex : 0;
+          freshFile = freshList[idx];
+        }
+        if (freshFile) {
+          file = freshFile;
+          streamUrl = null;
+          urlType = "fast_dlink";
+          if (file.fast_stream_url && typeof file.fast_stream_url === "object") {
+            const qualityOrder = ["1080p", "720p", "480p", "360p", "240p"];
+            for (const q of qualityOrder) {
+              if (file.fast_stream_url[q]) { streamUrl = file.fast_stream_url[q]; urlType = "fast_stream_url"; break; }
+            }
+            if (!streamUrl) {
+              const vals = Object.values(file.fast_stream_url) as string[];
+              if (vals.length > 0) { streamUrl = vals[0]; urlType = "fast_stream_url"; }
+            }
+          }
+          if (!streamUrl && file.fast_dlink) { streamUrl = file.fast_dlink; urlType = "fast_dlink"; }
+          usedFreshFetch = true;
+        }
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
+    if (!streamUrl) { res.status(404).json({ error: "URL de stream não disponível" }); return; }
+
     // Build quality list (all available HLS qualities + fast_dlink fallback)
     const qualityMap: Record<string, string> = {};
     if (file.fast_stream_url && typeof file.fast_stream_url === "object") {
@@ -1319,13 +1383,14 @@ router.get("/terabox/play", async (req, res) => {
     res.json({
       url: streamUrl,
       urlType,
-      needsProxy: false, // xAPIverse CF Workers URLs have CORS open — no proxy needed
+      needsProxy: false,
       name: file.name,
       quality: file.quality,
       duration: file.duration,
       size: file.size_formatted,
       fast_stream_url: qualityMap,
       thumbnail: file.thumbnail ?? null,
+      _freshFetch: usedFreshFetch || undefined,
     });
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? "error" });
