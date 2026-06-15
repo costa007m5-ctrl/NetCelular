@@ -3693,20 +3693,26 @@ function TeraBoxTestTab() {
   );
 }
 
-const RAPIDAPI_KEY = "02252fd844msh16baa4172748b1ap16f365jsn9dcc30d819e5";
-const RAPIDAPI_HOST = "terabox-downloader-online-viewer-player-api.p.rapidapi.com";
+const XAPIVERSE_KEY = "sk_6d7363a619840df0a07afe194613bf9a";
+const XAPIVERSE_ENDPOINT = "https://xapiverse.com/api/terabox-pro";
 
-type RapidApiResolution = { stream?: string; download?: string };
-type RapidApiItem = {
-  title?: string;
+type XApiFastStream = Record<string, string>;
+type XApiItem = {
+  name?: string;
+  size?: number;
+  size_formatted?: string;
+  type?: string;
+  quality?: string;
+  duration?: string;
   thumbnail?: string;
-  size?: string;
-  resolutions?: Record<string, RapidApiResolution>;
-  url?: string;
-  download?: string;
-  stream?: string;
+  fast_dlink?: string;
+  stream_url?: string;
+  fast_stream_url?: XApiFastStream;
+  subtitle_url?: string;
+  fs_id?: number;
+  file_path?: string;
 };
-type RapidApiResponse = { response?: RapidApiItem[]; [key: string]: any };
+type RapidApiResponse = { list?: XApiItem[]; status?: string; total_files?: number; [key: string]: any };
 
 const VIDEO_EXTS = /\.(mp4|m3u8|mkv|avi|mov|ts|webm|flv|m4v)(\?|$)/i;
 const SKIP_DOMAINS = /\.(terabox\.app\/thumbnail|tmdb\.org|image\.|\.png|\.jpg|\.jpeg|\.gif|\.svg|\.webp)/i;
@@ -3742,37 +3748,53 @@ function extractPlayableUrls(data: RapidApiResponse): { label: string; url: stri
   const seen = new Set<string>();
   const results: { label: string; url: string }[] = [];
 
-  const VIDEO_KEYS = [
-    "dlink", "download_url", "direct_link", "fast_stream_url", "stream_url",
-    "stream", "download", "url", "play_url", "direct_url", "hls_url", "video_url", "link",
-  ];
-  function pickPriority(obj: any, prefix = "") {
-    if (!obj || typeof obj !== "object") return;
-    for (const key of VIDEO_KEYS) {
-      const val = obj[key];
-      if (typeof val === "string" && val.startsWith("http") && !seen.has(val)) {
-        seen.add(val);
-        if (!SKIP_DOMAINS.test(val)) {
-          const label = prefix ? `${prefix} · ${key}` : key;
-          results.push({ label, url: val });
+  function addUrl(label: string, url: string) {
+    if (typeof url !== "string" || !url.startsWith("http") || seen.has(url)) return;
+    if (SKIP_DOMAINS.test(url)) return;
+    seen.add(url);
+    results.push({ label, url });
+  }
+
+  function pickItem(item: XApiItem, prefix = "") {
+    const pfx = (s: string) => prefix ? `${prefix} · ${s}` : s;
+    if (item.fast_stream_url && typeof item.fast_stream_url === "object") {
+      const quality_order = ["1080p", "720p", "4K", "480p", "360p"];
+      const keys = quality_order.filter(k => item.fast_stream_url![k]).concat(
+        Object.keys(item.fast_stream_url).filter(k => !quality_order.includes(k))
+      );
+      for (const q of keys) {
+        const v = item.fast_stream_url[q];
+        if (typeof v === "string") addUrl(pfx(`HLS ${q}`), v);
+      }
+    }
+    if (item.stream_url) addUrl(pfx("stream_url"), item.stream_url);
+    if (item.fast_dlink) addUrl(pfx("fast_dlink"), item.fast_dlink);
+  }
+
+  const items: XApiItem[] = data?.list ?? data?.data?.list ?? data?.data?.all_files ?? data?.all_files ?? [];
+  if (Array.isArray(items) && items.length > 0) {
+    items.forEach((item, i) => pickItem(item, items.length > 1 ? `arquivo ${i + 1} (${item.name ?? ""})` : (item.name ?? "")));
+  }
+
+  if (results.length === 0) {
+    const VIDEO_KEYS = ["fast_dlink", "stream_url", "dlink", "download_url", "direct_link", "url", "play_url", "hls_url", "video_url"];
+    function pickGeneric(obj: any, prefix = "") {
+      if (!obj || typeof obj !== "object") return;
+      for (const key of VIDEO_KEYS) {
+        const val = obj[key];
+        if (typeof val === "string") addUrl(prefix ? `${prefix}.${key}` : key, val);
+        else if (val && typeof val === "object") {
+          for (const [q, v] of Object.entries(val as Record<string, any>)) {
+            if (typeof v === "string") addUrl(prefix ? `${prefix}.${key}.${q}` : `${key}.${q}`, v);
+          }
         }
       }
+      if (obj.data?.structure) pickGeneric(obj.data.structure, "structure");
     }
-    if (obj.resolutions && typeof obj.resolutions === "object") {
-      for (const [res, v] of Object.entries(obj.resolutions as Record<string, any>)) {
-        pickPriority(v, res);
-      }
-    }
+    pickGeneric(data);
   }
 
-  const list: any[] = data?.response ?? data?.data?.list ?? data?.data?.all_files ?? data?.list ?? data?.all_files ?? [];
-  if (Array.isArray(list) && list.length > 0) {
-    list.forEach((item, i) => pickPriority(item, list.length > 1 ? `arquivo ${i + 1}` : ""));
-  }
-  if (data?.data?.structure) pickPriority(data.data.structure);
-  if (results.length === 0) pickPriority(data);
   if (results.length === 0) results.push(...deepScanUrls(data));
-
   return results;
 }
 
@@ -3798,31 +3820,30 @@ function TeraBoxRapidAPITab() {
     setActiveVideoUrl(null);
     try {
       const ctrl = new AbortController();
-      const tid = setTimeout(() => ctrl.abort(), 20000);
-      const encodedUrl = encodeURIComponent(u);
-      const res = await fetch(
-        `https://${RAPIDAPI_HOST}/rapidapi?url=${encodedUrl}`,
-        {
-          method: "GET",
-          headers: {
-            "Content-Type": "application/json",
-            "x-rapidapi-host": RAPIDAPI_HOST,
-            "x-rapidapi-key": RAPIDAPI_KEY,
-          },
-          signal: ctrl.signal,
-        }
-      );
+      const tid = setTimeout(() => ctrl.abort(), 25000);
+      const res = await fetch(XAPIVERSE_ENDPOINT, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "xAPIverse-Key": XAPIVERSE_KEY,
+        },
+        body: JSON.stringify({ url: u }),
+        signal: ctrl.signal,
+      });
       clearTimeout(tid);
       const text = await res.text();
       setRawJson(text);
       try {
         const json: RapidApiResponse = JSON.parse(text);
+        if (json.status && json.status !== "success") {
+          setError(`API retornou erro: ${json.message ?? json.status}`);
+        }
         const urls = extractPlayableUrls(json);
         setPlayableUrls(urls);
         if (urls.length > 0) {
           setActiveVideoUrl(urls[0].url);
           setActiveLabel(urls[0].label);
-        } else {
+        } else if (!json.status || json.status === "success") {
           setError("Nenhuma URL de vídeo encontrada na resposta.");
         }
       } catch {
@@ -3841,8 +3862,8 @@ function TeraBoxRapidAPITab() {
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 14, backgroundColor: `${RAPID_COLOR}12`, borderRadius: 10, padding: 12, borderWidth: 1, borderColor: `${RAPID_COLOR}30` }}>
         <Feather name="zap" size={15} color={RAPID_COLOR} />
         <View style={{ flex: 1 }}>
-          <Text style={{ color: RAPID_COLOR, fontWeight: "700", fontSize: 12 }}>RapidAPI · TeraBox Downloader</Text>
-          <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 11, marginTop: 2 }}>terabox-downloader-online-viewer-player-api</Text>
+          <Text style={{ color: RAPID_COLOR, fontWeight: "700", fontSize: 12 }}>xAPIverse · TeraBox API Pro ⚡️</Text>
+          <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 11, marginTop: 2 }}>xapiverse.com/api/terabox-pro — POST</Text>
         </View>
       </View>
 
@@ -3871,7 +3892,7 @@ function TeraBoxRapidAPITab() {
           {loading
             ? <ActivityIndicator color="#fff" size="small" />
             : <Feather name="zap" size={16} color="#fff" />}
-          <Text style={styles.actionBtnText}>{loading ? "Chamando API…" : "Testar RapidAPI"}</Text>
+          <Text style={styles.actionBtnText}>{loading ? "Chamando API…" : "Chamar xAPIverse"}</Text>
         </Pressable>
         {error && (
           <View style={styles.errorBox}>
@@ -3979,7 +4000,7 @@ function TeraBoxPanel() {
     { id: "register" as const, label: "Registrar", icon: "bookmark" as const },
     { id: "upload" as const, label: "Upload R2", icon: "upload-cloud" as const },
     { id: "test" as const, label: "Testar", icon: "play-circle" as const },
-    { id: "rapidapi" as const, label: "RapidAPI", icon: "zap" as const },
+    { id: "rapidapi" as const, label: "API Pro", icon: "zap" as const },
   ];
 
   return (
