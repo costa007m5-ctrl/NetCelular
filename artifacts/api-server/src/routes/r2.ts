@@ -216,6 +216,155 @@ setInterval(() => {
   }
 }, 300_000);
 
+// ── TeraBox → R2 Fallback jobs ────────────────────────────────────────────────
+// When xAPIverse API fails during playback, the server automatically downloads
+// the episode via fast_dlink (from cache) and uploads it to R2.
+// Key: registryItem.id → fallback job state
+
+interface TeraboxR2FallbackJob {
+  jobId: string;
+  status: "queued" | "downloading" | "uploading" | "done" | "error";
+  progress: number;
+  r2Key?: string;
+  error?: string;
+  startedAt: number;
+}
+
+const teraboxR2FallbackJobs = new Map<string, TeraboxR2FallbackJob>(); // itemId → job
+
+// Clean up stale fallback jobs (> 2hr)
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, job] of teraboxR2FallbackJobs.entries()) {
+    if (now - job.startedAt > 7_200_000) teraboxR2FallbackJobs.delete(id);
+  }
+}, 600_000);
+
+async function startTeraboxR2Fallback(
+  item: RegistryItem,
+  downloadUrl: string,
+  fileName: string,
+  client: S3Client,
+  bucket: string
+): Promise<string> {
+  // Idempotent: if a job is already running/done for this item, return existing jobId
+  const existing = teraboxR2FallbackJobs.get(item.id);
+  if (existing && existing.status !== "error") return existing.jobId;
+
+  const jobId = crypto.randomUUID();
+
+  // Build R2 key under the item's r2Folder or a dedicated fallback folder
+  const safeName = fileName.replace(/[^a-zA-Z0-9._\-()\s]/g, "_").replace(/\s+/g, " ").trim();
+  const VIDEO_EXTS = /\.(mp4|mkv|mov|avi|webm|m4v|ts|m2ts)$/i;
+  const folder = item.r2Folder ? `${item.r2Folder.replace(/\/$/, "")}/` : `__tb-fallback/${item.tmdbId}/`;
+  const episodePart =
+    item.season != null && item.episode != null
+      ? `S${String(item.season).padStart(2, "0")}E${String(item.episode).padStart(2, "0")}_`
+      : "";
+  let r2Key = `${folder}${episodePart}${safeName}`;
+  if (!VIDEO_EXTS.test(r2Key)) r2Key += ".mp4";
+
+  const fallbackJob: TeraboxR2FallbackJob = {
+    jobId,
+    status: "queued",
+    progress: 0,
+    startedAt: Date.now(),
+  };
+  teraboxR2FallbackJobs.set(item.id, fallbackJob);
+
+  logger.info({ itemId: item.id, r2Key, downloadUrl: downloadUrl.slice(0, 80) }, "[tb-r2-fallback] iniciando download → R2");
+
+  // Background: download from TeraBox fast_dlink → upload to R2 → update registry
+  (async () => {
+    try {
+      fallbackJob.status = "downloading";
+
+      let response: Response | null = null;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          response = await fetch(downloadUrl, {
+            headers: {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+              "Referer": "https://www.terabox.com/",
+            },
+          });
+          break;
+        } catch (e: any) {
+          const isTransient = ["EAI_AGAIN", "ENOTFOUND", "ECONNRESET"].includes(e?.code ?? "");
+          if (!isTransient || attempt === 3) throw e;
+          await new Promise((r) => setTimeout(r, 2500 * attempt));
+        }
+      }
+
+      if (!response || !response.ok) {
+        throw new Error(`HTTP ${response?.status ?? "?"} ao baixar do TeraBox`);
+      }
+
+      fallbackJob.status = "uploading";
+      const contentType = response.headers.get("content-type") ?? "video/mp4";
+      const contentLength = Number(response.headers.get("content-length") ?? 0);
+
+      // Fix extension from content-type if needed
+      let finalKey = r2Key;
+      if (!VIDEO_EXTS.test(finalKey)) {
+        const rawExt = contentType.split("/")[1]?.split(";")[0]?.trim() ?? "mp4";
+        const ext =
+          rawExt === "quicktime" ? "mov" :
+          rawExt === "x-matroska" ? "mkv" :
+          rawExt === "x-msvideo" ? "avi" : rawExt;
+        finalKey = `${finalKey}.${ext}`;
+      }
+
+      const webStream = response.body!;
+      const nodeStream = Readable.fromWeb(webStream as any);
+      const passThrough = new PassThrough();
+      let downloaded = 0;
+
+      nodeStream.on("data", (chunk: Buffer) => {
+        downloaded += chunk.length;
+        if (contentLength > 0) {
+          fallbackJob.progress = Math.min(99, Math.round((downloaded / contentLength) * 100));
+        }
+      });
+      nodeStream.pipe(passThrough);
+
+      const uploader = new Upload({
+        client,
+        params: { Bucket: bucket, Key: finalKey, Body: passThrough, ContentType: contentType },
+        queueSize: 4,
+        partSize: 1024 * 1024 * 64,
+      });
+
+      await uploader.done();
+
+      // Update registry: set r2Key on the item so future /terabox/play calls hit R2 directly
+      try {
+        const freshReg = await readRegistry(client, bucket);
+        const idx = freshReg.items.findIndex((i) => i.id === item.id);
+        if (idx >= 0) {
+          freshReg.items[idx].r2Key = finalKey;
+          await writeRegistry(client, bucket, freshReg);
+        }
+      } catch (regErr: any) {
+        logger.warn({ err: regErr }, "[tb-r2-fallback] falha ao atualizar registry após upload");
+      }
+
+      fallbackJob.status = "done";
+      fallbackJob.progress = 100;
+      fallbackJob.r2Key = finalKey;
+      catalogCache = null;
+
+      logger.info({ itemId: item.id, finalKey }, "[tb-r2-fallback] upload concluído ✅");
+    } catch (e: any) {
+      fallbackJob.status = "error";
+      fallbackJob.error = e?.message ?? "Erro desconhecido no fallback R2";
+      logger.error({ err: e, itemId: item.id }, "[tb-r2-fallback] falha no upload ❌");
+    }
+  })();
+
+  return jobId;
+}
+
 // ── Catalog cache ─────────────────────────────────────────────────────────────
 
 interface TmdbMatch {
@@ -1287,6 +1436,12 @@ router.delete("/registry/:id", async (req, res) => {
 
 // ── NEW: TeraBox play (resolve on-the-fly from registry) ─────────────────────
 // GET /terabox/play?id=<registryItemId>
+//
+// Fallback logic (automatic TeraBox → R2 upload):
+// 1. If registry item already has r2Key → serve directly from R2
+// 2. Normal flow: resolve via xAPIverse (fast_stream_url → fast_dlink)
+// 3. On API failure: use cached fast_dlink to trigger background R2 upload
+// 4. On repeated retry: proactively upload to R2 for permanent fix
 router.get("/terabox/play", async (req, res) => {
   try {
     const { id } = req.query as { id: string };
@@ -1297,30 +1452,118 @@ router.get("/terabox/play", async (req, res) => {
     const registry = await readRegistry(client, bucket);
     const item = registry.items.find((i) => i.id === id);
     if (!item) { res.status(404).json({ error: "Registry item not found" }); return; }
+
+    // ── Step 0: If item has r2Key, serve from R2 directly ─────────────────────
+    if (item.r2Key) {
+      try {
+        const headCmd = new HeadObjectCommand({ Bucket: bucket, Key: item.r2Key });
+        await client.send(headCmd);
+        // File exists in R2 → return R2 stream URL
+        res.json({
+          url: `/api/r2/stream?key=${encodeURIComponent(item.r2Key)}`,
+          urlType: "r2",
+          needsProxy: false,
+          name: item.fileName ?? item.label,
+          r2Key: item.r2Key,
+          fromR2Fallback: true,
+        });
+        return;
+      } catch {
+        // File doesn't exist in R2 anymore — clear key and fall through to TeraBox
+        logger.warn({ itemId: id, r2Key: item.r2Key }, "[tb-r2-fallback] r2Key no registry mas arquivo não existe no R2 — limpando");
+        const idx = registry.items.findIndex((i) => i.id === id);
+        if (idx >= 0) {
+          delete registry.items[idx].r2Key;
+          await writeRegistry(client, bucket, registry).catch(() => {});
+        }
+      }
+    }
+
+    // ── Step 0b: Check in-progress fallback job ────────────────────────────────
+    const existingFallbackJob = teraboxR2FallbackJobs.get(id);
+    if (existingFallbackJob) {
+      if (existingFallbackJob.status === "done" && existingFallbackJob.r2Key) {
+        res.json({
+          url: `/api/r2/stream?key=${encodeURIComponent(existingFallbackJob.r2Key)}`,
+          urlType: "r2",
+          needsProxy: false,
+          name: item.fileName ?? item.label,
+          r2Key: existingFallbackJob.r2Key,
+          fromR2Fallback: true,
+        });
+        return;
+      }
+      if (existingFallbackJob.status !== "error") {
+        // Upload in progress — return progress info so client can show spinner
+        res.status(202).json({
+          uploading: true,
+          jobId: existingFallbackJob.jobId,
+          status: existingFallbackJob.status,
+          progress: existingFallbackJob.progress,
+          message: "Vídeo sendo enviado para servidor. Aguarde...",
+        });
+        return;
+      }
+    }
+
     if (!item.teraboxUrl) { res.status(400).json({ error: "Item does not have a teraboxUrl" }); return; }
 
     const normalizedUrl = normalizeTeraboxUrl(item.teraboxUrl);
 
-    // Use shared cache + in-flight deduplication — all episodes from the same
-    // TeraBox folder reuse one xAPIverse call. First call ~20s, subsequent calls instant.
-    const list = await fetchTeraBoxList(normalizedUrl);
-    if (list.length === 0) {
-      // Folder-based TeraBox item: xAPIverse returns empty list for folder share URLs.
-      // Return a WebView-fallback so the player can load the TeraBox page on-device.
-      if (item.fileName) {
-        res.json({
-          url: item.teraboxUrl,
-          urlType: "webview",
-          needsWebView: true,
-          name: item.fileName,
+    // ── Step 1: Try xAPIverse API ──────────────────────────────────────────────
+    let list: any[];
+    let apiError: string | null = null;
+    try {
+      list = await fetchTeraBoxList(normalizedUrl);
+    } catch (err: any) {
+      apiError = err?.message ?? "TeraBox API error";
+      list = [];
+    }
+
+    // ── Step 2: API failed → try to use cached fast_dlink for R2 fallback ─────
+    if (apiError !== null || list.length === 0) {
+      // Check if we have a cached list with fast_dlink we can use
+      const cached = teraboxListCache.get(normalizedUrl);
+      const cachedList = cached?.list ?? [];
+      const idx = typeof item.fileIndex === "number" && item.fileIndex < cachedList.length ? item.fileIndex : 0;
+      let cachedFile: any = item.fileName ? cachedList.find((f: any) => f.name === item.fileName) : undefined;
+      if (!cachedFile && cachedList.length > 0) cachedFile = cachedList[idx];
+
+      const fastDlink: string | null = cachedFile?.fast_dlink ?? null;
+      const cachedFileName: string = cachedFile?.name ?? item.fileName ?? `${item.label ?? "video"}.mp4`;
+
+      if (fastDlink) {
+        // Have a download URL — trigger background R2 upload
+        const jobId = await startTeraboxR2Fallback(item, fastDlink, cachedFileName, client, bucket);
+        const job = teraboxR2FallbackJobs.get(id);
+        res.status(202).json({
+          uploading: true,
+          jobId,
+          status: job?.status ?? "queued",
+          progress: job?.progress ?? 0,
+          message: "Link TeraBox expirado. Enviando vídeo para servidor (pode levar alguns minutos)...",
+          apiError,
         });
         return;
       }
-      res.status(404).json({ error: "Nenhum arquivo encontrado no link TeraBox" });
-      return;
+
+      // No cached fast_dlink and empty list from API
+      if (list.length === 0) {
+        if (item.fileName) {
+          // Folder-based: fall back to WebView
+          res.json({ url: item.teraboxUrl, urlType: "webview", needsWebView: true, name: item.fileName });
+          return;
+        }
+        res.status(502).json({
+          error: apiError ?? "Nenhum arquivo encontrado no link TeraBox",
+          canRetry: true,
+          hint: "A API do TeraBox falhou. Tente novamente em alguns minutos.",
+        });
+        return;
+      }
     }
 
-    // Try to find file by stored fileName first (stable), then fall back to fileIndex
+    // ── Step 3: API succeeded — resolve stream URL ─────────────────────────────
     let file: any;
     if (item.fileName) {
       file = list.find((f: any) => f.name === item.fileName);
@@ -1329,6 +1572,7 @@ router.get("/terabox/play", async (req, res) => {
       const idx = typeof item.fileIndex === "number" && item.fileIndex < list.length ? item.fileIndex : 0;
       file = list[idx];
     }
+
     // Priority:
     // 1. fast_stream_url HLS (m3u8) via xAPIverse CF Workers proxy — CORS open, no auth needed
     // 2. fast_dlink — direct download link (may need browser-like headers)
@@ -1365,30 +1609,44 @@ router.get("/terabox/play", async (req, res) => {
       for (const [k, t] of teraboxLastRequested) { if (t < cutoff) teraboxLastRequested.delete(k); }
     }
 
-    if (isRetry && urlType === "fast_stream_url") {
-      // Player failed on the previous URL from this cached list — get a fresh list
-      teraboxListCache.delete(normalizedUrl);
-      const freshList = await fetchTeraBoxList(normalizedUrl, true);
-      let freshFile: any;
-      if (item.fileName) freshFile = freshList.find((f: any) => f.name === item.fileName);
-      if (!freshFile) {
-        const idx = typeof item.fileIndex === "number" && item.fileIndex < freshList.length ? item.fileIndex : 0;
-        freshFile = freshList[idx];
-      }
-      if (freshFile) {
-        file = freshFile;
-        streamUrl = null; urlType = "fast_dlink";
-        if (file.fast_stream_url && typeof file.fast_stream_url === "object") {
-          const qualityOrder = ["1080p", "720p", "480p", "360p", "240p"];
-          for (const q of qualityOrder) {
-            if (file.fast_stream_url[q]) { streamUrl = file.fast_stream_url[q]; urlType = "fast_stream_url"; break; }
+    if (isRetry) {
+      if (urlType === "fast_stream_url") {
+        // Player failed on HLS stream — get a fresh list from xAPIverse
+        teraboxListCache.delete(normalizedUrl);
+        try {
+          const freshList = await fetchTeraBoxList(normalizedUrl, true);
+          let freshFile: any;
+          if (item.fileName) freshFile = freshList.find((f: any) => f.name === item.fileName);
+          if (!freshFile) {
+            const idx = typeof item.fileIndex === "number" && item.fileIndex < freshList.length ? item.fileIndex : 0;
+            freshFile = freshList[idx];
           }
-          if (!streamUrl) {
-            const vals = Object.values(file.fast_stream_url) as string[];
-            if (vals.length > 0) { streamUrl = vals[0]; urlType = "fast_stream_url"; }
+          if (freshFile) {
+            file = freshFile;
+            streamUrl = null; urlType = "fast_dlink";
+            if (file.fast_stream_url && typeof file.fast_stream_url === "object") {
+              const qualityOrder = ["1080p", "720p", "480p", "360p", "240p"];
+              for (const q of qualityOrder) {
+                if (file.fast_stream_url[q]) { streamUrl = file.fast_stream_url[q]; urlType = "fast_stream_url"; break; }
+              }
+              if (!streamUrl) {
+                const vals = Object.values(file.fast_stream_url) as string[];
+                if (vals.length > 0) { streamUrl = vals[0]; urlType = "fast_stream_url"; }
+              }
+            }
+            if (!streamUrl && file.fast_dlink) { streamUrl = file.fast_dlink; urlType = "fast_dlink"; }
           }
+        } catch {
+          // Fresh list failed — fall through with existing streamUrl
         }
-        if (!streamUrl && file.fast_dlink) { streamUrl = file.fast_dlink; urlType = "fast_dlink"; }
+      }
+
+      // On retry with fast_dlink available: proactively trigger R2 upload in background
+      // so subsequent requests serve from R2 permanently.
+      if (file?.fast_dlink && !teraboxR2FallbackJobs.has(id)) {
+        const fileName = file.name ?? item.fileName ?? `${item.label ?? "video"}.mp4`;
+        startTeraboxR2Fallback(item, file.fast_dlink, fileName, client, bucket).catch(() => {});
+        logger.info({ itemId: id }, "[tb-r2-fallback] retry detectado — iniciando upload R2 preventivo");
       }
     }
     // ─────────────────────────────────────────────────────────────────────────
@@ -1402,6 +1660,9 @@ router.get("/terabox/play", async (req, res) => {
     }
     if (file.fast_dlink) qualityMap["download"] = file.fast_dlink;
 
+    // Check if a proactive R2 upload was started (from retry above)
+    const r2Job = teraboxR2FallbackJobs.get(id);
+
     res.json({
       url: streamUrl,
       urlType,
@@ -1412,6 +1673,101 @@ router.get("/terabox/play", async (req, res) => {
       size: file.size_formatted,
       fast_stream_url: qualityMap,
       thumbnail: file.thumbnail ?? null,
+      ...(r2Job && r2Job.status !== "error" ? { r2Upload: { jobId: r2Job.jobId, status: r2Job.status, progress: r2Job.progress } } : {}),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "error" });
+  }
+});
+
+// ── GET /terabox/r2-fallback-status?id=<registryItemId> ───────────────────────
+// Poll the status of a background TeraBox → R2 upload job.
+// Returns { status, progress, r2Url } — client polls until status="done".
+router.get("/terabox/r2-fallback-status", async (req, res) => {
+  try {
+    const { id } = req.query as { id: string };
+    if (!id) { res.status(400).json({ error: "id required" }); return; }
+
+    const job = teraboxR2FallbackJobs.get(id);
+    if (!job) {
+      res.status(404).json({ found: false, message: "Nenhum job de fallback em andamento para este item" });
+      return;
+    }
+
+    res.json({
+      found: true,
+      jobId: job.jobId,
+      status: job.status,
+      progress: job.progress,
+      r2Key: job.r2Key ?? null,
+      r2Url: job.r2Key ? `/api/r2/stream?key=${encodeURIComponent(job.r2Key)}` : null,
+      error: job.error ?? null,
+      startedAt: new Date(job.startedAt).toISOString(),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "error" });
+  }
+});
+
+// ── POST /terabox/trigger-r2-fallback ─────────────────────────────────────────
+// Manually trigger R2 upload for a TeraBox registry item (admin use).
+// Body: { id: string }
+router.post("/terabox/trigger-r2-fallback", async (req, res) => {
+  try {
+    const { id } = req.body as { id: string };
+    if (!id) { res.status(400).json({ error: "id required" }); return; }
+
+    const client = getClient();
+    const bucket = getBucket();
+    const registry = await readRegistry(client, bucket);
+    const item = registry.items.find((i) => i.id === id);
+    if (!item) { res.status(404).json({ error: "Registry item not found" }); return; }
+    if (!item.teraboxUrl) { res.status(400).json({ error: "Item não possui teraboxUrl" }); return; }
+
+    // Try to get fast_dlink from cache or fresh API call
+    const normalizedUrl = normalizeTeraboxUrl(item.teraboxUrl);
+    let fastDlink: string | null = null;
+    let fileName: string = item.fileName ?? `${item.label ?? "video"}.mp4`;
+
+    // Check cache first
+    const cached = teraboxListCache.get(normalizedUrl);
+    const cachedList = cached?.list ?? [];
+    const cachedIdx = typeof item.fileIndex === "number" && item.fileIndex < cachedList.length ? item.fileIndex : 0;
+    let cachedFile: any = item.fileName ? cachedList.find((f: any) => f.name === item.fileName) : undefined;
+    if (!cachedFile && cachedList.length > 0) cachedFile = cachedList[cachedIdx];
+
+    if (cachedFile?.fast_dlink) {
+      fastDlink = cachedFile.fast_dlink;
+      if (cachedFile.name) fileName = cachedFile.name;
+    } else {
+      // Try fresh API call
+      try {
+        const freshList = await fetchTeraBoxList(normalizedUrl, true);
+        const freshIdx = typeof item.fileIndex === "number" && item.fileIndex < freshList.length ? item.fileIndex : 0;
+        let freshFile: any = item.fileName ? freshList.find((f: any) => f.name === item.fileName) : undefined;
+        if (!freshFile && freshList.length > 0) freshFile = freshList[freshIdx];
+        if (freshFile?.fast_dlink) {
+          fastDlink = freshFile.fast_dlink;
+          if (freshFile.name) fileName = freshFile.name;
+        }
+      } catch (apiErr: any) {
+        res.status(502).json({ error: `API TeraBox falhou: ${apiErr?.message ?? "erro"}. Não é possível obter URL de download.` });
+        return;
+      }
+    }
+
+    if (!fastDlink) {
+      res.status(404).json({ error: "fast_dlink não disponível para este arquivo. Tente novamente mais tarde." });
+      return;
+    }
+
+    const jobId = await startTeraboxR2Fallback(item, fastDlink, fileName, client, bucket);
+    const job = teraboxR2FallbackJobs.get(id)!;
+    res.json({
+      ok: true,
+      jobId,
+      status: job.status,
+      message: `Upload para R2 iniciado. Use GET /terabox/r2-fallback-status?id=${id} para acompanhar.`,
     });
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? "error" });
