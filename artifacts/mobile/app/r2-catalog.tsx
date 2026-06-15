@@ -7180,32 +7180,63 @@ function DxStatCard({ label, value, sub, color }: { label: string; value: string
   );
 }
 
-function DxGroupRow({ group, defaultExpanded }: { group: DiagnoseGroup; defaultExpanded?: boolean }) {
+function DxGroupRow({
+  group,
+  defaultExpanded,
+  suppressedUrls,
+  suppressing,
+  onSuppress,
+  onUnSuppress,
+}: {
+  group: DiagnoseGroup;
+  defaultExpanded?: boolean;
+  suppressedUrls: Set<string>;
+  suppressing: Set<string>;
+  onSuppress: (url: string, title: string) => void;
+  onUnSuppress: (url: string) => void;
+}) {
   const [open, setOpen] = useState(!!defaultExpanded);
   const router = useRouter();
   const urlShort = group.url.split("/").pop() ?? group.url;
+  const isSuppressed = suppressedUrls.has(group.url);
+  const isProcessing = suppressing.has(group.url);
   const hasConflict = (() => {
     const ids = group.items.map((i) => i.tmdb_id).filter((id) => id > 0);
     return new Set(ids).size > 1;
   })();
 
+  const borderColor = isSuppressed
+    ? "rgba(34,197,94,0.25)"
+    : hasConflict ? "rgba(248,113,113,0.3)" : "rgba(255,255,255,0.08)";
+  const headerBg = isSuppressed
+    ? "rgba(34,197,94,0.05)"
+    : hasConflict ? "rgba(248,113,113,0.06)" : "rgba(255,255,255,0.04)";
+
   return (
-    <View style={{ marginBottom: 8, borderRadius: 10, borderWidth: 1, borderColor: hasConflict ? "rgba(248,113,113,0.3)" : "rgba(255,255,255,0.08)", overflow: "hidden" }}>
+    <View style={{ marginBottom: 8, borderRadius: 10, borderWidth: 1, borderColor, overflow: "hidden", opacity: isSuppressed ? 0.65 : 1 }}>
       <Pressable
         onPress={() => setOpen((v) => !v)}
-        style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 12, backgroundColor: hasConflict ? "rgba(248,113,113,0.06)" : "rgba(255,255,255,0.04)" }}
+        style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 12, backgroundColor: headerBg }}
       >
-        <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: hasConflict ? "rgba(248,113,113,0.15)" : "rgba(255,255,255,0.08)", alignItems: "center", justifyContent: "center" }}>
-          <Text style={{ color: hasConflict ? DX_RED : "rgba(255,255,255,0.5)", fontSize: 11, fontWeight: "700" }}>{group.items.length}</Text>
+        <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: isSuppressed ? "rgba(34,197,94,0.15)" : hasConflict ? "rgba(248,113,113,0.15)" : "rgba(255,255,255,0.08)", alignItems: "center", justifyContent: "center" }}>
+          {isSuppressed
+            ? <Feather name="slash" size={12} color={DX_GREEN} />
+            : <Text style={{ color: hasConflict ? DX_RED : "rgba(255,255,255,0.5)", fontSize: 11, fontWeight: "700" }}>{group.items.length}</Text>
+          }
         </View>
         <View style={{ flex: 1 }}>
-          <Text numberOfLines={1} style={{ color: hasConflict ? "#fca5a5" : "#fff", fontSize: 12, fontWeight: "600" }}>
+          <Text numberOfLines={1} style={{ color: isSuppressed ? "rgba(255,255,255,0.4)" : hasConflict ? "#fca5a5" : "#fff", fontSize: 12, fontWeight: "600", textDecorationLine: isSuppressed ? "line-through" : "none" }}>
             {group.items[0]?.title ?? "(sem título)"}
             {group.items.length > 1 && ` +${group.items.length - 1} duplicata${group.items.length > 2 ? "s" : ""}`}
           </Text>
           <Text numberOfLines={1} style={{ color: "rgba(255,255,255,0.28)", fontSize: 10, marginTop: 1, fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" }}>{urlShort}</Text>
         </View>
-        {hasConflict && (
+        {isSuppressed && (
+          <View style={{ backgroundColor: "rgba(34,197,94,0.12)", borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+            <Text style={{ color: DX_GREEN, fontSize: 9, fontWeight: "800" }}>SUPRIMIDO</Text>
+          </View>
+        )}
+        {!isSuppressed && hasConflict && (
           <View style={{ backgroundColor: "rgba(248,113,113,0.15)", borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
             <Text style={{ color: DX_RED, fontSize: 9, fontWeight: "800" }}>CONFLITO</Text>
           </View>
@@ -7216,33 +7247,80 @@ function DxGroupRow({ group, defaultExpanded }: { group: DiagnoseGroup; defaultE
       {open && (
         <View style={{ borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.06)" }}>
           {group.items.map((item, idx) => (
-            <Pressable
+            <View
               key={`${item.id}-${idx}`}
-              onPress={() => item.tmdb_id > 0
-                ? router.push({ pathname: "/detail", params: { type: item.type === "movies" ? "movie" : "tv", id: String(item.tmdb_id), title: item.title } })
-                : undefined
-              }
-              style={({ pressed }) => ({
-                flexDirection: "row", alignItems: "center", gap: 10, padding: 10,
-                backgroundColor: pressed ? "rgba(255,255,255,0.04)" : "transparent",
+              style={{
+                flexDirection: "row", alignItems: "center", gap: 8, padding: 10,
                 borderTopWidth: idx > 0 ? 1 : 0, borderTopColor: "rgba(255,255,255,0.05)",
-              })}
+                backgroundColor: isSuppressed ? "rgba(0,0,0,0.2)" : "transparent",
+              }}
             >
               <View style={{ width: 28, height: 28, borderRadius: 6, backgroundColor: item.type === "movies" ? "rgba(229,9,20,0.15)" : item.type === "series" ? "rgba(139,92,246,0.15)" : "rgba(245,158,11,0.15)", alignItems: "center", justifyContent: "center" }}>
                 <Text style={{ color: item.type === "movies" ? RED : item.type === "series" ? "#8b5cf6" : DX_AMBER, fontSize: 9, fontWeight: "800" }}>
                   {item.type === "movies" ? "MOV" : item.type === "series" ? "SER" : "ANI"}
                 </Text>
               </View>
-              <View style={{ flex: 1 }}>
-                <Text numberOfLines={1} style={{ color: "#fff", fontSize: 12, fontWeight: "600" }}>{item.title || "(sem título)"}</Text>
+              <Pressable
+                onPress={() => item.tmdb_id > 0
+                  ? router.push({ pathname: "/detail", params: { type: item.type === "movies" ? "movie" : "tv", id: String(item.tmdb_id), title: item.title } })
+                  : undefined
+                }
+                style={{ flex: 1 }}
+              >
+                <Text numberOfLines={1} style={{ color: isSuppressed ? "rgba(255,255,255,0.3)" : "#fff", fontSize: 12, fontWeight: "600", textDecorationLine: isSuppressed ? "line-through" : "none" }}>
+                  {item.title || "(sem título)"}
+                </Text>
                 <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 10, marginTop: 1 }}>
                   {item.year > 0 ? `${item.year} · ` : ""}
                   {item.tmdb_id > 0 ? `TMDB #${item.tmdb_id}` : "sem TMDB ID"}
                 </Text>
-              </View>
-              {item.tmdb_id > 0 && <Feather name="external-link" size={12} color="rgba(255,255,255,0.2)" />}
-            </Pressable>
+              </Pressable>
+              {item.tmdb_id > 0 && (
+                <Pressable
+                  onPress={() => router.push({ pathname: "/detail", params: { type: item.type === "movies" ? "movie" : "tv", id: String(item.tmdb_id), title: item.title } })}
+                  style={{ padding: 4 }}
+                >
+                  <Feather name="external-link" size={12} color="rgba(255,255,255,0.2)" />
+                </Pressable>
+              )}
+              {/* Suppress / Unsuppress button — acts on the group's stream_url */}
+              <Pressable
+                onPress={() => isSuppressed ? onUnSuppress(group.url) : onSuppress(group.url, item.title)}
+                disabled={isProcessing}
+                style={{
+                  flexDirection: "row", alignItems: "center", gap: 4,
+                  paddingHorizontal: 8, paddingVertical: 5, borderRadius: 7, borderWidth: 1,
+                  opacity: isProcessing ? 0.5 : 1,
+                  backgroundColor: isSuppressed ? "rgba(34,197,94,0.1)" : "rgba(248,113,113,0.08)",
+                  borderColor: isSuppressed ? "rgba(34,197,94,0.35)" : "rgba(248,113,113,0.3)",
+                }}
+              >
+                {isProcessing
+                  ? <ActivityIndicator size={10} color={isSuppressed ? DX_GREEN : DX_RED} />
+                  : <Feather name={isSuppressed ? "eye" : "slash"} size={11} color={isSuppressed ? DX_GREEN : DX_RED} />
+                }
+                <Text style={{ color: isSuppressed ? DX_GREEN : DX_RED, fontSize: 10, fontWeight: "700" }}>
+                  {isSuppressed ? "Remover" : "Suprimir"}
+                </Text>
+              </Pressable>
+            </View>
           ))}
+
+          {/* Suppress-all shortcut when group URL appears once per item */}
+          {!isSuppressed && group.items.length > 1 && (
+            <Pressable
+              onPress={() => onSuppress(group.url, group.items[0]?.title ?? "")}
+              disabled={isProcessing}
+              style={{
+                flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
+                padding: 10, borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.06)",
+                opacity: isProcessing ? 0.5 : 1,
+              }}
+            >
+              <Feather name="slash" size={13} color={DX_RED} />
+              <Text style={{ color: DX_RED, fontSize: 12, fontWeight: "700" }}>Suprimir URL inteira ({group.items.length} itens)</Text>
+            </Pressable>
+          )}
         </View>
       )}
     </View>
@@ -7253,8 +7331,18 @@ function DiagnosePanel() {
   const [data, setData] = useState<DiagnoseData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<"all" | "conflicts">("all");
+  const [filter, setFilter] = useState<"all" | "conflicts" | "suppressed">("all");
   const [search, setSearch] = useState("");
+  const [suppressedUrls, setSuppressedUrls] = useState<Set<string>>(new Set());
+  const [suppressing, setSuppressing] = useState<Set<string>>(new Set());
+
+  const fetchSuppressions = useCallback(async (base: string) => {
+    try {
+      const r = await fetch(`${base}/flix2/suppress`);
+      const j = await r.json();
+      if (j.ok) setSuppressedUrls(new Set((j.suppressions as Array<{ url: string }>).map((s) => s.url)));
+    } catch {}
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -7263,8 +7351,11 @@ function DiagnosePanel() {
     try {
       const base = getApiBase();
       if (!base) throw new Error("API server não configurado");
-      const r = await fetch(`${base}/flix2/diagnose?limit=200`, { signal: sig });
-      const j = await r.json();
+      const [diagRes] = await Promise.all([
+        fetch(`${base}/flix2/diagnose?limit=200`, { signal: sig }),
+        fetchSuppressions(base),
+      ]);
+      const j = await diagRes.json();
       if (!j.ok) throw new Error(j.error ?? "Erro desconhecido");
       setData(j);
     } catch (e: any) {
@@ -7273,17 +7364,65 @@ function DiagnosePanel() {
       clear();
       setLoading(false);
     }
-  }, []);
+  }, [fetchSuppressions]);
 
   useEffect(() => { load(); }, [load]);
 
+  const handleSuppress = useCallback(async (url: string, title: string) => {
+    const base = getApiBase();
+    if (!base) return;
+    Alert.alert(
+      "Suprimir URL",
+      `"${title}" (e todos os títulos com a mesma URL) será excluído dos resultados de busca do Flix 2.0.\n\nIsso não remove o conteúdo do catálogo — apenas impede que apareça no detail screen. Pode ser revertido a qualquer momento.`,
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Suprimir",
+          style: "destructive",
+          onPress: async () => {
+            setSuppressing((prev) => new Set([...prev, url]));
+            try {
+              const r = await fetch(`${base}/flix2/suppress`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ url, reason: `Admin suprimido via diagnose — ${title}` }),
+              });
+              const j = await r.json();
+              if (j.ok) setSuppressedUrls((prev) => new Set([...prev, url]));
+            } catch {}
+            setSuppressing((prev) => { const s = new Set(prev); s.delete(url); return s; });
+          },
+        },
+      ]
+    );
+  }, []);
+
+  const handleUnSuppress = useCallback(async (url: string) => {
+    const base = getApiBase();
+    if (!base) return;
+    setSuppressing((prev) => new Set([...prev, url]));
+    try {
+      const r = await fetch(`${base}/flix2/suppress`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      const j = await r.json();
+      if (j.ok) setSuppressedUrls((prev) => { const s = new Set(prev); s.delete(url); return s; });
+    } catch {}
+    setSuppressing((prev) => { const s = new Set(prev); s.delete(url); return s; });
+  }, []);
+
   const groups = useMemo(() => {
     if (!data) return [];
-    const src = filter === "conflicts" ? data.tmdbConflicts : data.duplicateGroups;
+    let src: DiagnoseGroup[];
+    if (filter === "conflicts") src = data.tmdbConflicts;
+    else if (filter === "suppressed") src = data.duplicateGroups.filter((g) => suppressedUrls.has(g.url));
+    else src = data.duplicateGroups;
     if (!search.trim()) return src;
     const q = search.toLowerCase();
     return src.filter((g) => g.items.some((i) => i.title.toLowerCase().includes(q)));
-  }, [data, filter, search]);
+  }, [data, filter, search, suppressedUrls]);
 
   const totalItems = useMemo(() => {
     if (!data) return 0;
@@ -7327,7 +7466,7 @@ function DiagnosePanel() {
           <Text style={{ color: DX_GREEN, fontWeight: "700", fontSize: 13 }}>Diagnóstico de Conteúdo</Text>
         </View>
         <Pressable onPress={load} disabled={loading} style={{ flexDirection: "row", alignItems: "center", gap: 4, opacity: loading ? 0.5 : 1 }}>
-          <Feather name="refresh-cw" size={13} color="rgba(255,255,255,0.4)" />
+          {loading ? <ActivityIndicator size={12} color="rgba(255,255,255,0.4)" /> : <Feather name="refresh-cw" size={13} color="rgba(255,255,255,0.4)" />}
           <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11 }}>Atualizar</Text>
         </Pressable>
       </View>
@@ -7351,7 +7490,7 @@ function DiagnosePanel() {
             </View>
             <View style={{ flexDirection: "row", gap: 8, marginBottom: 14 }}>
               <DxStatCard label="URLs duplicadas" value={data.totalDuplicateGroups} color={data.totalDuplicateGroups > 0 ? DX_AMBER : DX_GREEN} sub="mesma URL, títulos diferentes" />
-              <DxStatCard label="Conflitos TMDB" value={data.totalTmdbConflicts} color={data.totalTmdbConflicts > 0 ? DX_RED : DX_GREEN} sub="mesmo arquivo, IDs distintos" />
+              <DxStatCard label="Suprimidos" value={suppressedUrls.size} color={suppressedUrls.size > 0 ? DX_GREEN : "rgba(255,255,255,0.3)"} sub="excluídos do lookup" />
             </View>
 
             {/* Per-type breakdown */}
@@ -7365,7 +7504,7 @@ function DiagnosePanel() {
                 return (
                   <View key={t} style={{ marginBottom: 10 }}>
                     <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 4 }}>
-                      <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600", textTransform: "capitalize" }}>{t === "movies" ? "Filmes" : t === "series" ? "Séries" : "Animes"}</Text>
+                      <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600" }}>{t === "movies" ? "Filmes" : t === "series" ? "Séries" : "Animes"}</Text>
                       <Text style={{ color: col, fontSize: 12, fontWeight: "700" }}>{pct}% <Text style={{ color: "rgba(255,255,255,0.3)", fontWeight: "400" }}>({s.withTmdb.toLocaleString()}/{s.total.toLocaleString()})</Text></Text>
                     </View>
                     <View style={{ height: 5, backgroundColor: "rgba(255,255,255,0.08)", borderRadius: 3, overflow: "hidden" }}>
@@ -7378,24 +7517,29 @@ function DiagnosePanel() {
           </>
         )}
 
-        {/* Filter + search */}
+        {/* Filter tabs */}
         {data && data.totalDuplicateGroups > 0 && (
           <>
-            <View style={{ flexDirection: "row", gap: 8, marginBottom: 10 }}>
-              {(["all", "conflicts"] as const).map((f) => (
-                <Pressable key={f} onPress={() => setFilter(f)} style={{
-                  flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: "center",
-                  backgroundColor: filter === f ? (f === "conflicts" ? "rgba(248,113,113,0.15)" : "rgba(34,197,94,0.12)") : "rgba(255,255,255,0.05)",
-                  borderWidth: 1, borderColor: filter === f ? (f === "conflicts" ? "rgba(248,113,113,0.4)" : "rgba(34,197,94,0.35)") : "rgba(255,255,255,0.08)",
+            <View style={{ flexDirection: "row", gap: 6, marginBottom: 10 }}>
+              {([
+                { id: "all" as const,       label: `Todas (${data.totalDuplicateGroups})`,        color: DX_GREEN },
+                { id: "conflicts" as const, label: `Conflitos (${data.totalTmdbConflicts})`,       color: DX_RED },
+                { id: "suppressed" as const, label: `Suprimidas (${suppressedUrls.size})`,         color: DX_GREEN },
+              ]).map((f) => (
+                <Pressable key={f.id} onPress={() => setFilter(f.id)} style={{
+                  flex: 1, paddingVertical: 7, borderRadius: 8, alignItems: "center",
+                  backgroundColor: filter === f.id ? `${f.color}18` : "rgba(255,255,255,0.05)",
+                  borderWidth: 1, borderColor: filter === f.id ? `${f.color}45` : "rgba(255,255,255,0.08)",
                 }}>
-                  <Text style={{ color: filter === f ? (f === "conflicts" ? DX_RED : DX_GREEN) : "rgba(255,255,255,0.45)", fontSize: 12, fontWeight: "700" }}>
-                    {f === "all" ? `Todas (${data.totalDuplicateGroups})` : `Conflitos (${data.totalTmdbConflicts})`}
+                  <Text numberOfLines={1} style={{ color: filter === f.id ? f.color : "rgba(255,255,255,0.45)", fontSize: 10, fontWeight: "700" }}>
+                    {f.label}
                   </Text>
                 </Pressable>
               ))}
             </View>
 
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(255,255,255,0.07)", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 12 }}>
+            {/* Search */}
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(255,255,255,0.07)", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 10 }}>
               <Feather name="search" size={13} color="rgba(255,255,255,0.35)" />
               <TextInput
                 style={{ flex: 1, color: "#fff", fontSize: 13 }}
@@ -7414,18 +7558,25 @@ function DiagnosePanel() {
 
             <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 11, marginBottom: 8 }}>
               {groups.length} grupo{groups.length !== 1 ? "s" : ""} encontrado{groups.length !== 1 ? "s" : ""}
-              {filter === "conflicts" ? " com conflito de TMDB ID" : " com URL duplicada"}
             </Text>
 
             {groups.length === 0 && (
               <View style={{ alignItems: "center", padding: 24 }}>
                 <Feather name="check-circle" size={32} color={DX_GREEN} />
-                <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 13, marginTop: 10, textAlign: "center" }}>Nenhum problema encontrado com o filtro atual.</Text>
+                <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 13, marginTop: 10, textAlign: "center" }}>Nenhum grupo encontrado com o filtro atual.</Text>
               </View>
             )}
 
             {groups.map((g, i) => (
-              <DxGroupRow key={`${g.url}-${i}`} group={g} defaultExpanded={i === 0 && groups.length <= 3} />
+              <DxGroupRow
+                key={`${g.url}-${i}`}
+                group={g}
+                defaultExpanded={i === 0 && groups.length <= 3}
+                suppressedUrls={suppressedUrls}
+                suppressing={suppressing}
+                onSuppress={handleSuppress}
+                onUnSuppress={handleUnSuppress}
+              />
             ))}
           </>
         )}

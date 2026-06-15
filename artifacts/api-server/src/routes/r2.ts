@@ -11,7 +11,8 @@ import {
 import { Upload } from "@aws-sdk/lib-storage";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { Readable, PassThrough } from "stream";
-import { readFileSync, writeFileSync } from "fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
+import path from "path";
 import { tmdb } from "../lib/tmdb";
 import multer from "multer";
 import crypto from "crypto";
@@ -2181,6 +2182,33 @@ function normTitle(s: string): string {
 // R2 is just an optional persistence layer — this works without R2 credentials.
 const FLIX2_INDEX_CACHE = new Map<string, { index: Record<string, string>; builtAt: number }>();
 
+// ── Flix2 suppression list ─────────────────────────────────────────────────────
+// stream_urls in this map are excluded from /flix2/lookup results.
+// Used by admins to hide catalog entries with bad TMDB ID or duplicate URLs.
+// Persisted to data/flix2-suppressions.json so suppressions survive server restarts.
+interface SuppressionEntry { url: string; reason: string; suppressedAt: string }
+const FLIX2_SUPPRESSION_MAP = new Map<string, { reason: string; suppressedAt: string }>();
+const SUPPRESSION_FILE = path.resolve(process.cwd(), "data", "flix2-suppressions.json");
+
+function loadSuppressions(): void {
+  try {
+    if (!existsSync(SUPPRESSION_FILE)) return;
+    const arr: SuppressionEntry[] = JSON.parse(readFileSync(SUPPRESSION_FILE, "utf-8"));
+    for (const e of arr) FLIX2_SUPPRESSION_MAP.set(e.url, { reason: e.reason, suppressedAt: e.suppressedAt });
+    console.log(`[suppress] Loaded ${FLIX2_SUPPRESSION_MAP.size} suppression(s) from file`);
+  } catch {}
+}
+
+function saveSuppressions(): void {
+  try {
+    mkdirSync(path.dirname(SUPPRESSION_FILE), { recursive: true });
+    const arr: SuppressionEntry[] = [...FLIX2_SUPPRESSION_MAP.entries()].map(([url, v]) => ({ url, ...v }));
+    writeFileSync(SUPPRESSION_FILE, JSON.stringify(arr, null, 2), "utf-8");
+  } catch {}
+}
+
+loadSuppressions();
+
 // Map a Xtream Codes VOD stream item to the existing app format
 // Normalize poster/backdrop URLs coming from the Xtream server:
 //   • Upgrade http:// → https:// (Android blocks mixed-content images)
@@ -3045,6 +3073,8 @@ router.get("/flix2/lookup", async (req, res) => {
   }
 
   function matchItem(i: any): boolean {
+    // Suppression check — skip items whose stream_url has been admin-suppressed
+    if (i.stream_url && FLIX2_SUPPRESSION_MAP.has(i.stream_url)) return false;
     // TMDB ID match (only when id > 0)
     if (id > 0 && Number(i.tmdb_id) === id) return true;
     // Title match — used as fallback or primary when id=0
@@ -3095,9 +3125,13 @@ router.get("/flix2/lookup", async (req, res) => {
       if (entry) {
         if (!entry.startsWith("flix2id:")) {
           // Direct stream URL — movies/VOD
-          CACHE_STATS.lookup.hits++;
-          res.json({ found: true, item: { tmdb_id: id, stream_url: entry, type: t, title: title || undefined } });
-          return;
+          // Skip if admin-suppressed
+          if (FLIX2_SUPPRESSION_MAP.has(entry)) { /* fall through to next type */ }
+          else {
+            CACHE_STATS.lookup.hits++;
+            res.json({ found: true, item: { tmdb_id: id, stream_url: entry, type: t, title: title || undefined } });
+            return;
+          }
         } else {
           // "flix2id:<seriesId>" — resolve the full catalog item from raw cache
           // This avoids falling through to slower paths (which can fail for certain title formats)
@@ -3123,7 +3157,7 @@ router.get("/flix2/lookup", async (req, res) => {
         const byId = id > 0 ? index[String(id)] : undefined;
         const byTitle = normTitle ? index[`title:${normTitle}`] : undefined;
         const entry = byId ?? byTitle;
-        if (entry && !entry.startsWith("flix2id:")) {
+        if (entry && !entry.startsWith("flix2id:") && !FLIX2_SUPPRESSION_MAP.has(entry)) {
           CACHE_STATS.lookup.hits++;
           res.json({ found: true, item: { tmdb_id: id, stream_url: entry, type: t, title: title || undefined } });
           return;
@@ -4320,6 +4354,42 @@ router.get("/flix2/catalog-diff", (req, res) => {
                   "First run after server start shows no diff — needs two snapshots.",
     types:        diffs,
   });
+});
+
+// ── GET /flix2/suppress ────────────────────────────────────────────────────────
+// Lists all admin-suppressed stream URLs.
+router.get("/flix2/suppress", (_req, res) => {
+  const entries = [...FLIX2_SUPPRESSION_MAP.entries()].map(([url, v]) => ({ url, ...v }));
+  res.json({ ok: true, count: entries.length, suppressions: entries });
+});
+
+// ── POST /flix2/suppress ───────────────────────────────────────────────────────
+// Adds a stream URL to the suppression list.
+// Body: { url: string; reason?: string }
+router.post("/flix2/suppress", (req, res) => {
+  const { url, reason = "" } = req.body ?? {};
+  if (!url || typeof url !== "string") {
+    res.status(400).json({ ok: false, error: "url is required" });
+    return;
+  }
+  const entry = { reason: String(reason), suppressedAt: new Date().toISOString() };
+  FLIX2_SUPPRESSION_MAP.set(url, entry);
+  saveSuppressions();
+  res.json({ ok: true, url, ...entry });
+});
+
+// ── DELETE /flix2/suppress ─────────────────────────────────────────────────────
+// Removes a stream URL from the suppression list.
+// Body: { url: string }
+router.delete("/flix2/suppress", (req, res) => {
+  const { url } = req.body ?? {};
+  if (!url || typeof url !== "string") {
+    res.status(400).json({ ok: false, error: "url is required" });
+    return;
+  }
+  const existed = FLIX2_SUPPRESSION_MAP.delete(url);
+  if (existed) saveSuppressions();
+  res.json({ ok: true, removed: existed, url });
 });
 
 // ── GET /flix2/diagnose ────────────────────────────────────────────────────────
