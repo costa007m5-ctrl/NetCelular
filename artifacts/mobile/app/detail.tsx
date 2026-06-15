@@ -1292,19 +1292,24 @@ export default function DetailScreen() {
       wrong_audio_sub: "Áudio/legenda errado",
       other: "Outro problema",
     };
-    if (userId && details) {
-      await db.contentReports.add({
-        user_id: userId,
-        tmdb_id: tmdbId,
-        type,
-        title: details.title ?? details.name ?? params.title ?? "",
-        poster_path: effectivePosterPath ?? undefined,
-        reason: reportReason,
-        reason_label: reasonLabels[reportReason],
-      });
+    try {
+      if (userId && details) {
+        await db.contentReports.add({
+          user_id: userId,
+          tmdb_id: tmdbId,
+          type,
+          title: details.title ?? details.name ?? params.title ?? "",
+          poster_path: effectivePosterPath ?? undefined,
+          reason: reportReason,
+          reason_label: reasonLabels[reportReason],
+        });
+      }
+    } catch {
+      // silently ignore DB errors — still show confirmation to user
+    } finally {
+      setReportBusy(false);
+      setReportDone(true);
     }
-    setReportBusy(false);
-    setReportDone(true);
   };
 
   const handleIndicate = async () => {
