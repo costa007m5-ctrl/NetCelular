@@ -2996,7 +2996,9 @@ router.get("/flix2/search", async (req, res) => {
 router.get("/flix2/lookup", async (req, res) => {
   const { tmdbId, type = "all", title = "", streamId = "" } = req.query as Record<string, string>;
   const id = Number(tmdbId);
-  const normTitle = title ? normalizeTitleForSearch(title) : "";
+  // Also normalize hyphens/underscores → spaces so "Spider-Noir" and "Spider Noir" match the same catalog entry
+  const titleCleaned = title.replace(/[-_]/g, " ").replace(/\s+/g, " ").trim();
+  const normTitle = titleCleaned ? normalizeTitleForSearch(titleCleaned) : "";
   const streamIdNum = streamId ? Number(streamId) : 0;
 
   // Require at least a valid tmdbId, title, OR direct streamId to search by
@@ -3066,10 +3068,25 @@ router.get("/flix2/lookup", async (req, res) => {
       const byId = id > 0 ? memIdx.index[String(id)] : undefined;
       const byTitle = normTitle ? memIdx.index[`title:${normTitle}`] : undefined;
       const entry = byId ?? byTitle;
-      if (entry && !entry.startsWith("flix2id:")) {
-        CACHE_STATS.lookup.hits++;
-        res.json({ found: true, item: { tmdb_id: id, stream_url: entry, type: t, title: title || undefined } });
-        return;
+      if (entry) {
+        if (!entry.startsWith("flix2id:")) {
+          // Direct stream URL — movies/VOD
+          CACHE_STATS.lookup.hits++;
+          res.json({ found: true, item: { tmdb_id: id, stream_url: entry, type: t, title: title || undefined } });
+          return;
+        } else {
+          // "flix2id:<seriesId>" — resolve the full catalog item from raw cache
+          // This avoids falling through to slower paths (which can fail for certain title formats)
+          const seriesId = entry.slice("flix2id:".length);
+          const rawCache = XTREAM_RAW_CACHE.get(t);
+          const seriesItem = rawCache?.items.find((i: any) => String(i.id ?? i.series_id) === seriesId);
+          if (seriesItem) {
+            CACHE_STATS.lookup.hits++;
+            res.json({ found: true, item: seriesItem });
+            return;
+          }
+          // Raw cache not populated yet — fall through to slower paths
+        }
       }
     }
 

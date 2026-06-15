@@ -447,8 +447,14 @@ export default function DetailScreen() {
         try {
           const flix2Type = type === "movie" ? "movies" : "all";
           const flix2StreamId = params.flix2Id ? `&streamId=${encodeURIComponent(params.flix2Id)}` : "";
+          // Normalize title before lookup: strip hyphens/underscores → spaces so
+          // "Spider-Noir" and "Spider Noir" both reach the server as "Spider Noir"
+          const lookupTitle = cleanTitle(params.title ?? "")
+            .replace(/[-_]/g, " ")
+            .replace(/\s+/g, " ")
+            .trim();
           const flix2Raw = await r2Route<{ found: boolean; item: any }>(
-            `/flix2/lookup?tmdbId=${tmdbId}&type=${flix2Type}&title=${encodeURIComponent(cleanTitle(params.title ?? ""))}${flix2StreamId}`
+            `/flix2/lookup?tmdbId=${tmdbId}&type=${flix2Type}&title=${encodeURIComponent(lookupTitle)}${flix2StreamId}`
           );
           if (cancelled || !flix2Raw.found) return;
           const fi = flix2Raw.item;
