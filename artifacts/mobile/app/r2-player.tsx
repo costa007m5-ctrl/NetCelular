@@ -248,6 +248,10 @@ export default function R2PlayerScreen() {
   const [videoResolution, setVideoResolution] = useState<string | null>(null);
   const [showQualityPanel, setShowQualityPanel] = useState(false);
   const activeKeyRef = useRef<string>(params.key ?? "");
+  // ── TeraBox quality picker state ────────────────────────────────────────────
+  const [teraboxQualities, setTeraboxQualities] = useState<Record<string, string>>({});
+  const [teraboxQuality, setTeraboxQuality] = useState<string>("Automático");
+  const teraboxQualityRef = useRef<string>("Automático");
   const lockAnim = useRef(new Animated.Value(0)).current;
 
   // ── Episodes panel ──────────────────────────────────────────────────────────
@@ -457,6 +461,9 @@ export default function R2PlayerScreen() {
       preloadedNextUrlRef.current = null;
       preloadingRef.current = false;
       setVideoResolution(null);
+      setTeraboxQualities({});
+      setTeraboxQuality("Automático");
+      teraboxQualityRef.current = "Automático";
       fakeAnim.current = Animated.timing(loadProgress, { toValue: 80, duration: 6000, useNativeDriver: false });
       fakeAnim.current.start();
       try {
@@ -468,13 +475,22 @@ export default function R2PlayerScreen() {
         if (data.error) throw new Error(data.error);
         if (!data.url) throw new Error("URL de stream não disponível");
 
-        // xAPIverse returns HLS m3u8 URLs via CF Workers (CORS open, no auth needed).
-        // Do NOT do a HEAD check — it consumes the short-lived signed token before the player uses it.
-        // Just play the primary URL directly. Quality map is stored for a future quality picker.
-        const playUrl = data.url;
+        // Build quality map: "Automático" = best quality chosen by server, then each HLS quality
+        const qmap: Record<string, string> = { "Automático": data.url };
+        if (data.fast_stream_url) {
+          const qualityOrder = ["1080p", "720p", "480p", "360p", "240p"];
+          for (const q of qualityOrder) {
+            if (data.fast_stream_url[q]) qmap[q] = data.fast_stream_url[q];
+          }
+        }
+        setTeraboxQualities(qmap);
+        teraboxQualityRef.current = "Automático";
+        setTeraboxQuality("Automático");
+
+        // xAPIverse HLS via CF Workers — CORS open, no auth needed. Play immediately (tokens are short-lived).
         fakeAnim.current?.stop();
         loadProgress.setValue(100);
-        setVideoUrl(playUrl);
+        setVideoUrl(data.url);
         phaseRef.current = "ready";
         setPhase("ready");
         setIsPlaying(true);
@@ -636,6 +652,15 @@ export default function R2PlayerScreen() {
     setVideoResolution(null);
     loadVideoUrl();
   }, [loadVideoUrl]);
+
+  const switchTeraboxQuality = useCallback((qKey: string, url: string) => {
+    teraboxQualityRef.current = qKey;
+    setTeraboxQuality(qKey);
+    setShowQualityPanel(false);
+    setVideoResolution(null);
+    setVideoUrl(url);
+    setIsPlaying(true);
+  }, []);
 
   useEffect(() => {
     // Sync activeKeyRef when params change (new item navigated to)
@@ -1284,22 +1309,41 @@ export default function R2PlayerScreen() {
         <Pressable style={styles.panelModalBg} onPress={() => setShowQualityPanel(false)}>
           <View style={styles.floatingPanel}>
             <Text style={styles.floatingPanelTitle}>Selecionar qualidade</Text>
-            {qualityVariants.map((item) => {
-              const isActive = item.r2Key === activeKeyRef.current;
-              const qLabel = item.quality ?? item.label ?? item.r2Key.split("/").filter(Boolean).pop() ?? "Padrão";
-              return (
-                <Pressable key={item.id} style={[styles.floatingPanelRow, isActive && styles.floatingPanelRowActive]} onPress={() => switchQuality(item)}>
-                  <Feather name="layers" size={14} color={isActive ? RED : "#888"} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.floatingPanelRowText, isActive && { color: RED }]}>{qLabel}</Text>
-                    {item.label && item.label !== qLabel && (
-                      <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 10 }}>{item.label}</Text>
-                    )}
-                  </View>
-                  {isActive && <Feather name="check" size={14} color={RED} />}
-                </Pressable>
-              );
-            })}
+            {isTerabox && Object.keys(teraboxQualities).length > 0 ? (
+              Object.entries(teraboxQualities).map(([qKey, qUrl]) => {
+                const isActive = teraboxQuality === qKey;
+                const isAuto = qKey === "Automático";
+                return (
+                  <Pressable key={qKey} style={[styles.floatingPanelRow, isActive && styles.floatingPanelRowActive]} onPress={() => switchTeraboxQuality(qKey, qUrl)}>
+                    <Feather name={isAuto ? "zap" : "film"} size={14} color={isActive ? RED : "#888"} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.floatingPanelRowText, isActive && { color: RED }]}>{qKey}</Text>
+                      {isAuto && (
+                        <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 10 }}>Melhor qualidade disponível</Text>
+                      )}
+                    </View>
+                    {isActive && <Feather name="check" size={14} color={RED} />}
+                  </Pressable>
+                );
+              })
+            ) : (
+              qualityVariants.map((item) => {
+                const isActive = item.r2Key === activeKeyRef.current;
+                const qLabel = item.quality ?? item.label ?? item.r2Key.split("/").filter(Boolean).pop() ?? "Padrão";
+                return (
+                  <Pressable key={item.id} style={[styles.floatingPanelRow, isActive && styles.floatingPanelRowActive]} onPress={() => switchQuality(item)}>
+                    <Feather name="layers" size={14} color={isActive ? RED : "#888"} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.floatingPanelRowText, isActive && { color: RED }]}>{qLabel}</Text>
+                      {item.label && item.label !== qLabel && (
+                        <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 10 }}>{item.label}</Text>
+                      )}
+                    </View>
+                    {isActive && <Feather name="check" size={14} color={RED} />}
+                  </Pressable>
+                );
+              })
+            )}
           </View>
         </Pressable>
       </Modal>
@@ -1592,7 +1636,15 @@ export default function R2PlayerScreen() {
                     )}
                   </View>
                   {/* Quality selector / badge */}
-                  {qualityVariants.length > 1 ? (
+                  {isTerabox && Object.keys(teraboxQualities).length > 0 ? (
+                    <Pressable
+                      style={[styles.qualityBadge, { borderColor: "rgba(229,9,20,0.5)" }]}
+                      onPress={() => { setShowQualityPanel(true); showControls(); }}
+                    >
+                      <Feather name="zap" size={9} color={RED} />
+                      <Text style={[styles.qualityBadgeText, { color: RED }]}>{teraboxQuality}</Text>
+                    </Pressable>
+                  ) : qualityVariants.length > 1 ? (
                     <Pressable
                       style={[styles.qualityBadge, { borderColor: "rgba(229,9,20,0.5)" }]}
                       onPress={() => { setShowQualityPanel(true); showControls(); }}
