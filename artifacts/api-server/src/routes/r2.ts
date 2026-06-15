@@ -3003,12 +3003,15 @@ router.get("/flix2/search", async (req, res) => {
 // Find a Flix 2.0 catalog item by TMDB ID, falling back to title match.
 // Checks a pre-built R2 index file first (fast), falls back to live page scan.
 router.get("/flix2/lookup", async (req, res) => {
-  const { tmdbId, type = "all", title = "", streamId = "" } = req.query as Record<string, string>;
+  const { tmdbId, type = "all", title = "", streamId = "", year = "" } = req.query as Record<string, string>;
   const id = Number(tmdbId);
   // Also normalize hyphens/underscores → spaces so "Spider-Noir" and "Spider Noir" match the same catalog entry
   const titleCleaned = title.replace(/[-_]/g, " ").replace(/\s+/g, " ").trim();
   const normTitle = titleCleaned ? normalizeTitleForSearch(titleCleaned) : "";
   const streamIdNum = streamId ? Number(streamId) : 0;
+  // Optional year param — when provided, year-qualified index entries are checked first
+  // so same-name different-year titles (e.g. "O Rei Leão" 1994 vs 2019) return the correct version
+  const yearParam = year ? Number(year) : 0;
 
   // Require at least a valid tmdbId, title, OR direct streamId to search by
   if (!id && !normTitle && !streamIdNum) { res.json({ found: false, item: null }); return; }
@@ -3048,6 +3051,12 @@ router.get("/flix2/lookup", async (req, res) => {
     if (normTitle) {
       const iNorm = normalizeTitleForSearch(i.title ?? i.name ?? "");
       if (!iNorm) return false;
+      // When year param is provided, reject items whose year is known AND doesn't match.
+      // year=0 means unknown — don't exclude those (e.g. catalog item has no releaseDate).
+      if (yearParam > 0) {
+        const iYear = Number(i.year ?? 0);
+        if (iYear > 0 && Math.abs(iYear - yearParam) > 1) return false;
+      }
       // Exact normalized match
       if (iNorm === normTitle) return true;
       // Fuzzy word match: ≥70% of significant query words (4+ chars) present in item title.
@@ -3075,7 +3084,13 @@ router.get("/flix2/lookup", async (req, res) => {
     const memIdx = FLIX2_INDEX_CACHE.get(t);
     if (memIdx) {
       const byId = id > 0 ? memIdx.index[String(id)] : undefined;
-      const byTitle = normTitle ? memIdx.index[`title:${normTitle}`] : undefined;
+      // When year is provided, try year-qualified key first so same-name different-year titles
+      // (e.g. "O Rei Leão" 1994 vs 2019) return the correct catalog entry
+      const byTitle = normTitle
+        ? (yearParam > 0
+            ? (memIdx.index[`title:${normTitle}:${yearParam}`] ?? memIdx.index[`title:${normTitle}`])
+            : memIdx.index[`title:${normTitle}`])
+        : undefined;
       const entry = byId ?? byTitle;
       if (entry) {
         if (!entry.startsWith("flix2id:")) {

@@ -321,6 +321,10 @@ export default function DetailScreen() {
   const [r2Loading, setR2Loading] = useState(true);
   // Tracks if the background Flix 2.0 lookup is still running (separate from r2Loading)
   const [flix2Loading, setFlix2Loading] = useState(false);
+  // Synopsis from Flix 2.0 catalog item — used as fallback when TMDB overview is empty
+  const [flix2Synopsis, setFlix2Synopsis] = useState("");
+  // Guards against running the year-correction lookup more than once
+  const flix2YearCorrectedRef = useRef(false);
   // Admin-only: mismatched registry items (content exists but with a different tmdbId)
   const [adminDiagnostic, setAdminDiagnostic] = useState<{ count: number; ids: number[]; titles: string[] } | null>(null);
   const [fixingIds, setFixingIds] = useState(false);
@@ -458,6 +462,8 @@ export default function DetailScreen() {
           );
           if (cancelled || !flix2Raw.found) return;
           const fi = flix2Raw.item;
+          // Capture Flix2 synopsis — used as fallback when TMDB overview is empty
+          if (fi?.synopsis && !cancelled) setFlix2Synopsis(fi.synopsis);
           const flixItems: RegistryItem[] = [];
 
           if (fi?.stream_url) {
@@ -477,7 +483,7 @@ export default function DetailScreen() {
                 season: ep.season, episode: ep.episode,
               });
             }
-          } else if ((fi?.id ?? fi?.series_id) && (type === "tv" || resolvedType === "tv")) {
+          } else if ((fi?.id ?? fi?.series_id) && (type === "tv" || resolvedType === "tv" || fi?.type === "serie" || fi?.type === "series")) {
             // fi.id is set when the item was mapped by mapXtreamSeries;
             // fi.series_id is set when it's a raw Xtream catalog item (lookup returns raw items).
             const seriesIdForEp = fi?.id ?? fi?.series_id;
@@ -551,8 +557,74 @@ export default function DetailScreen() {
       }
     };
     loadR2();
+    // Reset year-correction guard whenever we navigate to a new title
+    flix2YearCorrectedRef.current = false;
     return () => { cancelled = true; };
   }, [tmdbId, type]);
+
+  // ── Year-correction: after TMDB details load, re-run flix2 lookup with the
+  // exact release year so same-name different-year titles (e.g. "O Rei Leão"
+  // 1994 animated vs 2019 live-action) return the correct catalog entry.
+  // Only runs once per title (ref guard) and only after the initial lookup finished.
+  useEffect(() => {
+    if (flix2YearCorrectedRef.current || flix2Loading || !details) return;
+    const releaseDate = (details as any)?.release_date ?? (details as any)?.first_air_date ?? "";
+    const detYear = parseInt(releaseDate.substring(0, 4)) || 0;
+    if (!detYear) return;
+    const hasFlixItems = r2Items.some((i) => i.flix2Url);
+    if (!hasFlixItems) return; // Lookup still running — correction not needed yet
+
+    flix2YearCorrectedRef.current = true;
+
+    const correctYear = async () => {
+      try {
+        const flix2Type = type === "movie" ? "movies" : "all";
+        const lookupTitle = cleanTitle(params.title ?? "").replace(/[-_]/g, " ").replace(/\s+/g, " ").trim();
+        const corrected = await r2Route<{ found: boolean; item: any }>(
+          `/flix2/lookup?tmdbId=${tmdbId}&type=${flix2Type}&title=${encodeURIComponent(lookupTitle)}&year=${detYear}`
+        );
+        if (!corrected.found || !corrected.item) return;
+        const fi = corrected.item;
+        if (fi.synopsis) setFlix2Synopsis(fi.synopsis);
+
+        // Build the corrected items list
+        const flixItems: RegistryItem[] = [];
+        if (fi?.stream_url) {
+          flixItems.push({
+            id: `flix2-auto-${tmdbId}`, r2Key: "", flix2Url: fi.stream_url,
+            tmdbId, tmdbType: type, title: fi.title ?? "", label: fi.title ?? "",
+            season: null, episode: null,
+          });
+        } else if ((fi?.id ?? fi?.series_id) && (type === "tv" || fi?.type === "serie" || fi?.type === "series")) {
+          const seriesIdForEp = fi?.id ?? fi?.series_id;
+          const epData = await r2Route<{
+            found: boolean;
+            episodes: Array<{ season: number; episode: number; stream_url: string }>;
+          }>(`/flix2/series-episodes?seriesId=${seriesIdForEp}`).catch(() => ({ found: false, episodes: [] }));
+          for (const ep of (epData.found ? epData.episodes : [])) {
+            if (!ep?.stream_url) continue;
+            flixItems.push({
+              id: `flix2-auto-${tmdbId}-s${ep.season}e${ep.episode}`, r2Key: "",
+              flix2Url: ep.stream_url, tmdbId, tmdbType: type,
+              title: fi.title ?? "",
+              label: `T${String(ep.season).padStart(2, "0")} E${String(ep.episode).padStart(2, "0")} · Flix 2.0`,
+              season: ep.season, episode: ep.episode,
+            });
+          }
+        }
+
+        if (flixItems.length > 0) {
+          // Replace old flix2-auto items with the year-corrected ones
+          setR2Items((prev) => [
+            ...prev.filter((i) => !i.id.startsWith("flix2-auto-")),
+            ...flixItems,
+          ]);
+        }
+      } catch {}
+    };
+    correctYear();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [details, flix2Loading]);
 
   // When a season-level R2 item exists (episode=null), scan its folder to find
   // which specific episode files are uploaded — used to filter the episode list
@@ -1639,9 +1711,10 @@ export default function DetailScreen() {
   // Poster e backdrop efetivos: prefere TMDB, cai no override salvo pelo admin, depois no override fetchado direto
   const effectivePosterPath = details?.poster_path ?? contentOverride?.poster_path ?? overridePoster ?? null;
   const effectiveBackdropPath = details?.backdrop_path ?? contentOverride?.backdrop_path ?? overrideBackdrop ?? null;
+  // Fallback chain: manual override → TMDB overview → Flix2 synopsis (for shows with no PT-BR translation yet)
   const overview = contentOverride?.overview_mode === "manual"
-    ? (contentOverride?.custom_overview ?? details?.overview ?? "")
-    : (details?.overview ?? "");
+    ? (contentOverride?.custom_overview ?? details?.overview ?? flix2Synopsis)
+    : (details?.overview || flix2Synopsis);
   const castList: any[] = ((details as any)?.credits?.cast ?? []).slice(0, 15);
   const topPad = Platform.OS === "web" ? 0 : insets.top;
 
