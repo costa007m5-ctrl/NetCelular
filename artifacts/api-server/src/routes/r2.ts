@@ -2486,6 +2486,37 @@ async function warmCatalogType(type: string): Promise<void> {
     console.log(`[flix2] cache warm: type=${type} items=${deduped.length}`);
     // Snapshot diff: runs after every warm-up to track new/updated content
     try { computeAndSaveDiff(type, deduped); } catch {}
+
+    // ── Auto-build in-memory index (Path 0 fast lookup) from raw cache ────────
+    // Runs immediately after warm-up so every subsequent lookup is O(1) instead
+    // of scanning thousands of items. No R2 write — purely in-memory.
+    try {
+      const rawForIndex = XTREAM_RAW_CACHE.get(type);
+      if (rawForIndex && rawForIndex.items.length > 0) {
+        const index: Record<string, string> = {};
+        for (const item of rawForIndex.items) {
+          const tId = Number(item?.tmdb_id);
+          if (tId > 0) {
+            if (!index[String(tId)]) {
+              // For series: store flix2id so detail.tsx can fetch episodes
+              // For movies: store stream_url directly
+              const val = item.stream_url || (item.id ? `flix2id:${item.id}` : "");
+              if (val) index[String(tId)] = val;
+            }
+          } else if (item?.title) {
+            const titleKey = `title:${normalizeTitleForSearch(item.title)}`;
+            if (titleKey !== "title:" && !index[titleKey]) {
+              const val = item.stream_url || (item.id ? `flix2id:${item.id}` : "");
+              if (val) index[titleKey] = val;
+            }
+          }
+        }
+        FLIX2_INDEX_CACHE.set(type, { index, builtAt: Date.now() });
+        console.log(`[flix2] auto-built index for ${type}: ${Object.keys(index).length} entries`);
+      }
+    } catch (e) {
+      console.warn(`[flix2] auto-index build failed for ${type}:`, e);
+    }
   } catch (e: any) {
     const msg = e?.message ?? String(e);
     console.warn(`[flix2] cache warm failed for ${type}:`, msg);
@@ -3002,10 +3033,22 @@ router.get("/flix2/lookup", async (req, res) => {
   function matchItem(i: any): boolean {
     // TMDB ID match (only when id > 0)
     if (id > 0 && Number(i.tmdb_id) === id) return true;
-    // Title match (normalized) — used as fallback or primary when id=0
+    // Title match — used as fallback or primary when id=0
     if (normTitle) {
       const iNorm = normalizeTitleForSearch(i.title ?? i.name ?? "");
-      if (iNorm && iNorm === normTitle) return true;
+      if (!iNorm) return false;
+      // Exact normalized match
+      if (iNorm === normTitle) return true;
+      // Fuzzy word match: ≥70% of significant query words (4+ chars) present in item title
+      // Handles: "Spider Noir" matching "Spider Noir [Preto e Branco] (2026)"
+      //          "Spider Noir" matching "Spider-Noir" after normalization
+      const qWords = normTitle.match(/[a-z0-9]{4,}/g) ?? [];
+      if (qWords.length >= 1) {
+        const iWords = new Set(iNorm.match(/[a-z0-9]{4,}/g) ?? []);
+        const hits = qWords.filter((w) => iWords.has(w)).length;
+        const threshold = qWords.length === 1 ? 1 : Math.ceil(qWords.length * 0.7);
+        if (hits >= threshold) return true;
+      }
     }
     return false;
   }
@@ -3052,7 +3095,14 @@ router.get("/flix2/lookup", async (req, res) => {
     if (warm && Date.now() - warm.cachedAt < FULL_CATALOG_TTL_MS) {
       const hit = warm.data.find((i: any) => matchItem(i));
       if (hit) { CACHE_STATS.lookup.hits++; res.json({ found: true, item: hit }); return; }
-      // Full cache is done and item not found — skip slow path.
+      // Full cache dedup may have dropped duplicate tmdb_ids — check raw cache too
+      // before giving up (raw cache has ALL items, including dupes that dedup removed).
+      const rawFallback = XTREAM_RAW_CACHE.get(t);
+      if (rawFallback && rawFallback.items.length > 0) {
+        const rawHit = rawFallback.items.find((i: any) => matchItem(i));
+        if (rawHit) { CACHE_STATS.lookup.hits++; res.json({ found: true, item: rawHit }); return; }
+      }
+      // Both caches searched — item genuinely not in catalog for this type.
       continue;
     }
 
