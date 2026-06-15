@@ -219,6 +219,8 @@ export default function R2PlayerScreen() {
   const [retryCount, setRetryCount] = useState(0);
   const [autoRetryCountdown, setAutoRetryCountdown] = useState<number | null>(null);
   const autoRetryTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [tbUploadState, setTbUploadState] = useState<{ jobId: string; progress: number; status: string; message: string } | null>(null);
+  const tbPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [activeDriveOverride, setActiveDriveOverride] = useState<string | null>(null);
   const [activeFlix2Override, setActiveFlix2Override] = useState<string | null>(null);
   const [fallbackNotice, setFallbackNotice] = useState<string | null>(null);
@@ -470,10 +472,49 @@ export default function R2PlayerScreen() {
       fakeAnim.current.start();
       try {
         const data = await r2Route<{
-          url: string; urlType?: string; needsProxy?: boolean; needsWebView?: boolean;
+          url?: string; urlType?: string; needsProxy?: boolean; needsWebView?: boolean;
           fast_stream_url?: Record<string, string>;
           name?: string; error?: string;
+          uploading?: boolean; jobId?: string; progress?: number; status?: string; message?: string;
         }>(`/terabox/play?id=${encodeURIComponent(params.teraboxItemId)}`);
+
+        // ── 202: fallback upload em progresso — mostra UI de espera e faz polling ──
+        if (data.uploading) {
+          fakeAnim.current?.stop();
+          const itemId = params.teraboxItemId!;
+          const startState = { jobId: data.jobId ?? "", progress: data.progress ?? 0, status: data.status ?? "queued", message: data.message ?? "Preparando vídeo…" };
+          setTbUploadState(startState);
+          if (tbPollRef.current) clearInterval(tbPollRef.current);
+          tbPollRef.current = setInterval(async () => {
+            try {
+              const base = getApiBase();
+              const pr = await fetch(`${base}/api/r2/terabox/r2-fallback-status?id=${encodeURIComponent(itemId)}`);
+              const pd = await pr.json();
+              setTbUploadState((prev) => prev ? { ...prev, progress: pd.progress ?? prev.progress, status: pd.status ?? prev.status, message: pd.message ?? prev.message } : null);
+              if (pd.status === "done") {
+                if (tbPollRef.current) { clearInterval(tbPollRef.current); tbPollRef.current = null; }
+                setTbUploadState(null);
+                if (pd.r2Url) {
+                  loadProgress.setValue(100);
+                  setVideoUrl(pd.r2Url);
+                  phaseRef.current = "ready";
+                  setPhase("ready");
+                  setIsPlaying(true);
+                } else {
+                  setPhase("error");
+                  setErrorMsg("Upload concluído mas URL indisponível. Tente novamente.");
+                }
+              } else if (pd.status === "error") {
+                if (tbPollRef.current) { clearInterval(tbPollRef.current); tbPollRef.current = null; }
+                setTbUploadState(null);
+                setPhase("error");
+                setErrorMsg(pd.message ?? "Falha ao preparar vídeo. Tente novamente.");
+              }
+            } catch {}
+          }, 4000);
+          return;
+        }
+
         if (data.error) throw new Error(data.error);
         if (!data.url) throw new Error("URL de stream não disponível");
 
@@ -742,6 +783,7 @@ export default function R2PlayerScreen() {
     }
     return () => {
       if (autoRetryTimerRef.current) { clearInterval(autoRetryTimerRef.current); autoRetryTimerRef.current = null; }
+      if (tbPollRef.current) { clearInterval(tbPollRef.current); tbPollRef.current = null; }
     };
   }, [phase, retryCount]);
 
@@ -1456,7 +1498,26 @@ export default function R2PlayerScreen() {
                         <Text style={styles.retryText}>Voltar</Text>
                       </Pressable>
                     </View>
-                    {isFlix2 && tmdbId ? (
+                    {isTerabox && params.teraboxItemId ? (
+                      <Pressable
+                        style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 20, paddingVertical: 11, borderRadius: 10, backgroundColor: "rgba(229,9,20,0.15)", borderWidth: 1, borderColor: "rgba(229,9,20,0.35)" }}
+                        onPress={async () => {
+                          try {
+                            const base = getApiBase();
+                            await fetch(`${base}/api/r2/terabox/trigger-r2-fallback`, {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ id: params.teraboxItemId }),
+                            });
+                          } catch {}
+                          setRetryCount(0);
+                          loadVideoUrl();
+                        }}
+                      >
+                        <Feather name="upload-cloud" size={14} color={RED} />
+                        <Text style={{ color: RED, fontSize: 13, fontWeight: "600" }}>Preparar Vídeo</Text>
+                      </Pressable>
+                    ) : isFlix2 && tmdbId ? (
                       <Pressable
                         style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 20, paddingVertical: 11, borderRadius: 10, backgroundColor: "rgba(139,92,246,0.18)", borderWidth: 1, borderColor: "rgba(139,92,246,0.35)" }}
                         onPress={() => router.replace({
@@ -1506,14 +1567,40 @@ export default function R2PlayerScreen() {
                   </View>
                 )}
 
-                <View style={styles.barTrack}>
-                  <Animated.View style={[styles.barFill, { width: loadProgress.interpolate({ inputRange: [0, 100], outputRange: ["0%", "100%"] }) }]} />
-                </View>
-                <Animated.Text style={styles.barPct}><ProgressText value={loadProgress} /></Animated.Text>
-                <View style={styles.sourceBadge}>
-                  <Feather name="server" size={10} color="#888" />
-                  <Text style={styles.sourceBadgeText}>{fromCache ? "R2 (cache)" : "R2"}</Text>
-                </View>
+                {tbUploadState ? (
+                  <View style={{ alignItems: "center", gap: 10, marginTop: 8 }}>
+                    <ActivityIndicator color={RED} size="large" />
+                    <Text style={{ color: "#fff", fontSize: 14, fontWeight: "700", textAlign: "center" }}>
+                      Preparando vídeo para reprodução
+                    </Text>
+                    <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 12, textAlign: "center" }}>
+                      {tbUploadState.message}
+                    </Text>
+                    {tbUploadState.progress > 0 && (
+                      <View style={{ width: "100%", gap: 4 }}>
+                        <View style={styles.barTrack}>
+                          <View style={[styles.barFill, { width: `${Math.min(tbUploadState.progress, 100)}%` }]} />
+                        </View>
+                        <Text style={[styles.barPct, { opacity: 0.7 }]}>{Math.round(tbUploadState.progress)}%</Text>
+                      </View>
+                    )}
+                    <View style={styles.sourceBadge}>
+                      <Feather name="upload-cloud" size={10} color="#888" />
+                      <Text style={styles.sourceBadgeText}>Enviando para servidor R2</Text>
+                    </View>
+                  </View>
+                ) : (
+                  <View style={{ width: "100%" }}>
+                    <View style={styles.barTrack}>
+                      <Animated.View style={[styles.barFill, { width: loadProgress.interpolate({ inputRange: [0, 100], outputRange: ["0%", "100%"] }) }]} />
+                    </View>
+                    <Animated.Text style={styles.barPct}><ProgressText value={loadProgress} /></Animated.Text>
+                    <View style={styles.sourceBadge}>
+                      <Feather name="server" size={10} color="#888" />
+                      <Text style={styles.sourceBadgeText}>{fromCache ? "R2 (cache)" : "R2"}</Text>
+                    </View>
+                  </View>
+                )}
               </View>
             )}
 
