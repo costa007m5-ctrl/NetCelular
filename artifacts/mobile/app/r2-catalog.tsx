@@ -3560,53 +3560,122 @@ function TeraBoxUploadTab() {
   );
 }
 
+const TB_QUALITY_ORDER = ["1080p", "720p", "4K", "480p", "360p"];
+const TB_QUALITY_COLORS: Record<string, string> = { "4K": "#a78bfa", "1080p": "#60a5fa", "720p": "#34d399", "480p": "#f59e0b", "360p": "#fb923c" };
+
+function pickBestStream(item: XApiItem): { url: string; label: string } | null {
+  if (item.fast_stream_url && typeof item.fast_stream_url === "object") {
+    const keys = TB_QUALITY_ORDER.filter(k => item.fast_stream_url![k])
+      .concat(Object.keys(item.fast_stream_url).filter(k => !TB_QUALITY_ORDER.includes(k)));
+    if (keys.length > 0) return { url: item.fast_stream_url[keys[0]], label: `HLS ${keys[0]}` };
+  }
+  if (item.stream_url) return { url: item.stream_url, label: "stream_url" };
+  if (item.fast_dlink) return { url: item.fast_dlink, label: "fast_dlink" };
+  return null;
+}
+
+async function callXApiverseDirect(tbUrl: string): Promise<{ list: XApiItem[]; status: string }> {
+  const normalized = tbUrl.replace(
+    /^https?:\/\/(teraboxapp|terasharelink|4funbox|momerybox|1024terabox)\.com/,
+    "https://1024tera.com"
+  );
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), 28000);
+  try {
+    const res = await fetch("https://xapiverse.com/api/terabox-pro", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "xAPIverse-Key": XAPIVERSE_KEY },
+      body: JSON.stringify({ url: normalized }),
+      signal: ctrl.signal,
+    });
+    const data = await res.json() as any;
+    if (!res.ok || (data.status && data.status !== "success")) {
+      throw new Error(data.message ?? data.error ?? `Erro ${res.status}`);
+    }
+    return { list: data.list ?? [], status: data.status ?? "success" };
+  } finally {
+    clearTimeout(tid);
+  }
+}
+
 function TeraBoxTestTab() {
   const insets = useSafeAreaInsets();
   const [inputUrl, setInputUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [resolved, setResolved] = useState<{ url: string; name: string; quality?: string; duration?: string; size?: string } | null>(null);
-  const [files, setFiles] = useState<TeraBoxFile[]>([]);
+  const [files, setFiles] = useState<XApiItem[]>([]);
   const [selectedIdx, setSelectedIdx] = useState(0);
+  const [activeUrl, setActiveUrl] = useState<string | null>(null);
+  const [activeLabel, setActiveLabel] = useState("");
+  const [videoError, setVideoError] = useState(false);
+  const [reresolving, setReresolving] = useState(false);
+  const lastTbUrl = useRef("");
 
-  const resolveTerabox = async () => {
-    const u = inputUrl.trim();
-    if (!u) { setError("Cole um link do TeraBox ou URL direta"); return; }
+  const doResolve = async (u: string): Promise<void> => {
+    lastTbUrl.current = u;
     setLoading(true);
     setError(null);
-    setResolved(null);
+    setActiveUrl(null);
     setFiles([]);
+    setVideoError(false);
     try {
-      const r = await teraboxResolve(u);
-      const list = r.list ?? [];
-      if (list.length === 0) { setError("Nenhum arquivo encontrado"); return; }
-      setFiles(list as any[]);
-      const f = list[0];
-      const streamUrl = f.fast_dlink ?? f.stream_url;
-      if (!streamUrl) { setError("URL de stream não disponível para este arquivo"); return; }
-      setResolved({ url: streamUrl, name: f.name, quality: f.quality, duration: f.duration, size: f.size_formatted });
+      const r = await callXApiverseDirect(u);
+      if (r.list.length === 0) { setError("Nenhum arquivo encontrado"); return; }
+      setFiles(r.list);
+      const best = pickBestStream(r.list[0]);
+      if (!best) { setError("Nenhuma URL de stream disponível. Tente a aba API Pro."); return; }
+      setActiveUrl(best.url);
+      setActiveLabel(best.label);
       setSelectedIdx(0);
-    } catch (e: any) { setError(e.message ?? "Erro ao resolver"); }
-    finally { setLoading(false); }
+    } catch (e: any) {
+      setError(e.message ?? "Erro ao resolver");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const resolveTerabox = () => {
+    const u = inputUrl.trim();
+    if (!u) { setError("Cole um link do TeraBox"); return; }
+    doResolve(u);
   };
 
   const testDirect = () => {
     const u = inputUrl.trim();
     if (!u) { setError("Cole uma URL de vídeo"); return; }
-    setResolved({ url: u, name: u.split("/").pop() ?? "Vídeo" });
+    setActiveUrl(u);
+    setActiveLabel("URL direta");
     setFiles([]);
     setError(null);
+    setVideoError(false);
   };
 
   const selectFile = (idx: number) => {
     const f = files[idx];
-    const streamUrl = f.fast_dlink ?? f.stream_url;
-    if (!streamUrl) { setError("URL de stream não disponível para este arquivo"); return; }
+    const best = pickBestStream(f);
+    if (!best) { setError("Sem stream para este arquivo"); return; }
     setSelectedIdx(idx);
-    setResolved({ url: streamUrl, name: f.name, quality: f.quality, duration: f.duration, size: f.size_formatted });
+    setActiveUrl(best.url);
+    setActiveLabel(best.label);
+    setVideoError(false);
   };
 
-  const qualityColors: Record<string, string> = { "4K": "#a78bfa", "1080p": "#60a5fa", "720p": "#34d399", "480p": "#f59e0b", "360p": "#fb923c" };
+  const handleVideoError = async () => {
+    if (reresolving || !lastTbUrl.current) { setVideoError(true); return; }
+    setReresolving(true);
+    setVideoError(false);
+    try {
+      const r = await callXApiverseDirect(lastTbUrl.current);
+      if (r.list.length > 0) {
+        const best = pickBestStream(r.list[selectedIdx] ?? r.list[0]);
+        if (best) { setActiveUrl(best.url); setActiveLabel(`${best.label} (re-resolve)`); return; }
+      }
+    } catch {}
+    setReresolving(false);
+    setVideoError(true);
+  };
+
+  const isHls = activeUrl?.includes("m3u8") ?? false;
 
   return (
     <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 80 }}>
@@ -3615,13 +3684,18 @@ function TeraBoxTestTab() {
           <Feather name="play-circle" size={15} color={TB_COLOR} />
           <Text style={[styles.sectionTitle, { color: TB_COLOR }]}>Testar Vídeo</Text>
         </View>
-        <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 12, marginBottom: 10 }}>Cole um link do TeraBox ou uma URL direta de vídeo para testar a reprodução.</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 10, backgroundColor: "rgba(245,158,11,0.06)", borderRadius: 8, padding: 8, borderWidth: 1, borderColor: "rgba(245,158,11,0.15)" }}>
+          <Feather name="info" size={13} color={TB_COLOR} />
+          <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 11, flex: 1 }}>
+            Resolução feita no dispositivo (tokens vinculados ao seu IP) — links HLS preferidos sobre download direto
+          </Text>
+        </View>
         <TextInput
           style={[styles.input, loading && { opacity: 0.5 }]}
           placeholder="https://1024terabox.com/s/... ou URL direta"
           placeholderTextColor="rgba(255,255,255,0.25)"
           value={inputUrl}
-          onChangeText={(v) => { setInputUrl(v); setResolved(null); setFiles([]); setError(null); }}
+          onChangeText={(v) => { setInputUrl(v); setActiveUrl(null); setFiles([]); setError(null); setVideoError(false); }}
           autoCapitalize="none" autoCorrect={false} editable={!loading} multiline
         />
         <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
@@ -3643,13 +3717,13 @@ function TeraBoxTestTab() {
             <Text style={[styles.sectionTitle, { color: TB_COLOR }]}>Selecionar arquivo</Text>
           </View>
           {files.map((f, i) => {
-            const qColor = qualityColors[f.quality] ?? "rgba(255,255,255,0.4)";
+            const qColor = TB_QUALITY_COLORS[f.quality ?? ""] ?? "rgba(255,255,255,0.4)";
             return (
               <Pressable key={i} onPress={() => selectFile(i)} style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.05)" }}>
                 <Feather name={selectedIdx === i ? "check-circle" : "circle"} size={18} color={selectedIdx === i ? TB_COLOR : "rgba(255,255,255,0.25)"} />
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600" }} numberOfLines={1}>{f.name}</Text>
-                  <TBFileChip f={f} qColor={qColor} />
+                  <Text style={{ color: qColor, fontSize: 11, marginTop: 2 }}>{f.quality ?? ""} {f.duration ? `· ${f.duration}` : ""} {f.size_formatted ? `· ${f.size_formatted}` : ""}</Text>
                 </View>
               </Pressable>
             );
@@ -3657,33 +3731,74 @@ function TeraBoxTestTab() {
         </View>
       )}
 
-      {resolved && (
+      {activeUrl && (
         <View style={[styles.sectionCard, { marginTop: 12, borderColor: "rgba(74,222,128,0.2)" }]}>
           <View style={styles.sectionTitleRow}>
             <Feather name="check-circle" size={15} color="#4ade80" />
             <Text style={[styles.sectionTitle, { color: "#4ade80" }]}>URL Resolvida</Text>
+            <View style={{ marginLeft: "auto", backgroundColor: isHls ? "rgba(139,92,246,0.2)" : "rgba(34,197,94,0.15)", borderRadius: 5, paddingHorizontal: 7, paddingVertical: 2, borderWidth: 1, borderColor: isHls ? "rgba(139,92,246,0.4)" : "rgba(34,197,94,0.3)" }}>
+              <Text style={{ color: isHls ? "#a78bfa" : "#4ade80", fontSize: 10, fontWeight: "700" }}>{isHls ? "HLS" : "MP4"}</Text>
+            </View>
           </View>
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
-            {resolved.quality && <View style={{ backgroundColor: `${qualityColors[resolved.quality] ?? "rgba(255,255,255,0.1)"}20`, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: `${qualityColors[resolved.quality] ?? "rgba(255,255,255,0.1)"}50` }}><Text style={{ color: qualityColors[resolved.quality] ?? "#fff", fontSize: 11, fontWeight: "700" }}>{resolved.quality}</Text></View>}
-            {resolved.duration && <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 12 }}>⏱ {resolved.duration}</Text>}
-            {resolved.size && <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 12 }}>💾 {resolved.size}</Text>}
-          </View>
-          <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 11, marginBottom: 4 }} numberOfLines={1}>{resolved.name}</Text>
-          <Text style={{ color: "rgba(255,255,255,0.25)", fontSize: 10, marginBottom: 14 }} numberOfLines={2}>{resolved.url}</Text>
+          {files[selectedIdx] && (
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
+              {files[selectedIdx].quality && <View style={{ backgroundColor: `${TB_QUALITY_COLORS[files[selectedIdx].quality!] ?? "rgba(255,255,255,0.1)"}25`, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: `${TB_QUALITY_COLORS[files[selectedIdx].quality!] ?? "rgba(255,255,255,0.1)"}50` }}><Text style={{ color: TB_QUALITY_COLORS[files[selectedIdx].quality!] ?? "#fff", fontSize: 11, fontWeight: "700" }}>{files[selectedIdx].quality}</Text></View>}
+              {files[selectedIdx].duration && <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 12 }}>⏱ {files[selectedIdx].duration}</Text>}
+              {files[selectedIdx].size_formatted && <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 12 }}>💾 {files[selectedIdx].size_formatted}</Text>}
+            </View>
+          )}
+          <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 11, marginBottom: 2 }} numberOfLines={1}>{files[selectedIdx]?.name ?? activeLabel}</Text>
+          <Text style={{ color: "rgba(255,255,255,0.2)", fontSize: 10, marginBottom: 12 }} numberOfLines={2}>{activeUrl}</Text>
 
-          <View style={{ borderRadius: 10, overflow: "hidden", backgroundColor: "#000", height: 200, alignItems: "center", justifyContent: "center", marginBottom: 12 }}>
+          {reresolving && (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10, backgroundColor: "rgba(245,158,11,0.08)", borderRadius: 8, padding: 8 }}>
+              <ActivityIndicator size="small" color={TB_COLOR} />
+              <Text style={{ color: TB_COLOR, fontSize: 12 }}>Token expirado — buscando novo link…</Text>
+            </View>
+          )}
+          {videoError && (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10, backgroundColor: "rgba(248,113,113,0.08)", borderRadius: 8, padding: 8 }}>
+              <Feather name="alert-circle" size={14} color="#f87171" />
+              <Text style={{ color: "#f87171", fontSize: 12, flex: 1 }}>Stream indisponível — token pode ter expirado ou IP bloqueado.</Text>
+              <Pressable onPress={() => lastTbUrl.current && doResolve(lastTbUrl.current)} style={{ backgroundColor: "rgba(245,158,11,0.2)", borderRadius: 6, paddingHorizontal: 10, paddingVertical: 5 }}>
+                <Text style={{ color: TB_COLOR, fontSize: 11, fontWeight: "700" }}>Re-resolver</Text>
+              </Pressable>
+            </View>
+          )}
+
+          <View style={{ borderRadius: 10, overflow: "hidden", backgroundColor: "#000", aspectRatio: 16 / 9, marginBottom: 8 }}>
             {Platform.OS === "web" ? (
-              <video
-                src={resolved.url}
-                controls
-                autoPlay={false}
-                style={{ width: "100%", height: "100%", objectFit: "contain" } as any}
-              />
+              isHls ? (
+                <iframe
+                  key={activeUrl}
+                  srcDoc={`<!DOCTYPE html><html><head><style>*{margin:0;padding:0;box-sizing:border-box}body{background:#000;overflow:hidden}video{width:100vw;height:100vh;object-fit:contain;display:block}</style></head><body><video id="v" controls playsinline></video><script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.13/dist/hls.min.js"><\/script><script>var v=document.getElementById('v'),src="${activeUrl.replace(/"/g, '\\"')}";if(typeof Hls!=='undefined'&&Hls.isSupported()){var h=new Hls({enableWorker:false,maxBufferLength:20,fragLoadingTimeOut:20000,manifestLoadingTimeOut:20000});h.loadSource(src);h.attachMedia(v);h.on(Hls.Events.MANIFEST_PARSED,function(){v.play&&v.play().catch(function(){})});h.on(Hls.Events.ERROR,function(e,d){if(d.fatal)window.parent&&window.parent.postMessage('hlserror','*');});}else if(v.canPlayType('application/vnd.apple.mpegurl')){v.src=src;v.onerror=function(){window.parent&&window.parent.postMessage('hlserror','*');}}<\/script><\/body><\/html>`}
+                  style={{ width: "100%", height: "100%", border: "none" } as any}
+                  allow="autoplay"
+                  onLoad={(e: any) => {
+                    try {
+                      const w = (e.target as HTMLIFrameElement).contentWindow;
+                      if (w) {
+                        const handler = (ev: MessageEvent) => { if (ev.data === "hlserror") handleVideoError(); };
+                        window.addEventListener("message", handler, { once: true });
+                      }
+                    } catch {}
+                  }}
+                />
+              ) : (
+                <video
+                  key={activeUrl}
+                  src={activeUrl}
+                  controls
+                  autoPlay={false}
+                  style={{ width: "100%", height: "100%", objectFit: "contain" } as any}
+                  onError={handleVideoError}
+                />
+              )
             ) : (
-              <View style={{ alignItems: "center", gap: 10 }}>
+              <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 10 }}>
                 <Feather name="play-circle" size={40} color={TB_COLOR} />
                 <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 13 }}>URL pronta para reprodução</Text>
-                <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 11 }}>Abra no player do app</Text>
+                <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 10, textAlign: "center", paddingHorizontal: 20 }} numberOfLines={3}>{activeUrl}</Text>
               </View>
             )}
           </View>
