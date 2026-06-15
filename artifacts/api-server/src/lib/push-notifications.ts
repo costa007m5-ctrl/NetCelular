@@ -366,6 +366,7 @@ export async function notifyNewEpisode(
 export async function notifyNewContent(
   newCount: number,
   sampleTitle: string | null,
+  samplePosterUrl?: string | null,
   source = "auto"
 ): Promise<void> {
   const title = "🔥 Novidades no NETPLAY";
@@ -376,7 +377,11 @@ export async function notifyNewContent(
       ? `"${sampleTitle}" e mais ${newCount - 1} título${newCount - 1 > 1 ? "s" : ""} novo${newCount - 1 > 1 ? "s" : ""} adicionado${newCount - 1 > 1 ? "s" : ""}!`
       : `${newCount} novo${newCount > 1 ? "s títulos" : " título"} adicionado${newCount > 1 ? "s" : ""} ao catálogo!`;
 
-  const result = await sendToAll(title, body, { type: "new_content", count: newCount });
+  const posterUrl = samplePosterUrl
+    ? (samplePosterUrl.startsWith("http") ? samplePosterUrl : `https://image.tmdb.org/t/p/w780${samplePosterUrl}`)
+    : undefined;
+
+  const result = await sendToAll(title, body, { type: "new_content", count: newCount, posterUrl }, posterUrl);
   addPushLog({ title, body, source, sent: result.sent, failed: result.failed, total: result.total });
   console.log(
     `[push] new-content → sent:${result.sent} failed:${result.failed} skipped:${result.skipped} total:${result.total}`

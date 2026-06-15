@@ -2051,9 +2051,9 @@ router.post("/flix2/register", async (req, res) => {
     try {
       if (existingIdx < 0) {
         if (tmdbType === "tv" && season != null && episode != null) {
-          await notifyNewEpisode(title, Number(season), Number(episode));
+          notifyNewEpisode(Number(tmdbId), String(title), Number(season), Number(episode), "", null).catch(() => {});
         } else if (tmdbType === "movie") {
-          await notifyNewContent(title, "movie");
+          notifyNewContent(1, String(title)).catch(() => {});
         }
       }
     } catch {}

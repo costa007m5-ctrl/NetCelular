@@ -32,7 +32,7 @@ import { useColors } from "@/hooks/useColors";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
 import type { ContentRequest } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
-import { sendPushNotificationsToTokens, sendContentAddedNotification } from "@/lib/notifications";
+import { sendPushNotificationsToTokens, sendContentAddedNotification, sendPushViaServer } from "@/lib/notifications";
 import { TMDB_IMG, getApiBase, setApiDomain, getApiDomainDisplay } from "@/lib/api";
 import { checkDriveApi, searchDriveByTitle, DriveMatch } from "@/lib/gdrive-search";
 import { listFolderAll, DRIVE_ROOTS, isFolder, isVideo, formatSize } from "@/lib/gdrive-index";
@@ -1633,18 +1633,14 @@ export default function AdminScreen() {
                   setFcmTesting(true);
                   setFcmTestResult(null);
                   try {
-                    const base = getApiBase();
-                    const res = await fetch(`${base}/push/send`, {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ title: fcmTestTitle || "🔔 NETPLAY FCM", body: fcmTestBody, data: { type: "mass_push" }, imageUrl: fcmTestImage || undefined }),
-                      signal: mkSignal(15000),
-                    });
-                    const r = await res.json();
-                    setFcmTestResult(r);
-                    const firstErr = r.errors?.[0];
-                    const errDetail = firstErr ? `\n\n❌ Erro: ${firstErr.error}${firstErr.message ? `\n${firstErr.message}` : ""}` : "";
-                    Alert.alert(r.sent > 0 ? "✅ FCM OK!" : "⚠️ Aviso", `Enviados: ${r.sent}\nFalharam: ${r.failed}\nTotal: ${r.total}${errDetail}`);
+                    const r = await sendPushViaServer(
+                      fcmTestTitle || "🔔 NETPLAY FCM",
+                      fcmTestBody,
+                      { type: "mass_push" },
+                      fcmTestImage || undefined,
+                    );
+                    setFcmTestResult({ ...r, errors: [] });
+                    Alert.alert(r.sent > 0 ? "✅ FCM OK!" : "⚠️ Aviso", `Enviados: ${r.sent}\nFalharam: ${r.failed}\nTotal: ${r.total}`);
                   } catch (e: any) {
                     Alert.alert("Erro FCM", e?.message ?? "Falha no envio");
                   } finally { setFcmTesting(false); }

@@ -3866,7 +3866,15 @@ function FolderBulkModal({ target, onClose, onDone, defaultContentType, defaultQ
           episode: effectiveItem(item).episode ?? null,
         });
         done++;
-      } catch { errors++; }
+      } catch (e: any) {
+        errors++;
+        const msg: string = e?.message ?? "";
+        if (msg.includes("Credential access key") || msg.includes("should be 32") || msg.includes("length 0")) {
+          setScanError("❌ Credenciais R2 não configuradas. Configure R2_ACCESS_KEY_ID e R2_SECRET_ACCESS_KEY nos Secrets do Replit.");
+          setRegistering(false);
+          return;
+        }
+      }
       setRegProgress(Math.round(((done + errors) / itemsToRegister.length) * 100));
     }
     setRegistering(false);
@@ -4640,7 +4648,14 @@ function DriveRegisterModal({ item, driveNum, driveFilePath, onClose, onDone }: 
         driveFilePath: driveFilePath,
       });
       onDone();
-    } catch (e: any) { setError(e.message); }
+    } catch (e: any) {
+      const msg: string = e.message ?? "";
+      setError(
+        msg.includes("Credential access key") || msg.includes("should be 32") || msg.includes("length 0")
+          ? "❌ Credenciais R2 não configuradas. Configure R2_ACCESS_KEY_ID e R2_SECRET_ACCESS_KEY nos Secrets do Replit."
+          : msg
+      );
+    }
     finally { setSaving(false); }
   };
 
