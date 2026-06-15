@@ -3742,7 +3742,10 @@ function extractPlayableUrls(data: RapidApiResponse): { label: string; url: stri
   const seen = new Set<string>();
   const results: { label: string; url: string }[] = [];
 
-  const VIDEO_KEYS = ["dlink", "fast_stream_url", "stream_url", "stream", "download", "url", "play_url", "direct_url", "hls_url"];
+  const VIDEO_KEYS = [
+    "dlink", "download_url", "direct_link", "fast_stream_url", "stream_url",
+    "stream", "download", "url", "play_url", "direct_url", "hls_url", "video_url", "link",
+  ];
   function pickPriority(obj: any, prefix = "") {
     if (!obj || typeof obj !== "object") return;
     for (const key of VIDEO_KEYS) {
@@ -3762,7 +3765,7 @@ function extractPlayableUrls(data: RapidApiResponse): { label: string; url: stri
     }
   }
 
-  const list: any[] = data?.response ?? data?.data?.list ?? data?.list ?? [];
+  const list: any[] = data?.response ?? data?.data?.list ?? data?.data?.all_files ?? data?.list ?? data?.all_files ?? [];
   if (Array.isArray(list) && list.length > 0) {
     list.forEach((item, i) => pickPriority(item, list.length > 1 ? `arquivo ${i + 1}` : ""));
   }
