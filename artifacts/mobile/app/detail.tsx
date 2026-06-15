@@ -1577,7 +1577,7 @@ export default function DetailScreen() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          tmdbId: resolvedTmdbId || tmdbId,
+          tmdbId: tmdbId,
           tmdbType: type,
           newFlix2Url: flix2Url,
           title,
@@ -1585,7 +1585,7 @@ export default function DetailScreen() {
       });
       const reg = await apiGetRegistry();
       const fresh = (reg.items ?? []).filter(
-        (i: RegistryItem) => i.tmdbId === (resolvedTmdbId || tmdbId) && i.tmdbType === type
+        (i: RegistryItem) => i.tmdbId === tmdbId && i.tmdbType === type
       );
       setR2Items(fresh);
       setFlix2LinkDone(true);
