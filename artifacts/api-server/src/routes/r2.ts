@@ -3039,15 +3039,15 @@ router.get("/flix2/lookup", async (req, res) => {
       if (!iNorm) return false;
       // Exact normalized match
       if (iNorm === normTitle) return true;
-      // Fuzzy word match: ≥70% of significant query words (4+ chars) present in item title
-      // Handles: "Spider Noir" matching "Spider Noir [Preto e Branco] (2026)"
-      //          "Spider Noir" matching "Spider-Noir" after normalization
+      // Fuzzy word match: ≥70% of significant query words (4+ chars) present in item title.
+      // REQUIRES at least 2 significant words to avoid false positives on short/common titles.
+      // Example: "Spider Noir" → ["spider","noir"] → 2 words → fuzzy ok
+      // Example: "O Rei Leão" → ["leao"] → only 1 word → NO fuzzy (would match wrong film)
       const qWords = normTitle.match(/[a-z0-9]{4,}/g) ?? [];
-      if (qWords.length >= 1) {
+      if (qWords.length >= 2) {
         const iWords = new Set(iNorm.match(/[a-z0-9]{4,}/g) ?? []);
         const hits = qWords.filter((w) => iWords.has(w)).length;
-        const threshold = qWords.length === 1 ? 1 : Math.ceil(qWords.length * 0.7);
-        if (hits >= threshold) return true;
+        if (hits >= Math.ceil(qWords.length * 0.7)) return true;
       }
     }
     return false;
