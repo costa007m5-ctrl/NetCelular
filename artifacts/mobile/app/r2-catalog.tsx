@@ -29,6 +29,7 @@ import { r2Route, teraboxResolve, extractTitleAndYear } from "@/lib/r2-direct";
 import { getApiDomainDisplay, getApiBase } from "@/lib/api";
 import { TeraboxFolderBrowser, type TBFolderFile } from "@/components/TeraboxFolderBrowser";
 import { listFolder, isFolder as driveIsFolder, isVideo as driveIsVideo, getStreamUrl, formatSize as driveFormatSize, DRIVE_ROOTS, DriveItem, parseEpisodeInfo } from "@/lib/gdrive-index";
+import { db } from "@/lib/supabase";
 
 const UPLOADED_URLS_KEY = "r2_uploaded_urls_v1";
 const LABEL_HISTORY_KEY = "drive_label_history_v1";
@@ -93,7 +94,7 @@ interface TmdbSearchResult {
   id: number; title: string; poster_path: string | null; media_type: "movie" | "tv";
 }
 
-type Tab = "catalog" | "upload" | "manage" | "terabox" | "flix2" | "veo" | "diagnose";
+type Tab = "catalog" | "upload" | "manage" | "terabox" | "flix2" | "veo" | "diagnose" | "publish";
 type UploadMode = "url" | "gdrive" | "terabox" | "local" | "drive";
 type MediaKind = "tv" | "movie";
 type CatalogView =
@@ -8426,6 +8427,576 @@ function DiagnosePanel() {
   );
 }
 
+// ── Publish Panel ──────────────────────────────────────────────────────────────
+
+const TMDB_KEY_PUB = "8f0beb08cf016ec8de49e454e09879ec";
+
+function PublishPanel() {
+  const { user } = useAuth();
+
+  // Flix 2.0 search
+  const [pubType, setPubType] = useState<"movies" | "series" | "animes">("movies");
+  const [flix2Query, setFlix2Query] = useState("");
+  const [flix2Results, setFlix2Results] = useState<any[]>([]);
+  const [flix2Loading, setFlix2Loading] = useState(false);
+  const [selectedFlix2, setSelectedFlix2] = useState<any | null>(null);
+
+  // TMDB search
+  const [tmdbQuery, setTmdbQuery] = useState("");
+  const [tmdbResults, setTmdbResults] = useState<any[]>([]);
+  const [tmdbLoading, setTmdbLoading] = useState(false);
+  const [selectedTmdb, setSelectedTmdb] = useState<any | null>(null);
+  const [fetchingDetails, setFetchingDetails] = useState(false);
+
+  // IMDB shortcut
+  const [imdbQuery, setImdbQuery] = useState("");
+  const [imdbLoading, setImdbLoading] = useState(false);
+
+  // Editable metadata
+  const [overrideTitle, setOverrideTitle] = useState("");
+  const [overrideOverview, setOverrideOverview] = useState("");
+  const [posterPath, setPosterPath] = useState<string | null>(null);
+  const [backdropPath, setBackdropPath] = useState<string | null>(null);
+  const [numSeasons, setNumSeasons] = useState<number | null>(null);
+  const [numEpisodes, setNumEpisodes] = useState<number | null>(null);
+  const [voteAverage, setVoteAverage] = useState<number | null>(null);
+
+  // Publish state
+  const [publishing, setPublishing] = useState(false);
+  const [pubError, setPubError] = useState<string | null>(null);
+  const [pubSuccess, setPubSuccess] = useState<{ title: string; tmdbId: number; type: string } | null>(null);
+
+  const searchFlix2 = async () => {
+    const q = flix2Query.trim();
+    if (!q) return;
+    setFlix2Loading(true);
+    setFlix2Results([]);
+    setSelectedFlix2(null);
+    setPubError(null);
+    try {
+      const data = await r2Route<{ results: any[]; total: number }>(
+        `/flix2/search?q=${encodeURIComponent(q)}&type=${pubType}&limit=40`
+      );
+      setFlix2Results(data.results ?? []);
+      if ((data.results ?? []).length === 0) setPubError("Nenhum resultado no Flix 2.0.");
+    } catch (e: any) {
+      setPubError("Erro Flix 2.0: " + (e?.message ?? ""));
+    } finally {
+      setFlix2Loading(false);
+    }
+  };
+
+  const selectFlix2 = (item: any) => {
+    setSelectedFlix2(item);
+    setFlix2Results([]);
+    const title = item.title ?? item.name ?? "";
+    setTmdbQuery(title);
+    setOverrideTitle(title);
+    setPubError(null);
+    setPubSuccess(null);
+  };
+
+  const applyTmdbItem = async (item: any) => {
+    setSelectedTmdb(item);
+    setTmdbResults([]);
+    setOverrideTitle(item.title ?? "");
+    setOverrideOverview(item.overview ?? "");
+    setPosterPath(item.poster_path ?? null);
+    setBackdropPath(item.backdrop_path ?? null);
+    setVoteAverage(item.vote_average ?? null);
+    setNumSeasons(null);
+    setNumEpisodes(null);
+    setFetchingDetails(true);
+    try {
+      const mediaType = pubType === "movies" ? "movie" : "tv";
+      const res = await fetch(
+        `https://api.themoviedb.org/3/${mediaType}/${item.id}?api_key=${TMDB_KEY_PUB}&language=pt-BR`
+      );
+      if (res.ok) {
+        const d = await res.json();
+        setNumSeasons(d.number_of_seasons ?? null);
+        setNumEpisodes(d.number_of_episodes ?? null);
+        setVoteAverage(d.vote_average ?? null);
+        if (d.overview) setOverrideOverview(d.overview);
+        if (d.poster_path) setPosterPath(d.poster_path);
+        if (d.backdrop_path) setBackdropPath(d.backdrop_path);
+      }
+    } catch {}
+    finally { setFetchingDetails(false); }
+  };
+
+  const searchTmdb = async () => {
+    const q = tmdbQuery.trim();
+    if (!q) return;
+    setTmdbLoading(true);
+    setTmdbResults([]);
+    setPubError(null);
+    try {
+      const mediaType = pubType === "movies" ? "movie" : "tv";
+      const res = await fetch(
+        `https://api.themoviedb.org/3/search/${mediaType}?api_key=${TMDB_KEY_PUB}&language=pt-BR&query=${encodeURIComponent(q)}&page=1`
+      );
+      const data = res.ok ? await res.json() : null;
+      const results = (data?.results ?? []).slice(0, 20).map((r: any) => ({
+        id: r.id,
+        title: r.title ?? r.name ?? "",
+        year: (r.release_date ?? r.first_air_date ?? "").slice(0, 4),
+        overview: r.overview ?? "",
+        poster_path: r.poster_path ?? null,
+        backdrop_path: r.backdrop_path ?? null,
+        vote_average: r.vote_average ?? null,
+        poster: r.poster_path ? `https://image.tmdb.org/t/p/w92${r.poster_path}` : null,
+      }));
+      setTmdbResults(results);
+      if (results.length === 0) setPubError("Nenhum resultado no TMDB.");
+    } catch (e: any) {
+      setPubError("Erro TMDB: " + (e?.message ?? ""));
+    } finally {
+      setTmdbLoading(false);
+    }
+  };
+
+  const searchByImdb = async () => {
+    const raw = imdbQuery.trim();
+    if (!raw) return;
+    const imdbId = raw.startsWith("tt") ? raw : `tt${raw}`;
+    setImdbLoading(true);
+    setPubError(null);
+    try {
+      const res = await fetch(
+        `https://api.themoviedb.org/3/find/${imdbId}?api_key=${TMDB_KEY_PUB}&external_source=imdb_id&language=pt-BR`
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const movieHit = (data.movie_results ?? [])[0];
+      const tvHit = (data.tv_results ?? [])[0];
+      const hit = movieHit ?? tvHit;
+      if (!hit) { setPubError("Nenhum resultado para esse ID IMDB."); return; }
+      if (movieHit) setPubType("movies");
+      else setPubType("series");
+      await applyTmdbItem({
+        id: hit.id,
+        title: hit.title ?? hit.name ?? "",
+        year: (hit.release_date ?? hit.first_air_date ?? "").slice(0, 4),
+        overview: hit.overview ?? "",
+        poster_path: hit.poster_path ?? null,
+        backdrop_path: hit.backdrop_path ?? null,
+        vote_average: hit.vote_average ?? null,
+      });
+    } catch (e: any) {
+      setPubError("Erro IMDB: " + (e?.message ?? ""));
+    } finally {
+      setImdbLoading(false);
+    }
+  };
+
+  const publish = async () => {
+    if (!selectedFlix2 || !selectedTmdb) {
+      setPubError("Selecione um item do Flix 2.0 e um do TMDB antes de publicar.");
+      return;
+    }
+    if (!user?.id) { setPubError("Você precisa estar logado como admin."); return; }
+    setPublishing(true);
+    setPubError(null);
+    try {
+      const mediaType = pubType === "movies" ? "movie" : "tv";
+      const title = overrideTitle.trim() || selectedTmdb.title;
+
+      // 1. Build flix2Url from stream id
+      const buildRes = await r2Route<{ flix2Url: string }>(
+        `/flix2/build-url?streamId=${selectedFlix2.id}&catalogType=${pubType}`
+      );
+      const flix2Url = buildRes.flix2Url;
+
+      // 2. Register in R2 registry (replace-link)
+      await r2Route("/flix2/replace-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tmdbId: selectedTmdb.id, tmdbType: mediaType, newFlix2Url: flix2Url, title }),
+      });
+
+      // 3. Save content override to Supabase
+      const contentKey = `${mediaType}_${selectedTmdb.id}`;
+      const payload: any = {
+        tmdb_id: selectedTmdb.id,
+        tmdb_type: mediaType,
+        custom_title: overrideTitle.trim() || null,
+        custom_overview: overrideOverview.trim() || null,
+        overview_mode: "manual",
+        poster_path: posterPath,
+        backdrop_path: backdropPath,
+        number_of_seasons: numSeasons,
+        number_of_episodes: numEpisodes,
+        vote_average: voteAverage,
+      };
+      let saveRes = await db.contentOverrides.upsert(contentKey, payload, user.id);
+      if (saveRes.error?.toLowerCase().includes("imdb")) {
+        saveRes = await db.contentOverrides.upsert(contentKey, payload, user.id);
+      }
+      if (saveRes.error) throw new Error(saveRes.error);
+
+      setPubSuccess({ title, tmdbId: selectedTmdb.id, type: mediaType });
+      // Reset for next item
+      setSelectedFlix2(null); setSelectedTmdb(null);
+      setFlix2Query(""); setTmdbQuery(""); setImdbQuery("");
+      setOverrideTitle(""); setOverrideOverview("");
+      setPosterPath(null); setBackdropPath(null);
+      setNumSeasons(null); setNumEpisodes(null); setVoteAverage(null);
+    } catch (e: any) {
+      setPubError("Erro ao publicar: " + (e?.message ?? "desconhecido"));
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  const ORANGE = "#f97316";
+  const sectionStyle = {
+    gap: 10 as any,
+    padding: 14,
+    backgroundColor: "rgba(255,255,255,0.04)" as any,
+    borderRadius: 14,
+    borderWidth: 1 as any,
+    borderColor: "rgba(255,255,255,0.07)" as any,
+  };
+  const labelStyle = { color: "rgba(255,255,255,0.65)" as any, fontSize: 13, fontWeight: "700" as any };
+  const inputStyle = {
+    backgroundColor: "rgba(255,255,255,0.07)" as any,
+    borderRadius: 10,
+    paddingHorizontal: 12 as any,
+    paddingVertical: 10 as any,
+    color: "#fff" as any,
+    fontSize: 14,
+    borderWidth: 1 as any,
+    borderColor: "rgba(255,255,255,0.12)" as any,
+    flex: 1 as any,
+  };
+
+  return (
+    <ScrollView
+      style={{ flex: 1 }}
+      contentContainerStyle={{ padding: 16, gap: 16, paddingBottom: 60 }}
+      keyboardShouldPersistTaps="always"
+    >
+      {/* Header */}
+      <View style={{ gap: 3 }}>
+        <Text style={{ color: "#fff", fontSize: 18, fontWeight: "700" }}>📢 Publicar Conteúdo</Text>
+        <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 13 }}>
+          Vincule um item do Flix 2.0 ao TMDB e publique no app.
+        </Text>
+      </View>
+
+      {/* Type selector */}
+      <View style={{ flexDirection: "row", gap: 8 }}>
+        {([["movies", "🎬 Filmes"], ["series", "📺 Séries"], ["animes", "🎌 Animes"]] as [string, string][]).map(([val, label]) => (
+          <Pressable
+            key={val}
+            onPress={() => { setPubType(val as any); setFlix2Results([]); setSelectedFlix2(null); setPubError(null); }}
+            style={{
+              flex: 1, paddingVertical: 9, borderRadius: 10, alignItems: "center",
+              backgroundColor: pubType === val ? "rgba(249,115,22,0.15)" : "rgba(255,255,255,0.05)",
+              borderWidth: 1, borderColor: pubType === val ? "rgba(249,115,22,0.45)" : "rgba(255,255,255,0.08)",
+            }}
+          >
+            <Text style={{ color: pubType === val ? ORANGE : "rgba(255,255,255,0.5)", fontSize: 12, fontWeight: "600" }}>
+              {label}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+
+      {/* ── STEP 1: Flix 2.0 ── */}
+      <View style={sectionStyle}>
+        <Text style={labelStyle}>① Buscar no Flix 2.0</Text>
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          <TextInput
+            style={[inputStyle, selectedFlix2 && { borderColor: "rgba(139,92,246,0.5)" }]}
+            placeholder="Nome do filme ou série..."
+            placeholderTextColor="rgba(255,255,255,0.3)"
+            value={flix2Query}
+            onChangeText={setFlix2Query}
+            onSubmitEditing={searchFlix2}
+            returnKeyType="search"
+          />
+          <Pressable
+            onPress={searchFlix2}
+            disabled={!flix2Query.trim() || flix2Loading}
+            style={({ pressed }) => [{
+              paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10,
+              backgroundColor: "rgba(139,92,246,0.15)", borderWidth: 1, borderColor: "rgba(139,92,246,0.4)",
+              justifyContent: "center", alignItems: "center",
+            }, (pressed || !flix2Query.trim() || flix2Loading) && { opacity: 0.5 }]}
+          >
+            {flix2Loading
+              ? <ActivityIndicator size={14} color="#a78bfa" />
+              : <Feather name="search" size={15} color="#a78bfa" />
+            }
+          </Pressable>
+        </View>
+
+        {/* Flix2 results list */}
+        {flix2Results.length > 0 && (
+          <ScrollView style={{ maxHeight: 240 }} nestedScrollEnabled keyboardShouldPersistTaps="always">
+            {flix2Results.map((item, idx) => (
+              <Pressable
+                key={`f2_${idx}_${item.id}`}
+                onPress={() => selectFlix2(item)}
+                style={({ pressed }) => [{
+                  flexDirection: "row", alignItems: "center", gap: 10, padding: 8,
+                  borderRadius: 10, marginBottom: 4, backgroundColor: "rgba(255,255,255,0.04)",
+                }, pressed && { opacity: 0.7 }]}
+              >
+                {item.poster
+                  ? <Image source={{ uri: item.poster }} style={{ width: 32, height: 46, borderRadius: 4 }} contentFit="cover" />
+                  : <View style={{ width: 32, height: 46, borderRadius: 4, backgroundColor: "#1a1a1a", alignItems: "center", justifyContent: "center" }}><Feather name="film" size={13} color="rgba(255,255,255,0.25)" /></View>
+                }
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: "#fff", fontWeight: "600", fontSize: 13 }} numberOfLines={1}>{item.title ?? item.name}</Text>
+                  <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 11 }}>
+                    {item.year ? `${item.year} · ` : ""}ID: {item.id}
+                  </Text>
+                </View>
+                <Feather name="chevron-right" size={14} color="rgba(255,255,255,0.25)" />
+              </Pressable>
+            ))}
+          </ScrollView>
+        )}
+
+        {/* Selected Flix2 badge */}
+        {selectedFlix2 && (
+          <View style={{
+            flexDirection: "row", alignItems: "center", gap: 10, padding: 10,
+            borderRadius: 10, backgroundColor: "rgba(139,92,246,0.08)",
+            borderWidth: 1, borderColor: "rgba(139,92,246,0.35)",
+          }}>
+            {selectedFlix2.poster
+              ? <Image source={{ uri: selectedFlix2.poster }} style={{ width: 36, height: 52, borderRadius: 5 }} contentFit="cover" />
+              : null
+            }
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: "#a78bfa", fontWeight: "700", fontSize: 13 }} numberOfLines={1}>{selectedFlix2.title ?? selectedFlix2.name}</Text>
+              <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 11 }}>ID: {selectedFlix2.id} · {pubType}</Text>
+            </View>
+            <Pressable onPress={() => { setSelectedFlix2(null); setFlix2Query(""); }}>
+              <Feather name="x" size={15} color="rgba(255,255,255,0.4)" />
+            </Pressable>
+          </View>
+        )}
+      </View>
+
+      {/* ── STEP 2: TMDB match ── */}
+      <View style={sectionStyle}>
+        <Text style={labelStyle}>② Vincular ao TMDB</Text>
+
+        {/* IMDB shortcut */}
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          <TextInput
+            style={[inputStyle, { fontSize: 13 }, { borderColor: "rgba(245,158,11,0.25)" }]}
+            placeholder="ID IMDB (ex: tt0120338) — atalho rápido"
+            placeholderTextColor="rgba(255,255,255,0.25)"
+            value={imdbQuery}
+            onChangeText={setImdbQuery}
+            onSubmitEditing={searchByImdb}
+            returnKeyType="search"
+            autoCapitalize="none"
+          />
+          <Pressable
+            onPress={searchByImdb}
+            disabled={!imdbQuery.trim() || imdbLoading}
+            style={({ pressed }) => [{
+              paddingHorizontal: 12, paddingVertical: 9, borderRadius: 10,
+              backgroundColor: "rgba(245,158,11,0.12)", borderWidth: 1, borderColor: "rgba(245,158,11,0.35)",
+              justifyContent: "center", alignItems: "center", gap: 3, flexDirection: "row" as any,
+            }, (pressed || !imdbQuery.trim() || imdbLoading) && { opacity: 0.5 }]}
+          >
+            {imdbLoading
+              ? <ActivityIndicator size={13} color="#fbbf24" />
+              : <><Feather name="search" size={12} color="#fbbf24" /><Text style={{ color: "#fbbf24", fontSize: 11, fontWeight: "600" }}>IMDB</Text></>
+            }
+          </Pressable>
+        </View>
+
+        <Text style={{ color: "rgba(255,255,255,0.25)", fontSize: 11, textAlign: "center" }}>— ou buscar por nome —</Text>
+
+        {/* TMDB name search */}
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          <TextInput
+            style={[inputStyle, selectedTmdb && { borderColor: "rgba(59,130,246,0.5)" }]}
+            placeholder="Nome do título no TMDB..."
+            placeholderTextColor="rgba(255,255,255,0.3)"
+            value={tmdbQuery}
+            onChangeText={setTmdbQuery}
+            onSubmitEditing={searchTmdb}
+            returnKeyType="search"
+          />
+          <Pressable
+            onPress={searchTmdb}
+            disabled={!tmdbQuery.trim() || tmdbLoading}
+            style={({ pressed }) => [{
+              paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10,
+              backgroundColor: "rgba(59,130,246,0.12)", borderWidth: 1, borderColor: "rgba(59,130,246,0.35)",
+              justifyContent: "center",
+            }, (pressed || !tmdbQuery.trim() || tmdbLoading) && { opacity: 0.5 }]}
+          >
+            {tmdbLoading
+              ? <ActivityIndicator size={14} color="#60a5fa" />
+              : <Feather name="search" size={14} color="#60a5fa" />
+            }
+          </Pressable>
+        </View>
+
+        {/* TMDB results */}
+        {tmdbResults.length > 0 && (
+          <ScrollView style={{ maxHeight: 240 }} nestedScrollEnabled keyboardShouldPersistTaps="always">
+            {tmdbResults.map((item) => (
+              <Pressable
+                key={`tmdb_${item.id}`}
+                onPress={() => applyTmdbItem(item)}
+                style={({ pressed }) => [{
+                  flexDirection: "row", alignItems: "center", gap: 10, padding: 8,
+                  borderRadius: 10, marginBottom: 4, backgroundColor: "rgba(255,255,255,0.04)",
+                }, pressed && { opacity: 0.7 }]}
+              >
+                {item.poster
+                  ? <Image source={{ uri: item.poster }} style={{ width: 32, height: 46, borderRadius: 4 }} contentFit="cover" />
+                  : <View style={{ width: 32, height: 46, borderRadius: 4, backgroundColor: "#1a1a1a", alignItems: "center", justifyContent: "center" }}><Feather name="film" size={13} color="rgba(255,255,255,0.25)" /></View>
+                }
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: "#fff", fontWeight: "600", fontSize: 13 }} numberOfLines={1}>{item.title}</Text>
+                  <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 11 }}>{item.year} · ID: {item.id}</Text>
+                  {item.overview ? (
+                    <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 11 }} numberOfLines={2}>{item.overview}</Text>
+                  ) : null}
+                </View>
+                <Feather name="chevron-right" size={14} color="rgba(255,255,255,0.25)" />
+              </Pressable>
+            ))}
+          </ScrollView>
+        )}
+
+        {/* Selected TMDB badge */}
+        {selectedTmdb && (
+          <View style={{
+            flexDirection: "row", gap: 10, padding: 10, borderRadius: 10,
+            backgroundColor: "rgba(59,130,246,0.07)", borderWidth: 1, borderColor: "rgba(59,130,246,0.3)",
+          }}>
+            {posterPath
+              ? <Image source={{ uri: `https://image.tmdb.org/t/p/w185${posterPath}` }} style={{ width: 52, height: 76, borderRadius: 7 }} contentFit="cover" />
+              : null
+            }
+            <View style={{ flex: 1, gap: 4 }}>
+              <Text style={{ color: "#60a5fa", fontWeight: "700", fontSize: 14 }} numberOfLines={2}>{selectedTmdb.title}</Text>
+              <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11 }}>ID: {selectedTmdb.id} · {selectedTmdb.year}</Text>
+              {fetchingDetails
+                ? <ActivityIndicator size="small" color="#60a5fa" style={{ alignSelf: "flex-start" }} />
+                : <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 11 }}>
+                    {numSeasons ? `${numSeasons} temp · ` : ""}{numEpisodes ? `${numEpisodes} ep · ` : ""}⭐ {voteAverage?.toFixed(1) ?? "—"}
+                  </Text>
+              }
+            </View>
+            <Pressable onPress={() => { setSelectedTmdb(null); setTmdbQuery(""); setPosterPath(null); }}>
+              <Feather name="x" size={15} color="rgba(255,255,255,0.4)" />
+            </Pressable>
+          </View>
+        )}
+      </View>
+
+      {/* ── STEP 3: Edit + Publish ── */}
+      {(selectedFlix2 || selectedTmdb) && (
+        <View style={sectionStyle}>
+          <Text style={labelStyle}>③ Ajustar e Publicar</Text>
+
+          <View style={{ gap: 5 }}>
+            <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 12 }}>Título personalizado</Text>
+            <TextInput
+              style={[inputStyle, { flex: undefined }]}
+              placeholder="Título (vazio = usar o do TMDB)"
+              placeholderTextColor="rgba(255,255,255,0.3)"
+              value={overrideTitle}
+              onChangeText={setOverrideTitle}
+            />
+          </View>
+
+          <View style={{ gap: 5 }}>
+            <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 12 }}>Sinopse</Text>
+            <TextInput
+              style={[inputStyle, { flex: undefined, minHeight: 90, textAlignVertical: "top" }]}
+              placeholder="Sinopse (vazio = usar TMDB)"
+              placeholderTextColor="rgba(255,255,255,0.3)"
+              value={overrideOverview}
+              onChangeText={setOverrideOverview}
+              multiline
+              numberOfLines={4}
+            />
+          </View>
+
+          {/* Summary row */}
+          <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+            {selectedFlix2 && (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, backgroundColor: "rgba(139,92,246,0.12)", borderWidth: 1, borderColor: "rgba(139,92,246,0.3)" }}>
+                <Feather name="zap" size={11} color="#a78bfa" />
+                <Text style={{ color: "#a78bfa", fontSize: 11 }} numberOfLines={1}>Flix: {selectedFlix2.title ?? selectedFlix2.name}</Text>
+              </View>
+            )}
+            {selectedTmdb && (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, backgroundColor: "rgba(59,130,246,0.12)", borderWidth: 1, borderColor: "rgba(59,130,246,0.3)" }}>
+                <Feather name="database" size={11} color="#60a5fa" />
+                <Text style={{ color: "#60a5fa", fontSize: 11 }}>TMDB: {selectedTmdb.id}</Text>
+              </View>
+            )}
+          </View>
+
+          <Pressable
+            onPress={publish}
+            disabled={publishing || !selectedFlix2 || !selectedTmdb}
+            style={({ pressed }) => [{
+              paddingVertical: 14, borderRadius: 12, alignItems: "center",
+              backgroundColor: (selectedFlix2 && selectedTmdb) ? "#e50914" : "#2a2a2a",
+              flexDirection: "row" as any, justifyContent: "center", gap: 8,
+            }, (pressed || publishing || !selectedFlix2 || !selectedTmdb) && { opacity: 0.7 }]}
+          >
+            {publishing
+              ? <ActivityIndicator color="#fff" size="small" />
+              : <>
+                  <Feather name="send" size={16} color="#fff" />
+                  <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15 }}>
+                    {selectedFlix2 && selectedTmdb ? "Publicar no App" : "Complete os passos acima"}
+                  </Text>
+                </>
+            }
+          </Pressable>
+        </View>
+      )}
+
+      {/* Error */}
+      {pubError && (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 12, borderRadius: 10, backgroundColor: "rgba(239,68,68,0.08)", borderWidth: 1, borderColor: "rgba(239,68,68,0.25)" }}>
+          <Feather name="alert-circle" size={14} color="#ef4444" />
+          <Text style={{ color: "#f87171", fontSize: 13, flex: 1 }}>{pubError}</Text>
+        </View>
+      )}
+
+      {/* Success */}
+      {pubSuccess && (
+        <View style={{ gap: 8, padding: 14, borderRadius: 12, backgroundColor: "rgba(34,197,94,0.07)", borderWidth: 1, borderColor: "rgba(34,197,94,0.25)" }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Feather name="check-circle" size={18} color="#4ade80" />
+            <Text style={{ color: "#4ade80", fontWeight: "700", fontSize: 15 }}>Publicado com sucesso!</Text>
+          </View>
+          <Text style={{ color: "rgba(255,255,255,0.55)", fontSize: 13 }}>
+            "{pubSuccess.title}" foi vinculado ao Flix 2.0 e publicado no app.
+          </Text>
+          <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 11 }}>
+            TMDB ID: {pubSuccess.tmdbId} · {pubSuccess.type === "movie" ? "Filme" : "Série"}
+          </Text>
+          <Pressable onPress={() => setPubSuccess(null)} style={{ alignSelf: "flex-end", paddingTop: 2 }}>
+            <Text style={{ color: "#4ade80", fontSize: 12 }}>Publicar outro ›</Text>
+          </Pressable>
+        </View>
+      )}
+    </ScrollView>
+  );
+}
+
 // ── Main Screen ────────────────────────────────────────────────────────────────
 
 export default function R2CatalogScreen() {
@@ -8507,17 +9078,18 @@ export default function R2CatalogScreen() {
             { id: "flix2", icon: "zap", label: "Flix 2.0" },
             { id: "veo", icon: "play-circle", label: "Veo Play" },
             { id: "diagnose", icon: "activity", label: "Diagnose" },
+            { id: "publish", icon: "send", label: "Publicar" },
           ] as { id: Tab; icon: string; label: string }[]).map((t) => (
             <Pressable key={t.id} style={[styles.tabItem, activeTab === t.id && styles.tabItemActive]} onPress={() => setActiveTab(t.id)}>
               <Feather
                 name={t.icon as any}
                 size={14}
                 color={activeTab === t.id
-                  ? t.id === "terabox" ? "#f59e0b" : t.id === "flix2" ? "#8b5cf6" : t.id === "veo" ? "#06b6d4" : t.id === "diagnose" ? "#22c55e" : RED
+                  ? t.id === "terabox" ? "#f59e0b" : t.id === "flix2" ? "#8b5cf6" : t.id === "veo" ? "#06b6d4" : t.id === "diagnose" ? "#22c55e" : t.id === "publish" ? "#f97316" : RED
                   : "rgba(255,255,255,0.4)"}
               />
               <Text style={[styles.tabLabel, activeTab === t.id && {
-                color: t.id === "terabox" ? "#f59e0b" : t.id === "flix2" ? "#8b5cf6" : t.id === "veo" ? "#06b6d4" : t.id === "diagnose" ? "#22c55e" : RED,
+                color: t.id === "terabox" ? "#f59e0b" : t.id === "flix2" ? "#8b5cf6" : t.id === "veo" ? "#06b6d4" : t.id === "diagnose" ? "#22c55e" : t.id === "publish" ? "#f97316" : RED,
               }]} numberOfLines={1}>
                 {t.label}
               </Text>
@@ -8561,6 +9133,7 @@ export default function R2CatalogScreen() {
         {activeTab === "flix2" && <Flix2Panel />}
         {activeTab === "veo" && <VeoPlayPanel />}
         {activeTab === "diagnose" && <DiagnosePanel />}
+        {activeTab === "publish" && <PublishPanel />}
       </View>
 
       {/* Register modal */}
