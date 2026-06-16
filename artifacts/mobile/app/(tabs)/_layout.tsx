@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/lib/auth-context";
+import AnimatedTabIcon from "@/components/AnimatedTabIcon";
 
 const ACTIVE_PROFILE_KEY = "netplay_active_profile_v2";
 
@@ -113,48 +114,60 @@ function ClassicTabLayout({ isAdmin }: { isAdmin: boolean }) {
         name="index"
         options={{
           title: "Início",
-          tabBarIcon: ({ color }) =>
-            isIOS ? <SymbolView name="house" tintColor={color} size={22} /> : <Feather name="home" size={22} color={color} />,
+          tabBarIcon: ({ color, focused }) =>
+            isIOS
+              ? <SymbolView name="house" tintColor={color} size={22} />
+              : <AnimatedTabIcon type="home" color={color} size={22} focused={focused} />,
         }}
       />
       <Tabs.Screen
         name="novidades"
         options={{
           title: "Novidades",
-          tabBarIcon: ({ color }) =>
-            isIOS ? <SymbolView name="sparkles" tintColor={color} size={22} /> : <Feather name="bell" size={22} color={color} />,
+          tabBarIcon: ({ color, focused }) =>
+            isIOS
+              ? <SymbolView name="sparkles" tintColor={color} size={22} />
+              : <AnimatedTabIcon type="bell" color={color} size={22} focused={focused} />,
         }}
       />
       <Tabs.Screen
         name="canais"
         options={{
           title: "Canais",
-          tabBarIcon: ({ color }) =>
-            isIOS ? <SymbolView name="tv" tintColor={color} size={22} /> : <Feather name="tv" size={22} color={color} />,
+          tabBarIcon: ({ color, focused }) =>
+            isIOS
+              ? <SymbolView name="tv" tintColor={color} size={22} />
+              : <AnimatedTabIcon type="tv" color={color} size={22} focused={focused} />,
         }}
       />
       <Tabs.Screen
         name="cinema"
         options={{
           title: "Cinema",
-          tabBarIcon: ({ color }) =>
-            isIOS ? <SymbolView name="film" tintColor={color} size={22} /> : <Feather name="film" size={22} color={color} />,
+          tabBarIcon: ({ color, focused }) =>
+            isIOS
+              ? <SymbolView name="film" tintColor={color} size={22} />
+              : <AnimatedTabIcon type="film" color={color} size={22} focused={focused} />,
         }}
       />
       <Tabs.Screen
         name="franquias"
         options={{
           title: "Franquias",
-          tabBarIcon: ({ color }) =>
-            isIOS ? <SymbolView name="star" tintColor={color} size={22} /> : <Feather name="star" size={22} color={color} />,
+          tabBarIcon: ({ color, focused }) =>
+            isIOS
+              ? <SymbolView name="star" tintColor={color} size={22} />
+              : <AnimatedTabIcon type="star" color={color} size={22} focused={focused} />,
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
           title: "Perfil",
-          tabBarIcon: ({ color }) =>
-            isIOS ? <SymbolView name="person" tintColor={color} size={22} /> : <Feather name="user" size={22} color={color} />,
+          tabBarIcon: ({ color, focused }) =>
+            isIOS
+              ? <SymbolView name="person" tintColor={color} size={22} />
+              : <AnimatedTabIcon type="user" color={color} size={22} focused={focused} />,
         }}
       />
       {/* Hidden screens — accessible via router.push */}
