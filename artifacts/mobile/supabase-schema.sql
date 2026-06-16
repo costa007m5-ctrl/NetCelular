@@ -304,6 +304,7 @@ ALTER TABLE public.content_overrides ADD COLUMN IF NOT EXISTS backdrop_path TEXT
 ALTER TABLE public.content_overrides ADD COLUMN IF NOT EXISTS number_of_seasons INTEGER;
 ALTER TABLE public.content_overrides ADD COLUMN IF NOT EXISTS number_of_episodes INTEGER;
 ALTER TABLE public.content_overrides ADD COLUMN IF NOT EXISTS vote_average NUMERIC;
+ALTER TABLE public.content_overrides ADD COLUMN IF NOT EXISTS imdb_id TEXT;
 
 ALTER TABLE public.content_overrides ENABLE ROW LEVEL SECURITY;
 

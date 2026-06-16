@@ -24,6 +24,7 @@ export type ContentOverride = {
   content_key: string;
   tmdb_id?: number | null;
   tmdb_type?: "movie" | "tv" | null;
+  imdb_id?: string | null;
   custom_title?: string | null;
   custom_overview?: string | null;
   overview_mode: "auto" | "manual";

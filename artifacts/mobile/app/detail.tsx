@@ -305,9 +305,10 @@ export default function DetailScreen() {
   const [editEpisodes, setEditEpisodes] = useState<number | null>(null);
   const [editVoteAverage, setEditVoteAverage] = useState<number | null>(null);
 
+  const [editImdbId, setEditImdbId] = useState("");
   const [flix2LinkQuery, setFlix2LinkQuery] = useState("");
   const [flix2LinkCatalogType, setFlix2LinkCatalogType] = useState<"movies" | "series" | "animes">("movies");
-  const [flix2LinkResults, setFlix2LinkResults] = useState<Array<{ id: string; title: string; year: number; poster: string; stream_url: string | null }>>([]);
+  const [flix2LinkResults, setFlix2LinkResults] = useState<Array<{ id: string; title: string; year: number; poster: string; stream_url: string | null; catalogType: string }>>([]);
   const [flix2LinkLoading, setFlix2LinkLoading] = useState(false);
   const [flix2LinkSelected, setFlix2LinkSelected] = useState<{ id: string; title: string; poster: string; catalogType: string } | null>(null);
   const [flix2LinkBusy, setFlix2LinkBusy] = useState(false);
@@ -1484,6 +1485,7 @@ export default function DetailScreen() {
     setEditSeasons(contentOverride?.number_of_seasons ?? null);
     setEditEpisodes(contentOverride?.number_of_episodes ?? null);
     setEditVoteAverage(contentOverride?.vote_average ?? null);
+    setEditImdbId(contentOverride?.imdb_id ?? "");
     setFlix2LinkQuery("");
     setFlix2LinkCatalogType(type === "movie" ? "movies" : "series");
     setFlix2LinkResults([]);
@@ -1571,6 +1573,7 @@ export default function DetailScreen() {
       const payload: Partial<Omit<ContentOverride, "content_key" | "id">> = {
         tmdb_id: overrideTmdbId || null,
         tmdb_type: editSearchType,
+        imdb_id: editImdbId.trim() || null,
         custom_title: editTitle.trim() || null,
         custom_overview: editOverviewMode === "manual" ? (editOverview.trim() || null) : null,
         overview_mode: editOverviewMode,
@@ -1607,12 +1610,14 @@ export default function DetailScreen() {
       const data = await r2Route<{ results: any[]; total: number }>(
         `/flix2/search?q=${encodeURIComponent(q)}&type=${flix2LinkCatalogType}&limit=30`
       );
+      const capturedCatalogType = flix2LinkCatalogType;
       const results = (data.results ?? []).map((item: any) => ({
         id: String(item.id),
         title: item.title ?? item.name ?? "",
         year: item.year ?? 0,
         poster: item.poster ?? "",
         stream_url: item.stream_url ?? null,
+        catalogType: capturedCatalogType,
       }));
       setFlix2LinkResults(results);
       if (results.length === 0) setEditErr("Nenhum resultado no Flix 2.0. Tente outro nome.");
@@ -2414,6 +2419,24 @@ export default function DetailScreen() {
                   </Text>
                 </View>
 
+                {/* ── Seção 2b: ID IMDB manual ── */}
+                <View style={{ gap: 6 }}>
+                  <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 13, fontWeight: "600" }}>ID IMDB (opcional)</Text>
+                  <TextInput
+                    style={{ backgroundColor: "rgba(255,255,255,0.07)", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, color: "#fff", fontSize: 14, borderWidth: 1, borderColor: editImdbId ? "rgba(245,158,11,0.4)" : "rgba(255,255,255,0.12)" }}
+                    placeholder="Ex: tt1234567"
+                    placeholderTextColor="rgba(255,255,255,0.3)"
+                    value={editImdbId}
+                    onChangeText={setEditImdbId}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    keyboardType="default"
+                  />
+                  <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 11 }}>
+                    Formato: tt seguido de números (ex: tt0120338). Salvo sem chamar nenhuma API.
+                  </Text>
+                </View>
+
                 {/* ── Seção 3: Nome personalizado ── */}
                 <View style={{ gap: 6 }}>
                   <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 13, fontWeight: "600" }}>Nome (deixe vazio = usar TMDB)</Text>
@@ -2522,17 +2545,18 @@ export default function DetailScreen() {
                       <ScrollView
                         style={{ maxHeight: 240 }}
                         nestedScrollEnabled
-                        keyboardShouldPersistTaps="handled"
+                        keyboardShouldPersistTaps="always"
                         showsVerticalScrollIndicator
                         contentContainerStyle={{ padding: 8, paddingTop: 0, gap: 6 }}
                       >
-                        {flix2LinkResults.map((res) => {
-                          const isSelected = flix2LinkSelected?.id === res.id;
+                        {flix2LinkResults.map((res, idx) => {
+                          const isSelected = flix2LinkSelected?.id === res.id && flix2LinkSelected?.catalogType === res.catalogType;
                           return (
-                            <Pressable
-                              key={res.id}
-                              onPress={() => setFlix2LinkSelected({ id: res.id, title: res.title, poster: res.poster, catalogType: flix2LinkCatalogType })}
-                              style={({ pressed }) => [{ flexDirection: "row", alignItems: "center", gap: 10, padding: 8, borderRadius: 10, backgroundColor: isSelected ? "rgba(249,115,22,0.12)" : "rgba(255,255,255,0.04)", borderWidth: 1, borderColor: isSelected ? "rgba(249,115,22,0.45)" : "rgba(255,255,255,0.07)" }, pressed && { opacity: 0.7 }]}
+                            <TouchableOpacity
+                              key={`${idx}_${res.id}`}
+                              activeOpacity={0.7}
+                              onPress={() => setFlix2LinkSelected({ id: res.id, title: res.title, poster: res.poster, catalogType: res.catalogType })}
+                              style={{ flexDirection: "row", alignItems: "center", gap: 10, padding: 8, borderRadius: 10, backgroundColor: isSelected ? "rgba(249,115,22,0.12)" : "rgba(255,255,255,0.04)", borderWidth: 1, borderColor: isSelected ? "rgba(249,115,22,0.45)" : "rgba(255,255,255,0.07)" }}
                             >
                               {res.poster ? (
                                 <Image source={{ uri: res.poster }} style={{ width: 36, height: 52, borderRadius: 5, backgroundColor: "#222" }} resizeMode="cover" />
@@ -2549,7 +2573,7 @@ export default function DetailScreen() {
                                 </View>
                               </View>
                               {isSelected && <Feather name="check-circle" size={18} color="#fb923c" />}
-                            </Pressable>
+                            </TouchableOpacity>
                           );
                         })}
                       </ScrollView>
