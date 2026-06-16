@@ -74,7 +74,7 @@ channel = "stable-25_05"
 [userenv.shared]
 PORT = "5000"
 API_PORT = "8080"
-EXPO_PUBLIC_DOMAIN = "net-celular--happylion157.replit.app"
+EXPO_PUBLIC_DOMAIN = "e6211978-2fd8-48af-833d-4b769db689a5-00-2gx9joasv0xp9.spock.replit.dev"
 R2_ACCOUNT_ID = "9827b92a6b3a621e8c6f50274e68f37b"
 R2_BUCKET_NAME = "netplay-media-storage"
 SUPABASE_URL = "https://pjzfsbdcjyhcoptbrlhh.supabase.co"
