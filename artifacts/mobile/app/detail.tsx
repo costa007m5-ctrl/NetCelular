@@ -1713,31 +1713,81 @@ export default function DetailScreen() {
         (i: RegistryItem) => i.tmdbId === numericId && i.tmdbType === type
       );
 
-      // Build a virtual item for the newly linked stream so play buttons
-      // appear immediately without needing to close and reopen the detail screen
-      const newFlix2Item: RegistryItem = {
+      // ── For series: fetch episodes from the new seriesId immediately ──────
+      // Extract series_id from the flix2Url so we can call series-episodes
+      // and build per-episode items without needing to close+reopen the screen.
+      const seriesIdMatch = flix2Url.match(/[?&]series_id=(\d+)/);
+      const newSeriesId = seriesIdMatch?.[1] ?? null;
+
+      let episodeItems: RegistryItem[] = [];
+      if ((type === "tv" || resolvedType === "tv") && newSeriesId) {
+        try {
+          const epData = await r2Route<{
+            found: boolean;
+            episodes: Array<{ season: number; episode: number; stream_url: string }>;
+            tryClientDirect?: boolean;
+            directUrl?: string;
+            streamBase?: string;
+          }>(`/flix2/series-episodes?seriesId=${newSeriesId}`);
+
+          let episodeList = epData.found ? epData.episodes : [];
+
+          // Client-side direct fallback (same as initial load flow)
+          if (!epData.found && epData.tryClientDirect && epData.directUrl && epData.streamBase) {
+            try {
+              const ctrl = new AbortController();
+              const tid = setTimeout(() => ctrl.abort(), 15000);
+              let directRes: Response | null = null;
+              try { directRes = await fetch(epData.directUrl, { signal: ctrl.signal }); }
+              finally { clearTimeout(tid); }
+              if (directRes?.ok) {
+                const directData = await directRes.json() as any;
+                if (directData?.episodes && typeof directData.episodes === "object") {
+                  const clientEps: Array<{ season: number; episode: number; stream_url: string }> = [];
+                  for (const [seasonStr, eps] of Object.entries(directData.episodes as Record<string, any[]>)) {
+                    if (!Array.isArray(eps)) continue;
+                    const season = Number(seasonStr);
+                    for (const ep of eps as any[]) {
+                      if (!ep?.id) continue;
+                      const ext = ep.container_extension ?? "mp4";
+                      clientEps.push({ season, episode: Number(ep.episode_num ?? ep.episode ?? 1), stream_url: `${epData.streamBase}${ep.id}.${ext}` });
+                    }
+                  }
+                  clientEps.sort((a, b) => a.season - b.season || a.episode - b.episode);
+                  if (clientEps.length > 0) episodeList = clientEps;
+                }
+              }
+            } catch {}
+          }
+
+          for (const ep of episodeList) {
+            if (!ep?.stream_url) continue;
+            episodeItems.push({
+              id: `flix2-auto-${tmdbId}-s${ep.season}e${ep.episode}`,
+              r2Key: "", flix2Url: ep.stream_url, tmdbId: numericId, tmdbType: type as "movie" | "tv",
+              title: selected.title,
+              label: `T${String(ep.season).padStart(2, "0")} E${String(ep.episode).padStart(2, "0")} · Flix 2.0`,
+              season: ep.season, episode: ep.episode,
+            } as any);
+          }
+        } catch {}
+      }
+
+      // If it's a movie or no episodes found, add a series-level virtual item
+      const seriesLevelItem: RegistryItem | null = (episodeItems.length === 0) ? {
         id: `flix2-auto-${tmdbId}`,
-        r2Key: "",
-        flix2Url,
-        tmdbId: numericId,
-        tmdbType: type as "movie" | "tv",
-        title: selected.title,
-        label: selected.title + " · Flix 2.0",
-        season: null,
-        episode: null,
-        addedAt: new Date().toISOString(),
-      } as any;
+        r2Key: "", flix2Url, tmdbId: numericId, tmdbType: type as "movie" | "tv",
+        title: selected.title, label: selected.title + " · Flix 2.0",
+        season: null, episode: null, addedAt: new Date().toISOString(),
+      } as any : null;
 
       setR2Items((prev) => {
-        // Keep R2/Drive items, drop old auto-generated flix2/veo items
-        const kept = prev.filter(
-          (i) => !i.id.startsWith("flix2-auto-") && !i.id.startsWith("veo-auto-")
-        );
-        // Merge real registry items (R2 keys etc.) that aren't already in kept
-        const registryOnly = freshRegistry.filter(
-          (i: RegistryItem) => !kept.some((k) => k.id === i.id)
-        );
-        return [...kept, ...registryOnly, newFlix2Item];
+        // Keep veo items (auto-generated but from a different source)
+        const veoItems = prev.filter(i => i.id.startsWith("veo-auto-"));
+        // Use freshRegistry for real registry items (has updated flix2Url)
+        // Add per-episode items (or series-level fallback)
+        const autoItems = episodeItems.length > 0 ? episodeItems : (seriesLevelItem ? [seriesLevelItem] : []);
+        return [...freshRegistry, ...veoItems, ...autoItems];
       });
 
       setFlix2LinkDone(true);
