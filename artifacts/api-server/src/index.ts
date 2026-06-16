@@ -1,6 +1,6 @@
 import app from "./app";
 import { logger } from "./lib/logger";
-import { warmAllCatalogCaches } from "./routes/r2";
+import { warmAllCatalogCaches, warmAllVeoCaches } from "./routes/r2";
 
 const rawPort = process.env["PORT"];
 
@@ -42,4 +42,5 @@ app.listen(port, (err) => {
   // Covers all pages: series (377), animes (~849), movies (821).
   // Once warm, /flix2/search finds any title instantly with full coverage.
   warmAllCatalogCaches().catch(() => {});
+  warmAllVeoCaches().catch(() => {});
 });

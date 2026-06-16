@@ -472,7 +472,63 @@ export default function DetailScreen() {
           const flix2Raw = await r2Route<{ found: boolean; item: any }>(
             `/flix2/lookup?tmdbId=${tmdbId}&type=${flix2Type}&title=${encodeURIComponent(lookupTitle)}${flix2StreamId}`
           );
-          if (cancelled || !flix2Raw.found) return;
+          if (cancelled) return;
+
+          // ── Fase 3: Veo Play fallback ─────────────────────────────────────────
+          // Se Flix 2.0 não encontrou nada, tenta Veo como fonte auxiliar.
+          // Só mostra conteúdo que resolve para vod99.cineveo.lat (não fontedecanais).
+          if (!flix2Raw.found) {
+            try {
+              const veoType = type === "movie" ? "movies" : "all";
+              const veoRaw = await r2Route<{ found: boolean; item: any; contentType: string }>(
+                `/veo/lookup?tmdbId=${tmdbId}&type=${veoType}&title=${encodeURIComponent(lookupTitle)}`
+              );
+              if (cancelled || !veoRaw.found) return;
+              const vi = veoRaw.item;
+
+              // Verifica CDN com o primeiro stream URL disponível
+              const checkUrl: string | null =
+                vi?.stream_url ||
+                (Array.isArray(vi?.episodes) && vi.episodes.length > 0 ? vi.episodes[0]?.stream_url : null);
+              if (!checkUrl) return;
+
+              const cdnCheck = await r2Route<{ ok: boolean; cdnOk: boolean; cdnHost: string }>(
+                `/veo/stream-check?streamUrl=${encodeURIComponent(checkUrl)}`
+              );
+              // fontedecanais não funciona no APK — silenciosamente ignora
+              if (!cdnCheck.cdnOk) return;
+
+              if (vi?.synopsis && !cancelled) setFlix2Synopsis(vi.synopsis);
+              const veoItems: RegistryItem[] = [];
+
+              if (vi?.stream_url) {
+                veoItems.push({
+                  id: `veo-auto-${tmdbId}`, r2Key: "", flix2Url: vi.stream_url,
+                  tmdbId, tmdbType: type, title: vi.title ?? "",
+                  label: `${vi.title ?? ""} · Veo`,
+                  season: null, episode: null,
+                });
+              } else if (Array.isArray(vi?.episodes) && vi.episodes.length > 0) {
+                for (const ep of vi.episodes as Array<{ season: number; episode: number; stream_url?: string }>) {
+                  if (!ep?.stream_url) continue;
+                  veoItems.push({
+                    id: `veo-auto-${tmdbId}-s${ep.season}e${ep.episode}`, r2Key: "",
+                    flix2Url: ep.stream_url, tmdbId, tmdbType: type,
+                    title: vi.title ?? "",
+                    label: `T${String(ep.season).padStart(2, "0")} E${String(ep.episode).padStart(2, "0")} · Veo`,
+                    season: ep.season, episode: ep.episode,
+                  });
+                }
+              }
+
+              if (!cancelled && veoItems.length > 0) {
+                setR2Items((prev) => [...prev, ...veoItems]);
+              }
+            } catch {}
+            return;
+          }
+          // ── fim Fase 3 ────────────────────────────────────────────────────────
+
           const fi = flix2Raw.item;
           // Capture Flix2 synopsis — used as fallback when TMDB overview is empty
           if (fi?.synopsis && !cancelled) setFlix2Synopsis(fi.synopsis);

@@ -5132,6 +5132,13 @@ async function warmVeoType(type: VeoType): Promise<void> {
   }
 }
 
+// ── Warm all enabled Veo types in background (called at startup if enabled) ───
+export async function warmAllVeoCaches(): Promise<void> {
+  if (!veoSettings.enabled) return;
+  const typesToWarm = VEO_TYPES.filter((t) => veoSettings.types[t]);
+  await Promise.all(typesToWarm.map((t) => warmVeoType(t)));
+}
+
 // ── GET /veo/settings ─────────────────────────────────────────────────────────
 router.get("/veo/settings", (_req, res) => {
   res.json({ ok: true, settings: veoSettings });
@@ -5140,6 +5147,7 @@ router.get("/veo/settings", (_req, res) => {
 // ── POST /veo/settings ────────────────────────────────────────────────────────
 router.post("/veo/settings", (req, res) => {
   const body = req.body ?? {};
+  const wasEnabled = veoSettings.enabled;
   if (typeof body.enabled === "boolean") veoSettings.enabled = body.enabled;
   if (body.types && typeof body.types === "object") {
     for (const t of VEO_TYPES) {
@@ -5147,6 +5155,10 @@ router.post("/veo/settings", (req, res) => {
     }
   }
   saveVeoSettings();
+  // Auto-start warm when Veo is enabled for the first time
+  if (veoSettings.enabled && !wasEnabled) {
+    warmAllVeoCaches().catch(() => {});
+  }
   res.json({ ok: true, settings: veoSettings });
 });
 
@@ -5272,6 +5284,64 @@ router.get("/veo/series-episodes", (req, res) => {
     res.status(404).json({ error: "Série não encontrada no cache. Aqueça o cache primeiro.", cacheEmpty: true });
   } catch (e: any) {
     res.status(500).json({ error: e?.message ?? "error" });
+  }
+});
+
+// ── GET /veo/stream-check?streamUrl=X ────────────────────────────────────────
+// Follows the 302 redirect from a nixplay Veo stream URL and returns whether
+// the CDN resolves to vod99.cineveo.lat (cdnOk=true, works in APK) or to
+// fontedecanais (cdnOk=false, broken in APK — skip this item in the player).
+// Results are cached 20s — CDN signed URLs expire quickly.
+const VEO_STREAM_CHECK_CACHE = new Map<string, { result: any; cachedAt: number }>();
+const VEO_STREAM_CHECK_TTL_MS = 20_000;
+
+router.get("/veo/stream-check", async (req, res) => {
+  const { streamUrl } = req.query as Record<string, string>;
+  if (!streamUrl) { res.status(400).json({ error: "streamUrl required" }); return; }
+
+  const cached = VEO_STREAM_CHECK_CACHE.get(streamUrl);
+  if (cached && Date.now() - cached.cachedAt < VEO_STREAM_CHECK_TTL_MS) {
+    res.json({ ...cached.result, fromCache: true }); return;
+  }
+
+  try {
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 8_000);
+    let response: Response;
+    try {
+      response = await fetch(streamUrl, {
+        method: "HEAD",
+        redirect: "manual",
+        signal: ctrl.signal,
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+          "Referer": "https://nixplay.lat/",
+          "Origin": "https://nixplay.lat",
+          "Accept": "*/*",
+        },
+      });
+    } finally { clearTimeout(tid); }
+
+    const location = response!.headers.get("location");
+    const finalUrl = location || streamUrl;
+    const cdnHost = (() => { try { return new URL(finalUrl).hostname; } catch { return "unknown"; } })();
+
+    // fontedecanais CDN does NOT work in APK — filter it out
+    const isFontedecanais =
+      cdnHost.endsWith("72yrci50ppqp71.com") ||
+      cdnHost.endsWith("fontedecanais.me") ||
+      cdnHost === "hubby.cx" ||
+      cdnHost.endsWith(".hubby.cx");
+
+    const cdnOk = !isFontedecanais;
+    const result = { ok: true, cdnOk, cdnHost, via: cdnOk ? "vod99" : "fontedecanais" };
+    VEO_STREAM_CHECK_CACHE.set(streamUrl, { result, cachedAt: Date.now() });
+    console.log(`[veo/stream-check] host=${cdnHost} cdnOk=${cdnOk}`);
+    res.json(result);
+  } catch (e: any) {
+    // On timeout or network error, assume CDN is ok to not silently hide content
+    const result = { ok: false, cdnOk: true, cdnHost: "unknown", error: e?.message ?? "timeout" };
+    res.json(result);
   }
 });
 
