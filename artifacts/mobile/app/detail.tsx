@@ -2422,18 +2422,33 @@ export default function DetailScreen() {
                 {/* ── Seção 2b: ID IMDB manual ── */}
                 <View style={{ gap: 6 }}>
                   <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 13, fontWeight: "600" }}>ID IMDB (opcional)</Text>
-                  <TextInput
-                    style={{ backgroundColor: "rgba(255,255,255,0.07)", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, color: "#fff", fontSize: 14, borderWidth: 1, borderColor: editImdbId ? "rgba(245,158,11,0.4)" : "rgba(255,255,255,0.12)" }}
-                    placeholder="Ex: tt1234567"
-                    placeholderTextColor="rgba(255,255,255,0.3)"
-                    value={editImdbId}
-                    onChangeText={setEditImdbId}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    keyboardType="default"
-                  />
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    <TextInput
+                      style={{ flex: 1, backgroundColor: "rgba(255,255,255,0.07)", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, color: "#fff", fontSize: 14, borderWidth: 1, borderColor: editImdbId ? "rgba(245,158,11,0.4)" : "rgba(255,255,255,0.12)" }}
+                      placeholder="Ex: tt1234567"
+                      placeholderTextColor="rgba(255,255,255,0.3)"
+                      value={editImdbId}
+                      onChangeText={setEditImdbId}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      keyboardType="default"
+                    />
+                    <Pressable
+                      onPress={() => {
+                        const id = editImdbId.trim();
+                        if (!id) return;
+                        const imdbId = id.startsWith("tt") ? id : `tt${id}`;
+                        Linking.openURL(`https://www.imdb.com/title/${imdbId}/`);
+                      }}
+                      disabled={!editImdbId.trim()}
+                      style={({ pressed }) => [{ paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10, backgroundColor: "rgba(245,158,11,0.15)", borderWidth: 1, borderColor: "rgba(245,158,11,0.45)", justifyContent: "center", alignItems: "center", gap: 4, flexDirection: "row" }, (pressed || !editImdbId.trim()) && { opacity: 0.5 }]}
+                    >
+                      <Feather name="external-link" size={14} color="#fbbf24" />
+                      <Text style={{ color: "#fbbf24", fontSize: 12, fontWeight: "600" }}>Ver</Text>
+                    </Pressable>
+                  </View>
                   <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 11 }}>
-                    Formato: tt seguido de números (ex: tt0120338). Salvo sem chamar nenhuma API.
+                    Formato: tt seguido de números (ex: tt0120338). Toque "Ver" para conferir no IMDB.
                   </Text>
                 </View>
 
