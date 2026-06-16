@@ -1131,17 +1131,22 @@ export default function DetailScreen() {
 
         const GENERIC = /^Episódio\s*\d+$/i;
         const isGenericName = (n?: string) => !n || GENERIC.test(n);
+        // needsNameTranslation: either it's a placeholder "Episódio N" OR
+        // TMDB returned the same string in pt-BR and en-US (= no real translation exists)
+        const needsNameTranslation = (ptName: string | undefined, enName: string | undefined) =>
+          isGenericName(ptName) || (!!enName && !!ptName && ptName === enName);
 
         let merged = episodes.map((ep) => {
           const enEp = enEps.find((e: any) => e.episode_number === ep.episode_number);
+          const shouldTranslateName = needsNameTranslation(ep.name, enEp?.name);
           return {
             ...ep,
             // still_path: prefer pt-BR; fallback to en-US (pt-BR often has null)
             still_path: ep.still_path ?? enEp?.still_path ?? null,
-            // name: keep pt if real; otherwise take en (will translate below)
-            _enName: isGenericName(ep.name) && enEp?.name ? enEp.name : null,
+            // name: if no real PT-BR translation, use EN name and flag for auto-translation
+            _enName: shouldTranslateName && enEp?.name ? enEp.name : null,
             _enOverview: !ep.overview && enEp?.overview ? enEp.overview : null,
-            name: isGenericName(ep.name) && enEp?.name ? enEp.name : ep.name,
+            name: shouldTranslateName && enEp?.name ? enEp.name : ep.name,
             overview: !ep.overview && enEp?.overview ? enEp.overview : ep.overview,
           };
         });
@@ -1604,6 +1609,7 @@ export default function DetailScreen() {
   };
 
   const [fetchingImdbData, setFetchingImdbData] = useState(false);
+  const [imdbFoundResult, setImdbFoundResult] = useState<{ id: number; title: string; poster: string | null; mediaType: "movie" | "tv" } | null>(null);
 
   const searchByImdbId = async () => {
     const raw = editImdbId.trim();
@@ -1611,6 +1617,7 @@ export default function DetailScreen() {
     const imdbId = raw.startsWith("tt") ? raw : `tt${raw}`;
     setFetchingImdbData(true);
     setEditErr(null);
+    setImdbFoundResult(null);
     try {
       const base = `https://api.themoviedb.org/3/find/${imdbId}?api_key=${TMDB_KEY_EDIT}&external_source=imdb_id&language=pt-BR`;
       const r = await fetch(base);
@@ -1622,19 +1629,22 @@ export default function DetailScreen() {
       if (!hit) { setEditErr("Nenhum título encontrado para esse ID IMDB."); return; }
       const isMovie = !!movieHit;
       const mediaType: "movie" | "tv" = isMovie ? "movie" : "tv";
-      const tmdbId = String(hit.id);
-      setEditTmdbId(tmdbId);
+      const foundTmdbId = String(hit.id);
+      const foundTitle = hit.title ?? hit.name ?? "";
+      const foundPoster = hit.poster_path ? `https://image.tmdb.org/t/p/w185${hit.poster_path}` : null;
+      setEditTmdbId(foundTmdbId);
       setEditSearchType(mediaType);
       setEditImdbId(imdbId);
       setAutoOverview(hit.overview ?? "");
       setEditPosterPath(hit.poster_path ?? null);
       setEditBackdropPath(hit.backdrop_path ?? null);
       setEditVoteAverage(hit.vote_average ?? null);
-      setEditTitle(hit.title ?? hit.name ?? "");
-      setEditSelectedResult({ id: hit.id, title: hit.title ?? hit.name ?? "", poster: hit.poster_path ? `https://image.tmdb.org/t/p/w92${hit.poster_path}` : null });
+      setEditTitle(foundTitle);
+      setEditSelectedResult({ id: hit.id, title: foundTitle, poster: foundPoster });
       setEditSearchResults([]);
       setEditErr(null);
-      fetchAutoOverviewForId(tmdbId, mediaType);
+      setImdbFoundResult({ id: hit.id, title: foundTitle, poster: foundPoster, mediaType });
+      fetchAutoOverviewForId(foundTmdbId, mediaType);
     } catch (e: any) {
       setEditErr("Erro ao buscar ID IMDB: " + (e?.message ?? "ID inválido"));
     } finally {
@@ -2504,7 +2514,7 @@ export default function DetailScreen() {
                       placeholder="Ex: tt1234567"
                       placeholderTextColor="rgba(255,255,255,0.3)"
                       value={editImdbId}
-                      onChangeText={setEditImdbId}
+                      onChangeText={(v) => { setEditImdbId(v); if (!v.trim()) setImdbFoundResult(null); }}
                       onSubmitEditing={searchByImdbId}
                       returnKeyType="search"
                       autoCapitalize="none"
@@ -2524,6 +2534,26 @@ export default function DetailScreen() {
                           </>}
                     </Pressable>
                   </View>
+                  {/* Card de resultado da busca por IMDB */}
+                  {imdbFoundResult && (
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 10, padding: 10, borderRadius: 10, backgroundColor: "rgba(245,158,11,0.08)", borderWidth: 1, borderColor: "rgba(245,158,11,0.35)" }}>
+                      {imdbFoundResult.poster ? (
+                        <Image source={{ uri: imdbFoundResult.poster }} style={{ width: 42, height: 62, borderRadius: 6, backgroundColor: "#222" }} resizeMode="cover" />
+                      ) : (
+                        <View style={{ width: 42, height: 62, borderRadius: 6, backgroundColor: "#222", alignItems: "center", justifyContent: "center" }}>
+                          <Feather name="film" size={18} color="rgba(255,255,255,0.3)" />
+                        </View>
+                      )}
+                      <View style={{ flex: 1, gap: 3 }}>
+                        <Text style={{ color: "#fbbf24", fontWeight: "700", fontSize: 14 }} numberOfLines={2}>{imdbFoundResult.title}</Text>
+                        <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 11 }}>
+                          {imdbFoundResult.mediaType === "movie" ? "🎬 Filme" : "📺 Série"} · TMDB ID: {imdbFoundResult.id}
+                        </Text>
+                        <Text style={{ color: "rgba(245,158,11,0.7)", fontSize: 11 }}>✓ Cartaz, sinopse e dados carregados</Text>
+                      </View>
+                      <Feather name="check-circle" size={18} color="#fbbf24" />
+                    </View>
+                  )}
                   <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 11 }}>
                     Digite o ID IMDB (ex: tt0120338) e toque Buscar — cartaz, sinopse, temporadas e mais serão preenchidos automaticamente.
                   </Text>
