@@ -899,7 +899,17 @@ const SERVER_ONLY_ROUTES = new Set([
   "/flix2/stats",
   "/flix2/build-url",
   "/flix2/replace-link",
+  "/flix2/diagnose",
+  "/flix2/suppress",
   "/source-settings",
+  "/veo/settings",
+  "/veo/warm-status",
+  "/veo/warm",
+  "/veo/catalog-full",
+  "/veo/lookup",
+  "/veo/series-episodes",
+  "/veo/stream-check",
+  "/veo/stats",
 ]);
 
 async function forwardToServer<T>(path: string, options?: RequestInit): Promise<T> {
