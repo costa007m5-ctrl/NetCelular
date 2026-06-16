@@ -35,6 +35,7 @@ import type { WatchEntry } from "@/hooks/useWatchProgress";
 import { HeroBanner } from "@/components/HeroBanner";
 import { TopTenCard } from "@/components/TopTenCard";
 import { NotificationBell } from "@/components/NotificationBell";
+import NetplayLogo from "@/components/NetplayLogo";
 import { SearchTriggerBar } from "@/components/SearchTriggerBar";
 import { r2Route } from "@/lib/r2-direct";
 import { useR2Catalog } from "@/lib/r2-catalog-hook";
@@ -3337,10 +3338,10 @@ export default function HomeScreen() {
         <View style={styles.headerContent}>
           <View style={styles.headerLeft}>
             <View>
-              <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <Text style={[styles.logo, { color: RED }]}>NET</Text>
-                <Text style={[styles.logoWhite]}>PLAY</Text>
-              </View>
+              <NetplayLogo
+                netStyle={styles.logo}
+                playStyle={styles.logoWhite}
+              />
               {(prefetchPhase !== "idle" && prefetchPhase !== "done" && prefetchPhase !== "checking") ? (
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2 }}>
                   <ActivityIndicator size="small" color="rgba(229,9,20,0.75)" style={{ transform: [{ scale: 0.6 }] }} />

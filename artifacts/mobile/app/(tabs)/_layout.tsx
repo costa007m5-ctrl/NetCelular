@@ -10,6 +10,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/lib/auth-context";
 import AnimatedTabIcon from "@/components/AnimatedTabIcon";
+import AnimatedTabLabel from "@/components/AnimatedTabLabel";
 
 const ACTIVE_PROFILE_KEY = "netplay_active_profile_v2";
 
@@ -118,6 +119,8 @@ function ClassicTabLayout({ isAdmin }: { isAdmin: boolean }) {
             isIOS
               ? <SymbolView name="house" tintColor={color} size={22} />
               : <AnimatedTabIcon type="home" color={color} size={22} focused={focused} />,
+          tabBarLabel: ({ color, focused }) =>
+            <AnimatedTabLabel type="home" label="Início" color={color} focused={focused} />,
         }}
       />
       <Tabs.Screen
@@ -128,6 +131,8 @@ function ClassicTabLayout({ isAdmin }: { isAdmin: boolean }) {
             isIOS
               ? <SymbolView name="sparkles" tintColor={color} size={22} />
               : <AnimatedTabIcon type="bell" color={color} size={22} focused={focused} />,
+          tabBarLabel: ({ color, focused }) =>
+            <AnimatedTabLabel type="bell" label="Novidades" color={color} focused={focused} />,
         }}
       />
       <Tabs.Screen
@@ -138,6 +143,8 @@ function ClassicTabLayout({ isAdmin }: { isAdmin: boolean }) {
             isIOS
               ? <SymbolView name="tv" tintColor={color} size={22} />
               : <AnimatedTabIcon type="tv" color={color} size={22} focused={focused} />,
+          tabBarLabel: ({ color, focused }) =>
+            <AnimatedTabLabel type="tv" label="Canais" color={color} focused={focused} />,
         }}
       />
       <Tabs.Screen
@@ -148,6 +155,8 @@ function ClassicTabLayout({ isAdmin }: { isAdmin: boolean }) {
             isIOS
               ? <SymbolView name="film" tintColor={color} size={22} />
               : <AnimatedTabIcon type="film" color={color} size={22} focused={focused} />,
+          tabBarLabel: ({ color, focused }) =>
+            <AnimatedTabLabel type="film" label="Cinema" color={color} focused={focused} />,
         }}
       />
       <Tabs.Screen
@@ -158,6 +167,8 @@ function ClassicTabLayout({ isAdmin }: { isAdmin: boolean }) {
             isIOS
               ? <SymbolView name="star" tintColor={color} size={22} />
               : <AnimatedTabIcon type="star" color={color} size={22} focused={focused} />,
+          tabBarLabel: ({ color, focused }) =>
+            <AnimatedTabLabel type="star" label="Franquias" color={color} focused={focused} />,
         }}
       />
       <Tabs.Screen
@@ -168,6 +179,8 @@ function ClassicTabLayout({ isAdmin }: { isAdmin: boolean }) {
             isIOS
               ? <SymbolView name="person" tintColor={color} size={22} />
               : <AnimatedTabIcon type="user" color={color} size={22} focused={focused} />,
+          tabBarLabel: ({ color, focused }) =>
+            <AnimatedTabLabel type="user" label="Perfil" color={color} focused={focused} />,
         }}
       />
       {/* Hidden screens — accessible via router.push */}
