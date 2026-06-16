@@ -1770,6 +1770,29 @@ export default function DetailScreen() {
               season: ep.season, episode: ep.episode,
             } as any);
           }
+
+          // ── Persist all episode links to R2 registry (single write) ──────────
+          if (episodeItems.length > 0) {
+            try {
+              await r2Route("/flix2/register-bulk", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  tmdbId: numericId,
+                  tmdbType: type,
+                  title: selected.title,
+                  items: episodeItems.map((ep: any) => ({
+                    flix2Url: ep.flix2Url,
+                    label: ep.label,
+                    season: ep.season,
+                    episode: ep.episode,
+                  })),
+                }),
+              });
+            } catch {
+              // Non-fatal: items are still shown in UI from memory
+            }
+          }
         } catch {}
       }
 

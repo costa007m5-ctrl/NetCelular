@@ -2621,6 +2621,53 @@ router.post("/flix2/replace-link", async (req, res) => {
   }
 });
 
+// ── POST /flix2/register-bulk — save multiple Flix 2.0 episode entries at once ─
+// Body: { tmdbId, tmdbType, title, items: Array<{ flix2Url, label, season, episode }> }
+// Removes all existing per-episode (season != null) entries for tmdbId+tmdbType first,
+// then inserts all new items in a single registry write.
+router.post("/flix2/register-bulk", async (req, res) => {
+  try {
+    const { tmdbId, tmdbType, title, items } = req.body ?? {};
+    if (!tmdbId || !tmdbType || !title || !Array.isArray(items) || items.length === 0) {
+      res.status(400).json({ error: "tmdbId, tmdbType, title e items[] são obrigatórios" }); return;
+    }
+    const client = getClient();
+    const bucket = getBucket();
+    const registry = await readRegistry(client, bucket);
+    const numId = Number(tmdbId);
+
+    // Remove all existing per-episode entries for this content (season != null)
+    // Keep series-level entry (season == null) and entries from other content
+    registry.items = registry.items.filter(
+      (i) => !(i.tmdbId === numId && i.tmdbType === tmdbType && i.season != null)
+    );
+
+    // Add all new episode items
+    for (const ep of items) {
+      if (!ep?.flix2Url) continue;
+      const season = ep.season != null ? Number(ep.season) : null;
+      const episode = ep.episode != null ? Number(ep.episode) : null;
+      registry.items.push({
+        id: crypto.randomUUID(),
+        r2Key: "",
+        flix2Url: String(ep.flix2Url),
+        tmdbId: numId,
+        tmdbType: tmdbType as "movie" | "tv",
+        title: String(title),
+        label: String(ep.label ?? `T${String(season).padStart(2,"0")} E${String(episode).padStart(2,"0")} · Flix 2.0`),
+        season,
+        episode,
+        addedAt: new Date().toISOString(),
+      } as any);
+    }
+
+    await writeRegistry(client, bucket, registry);
+    res.json({ ok: true, registered: items.length });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "error" });
+  }
+});
+
 // ── Source Settings (global on/off per source, stored in R2) ─────────────────
 
 interface SourceSettings {
