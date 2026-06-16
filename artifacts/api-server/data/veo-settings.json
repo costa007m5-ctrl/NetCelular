@@ -1,0 +1,8 @@
+{
+  "enabled": true,
+  "types": {
+    "movies": false,
+    "series": true,
+    "animes": true
+  }
+}

@@ -5000,4 +5000,298 @@ router.get("/flix2/diagnose", (req, res) => {
   });
 });
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// ── VEO PLAY — nixplay.lat VOD integration (filmes/séries/animes) ─────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const VEO_USER = "Reis007-vods";
+const VEO_PASS = "Reis12@@";
+const VEO_BASE = "https://nixplay.lat";
+const VEO_SETTINGS_FILE = path.resolve(process.cwd(), "data", "veo-settings.json");
+const VEO_CATALOG_TTL_MS = 30 * 60 * 1000; // 30 min
+const VEO_TYPES = ["movies", "series", "animes"] as const;
+type VeoType = typeof VEO_TYPES[number];
+
+interface VeoSettings {
+  enabled: boolean;
+  types: Record<VeoType, boolean>;
+}
+
+let veoSettings: VeoSettings = {
+  enabled: false,
+  types: { movies: true, series: true, animes: true },
+};
+
+function loadVeoSettings(): void {
+  try {
+    if (existsSync(VEO_SETTINGS_FILE)) {
+      const parsed = JSON.parse(readFileSync(VEO_SETTINGS_FILE, "utf-8"));
+      veoSettings = {
+        enabled: typeof parsed.enabled === "boolean" ? parsed.enabled : veoSettings.enabled,
+        types: { ...veoSettings.types, ...(parsed.types ?? {}) },
+      };
+    }
+  } catch {}
+}
+
+function saveVeoSettings(): void {
+  try {
+    mkdirSync(path.dirname(VEO_SETTINGS_FILE), { recursive: true });
+    writeFileSync(VEO_SETTINGS_FILE, JSON.stringify(veoSettings, null, 2), "utf-8");
+  } catch {}
+}
+
+loadVeoSettings();
+
+// ── In-memory catalog cache (30 min TTL) ──────────────────────────────────────
+const VEO_CATALOG_CACHE = new Map<string, { data: any[]; cachedAt: number }>();
+
+interface VeoWarmState {
+  status: "idle" | "running" | "done" | "error";
+  pagesLoaded: number;
+  totalPages: number;
+  itemCount: number;
+  errorMsg?: string;
+}
+const veoWarmStates = new Map<string, VeoWarmState>();
+
+function getVeoWarmState(type: string): VeoWarmState {
+  return veoWarmStates.get(type) ?? { status: "idle", pagesLoaded: 0, totalPages: 0, itemCount: 0 };
+}
+
+async function veoFetchPage(type: VeoType, page: number): Promise<{ success: boolean; pagination: any; data: any[] }> {
+  const url = `${VEO_BASE}/api/catalog.php?username=${VEO_USER}&password=${encodeURIComponent(VEO_PASS)}&type=${type}&page=${page}`;
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), 20_000);
+  try {
+    const r = await fetch(url, { signal: ctrl.signal });
+    clearTimeout(tid);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json() as any;
+    if (!data.success) throw new Error(data.message ?? "API returned success=false");
+    return { success: true, pagination: data.pagination, data: data.data ?? [] };
+  } catch (e: any) {
+    clearTimeout(tid);
+    console.warn(`[veo] fetchPage failed type=${type} page=${page}: ${e?.message}`);
+    return { success: false, pagination: null, data: [] };
+  }
+}
+
+async function warmVeoType(type: VeoType): Promise<void> {
+  const cached = VEO_CATALOG_CACHE.get(type);
+  if (cached && Date.now() - cached.cachedAt < VEO_CATALOG_TTL_MS) return;
+
+  const state = getVeoWarmState(type);
+  if (state.status === "running") return;
+
+  veoWarmStates.set(type, { status: "running", pagesLoaded: 0, totalPages: 0, itemCount: 0 });
+  try {
+    const first = await veoFetchPage(type, 1);
+    if (!first.success || first.data.length === 0) throw new Error("first page failed or empty");
+
+    const totalPages: number = first.pagination?.total_pages ?? 1;
+    veoWarmStates.set(type, { status: "running", pagesLoaded: 1, totalPages, itemCount: first.data.length });
+
+    const allItems: any[] = [...first.data];
+
+    const BATCH = 8;
+    for (let start = 2; start <= totalPages; start += BATCH) {
+      const batch = Array.from(
+        { length: Math.min(BATCH, totalPages - start + 1) },
+        (_, i) => veoFetchPage(type, start + i),
+      );
+      const results = await Promise.allSettled(batch);
+      for (const r of results) {
+        if (r.status === "fulfilled" && r.value.success) allItems.push(...r.value.data);
+      }
+      veoWarmStates.set(type, { status: "running", pagesLoaded: Math.min(start + BATCH - 1, totalPages), totalPages, itemCount: allItems.length });
+    }
+
+    // Deduplicate by tmdb_id (when > 0), else by item id
+    const seenTmdb = new Set<number>();
+    const seenId = new Set<number>();
+    const deduped = allItems.filter((item) => {
+      const tmdbId = Number(item.tmdb_id ?? 0);
+      const id = Number(item.id);
+      if (tmdbId > 0) {
+        if (seenTmdb.has(tmdbId)) return false;
+        seenTmdb.add(tmdbId);
+      } else {
+        if (seenId.has(id)) return false;
+        seenId.add(id);
+      }
+      return true;
+    });
+
+    VEO_CATALOG_CACHE.set(type, { data: deduped, cachedAt: Date.now() });
+    veoWarmStates.set(type, { status: "done", pagesLoaded: totalPages, totalPages, itemCount: deduped.length });
+    console.log(`[veo] cache warm: type=${type} items=${deduped.length}`);
+  } catch (e: any) {
+    veoWarmStates.set(type, { status: "error", pagesLoaded: 0, totalPages: 0, itemCount: 0, errorMsg: e?.message ?? "error" });
+    console.warn(`[veo] warmVeoType failed type=${type}: ${e?.message}`);
+  }
+}
+
+// ── GET /veo/settings ─────────────────────────────────────────────────────────
+router.get("/veo/settings", (_req, res) => {
+  res.json({ ok: true, settings: veoSettings });
+});
+
+// ── POST /veo/settings ────────────────────────────────────────────────────────
+router.post("/veo/settings", (req, res) => {
+  const body = req.body ?? {};
+  if (typeof body.enabled === "boolean") veoSettings.enabled = body.enabled;
+  if (body.types && typeof body.types === "object") {
+    for (const t of VEO_TYPES) {
+      if (typeof body.types[t] === "boolean") veoSettings.types[t] = body.types[t];
+    }
+  }
+  saveVeoSettings();
+  res.json({ ok: true, settings: veoSettings });
+});
+
+// ── GET /veo/warm-status ──────────────────────────────────────────────────────
+router.get("/veo/warm-status", (_req, res) => {
+  const types: Record<string, any> = {};
+  for (const type of VEO_TYPES) {
+    const state = getVeoWarmState(type);
+    const cached = VEO_CATALOG_CACHE.get(type);
+    types[type] = {
+      ...state,
+      cachedAt: cached ? cached.cachedAt : null,
+      itemCount: cached ? cached.data.length : state.itemCount,
+    };
+  }
+  const allWarm = VEO_TYPES.every((t) => {
+    const c = VEO_CATALOG_CACHE.get(t);
+    return c && Date.now() - c.cachedAt < VEO_CATALOG_TTL_MS;
+  });
+  const anyRunning = VEO_TYPES.some((t) => getVeoWarmState(t).status === "running");
+  res.json({ ok: true, types, allWarm, anyRunning });
+});
+
+// ── POST /veo/warm ────────────────────────────────────────────────────────────
+router.post("/veo/warm", (req, res) => {
+  const { type } = req.body ?? {};
+  const typesToWarm: VeoType[] = type && VEO_TYPES.includes(type as VeoType)
+    ? [type as VeoType]
+    : [...VEO_TYPES];
+
+  for (const t of typesToWarm) {
+    VEO_CATALOG_CACHE.delete(t);
+    veoWarmStates.delete(t);
+    warmVeoType(t).catch(() => {});
+  }
+  res.json({ ok: true, warming: typesToWarm });
+});
+
+// ── GET /veo/catalog-full?type=movies|series|animes ───────────────────────────
+router.get("/veo/catalog-full", async (req, res) => {
+  try {
+    const { type = "movies" } = req.query as Record<string, string>;
+    if (!VEO_TYPES.includes(type as VeoType)) {
+      res.status(400).json({ error: "type inválido. Use movies, series ou animes." }); return;
+    }
+    if (!veoSettings.enabled) {
+      res.json({ success: true, type, total: 0, data: [], disabled: true }); return;
+    }
+    if (!veoSettings.types[type as VeoType]) {
+      res.json({ success: true, type, total: 0, data: [], typeDisabled: true }); return;
+    }
+
+    const cached = VEO_CATALOG_CACHE.get(type);
+    if (cached && Date.now() - cached.cachedAt < VEO_CATALOG_TTL_MS) {
+      res.json({ success: true, type, total: cached.data.length, data: cached.data, fromCache: true }); return;
+    }
+
+    // Not cached — trigger background warm and return current state
+    const warmState = getVeoWarmState(type);
+    if (warmState.status !== "running") {
+      warmVeoType(type as VeoType).catch(() => {});
+    }
+    res.json({ success: true, type, total: 0, data: [], warming: true, warmState });
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message ?? "error" });
+  }
+});
+
+// ── GET /veo/lookup?tmdbId=X&type=movies|series|animes|all&title=Y ────────────
+router.get("/veo/lookup", (req, res) => {
+  try {
+    if (!veoSettings.enabled) { res.json({ found: false }); return; }
+
+    const { tmdbId, type = "all", title = "" } = req.query as Record<string, string>;
+    const id = Number(tmdbId);
+    const normT = title ? normalizeTitleForSearch(title) : "";
+
+    if (!id && !normT) { res.json({ found: false }); return; }
+
+    const typesToCheck = type === "all" ? ["series", "animes", "movies"] : [type];
+
+    for (const t of typesToCheck) {
+      if (!veoSettings.types[t as VeoType]) continue;
+      const cached = VEO_CATALOG_CACHE.get(t);
+      if (!cached) continue;
+
+      const found = cached.data.find((item: any) => {
+        if (id > 0 && Number(item.tmdb_id) === id) return true;
+        if (normT) {
+          const iNorm = normalizeTitleForSearch(item.title ?? "");
+          if (iNorm === normT) return true;
+        }
+        return false;
+      });
+
+      if (found) {
+        res.json({ found: true, item: found, contentType: t, source: "veo" });
+        return;
+      }
+    }
+
+    res.json({ found: false });
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message ?? "error" });
+  }
+});
+
+// ── GET /veo/series-episodes?seriesId=X ──────────────────────────────────────
+router.get("/veo/series-episodes", (req, res) => {
+  try {
+    const { seriesId } = req.query as Record<string, string>;
+    if (!seriesId) { res.status(400).json({ error: "seriesId required" }); return; }
+
+    for (const type of ["series", "animes"] as const) {
+      const cached = VEO_CATALOG_CACHE.get(type);
+      if (!cached) continue;
+      const item = cached.data.find((i: any) => String(i.id) === String(seriesId));
+      if (item) {
+        res.json({ ok: true, episodes: item.episodes ?? [], title: item.title, posterUrl: item.poster ?? "", backdropUrl: item.backdrop ?? "", year: item.year ?? "" });
+        return;
+      }
+    }
+    res.status(404).json({ error: "Série não encontrada no cache. Aqueça o cache primeiro.", cacheEmpty: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message ?? "error" });
+  }
+});
+
+// ── GET /veo/stats ────────────────────────────────────────────────────────────
+router.get("/veo/stats", (_req, res) => {
+  const typeStats: Record<string, any> = {};
+  let totalItems = 0;
+  for (const type of VEO_TYPES) {
+    const cached = VEO_CATALOG_CACHE.get(type);
+    const state = getVeoWarmState(type);
+    const count = cached ? cached.data.length : 0;
+    totalItems += count;
+    typeStats[type] = {
+      itemCount: count,
+      cachedAt: cached ? cached.cachedAt : null,
+      status: state.status,
+      enabled: veoSettings.types[type],
+    };
+  }
+  res.json({ ok: true, enabled: veoSettings.enabled, totalItems, settings: veoSettings, types: typeStats });
+});
+
 export default router;

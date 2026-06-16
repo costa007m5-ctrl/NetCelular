@@ -93,7 +93,7 @@ interface TmdbSearchResult {
   id: number; title: string; poster_path: string | null; media_type: "movie" | "tv";
 }
 
-type Tab = "catalog" | "upload" | "manage" | "terabox" | "flix2" | "diagnose";
+type Tab = "catalog" | "upload" | "manage" | "terabox" | "flix2" | "veo" | "diagnose";
 type UploadMode = "url" | "gdrive" | "terabox" | "local" | "drive";
 type MediaKind = "tv" | "movie";
 type CatalogView =
@@ -6818,6 +6818,309 @@ interface Flix2Item {
 
 type Flix2Type = "movies" | "series" | "animes";
 
+// ─────────────────────────────────────────────────────────────────────────────
+// VEO PLAY PANEL
+// ─────────────────────────────────────────────────────────────────────────────
+type VeoType = "movies" | "series" | "animes";
+
+interface VeoSettings {
+  enabled: boolean;
+  types: Record<VeoType, boolean>;
+}
+
+interface VeoWarmTypeInfo {
+  status: "idle" | "running" | "done" | "error";
+  pagesLoaded: number;
+  totalPages: number;
+  itemCount: number;
+  cachedAt: number | null;
+  errorMsg?: string;
+}
+
+const VEO_COLOR = "#06b6d4";
+const VEO_TYPES: VeoType[] = ["movies", "series", "animes"];
+const VEO_TYPE_LABEL: Record<VeoType, string> = { movies: "Filmes", series: "Séries", animes: "Animes" };
+
+function VeoPlayPanel() {
+  const [settings, setSettings] = React.useState<VeoSettings | null>(null);
+  const [warmStatus, setWarmStatus] = React.useState<{
+    ok: boolean;
+    types: Record<VeoType, VeoWarmTypeInfo>;
+    allWarm: boolean;
+    anyRunning: boolean;
+  } | null>(null);
+  const [stats, setStats] = React.useState<{
+    ok: boolean;
+    enabled: boolean;
+    totalItems: number;
+    types: Record<VeoType, { itemCount: number; cachedAt: number | null; status: string; enabled: boolean }>;
+  } | null>(null);
+  const [saving, setSaving] = React.useState(false);
+  const [warming, setWarming] = React.useState<string | null>(null);
+  const warmPollRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const loadSettings = async () => {
+    try {
+      const d = await apiFetch<{ ok: boolean; settings: VeoSettings }>("/veo/settings");
+      if (d.ok) setSettings(d.settings);
+    } catch {}
+  };
+
+  const fetchWarmStatus = async () => {
+    try {
+      const d = await apiFetch<typeof warmStatus>("/veo/warm-status");
+      if (d && d.ok) setWarmStatus(d);
+    } catch {}
+  };
+
+  const fetchStats = async () => {
+    try {
+      const d = await apiFetch<typeof stats>("/veo/stats");
+      if (d && d.ok) setStats(d);
+    } catch {}
+  };
+
+  React.useEffect(() => {
+    loadSettings();
+    fetchWarmStatus();
+    fetchStats();
+    warmPollRef.current = setInterval(async () => {
+      try {
+        const d = await apiFetch<typeof warmStatus>("/veo/warm-status");
+        if (d && d.ok) {
+          setWarmStatus(d);
+          if (!d.anyRunning && warmPollRef.current) {
+            clearInterval(warmPollRef.current);
+            warmPollRef.current = setInterval(fetchWarmStatus, 60_000);
+            fetchStats();
+          }
+        }
+      } catch {}
+    }, 3000);
+    return () => { if (warmPollRef.current) clearInterval(warmPollRef.current); };
+  }, []);
+
+  const updateSettings = async (patch: Partial<VeoSettings>) => {
+    if (!settings) return;
+    const merged = { ...settings, ...patch };
+    setSaving(true);
+    try {
+      const d = await apiFetch<{ ok: boolean; settings: VeoSettings }>("/veo/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(merged),
+      });
+      if (d.ok) setSettings(d.settings);
+    } catch {}
+    setSaving(false);
+  };
+
+  const toggleType = async (type: VeoType) => {
+    if (!settings) return;
+    const newTypes = { ...settings.types, [type]: !settings.types[type] };
+    await updateSettings({ types: newTypes });
+  };
+
+  const warmCache = async (type?: VeoType) => {
+    setWarming(type ?? "all");
+    try {
+      await apiFetch("/veo/warm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(type ? { type } : {}),
+      });
+      // poll will update status
+    } catch {}
+    setWarming(null);
+  };
+
+  const warmTypeInfo = (type: VeoType): VeoWarmTypeInfo =>
+    warmStatus?.types?.[type] ?? { status: "idle", pagesLoaded: 0, totalPages: 0, itemCount: 0, cachedAt: null };
+
+  const warmStatusColor = (s: string) =>
+    s === "done" ? "#22c55e" : s === "running" ? VEO_COLOR : s === "error" ? "#ef4444" : "rgba(255,255,255,0.3)";
+
+  const warmStatusDot = (s: string) => (
+    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: warmStatusColor(s), marginRight: 6 }} />
+  );
+
+  const formatAge = (ts: number | null) => {
+    if (!ts) return "—";
+    const mins = Math.round((Date.now() - ts) / 60000);
+    if (mins < 2) return "agora";
+    if (mins < 60) return `há ${mins}min`;
+    return `há ${Math.round(mins / 60)}h`;
+  };
+
+  if (!settings) {
+    return (
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24 }}>
+        <ActivityIndicator color={VEO_COLOR} />
+        <Text style={{ color: "rgba(255,255,255,0.4)", marginTop: 8, fontSize: 12 }}>Carregando configurações…</Text>
+      </View>
+    );
+  }
+
+  return (
+    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 12, paddingBottom: 60 }} showsVerticalScrollIndicator={false}>
+      {/* Header */}
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 16 }}>
+        <Feather name="play-circle" size={20} color={VEO_COLOR} />
+        <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700" }}>Veo Play</Text>
+        <View style={{ flex: 1 }} />
+        <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 11 }}>nixplay.lat (Reis007)</Text>
+      </View>
+
+      {/* Enable / disable card */}
+      <View style={{ backgroundColor: "#0d0d1a", borderRadius: 12, borderWidth: 1,
+        borderColor: settings.enabled ? `${VEO_COLOR}40` : "rgba(255,255,255,0.08)", padding: 14, marginBottom: 12 }}>
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: "#fff", fontSize: 14, fontWeight: "600" }}>
+              {settings.enabled ? "Veo Play ativado" : "Veo Play desativado"}
+            </Text>
+            <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11, marginTop: 2 }}>
+              {settings.enabled
+                ? "Conteúdo VOD da nixplay.lat disponível para o app"
+                : "Habilite para disponibilizar filmes/séries/animes via Veo"}
+            </Text>
+          </View>
+          {saving ? (
+            <ActivityIndicator color={VEO_COLOR} size="small" />
+          ) : (
+            <Pressable
+              onPress={() => updateSettings({ enabled: !settings.enabled })}
+              style={{ backgroundColor: settings.enabled ? VEO_COLOR : "rgba(255,255,255,0.1)",
+                borderRadius: 20, paddingHorizontal: 16, paddingVertical: 7 }}>
+              <Text style={{ color: settings.enabled ? "#000" : "rgba(255,255,255,0.6)", fontSize: 12, fontWeight: "700" }}>
+                {settings.enabled ? "ON" : "OFF"}
+              </Text>
+            </Pressable>
+          )}
+        </View>
+
+        {stats && settings.enabled && (
+          <View style={{ marginTop: 12, flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+            {VEO_TYPES.map((t) => (
+              <View key={t} style={{ backgroundColor: "rgba(6,182,212,0.08)", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 }}>
+                <Text style={{ color: VEO_COLOR, fontSize: 11, fontWeight: "600" }}>
+                  {stats.types?.[t]?.itemCount?.toLocaleString("pt-BR") ?? 0} {VEO_TYPE_LABEL[t]}
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
+      </View>
+
+      {/* Content type toggles */}
+      <View style={{ backgroundColor: "#0d0d1a", borderRadius: 12, borderWidth: 1,
+        borderColor: "rgba(255,255,255,0.08)", padding: 14, marginBottom: 12 }}>
+        <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 11, fontWeight: "600",
+          textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 10 }}>Tipos de conteúdo</Text>
+        {VEO_TYPES.map((type, idx) => (
+          <View key={type}>
+            {idx > 0 && <View style={{ height: 1, backgroundColor: "rgba(255,255,255,0.05)", marginVertical: 8 }} />}
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: settings.types[type] ? "#fff" : "rgba(255,255,255,0.4)", fontSize: 13, fontWeight: "600" }}>
+                  {VEO_TYPE_LABEL[type]}
+                </Text>
+                {stats?.types?.[type] && (
+                  <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 11, marginTop: 1 }}>
+                    {(stats.types[type]?.itemCount ?? 0).toLocaleString("pt-BR")} itens
+                    {stats.types[type]?.cachedAt ? ` · cache ${formatAge(stats.types[type].cachedAt)}` : ""}
+                  </Text>
+                )}
+              </View>
+              <Pressable
+                onPress={() => toggleType(type)}
+                style={{ backgroundColor: settings.types[type] ? `${VEO_COLOR}20` : "rgba(255,255,255,0.06)",
+                  borderRadius: 16, paddingHorizontal: 12, paddingVertical: 5,
+                  borderWidth: 1, borderColor: settings.types[type] ? `${VEO_COLOR}50` : "rgba(255,255,255,0.08)" }}>
+                <Text style={{ color: settings.types[type] ? VEO_COLOR : "rgba(255,255,255,0.3)", fontSize: 11, fontWeight: "700" }}>
+                  {settings.types[type] ? "ON" : "OFF"}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        ))}
+      </View>
+
+      {/* Cache warm-up status */}
+      <View style={{ backgroundColor: "#0d0d1a", borderRadius: 12, borderWidth: 1,
+        borderColor: "rgba(255,255,255,0.08)", padding: 14, marginBottom: 12 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
+          <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 11, fontWeight: "600",
+            textTransform: "uppercase", letterSpacing: 0.8, flex: 1 }}>Cache do catálogo</Text>
+          <Pressable
+            onPress={() => warmCache()}
+            disabled={warmStatus?.anyRunning || warming !== null}
+            style={{ backgroundColor: warmStatus?.anyRunning ? "rgba(255,255,255,0.06)" : `${VEO_COLOR}20`,
+              borderRadius: 8, paddingHorizontal: 12, paddingVertical: 5,
+              borderWidth: 1, borderColor: warmStatus?.anyRunning ? "transparent" : `${VEO_COLOR}40` }}>
+            {warming === "all" ? (
+              <ActivityIndicator color={VEO_COLOR} size="small" />
+            ) : (
+              <Text style={{ color: warmStatus?.anyRunning ? "rgba(255,255,255,0.3)" : VEO_COLOR, fontSize: 11, fontWeight: "600" }}>
+                {warmStatus?.anyRunning ? "Aquecendo…" : "Aquecer tudo"}
+              </Text>
+            )}
+          </Pressable>
+        </View>
+
+        {VEO_TYPES.map((type, idx) => {
+          const info = warmTypeInfo(type);
+          const pct = info.totalPages > 0 ? Math.round((info.pagesLoaded / info.totalPages) * 100) : 0;
+          return (
+            <View key={type}>
+              {idx > 0 && <View style={{ height: 1, backgroundColor: "rgba(255,255,255,0.04)", marginVertical: 8 }} />}
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                {warmStatusDot(info.status)}
+                <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600", flex: 1 }}>{VEO_TYPE_LABEL[type]}</Text>
+                {info.status === "running" && (
+                  <Text style={{ color: VEO_COLOR, fontSize: 10 }}>{pct}% ({info.pagesLoaded}/{info.totalPages} pgs)</Text>
+                )}
+                {info.status === "done" && (
+                  <Text style={{ color: "#22c55e", fontSize: 10 }}>{info.itemCount.toLocaleString("pt-BR")} itens</Text>
+                )}
+                {info.status === "error" && (
+                  <Text style={{ color: "#ef4444", fontSize: 10 }}>Erro: {info.errorMsg ?? "falha"}</Text>
+                )}
+                {info.status === "idle" && (
+                  <Text style={{ color: "rgba(255,255,255,0.25)", fontSize: 10 }}>não aquecido</Text>
+                )}
+              </View>
+              {info.status === "running" && info.totalPages > 0 && (
+                <View style={{ height: 3, backgroundColor: "rgba(255,255,255,0.07)", borderRadius: 2, marginTop: 5 }}>
+                  <View style={{ height: 3, width: `${pct}%`, backgroundColor: VEO_COLOR, borderRadius: 2 }} />
+                </View>
+              )}
+              {info.status !== "running" && (
+                <Pressable
+                  onPress={() => warmCache(type)}
+                  disabled={info.status === "running" || warming === type}
+                  style={{ marginTop: 4, alignSelf: "flex-start" }}>
+                  <Text style={{ color: `${VEO_COLOR}80`, fontSize: 10 }}>
+                    {warming === type ? "iniciando…" : info.cachedAt ? `atualizar (${formatAge(info.cachedAt)})` : "aquecer"}
+                  </Text>
+                </Pressable>
+              )}
+            </View>
+          );
+        })}
+      </View>
+
+      {/* Info card */}
+      <View style={{ backgroundColor: "#0a0a12", borderRadius: 10, borderWidth: 1,
+        borderColor: "rgba(6,182,212,0.12)", padding: 12 }}>
+        <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 10, lineHeight: 15 }}>
+          {"Veo Play usa a API nixplay.lat com credenciais Reis007-vods. As URLs de stream são resolvidas pelo mesmo proxy /flix2/stream-url.\n\nApenas VOD funciona (filmes/séries/animes). Canais ao vivo não são suportados."}
+        </Text>
+      </View>
+    </ScrollView>
+  );
+}
+
 function Flix2Panel() {
   const [subType, setSubType] = useState<Flix2Type>("movies");
   const [items, setItems] = useState<Flix2Item[]>([]);
@@ -8202,6 +8505,7 @@ export default function R2CatalogScreen() {
             { id: "manage", icon: "folder", label: "Gerenciar" },
             { id: "terabox", icon: "package", label: "TeraBox" },
             { id: "flix2", icon: "zap", label: "Flix 2.0" },
+            { id: "veo", icon: "play-circle", label: "Veo Play" },
             { id: "diagnose", icon: "activity", label: "Diagnose" },
           ] as { id: Tab; icon: string; label: string }[]).map((t) => (
             <Pressable key={t.id} style={[styles.tabItem, activeTab === t.id && styles.tabItemActive]} onPress={() => setActiveTab(t.id)}>
@@ -8209,11 +8513,11 @@ export default function R2CatalogScreen() {
                 name={t.icon as any}
                 size={14}
                 color={activeTab === t.id
-                  ? t.id === "terabox" ? "#f59e0b" : t.id === "flix2" ? "#8b5cf6" : t.id === "diagnose" ? "#22c55e" : RED
+                  ? t.id === "terabox" ? "#f59e0b" : t.id === "flix2" ? "#8b5cf6" : t.id === "veo" ? "#06b6d4" : t.id === "diagnose" ? "#22c55e" : RED
                   : "rgba(255,255,255,0.4)"}
               />
               <Text style={[styles.tabLabel, activeTab === t.id && {
-                color: t.id === "terabox" ? "#f59e0b" : t.id === "flix2" ? "#8b5cf6" : t.id === "diagnose" ? "#22c55e" : RED,
+                color: t.id === "terabox" ? "#f59e0b" : t.id === "flix2" ? "#8b5cf6" : t.id === "veo" ? "#06b6d4" : t.id === "diagnose" ? "#22c55e" : RED,
               }]} numberOfLines={1}>
                 {t.label}
               </Text>
@@ -8255,6 +8559,7 @@ export default function R2CatalogScreen() {
         {activeTab === "manage" && <ManagePanel onRegister={openRegister} />}
         {activeTab === "terabox" && <TeraBoxPanel />}
         {activeTab === "flix2" && <Flix2Panel />}
+        {activeTab === "veo" && <VeoPlayPanel />}
         {activeTab === "diagnose" && <DiagnosePanel />}
       </View>
 
