@@ -1583,7 +1583,12 @@ export default function DetailScreen() {
         number_of_episodes: editEpisodes ?? null,
         vote_average: editVoteAverage ?? null,
       };
-      const result = await db.contentOverrides.upsert(contentKey, payload, userId);
+      let result = await db.contentOverrides.upsert(contentKey, payload, userId);
+      // If the imdb_id column doesn't exist yet in Supabase, retry without it
+      if (result.error && result.error.toLowerCase().includes("imdb_id")) {
+        const { imdb_id: _dropped, ...payloadWithoutImdb } = payload as any;
+        result = await db.contentOverrides.upsert(contentKey, payloadWithoutImdb, userId);
+      }
       if (result.error) { setEditErr(result.error); return; }
       const fresh = await db.contentOverrides.get(contentKey);
       setContentOverride(fresh);
@@ -1670,14 +1675,16 @@ export default function DetailScreen() {
 
   const saveNewFlix2Link = async () => {
     if (!flix2LinkSelected) return;
+    // Capture selected at call time to avoid stale closure
+    const selected = flix2LinkSelected;
     setFlix2LinkBusy(true);
     setEditErr(null);
     try {
       const { r2Route, apiGetRegistry } = await import("@/lib/r2-direct");
       const { flix2Url } = await r2Route<{ flix2Url: string }>(
-        `/flix2/build-url?streamId=${flix2LinkSelected.id}&catalogType=${flix2LinkSelected.catalogType}`
+        `/flix2/build-url?streamId=${selected.id}&catalogType=${selected.catalogType}`
       );
-      const title = details?.title ?? details?.name ?? flix2LinkSelected.title;
+      const title = details?.title ?? details?.name ?? selected.title;
       await r2Route("/flix2/replace-link", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1688,11 +1695,41 @@ export default function DetailScreen() {
           title,
         }),
       });
+
+      // Fix: registry stores tmdbId as number — must compare with Number()
+      const numericId = Number(tmdbId) || 0;
       const reg = await apiGetRegistry();
-      const fresh = (reg.items ?? []).filter(
-        (i: RegistryItem) => i.tmdbId === tmdbId && i.tmdbType === type
+      const freshRegistry = (reg.items ?? []).filter(
+        (i: RegistryItem) => i.tmdbId === numericId && i.tmdbType === type
       );
-      setR2Items(fresh);
+
+      // Build a virtual item for the newly linked stream so play buttons
+      // appear immediately without needing to close and reopen the detail screen
+      const newFlix2Item: RegistryItem = {
+        id: `flix2-auto-${tmdbId}`,
+        r2Key: "",
+        flix2Url,
+        tmdbId: numericId,
+        tmdbType: type as "movie" | "tv",
+        title: selected.title,
+        label: selected.title + " · Flix 2.0",
+        season: null,
+        episode: null,
+        addedAt: new Date().toISOString(),
+      } as any;
+
+      setR2Items((prev) => {
+        // Keep R2/Drive items, drop old auto-generated flix2/veo items
+        const kept = prev.filter(
+          (i) => !i.id.startsWith("flix2-auto-") && !i.id.startsWith("veo-auto-")
+        );
+        // Merge real registry items (R2 keys etc.) that aren't already in kept
+        const registryOnly = freshRegistry.filter(
+          (i: RegistryItem) => !kept.some((k) => k.id === i.id)
+        );
+        return [...kept, ...registryOnly, newFlix2Item];
+      });
+
       setFlix2LinkDone(true);
       setFlix2LinkResults([]);
     } catch (e: any) {
