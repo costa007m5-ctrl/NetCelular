@@ -382,6 +382,18 @@ router.get("/redeflix/list-ids", async (req: any, res: any) => {
   }
 });
 
+// ── GET /find/:imdb_id — converte ID IMDB → dados TMDB (movie_results / tv_results)
+router.get("/find/:imdb_id", handle(async (req) => {
+  const imdbId = String(req.params.imdb_id ?? "").trim();
+  if (!imdbId) throw new Error("imdb_id obrigatório");
+  const key = getKey();
+  const r = await fetch(
+    `https://api.themoviedb.org/3/find/${imdbId}?api_key=${key}&external_source=imdb_id&language=pt-BR`
+  );
+  if (!r.ok) throw new Error(`TMDB find falhou: ${r.status}`);
+  return r.json();
+}));
+
 router.get("/redeflix/url", (req, res) => {
   const type = String(req.query.type ?? "movie");
   const id = String(req.query.id ?? "");

@@ -1598,6 +1598,45 @@ export default function DetailScreen() {
     }
   };
 
+  const [fetchingImdbData, setFetchingImdbData] = useState(false);
+
+  const searchByImdbId = async () => {
+    const raw = editImdbId.trim();
+    if (!raw) return;
+    const imdbId = raw.startsWith("tt") ? raw : `tt${raw}`;
+    setFetchingImdbData(true);
+    setEditErr(null);
+    try {
+      const base = `https://api.themoviedb.org/3/find/${imdbId}?api_key=${TMDB_KEY_EDIT}&external_source=imdb_id&language=pt-BR`;
+      const r = await fetch(base);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const data = await r.json();
+      const movieHit = (data.movie_results ?? [])[0];
+      const tvHit = (data.tv_results ?? [])[0];
+      const hit = movieHit ?? tvHit;
+      if (!hit) { setEditErr("Nenhum título encontrado para esse ID IMDB."); return; }
+      const isMovie = !!movieHit;
+      const mediaType: "movie" | "tv" = isMovie ? "movie" : "tv";
+      const tmdbId = String(hit.id);
+      setEditTmdbId(tmdbId);
+      setEditSearchType(mediaType);
+      setEditImdbId(imdbId);
+      setAutoOverview(hit.overview ?? "");
+      setEditPosterPath(hit.poster_path ?? null);
+      setEditBackdropPath(hit.backdrop_path ?? null);
+      setEditVoteAverage(hit.vote_average ?? null);
+      setEditTitle(hit.title ?? hit.name ?? "");
+      setEditSelectedResult({ id: hit.id, title: hit.title ?? hit.name ?? "", poster: hit.poster_path ? `https://image.tmdb.org/t/p/w92${hit.poster_path}` : null });
+      setEditSearchResults([]);
+      setEditErr(null);
+      fetchAutoOverviewForId(tmdbId, mediaType);
+    } catch (e: any) {
+      setEditErr("Erro ao buscar ID IMDB: " + (e?.message ?? "ID inválido"));
+    } finally {
+      setFetchingImdbData(false);
+    }
+  };
+
   const flix2LinkSearch = async () => {
     const q = flix2LinkQuery.trim();
     if (!q) return;
@@ -2421,7 +2460,7 @@ export default function DetailScreen() {
 
                 {/* ── Seção 2b: ID IMDB manual ── */}
                 <View style={{ gap: 6 }}>
-                  <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 13, fontWeight: "600" }}>ID IMDB (opcional)</Text>
+                  <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 13, fontWeight: "600" }}>Buscar por ID IMDB</Text>
                   <View style={{ flexDirection: "row", gap: 8 }}>
                     <TextInput
                       style={{ flex: 1, backgroundColor: "rgba(255,255,255,0.07)", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, color: "#fff", fontSize: 14, borderWidth: 1, borderColor: editImdbId ? "rgba(245,158,11,0.4)" : "rgba(255,255,255,0.12)" }}
@@ -2429,26 +2468,27 @@ export default function DetailScreen() {
                       placeholderTextColor="rgba(255,255,255,0.3)"
                       value={editImdbId}
                       onChangeText={setEditImdbId}
+                      onSubmitEditing={searchByImdbId}
+                      returnKeyType="search"
                       autoCapitalize="none"
                       autoCorrect={false}
                       keyboardType="default"
                     />
                     <Pressable
-                      onPress={() => {
-                        const id = editImdbId.trim();
-                        if (!id) return;
-                        const imdbId = id.startsWith("tt") ? id : `tt${id}`;
-                        Linking.openURL(`https://www.imdb.com/title/${imdbId}/`);
-                      }}
-                      disabled={!editImdbId.trim()}
-                      style={({ pressed }) => [{ paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10, backgroundColor: "rgba(245,158,11,0.15)", borderWidth: 1, borderColor: "rgba(245,158,11,0.45)", justifyContent: "center", alignItems: "center", gap: 4, flexDirection: "row" }, (pressed || !editImdbId.trim()) && { opacity: 0.5 }]}
+                      onPress={searchByImdbId}
+                      disabled={!editImdbId.trim() || fetchingImdbData}
+                      style={({ pressed }) => [{ paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10, backgroundColor: "rgba(245,158,11,0.15)", borderWidth: 1, borderColor: "rgba(245,158,11,0.45)", justifyContent: "center", alignItems: "center", gap: 4, flexDirection: "row" }, (pressed || !editImdbId.trim() || fetchingImdbData) && { opacity: 0.5 }]}
                     >
-                      <Feather name="external-link" size={14} color="#fbbf24" />
-                      <Text style={{ color: "#fbbf24", fontSize: 12, fontWeight: "600" }}>Ver</Text>
+                      {fetchingImdbData
+                        ? <ActivityIndicator size={14} color="#fbbf24" />
+                        : <>
+                            <Feather name="search" size={14} color="#fbbf24" />
+                            <Text style={{ color: "#fbbf24", fontSize: 12, fontWeight: "600" }}>Buscar</Text>
+                          </>}
                     </Pressable>
                   </View>
                   <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 11 }}>
-                    Formato: tt seguido de números (ex: tt0120338). Toque "Ver" para conferir no IMDB.
+                    Digite o ID IMDB (ex: tt0120338) e toque Buscar — cartaz, sinopse, temporadas e mais serão preenchidos automaticamente.
                   </Text>
                 </View>
 
