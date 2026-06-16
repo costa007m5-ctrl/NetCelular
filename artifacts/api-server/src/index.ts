@@ -43,4 +43,15 @@ app.listen(port, (err) => {
   // Once warm, /flix2/search finds any title instantly with full coverage.
   warmAllCatalogCaches().catch(() => {});
   warmAllVeoCaches().catch(() => {});
+
+  // Auto-refresh every 30 minutes so new series/episodes and movies are detected.
+  // Without this, the cache just expires passively and new content stays invisible
+  // until someone happens to trigger a request that bypasses the expired cache.
+  const WARM_INTERVAL_MS = 30 * 60 * 1000;
+  setInterval(() => {
+    logger.info("Auto-refresh: re-warming Flix 2.0 catalog cache (30 min cycle)");
+    warmAllCatalogCaches().catch((e) => {
+      logger.warn({ err: e }, "Auto-refresh: warm cycle failed");
+    });
+  }, WARM_INTERVAL_MS);
 });

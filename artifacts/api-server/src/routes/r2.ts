@@ -5345,6 +5345,94 @@ router.get("/veo/stream-check", async (req, res) => {
   }
 });
 
+// ── New content TXT lists (redeflixapi.store) ─────────────────────────────────
+// Each file lists TMDB IDs ordered newest → oldest (one per line).
+// Used to show "recently added" content without a separate database.
+const NEW_CONTENT_URLS: Record<string, string> = {
+  movies:  "https://redeflixapi.store/list-movie-ids.txt",
+  series:  "https://redeflixapi.store/list-tv-ids.txt",
+  animes:  "https://redeflixapi.store/list-anime-ids.txt",
+  doramas: "https://redeflixapi.store/list-dorama-ids.txt",
+};
+const NEW_CONTENT_CACHE = new Map<string, { ids: number[]; cachedAt: number }>();
+const NEW_CONTENT_TTL_MS = 30 * 60 * 1000;
+
+async function fetchNewContentIds(type: string): Promise<number[]> {
+  const cached = NEW_CONTENT_CACHE.get(type);
+  if (cached && Date.now() - cached.cachedAt < NEW_CONTENT_TTL_MS) return cached.ids;
+  const url = NEW_CONTENT_URLS[type];
+  if (!url) return [];
+  try {
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 10_000);
+    let r: Response;
+    try { r = await fetch(url, { signal: ctrl.signal }); } finally { clearTimeout(tid); }
+    if (!r.ok) return [];
+    const text = await r.text();
+    const ids = text.split("\n").map(l => Number(l.trim())).filter(n => n > 0);
+    NEW_CONTENT_CACHE.set(type, { ids, cachedAt: Date.now() });
+    console.log(`[new-content] fetched type=${type} ids=${ids.length}`);
+    return ids;
+  } catch { return []; }
+}
+
+// ── GET /flix2/new-releases?type=movies|series|animes|doramas&limit=20&offset=0 ─
+// Returns newest content by TMDB ID from redeflixapi.store TXT lists,
+// cross-referenced with the Flix 2.0 and Veo caches for full item metadata.
+router.get("/flix2/new-releases", async (req, res) => {
+  const { type = "movies", limit = "20", offset = "0" } = req.query as Record<string, string>;
+  const limitN  = Math.min(100, Math.max(1, Number(limit)  || 20));
+  const offsetN = Math.max(0,              Number(offset) || 0);
+
+  try {
+    const allIds = await fetchNewContentIds(type);
+    const pageIds = allIds.slice(offsetN, offsetN + limitN);
+
+    // Determine which cache type to search (doramas share the series catalog)
+    const cacheType = type === "doramas" ? "series" : type;
+
+    // Full catalog search helpers
+    const flix2Full   = FULL_CATALOG_CACHE.get(cacheType)?.data ?? [];
+    const veoFull     = VEO_CATALOG_CACHE.get(cacheType)?.data   ?? [];
+
+    const items = pageIds.map(tmdbId => {
+      const f2 = flix2Full.find((i: any) => Number(i.tmdb_id) === tmdbId);
+      if (f2) return { ...f2, source: "flix2", tmdb_id: tmdbId };
+      const veo = veoFull.find((i: any) => Number(i.tmdb_id) === tmdbId);
+      if (veo) return { ...veo, source: "veo", tmdb_id: tmdbId };
+      // Not yet in cache — return stub so client can render TMDB card
+      return { tmdb_id: tmdbId, source: "tmdb_only", title: null };
+    });
+
+    res.json({
+      ok:       true,
+      type,
+      total:    allIds.length,
+      offset:   offsetN,
+      limit:    limitN,
+      items,
+      cachedAt: NEW_CONTENT_CACHE.get(type)?.cachedAt ?? null,
+    });
+  } catch (e: any) {
+    res.status(502).json({ ok: false, error: e?.message ?? "fetch error" });
+  }
+});
+
+// ── GET /flix2/new-releases-status — cache ages for all new-content types ────
+router.get("/flix2/new-releases-status", async (_req, res) => {
+  const result: Record<string, any> = {};
+  for (const type of Object.keys(NEW_CONTENT_URLS)) {
+    const cached = NEW_CONTENT_CACHE.get(type);
+    result[type] = {
+      loaded:   !!cached,
+      idCount:  cached?.ids.length ?? 0,
+      cachedAt: cached?.cachedAt   ?? null,
+      ageMs:    cached ? Date.now() - cached.cachedAt : null,
+    };
+  }
+  res.json({ ok: true, types: result });
+});
+
 // ── GET /veo/stats ────────────────────────────────────────────────────────────
 router.get("/veo/stats", (_req, res) => {
   const typeStats: Record<string, any> = {};
