@@ -10,6 +10,7 @@ import appLogsRouter from "./app-logs";
 import adminRouter from "./admin";
 import tmdbRouter from "./tmdb";
 import teraboxRouter from "./terabox";
+import shortsRouter from "./shorts";
 
 const router: IRouter = Router();
 
@@ -24,5 +25,6 @@ router.use("/live", liveTvRouter);
 router.use(castRouter);
 router.use(appLogsRouter);
 router.use(adminRouter);
+router.use(shortsRouter);
 
 export default router;
