@@ -129,6 +129,25 @@ function mapTmdbItem(raw: any, type: "movie" | "tv"): ShortsItem | null {
   };
 }
 
+// ── Genre boost (personalization) ──────────────────────────────────────────────
+// Reorders an already-built feed so items whose genres overlap with the user's
+// preferred genres bubble to the top. Applied on top of the cached base feed
+// (no cache bust needed — boost is per-request and very cheap O(n log n)).
+function applyGenreBoost(items: ShortsItem[], preferGenres: number[]): ShortsItem[] {
+  if (preferGenres.length === 0) return items;
+  const prefSet = new Set(preferGenres);
+
+  return items.slice().sort((a, b) => {
+    // Score = number of overlapping genres (more overlap = higher score)
+    const sA = a.genreIds.filter((id) => prefSet.has(id)).length;
+    const sB = b.genreIds.filter((id) => prefSet.has(id)).length;
+    if (sA !== sB) return sB - sA;
+    // Tie-break: Flix 2.0 available first, then by rating
+    if (a.availableOnFlix2 !== b.availableOnFlix2) return a.availableOnFlix2 ? -1 : 1;
+    return b.rating - a.rating;
+  });
+}
+
 // ── Build feed ─────────────────────────────────────────────────────────────────
 
 async function buildFeed(type: "all" | "movie" | "tv", limit: number): Promise<ShortsItem[]> {
@@ -233,16 +252,28 @@ router.get("/shorts/feed", async (req: any, res: any) => {
     const limit = Math.min(30, Math.max(5, Number(req.query.limit ?? 20)));
     const type = (req.query.type ?? "all") as "all" | "movie" | "tv";
 
+    // Optional personalization: comma-separated TMDB genre IDs from client watch history
+    const preferGenresParam = String(req.query.preferGenres ?? "").trim();
+    const preferGenres: number[] = preferGenresParam
+      ? preferGenresParam.split(",").map(Number).filter((n) => !isNaN(n) && n > 0)
+      : [];
+
     const all = await buildFeed(type, 60);
+
+    // Apply genre boost (cheap sort on top of cached base feed)
+    const ordered = applyGenreBoost(all, preferGenres);
+
     const offset = (page - 1) * limit;
-    const pageItems = all.slice(offset, offset + limit);
+    const pageItems = ordered.slice(offset, offset + limit);
 
     res.json({
       page,
       limit,
-      total: all.length,
-      hasMore: offset + limit < all.length,
+      total: ordered.length,
+      hasMore: offset + limit < ordered.length,
       items: pageItems,
+      personalized: preferGenres.length > 0,
+      preferGenres,
     });
   } catch (err: any) {
     req.log?.error({ err }, "shorts/feed error");

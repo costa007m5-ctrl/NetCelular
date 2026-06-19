@@ -22,6 +22,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useColors } from "@/hooks/useColors";
 import { getApiBase } from "@/lib/api";
 import { getProxiedStreamUrl } from "@/lib/gdrive-index";
@@ -840,29 +841,65 @@ function ShortVideoCard({
   );
 }
 
+// ─── Genre preference store ───────────────────────────────────────────────────
+// Tracks which genres the user has watched in Shorts (AsyncStorage).
+// Updated every time a card is visible for 3+ seconds.
+// Used to personalize the feed order via ?preferGenres= param.
+
+const GENRE_PREFS_KEY = "netplay_shorts_genre_prefs_v1";
+
+async function loadGenrePrefs(): Promise<Record<number, number>> {
+  try {
+    const raw = await AsyncStorage.getItem(GENRE_PREFS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch { return {}; }
+}
+
+async function recordGenreView(genreIds: number[]): Promise<void> {
+  if (!genreIds.length) return;
+  try {
+    const prefs = await loadGenrePrefs();
+    for (const id of genreIds) {
+      prefs[id] = (prefs[id] ?? 0) + 1;
+    }
+    await AsyncStorage.setItem(GENRE_PREFS_KEY, JSON.stringify(prefs));
+  } catch {}
+}
+
+function getTopGenreIds(prefs: Record<number, number>, n = 5): number[] {
+  return Object.entries(prefs)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, n)
+    .map(([id]) => Number(id));
+}
+
 // ─── Fetch shorts feed ────────────────────────────────────────────────────────
 
-async function fetchShortsFeed(page = 1): Promise<ShortItem[]> {
+async function fetchShortsFeed(page = 1, preferGenres: number[] = []): Promise<{ items: ShortItem[]; personalized: boolean }> {
   // AbortSignal.timeout() crashes on Hermes — use AbortController+setTimeout
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 10000);
   try {
     const base = getApiBase();
-    const res = await fetch(`${base}/shorts/feed?page=${page}&limit=20`, {
+    const genreParam = preferGenres.length > 0 ? `&preferGenres=${preferGenres.join(",")}` : "";
+    const res = await fetch(`${base}/shorts/feed?page=${page}&limit=20${genreParam}`, {
       signal: ctrl.signal,
     });
     clearTimeout(t);
     if (!res.ok) throw new Error("feed error");
     const data = await res.json() as any;
-    return (data.items ?? []).map((item: any) => ({
-      ...item,
-      liked: false,
-      likes: Math.floor(Math.random() * 9000) + 1000,
-      saved: false,
-    }));
+    return {
+      items: (data.items ?? []).map((item: any) => ({
+        ...item,
+        liked: false,
+        likes: Math.floor(Math.random() * 9000) + 1000,
+        saved: false,
+      })),
+      personalized: data.personalized === true,
+    };
   } catch {
     clearTimeout(t);
-    return [];
+    return { items: [], personalized: false };
   }
 }
 
@@ -884,18 +921,31 @@ export default function ShortsScreen() {
   // Global mute state — one toggle applies to ALL cards
   const [globalMuted, setGlobalMuted] = useState(true);
   const toggleGlobalMute = useCallback(() => setGlobalMuted((m) => !m), []);
+  // Personalization state
+  const [genrePrefs, setGenrePrefs] = useState<Record<number, number>>({});
+  const [isPersonalized, setIsPersonalized] = useState(false);
 
   const loadFeed = useCallback(async (p = 1) => {
     if (p === 1) setLoading(true);
     else setLoadingMore(true);
 
-    const newItems = await fetchShortsFeed(p);
+    // Load genre preferences from AsyncStorage and pass to feed
+    const prefs = await loadGenrePrefs();
+    const topGenres = getTopGenreIds(prefs, 5);
+    const { items: newItems, personalized } = await fetchShortsFeed(p, topGenres);
+
     setItems((prev) => p === 1 ? newItems : [...prev, ...newItems]);
     setHasMore(newItems.length >= 20);
     setPage(p);
+    if (p === 1) setIsPersonalized(personalized);
 
     if (p === 1) setLoading(false);
     else setLoadingMore(false);
+  }, []);
+
+  // Load genre prefs on mount (for header badge)
+  useEffect(() => {
+    loadGenrePrefs().then(setGenrePrefs);
   }, []);
 
   useEffect(() => { loadFeed(1); }, []);
@@ -919,6 +969,18 @@ export default function ShortsScreen() {
       params: { type: item.type, id: String(item.tmdbId), title: item.title },
     });
   }, [router]);
+
+  // Record genre view after card is visible for 3s — builds personalization profile
+  useEffect(() => {
+    const item = items[visibleIndex];
+    if (!item?.genreIds?.length) return;
+    const timer = setTimeout(async () => {
+      await recordGenreView(item.genreIds);
+      const updated = await loadGenrePrefs();
+      setGenrePrefs(updated);
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [visibleIndex, items]);
 
   // Pre-fetch lookups for the next 10 items so video starts instantly when the card appears
   useEffect(() => {
@@ -1014,6 +1076,12 @@ export default function ShortsScreen() {
             <View style={s.aiHeaderBadge}>
               <Text style={s.aiHeaderBadgeText}>IA</Text>
             </View>
+            {isPersonalized && (
+              <View style={s.personalizedBadge}>
+                <Feather name="star" size={9} color="#fff" />
+                <Text style={s.personalizedBadgeText}>Gosto</Text>
+              </View>
+            )}
           </View>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
             <TouchableOpacity
@@ -1066,6 +1134,14 @@ const s = StyleSheet.create({
   },
   aiHeaderBadgeText: {
     color: "#fff", fontSize: 9, fontWeight: "900", letterSpacing: 1,
+  },
+  personalizedBadge: {
+    flexDirection: "row", alignItems: "center", gap: 3,
+    backgroundColor: "rgba(229,9,20,0.85)", borderRadius: 5,
+    paddingHorizontal: 5, paddingVertical: 2,
+  },
+  personalizedBadgeText: {
+    color: "#fff", fontSize: 9, fontWeight: "700", letterSpacing: 0.5,
   },
   iconBtn: {
     width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: 20,
