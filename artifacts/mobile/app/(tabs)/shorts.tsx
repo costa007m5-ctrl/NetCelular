@@ -90,9 +90,41 @@ function pickInterestingEpisode(episodes: RawEpisode[]): RawEpisode | null {
   return finalPool[Math.floor(Math.random() * finalPool.length)] ?? null;
 }
 
+// ── Resolve series episodes directly from client (when server is blocked) ─────
+async function resolveSeriesEpisodeDirect(directUrl: string, streamBase: string): Promise<string> {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 15000);
+  try {
+    const res = await fetch(directUrl, { signal: ctrl.signal });
+    clearTimeout(t);
+    if (!res.ok) return "";
+    const data = await res.json() as any;
+    if (!data?.episodes || typeof data.episodes !== "object") return "";
+    const allEpisodes: RawEpisode[] = [];
+    for (const [seasonStr, eps] of Object.entries(data.episodes as Record<string, any[]>)) {
+      if (!Array.isArray(eps)) continue;
+      const season = Number(seasonStr);
+      for (const ep of eps as any[]) {
+        if (!ep?.id) continue;
+        const ext = (ep.container_extension as string) || "mp4";
+        allEpisodes.push({
+          season,
+          episode: Number(ep.episode_num ?? ep.episode ?? 1),
+          stream_url: `${streamBase}${ep.id}.${ext}`,
+        });
+      }
+    }
+    if (allEpisodes.length === 0) return "";
+    const picked = pickInterestingEpisode(allEpisodes);
+    return picked?.stream_url ?? "";
+  } catch {
+    clearTimeout(t);
+    return "";
+  }
+}
+
 // ── Resolve series → episode stream URL ───────────────────────────────────────
 async function resolveSeriesEpisode(seriesId: string, base: string): Promise<string> {
-  // Check episodes cache first
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 12000);
   try {
@@ -100,9 +132,15 @@ async function resolveSeriesEpisode(seriesId: string, base: string): Promise<str
     clearTimeout(t);
     if (!res.ok) return "";
     const data = await res.json() as any;
-    if (!data.found || !Array.isArray(data.episodes) || data.episodes.length === 0) return "";
-    const picked = pickInterestingEpisode(data.episodes as RawEpisode[]);
-    return picked?.stream_url ?? "";
+    if (data.found && Array.isArray(data.episodes) && data.episodes.length > 0) {
+      const picked = pickInterestingEpisode(data.episodes as RawEpisode[]);
+      return picked?.stream_url ?? "";
+    }
+    // Datacenter IP blocked by Xtream provider — retry directly from the device (residential IP)
+    if (data.tryClientDirect && data.directUrl && data.streamBase) {
+      return await resolveSeriesEpisodeDirect(data.directUrl as string, data.streamBase as string);
+    }
+    return "";
   } catch {
     clearTimeout(t);
     return "";
@@ -282,12 +320,16 @@ function ActionBtn({
 function ShortVideoCard({
   item,
   isVisible,
+  muted,
+  onToggleMute,
   onLike,
   onSave,
   onDetail,
 }: {
   item: ShortItem;
   isVisible: boolean;
+  muted: boolean;
+  onToggleMute: () => void;
   onLike: (id: string) => void;
   onSave: (id: string) => void;
   onDetail: (item: ShortItem) => void;
@@ -302,7 +344,6 @@ function ShortVideoCard({
   const [finalUrl, setFinalUrl] = useState<string | null>(null);
   // baseUrl for the WebView srcdoc — must match CDN origin to avoid CORS
   const [webViewBaseUrl, setWebViewBaseUrl] = useState("https://hubby.cx");
-  const [muted, setMuted] = useState(true);
   const [shared, setShared] = useState(false); // brief "Copiado!" feedback
   const webviewRef = useRef<any>(null);
 
@@ -477,10 +518,13 @@ function ShortVideoCard({
     webviewRef.current.injectJavaScript?.(js);
   };
 
+  // Sync global mute prop → WebView whenever it changes while video is playing
+  useEffect(() => {
+    if (videoState === "playing") injectMute(muted);
+  }, [muted, videoState]);
+
   const toggleMute = () => {
-    const next = !muted;
-    setMuted(next);
-    injectMute(next);
+    onToggleMute();
   };
 
   // ── Share ─────────────────────────────────────────────────────────────────────
@@ -724,6 +768,9 @@ export default function ShortsScreen() {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  // Global mute state — one toggle applies to ALL cards
+  const [globalMuted, setGlobalMuted] = useState(true);
+  const toggleGlobalMute = useCallback(() => setGlobalMuted((m) => !m), []);
 
   const loadFeed = useCallback(async (p = 1) => {
     if (p === 1) setLoading(true);
@@ -826,6 +873,8 @@ export default function ShortsScreen() {
           <ShortVideoCard
             item={item}
             isVisible={index === visibleIndex}
+            muted={globalMuted}
+            onToggleMute={toggleGlobalMute}
             onLike={onLike}
             onSave={onSave}
             onDetail={onDetail}

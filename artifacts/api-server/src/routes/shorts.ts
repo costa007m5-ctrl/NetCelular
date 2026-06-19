@@ -225,8 +225,7 @@ async function buildFeed(type: "all" | "movie" | "tv", limit: number): Promise<S
   }
 
   const available = shuffleGroup(raw.filter((i) => i.availableOnFlix2));
-  const rest = shuffleGroup(raw.filter((i) => !i.availableOnFlix2));
-  const final = [...available, ...rest].slice(0, Math.max(limit, 50));
+  const final = available.slice(0, Math.max(limit, 50));
 
   FEED_CACHE.set(cacheKey, { items: final, cachedAt: Date.now() });
   return final;
