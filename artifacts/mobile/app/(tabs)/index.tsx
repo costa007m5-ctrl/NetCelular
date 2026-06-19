@@ -2286,6 +2286,8 @@ export default function HomeScreen() {
   const [nowPlayingItems, setNowPlayingItems] = useState<ContentItem[]>([]);
   const [onTheAirItems, setOnTheAirItems] = useState<ContentItem[]>([]);
   const [animations, setAnimations] = useState<ContentItem[]>([]);
+  // ── Shorts para você — personalized picks from Shorts feed ────────────────
+  const [shortsForYou, setShortsForYou] = useState<ContentItem[]>([]);
 
   // ── genre carousels per category ──────────────────────────────────────────
   const [genreRows, setGenreRows] = useState<Record<string, ContentItem[]>>({});
@@ -2443,6 +2445,54 @@ export default function HomeScreen() {
       .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [belowFoldReady]);
+
+  // ── Shorts para você — load personalized picks when screen gains focus ──────
+  // Re-runs every time the user comes back from the Shorts tab (preferences may
+  // have been updated). Only shows if the user has built a genre history.
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      const load = async () => {
+        try {
+          const raw = await AsyncStorage.getItem("netplay_shorts_genre_prefs_v1");
+          const prefs: Record<number, number> = raw ? JSON.parse(raw) : {};
+          const topGenres = Object.entries(prefs)
+            .sort(([, a], [, b]) => b - a)
+            .slice(0, 5)
+            .map(([id]) => Number(id));
+          if (!topGenres.length) return; // no prefs yet — hide section
+          const { getApiBase } = await import("@/lib/api");
+          const base = getApiBase();
+          const ctrl = new AbortController();
+          const t = setTimeout(() => ctrl.abort(), 8000);
+          const res = await fetch(
+            `${base}/shorts/feed?limit=8&preferGenres=${topGenres.join(",")}`,
+            { signal: ctrl.signal }
+          );
+          clearTimeout(t);
+          if (!res.ok || cancelled) return;
+          const data = await res.json() as any;
+          const items: ContentItem[] = (data.items ?? []).slice(0, 8).map((it: any) => ({
+            id: it.id ?? String(it.tmdbId),
+            tmdbId: Number(it.tmdbId) || 0,
+            title: it.title ?? "",
+            year: it.year ?? 2024,
+            rating: it.rating ?? 0,
+            posterPath: it.poster ?? "",
+            backdropPath: it.backdrop ?? it.poster ?? "",
+            description: it.overview ?? "",
+            genres: [],
+            type: it.type === "movie" ? ("movie" as const) : ("series" as const),
+            mediaType: it.type === "movie" ? "movie" : "tv",
+            exclusive: false,
+          }));
+          if (!cancelled) setShortsForYou(items);
+        } catch { /* silent — section simply stays hidden */ }
+      };
+      load();
+      return () => { cancelled = true; };
+    }, [])
+  );
 
   // ── fetch genre rows when category changes ────────────────────────────────
   useEffect(() => {
@@ -2892,6 +2942,23 @@ export default function HomeScreen() {
                       accentColor={PURPLE}
                       onSeeAll={() => openModal("Recomendados para Você", recommendations, PURPLE)} />
                     <PosterRow items={recommendations.slice(0, 4)} onPress={goTo} />
+                  </View>
+                </AnimatedSection>
+              )}
+
+              {/* ── 6.7 SHORTS PARA VOCÊ ─────────────────────────────────────── */}
+              {shortsForYou.length > 0 && (
+                <AnimatedSection anim={s[5]}>
+                  <View style={styles.section}>
+                    <SectionHeader
+                      title="Shorts para Você"
+                      icon="zap"
+                      badge="IA"
+                      accentColor="#7c3aed"
+                      subtitle="Baseado no seu gosto nos Shorts"
+                      onSeeAll={() => router.push("/(tabs)/shorts" as any)}
+                    />
+                    <PosterRow items={shortsForYou} onPress={goTo} showTitle />
                   </View>
                 </AnimatedSection>
               )}
