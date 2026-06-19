@@ -3675,6 +3675,24 @@ router.get("/flix2/lookup", async (req, res) => {
     // If streamId lookup found nothing (cache not warm yet), fall through to title/tmdbId match
   }
 
+  // Build a playable stream_url for items that don't have one yet.
+  // Movies (type==="filme") get: FLIX2_SERVER/movie/USER/PASS/ID.ext
+  // Series get null (episodes needed via separate endpoint).
+  function enrichItem(i: any): any {
+    if (i.stream_url) return i; // already has URL, return as-is
+    if (!i.id) return i;
+    const itype = (i.type ?? "").toLowerCase();
+    if (itype === "filme" || itype === "movie") {
+      const ext = i.container_extension ?? i.format ?? "mp4";
+      return {
+        ...i,
+        stream_url: `${FLIX2_SERVER}/movie/${FLIX2_USER}/${FLIX2_PASS}/${i.id}.${ext}`,
+      };
+    }
+    // Series: leave stream_url null — shorts.tsx filters these out
+    return i;
+  }
+
   function matchItem(i: any): boolean {
     // Suppression check — skip items whose stream_url has been admin-suppressed
     if (i.stream_url && FLIX2_SUPPRESSION_MAP.has(i.stream_url)) return false;
@@ -3772,13 +3790,13 @@ router.get("/flix2/lookup", async (req, res) => {
     const warm = FULL_CATALOG_CACHE.get(t);
     if (warm && Date.now() - warm.cachedAt < FULL_CATALOG_TTL_MS) {
       const hit = warm.data.find((i: any) => matchItem(i));
-      if (hit) { CACHE_STATS.lookup.hits++; res.json({ found: true, item: hit }); return; }
+      if (hit) { CACHE_STATS.lookup.hits++; res.json({ found: true, item: enrichItem(hit) }); return; }
       // Full cache dedup may have dropped duplicate tmdb_ids — check raw cache too
       // before giving up (raw cache has ALL items, including dupes that dedup removed).
       const rawFallback = XTREAM_RAW_CACHE.get(t);
       if (rawFallback && rawFallback.items.length > 0) {
         const rawHit = rawFallback.items.find((i: any) => matchItem(i));
-        if (rawHit) { CACHE_STATS.lookup.hits++; res.json({ found: true, item: rawHit }); return; }
+        if (rawHit) { CACHE_STATS.lookup.hits++; res.json({ found: true, item: enrichItem(rawHit) }); return; }
       }
       // Both caches searched — item genuinely not in catalog for this type.
       continue;
@@ -3789,7 +3807,7 @@ router.get("/flix2/lookup", async (req, res) => {
     const partial = WARM_PARTIAL_CACHE.get(t);
     if (partial && partial.length > 0) {
       const hit = partial.find((i: any) => matchItem(i));
-      if (hit) { CACHE_STATS.lookup.hits++; res.json({ found: true, item: hit }); return; }
+      if (hit) { CACHE_STATS.lookup.hits++; res.json({ found: true, item: enrichItem(hit) }); return; }
       // Partial cache scanned but item not yet loaded — fall through to slow scan
       // to check pages not yet in partial cache.
     }
@@ -3803,7 +3821,7 @@ router.get("/flix2/lookup", async (req, res) => {
       const rawCache = XTREAM_RAW_CACHE.get(t);
       if (rawCache && rawCache.items.length > 0) {
         const hit = rawCache.items.find((i: any) => matchItem(i));
-        if (hit) { CACHE_STATS.lookup.hits++; res.json({ found: true, item: hit }); return; }
+        if (hit) { CACHE_STATS.lookup.hits++; res.json({ found: true, item: enrichItem(hit) }); return; }
         // All raw items searched — item genuinely not in catalog for this type
         continue;
       }

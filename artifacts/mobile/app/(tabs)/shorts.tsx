@@ -200,31 +200,46 @@ function ShortVideoCard({
     if (!isVisible || videoState !== "idle") return;
 
     setVideoState("resolving");
+    let cancelled = false;
 
     const resolve = async () => {
+      // AbortSignal.timeout() crashes on Hermes — always use AbortController+setTimeout
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 8000);
       try {
-        const base = getApiBase(); // sync, returns /api or https://domain/api
+        const base = getApiBase(); // sync — /api on web, https://domain/api on native
         const catalogType = item.type === "movie" ? "movies" : "series";
-        // Use tmdbId=0 for title-only lookup (most Flix2 items have no tmdb_id)
         const url = `${base}/r2/flix2/lookup?tmdbId=${item.tmdbId}&type=${catalogType}&title=${encodeURIComponent(item.title)}`;
-        const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+        const res = await fetch(url, { signal: ctrl.signal });
+        clearTimeout(timer);
+        if (cancelled) return;
         if (!res.ok) throw new Error("lookup failed");
         const data = await res.json() as any;
-        const raw = data.item?.stream_url ?? "";
-        // Only accept direct video URLs — series info URLs (player_api.php) are not playable
-        const isDirectVideo = raw && !raw.startsWith("flix2id:") && !raw.includes("player_api.php");
+        const raw: string = data.item?.stream_url ?? "";
+        // Only accept direct video URLs — series info URLs (player_api.php) not playable
+        const isDirectVideo = raw.length > 0 && !raw.startsWith("flix2id:") && !raw.includes("player_api.php");
         if (data.found && isDirectVideo) {
-          setStreamUrl(raw);
+          // On web, stream URLs are HTTP (after hubby.cx redirect) → blocked as mixed content.
+          // Route through our HTTPS proxy. Use absolute URL — srcdoc iframes need it.
+          let finalUrl = raw;
+          if (isWeb && raw.startsWith("https://hubby.cx/")) {
+            const origin = typeof window !== "undefined" && window.location?.origin
+              ? window.location.origin : "";
+            finalUrl = `${origin}/api/shorts/stream-proxy?url=${encodeURIComponent(raw)}`;
+          }
+          setStreamUrl(finalUrl);
           setVideoState("playing");
         } else {
           setVideoState("error");
         }
       } catch {
-        setVideoState("error");
+        clearTimeout(timer);
+        if (!cancelled) setVideoState("error");
       }
     };
 
     resolve();
+    return () => { cancelled = true; };
   }, [isVisible]);
 
   // Inject play/pause commands when visibility changes
@@ -263,8 +278,10 @@ function ShortVideoCard({
     injectMute(next);
   };
 
-  const showVideo = videoState === "playing" && streamUrl && IS_NATIVE && WebView;
-  const showProxyVideo = videoState === "playing" && streamUrl && isWeb;
+  // On web: WebView renders as <iframe srcdoc>, stream goes through HTTPS proxy
+  // On native: WebView renders natively with direct CDN URL
+  const showVideo = videoState === "playing" && streamUrl && !!WebView;
+  const showProxyVideo = false; // replaced by unified WebView approach above
 
   const html = showVideo
     ? buildShortVideoHtml(streamUrl, item.startTimeSeconds, item.clipDurationSeconds, muted)
@@ -293,13 +310,19 @@ function ShortVideoCard({
           bounces={false}
         />
       ) : showProxyVideo ? (
-        // Web: simple video element via proxy
+        // Web: backdrop + play icon overlay (stream URLs are HTTP, blocked as mixed content on web)
         <View style={StyleSheet.absoluteFill}>
           <Image
             source={{ uri: item.backdrop ?? undefined }}
             style={StyleSheet.absoluteFill}
             contentFit="cover"
           />
+          <View style={s.webPlayOverlay} pointerEvents="none">
+            <View style={s.webPlayCircle}>
+              <Feather name="play" size={32} color="#fff" />
+            </View>
+            <Text style={s.webPlayLabel}>Abra no app para assistir</Text>
+          </View>
         </View>
       ) : (
         <Image
@@ -706,5 +729,21 @@ const s = StyleSheet.create({
   },
   clipText: {
     color: "rgba(255,255,255,0.7)", fontSize: 11, fontWeight: "600",
+  },
+
+  // Web-only play overlay
+  webPlayOverlay: {
+    position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
+    alignItems: "center", justifyContent: "center", gap: 12,
+  },
+  webPlayCircle: {
+    width: 72, height: 72, borderRadius: 36,
+    backgroundColor: "rgba(229,9,20,0.85)",
+    alignItems: "center", justifyContent: "center",
+    borderWidth: 2, borderColor: "rgba(255,255,255,0.4)",
+  },
+  webPlayLabel: {
+    color: "rgba(255,255,255,0.8)", fontSize: 13, fontWeight: "700",
+    textShadowColor: "rgba(0,0,0,0.9)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4,
   },
 });

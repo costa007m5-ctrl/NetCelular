@@ -141,11 +141,15 @@ async function buildFeed(type: "all" | "movie" | "tv", limit: number): Promise<S
   // 1. Fetch TMDB content in parallel
   const fetches: Promise<any>[] = [];
 
+  // Only include content with original_language in this set for catalog matching
+  // The Flix 2.0 catalog (Brazilian IPTV) is primarily en/pt content
+  const ALLOWED_LANGS = new Set(["en", "pt", "es"]);
+
   if (type === "all" || type === "movie") {
     fetches.push(
-      tmdbFetch<any>("/trending/movie/week").catch(() => ({ results: [] })),
-      tmdbFetch<any>("/movie/popular").catch(() => ({ results: [] })),
-      tmdbFetch<any>("/movie/top_rated").catch(() => ({ results: [] })),
+      tmdbFetch<any>("/trending/movie/week", { region: "BR" }).catch(() => ({ results: [] })),
+      tmdbFetch<any>("/movie/popular", { region: "BR" }).catch(() => ({ results: [] })),
+      tmdbFetch<any>("/movie/top_rated", { region: "BR" }).catch(() => ({ results: [] })),
     );
   } else {
     fetches.push(Promise.resolve({ results: [] }), Promise.resolve({ results: [] }), Promise.resolve({ results: [] }));
@@ -153,9 +157,9 @@ async function buildFeed(type: "all" | "movie" | "tv", limit: number): Promise<S
 
   if (type === "all" || type === "tv") {
     fetches.push(
-      tmdbFetch<any>("/trending/tv/week").catch(() => ({ results: [] })),
-      tmdbFetch<any>("/tv/popular").catch(() => ({ results: [] })),
-      tmdbFetch<any>("/tv/top_rated").catch(() => ({ results: [] })),
+      tmdbFetch<any>("/trending/tv/week", { region: "BR" }).catch(() => ({ results: [] })),
+      tmdbFetch<any>("/tv/popular", { region: "BR" }).catch(() => ({ results: [] })),
+      tmdbFetch<any>("/tv/top_rated", { region: "BR" }).catch(() => ({ results: [] })),
     );
   } else {
     fetches.push(Promise.resolve({ results: [] }), Promise.resolve({ results: [] }), Promise.resolve({ results: [] }));
@@ -169,6 +173,9 @@ async function buildFeed(type: "all" | "movie" | "tv", limit: number): Promise<S
 
   const addItems = (results: any[], contentType: "movie" | "tv") => {
     for (const r of results) {
+      // Skip non-Latin content (Bollywood, Korean, Chinese, etc.)
+      // These are almost never in the PT-BR Flix 2.0 catalog by title
+      if (!ALLOWED_LANGS.has(r.original_language)) continue;
       const key = `${contentType}-${r.id}`;
       if (seen.has(key)) continue;
       seen.add(key);
@@ -322,6 +329,77 @@ router.get("/shorts/resolve", async (req: any, res: any) => {
   } catch (err: any) {
     req.log?.error({ err }, "shorts/resolve error");
     res.status(500).json({ error: err?.message ?? "Internal error" });
+  }
+});
+
+// ── Stream proxy — serves hubby.cx/fontedecanais video over HTTPS ──────────────
+// Browsers block HTTPS pages from loading HTTP video (mixed content).
+// This proxy fetches the video server-side (Node ignores HTTPS→HTTP redirects)
+// and serves it back over HTTPS, forwarding Range headers for seeking.
+router.get("/shorts/stream-proxy", async (req: any, res: any) => {
+  const url = String(req.query.url ?? "").trim();
+  if (!url || !/^https:\/\/hubby\.cx\//i.test(url)) {
+    res.status(400).json({ error: "url must start with https://hubby.cx/" });
+    return;
+  }
+
+  try {
+    const ctrl = new AbortController();
+    const reqTimer = setTimeout(() => ctrl.abort(), 30_000);
+
+    const upHeaders: Record<string, string> = {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+      "Accept": "*/*",
+      "Accept-Encoding": "identity",
+    };
+    // Forward Range header for video seeking
+    const rangeHeader = req.headers["range"];
+    if (rangeHeader) upHeaders["Range"] = rangeHeader;
+
+    const upstream = await fetch(url, {
+      signal: ctrl.signal,
+      headers: upHeaders,
+      // Node fetch follows redirects including HTTPS→HTTP, unlike browsers
+    });
+
+    clearTimeout(reqTimer);
+
+    // Forward relevant response headers
+    const status = upstream.status; // usually 200 or 206 (partial)
+    res.status(status);
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Accept-Ranges", "bytes");
+
+    const ct = upstream.headers.get("content-type");
+    if (ct) res.set("Content-Type", ct);
+    else res.set("Content-Type", "video/mp4");
+
+    const cl = upstream.headers.get("content-length");
+    if (cl) res.set("Content-Length", cl);
+
+    const cr = upstream.headers.get("content-range");
+    if (cr) res.set("Content-Range", cr);
+
+    // Stream body
+    if (!upstream.body) { res.end(); return; }
+    const reader = (upstream.body as any).getReader();
+    const pump = async () => {
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const ok = res.write(Buffer.from(value));
+          // Back-pressure: wait for drain if buffer is full
+          if (!ok) await new Promise<void>((r) => res.once("drain", r));
+        }
+        res.end();
+      } catch {
+        res.end();
+      }
+    };
+    pump();
+  } catch {
+    if (!res.headersSent) res.status(502).json({ error: "upstream error" });
   }
 });
 
