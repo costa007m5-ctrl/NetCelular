@@ -265,6 +265,16 @@ video{object-fit:cover;display:block}
     send({ type: 'error', msg: 'video error' });
   });
 
+  v.addEventListener('canplay', function() {
+    send({ type: 'canplay' });
+  });
+
+  v.addEventListener('progress', function() {
+    if (v.buffered && v.buffered.length > 0 && v.duration > 0) {
+      send({ type: 'buffer', pct: v.buffered.end(v.buffered.length - 1) / v.duration });
+    }
+  });
+
   v.addEventListener('stalled', function() {
     send({ type: 'buffering' });
   });
@@ -348,8 +358,15 @@ function ShortVideoCard({
   // baseUrl for the WebView srcdoc — must match CDN origin to avoid CORS
   const [webViewBaseUrl, setWebViewBaseUrl] = useState("https://hubby.cx");
   const [shared, setShared] = useState(false); // brief "Copiado!" feedback
+  // videoReady: true once video emits canplay — triggers poster crossfade
+  const [videoReady, setVideoReady] = useState(false);
   const webviewRef   = useRef<any>(null);
   const webVideoRef  = useRef<any>(null); // ref for web <video> element
+  const bufferBarRef = useRef<any>(null); // ref for web buffer bar <div>
+  // posterOpacity: 1 → 0 when video is ready (crossfade poster→video)
+  const posterOpacity = useRef(new Animated.Value(1)).current;
+  // bufferAnim: 0→1 for native buffer bar (driven by WebView postMessage)
+  const bufferAnim = useRef(new Animated.Value(0)).current;
 
   // Resolver WebView (hidden) — captures hubby.cx redirect URL on native
   // Same pattern as flix2-player.tsx
@@ -503,6 +520,24 @@ function ShortVideoCard({
     return () => { cancelled = true; };
   }, [isVisible]);
 
+  // Reset poster/ready state when card resets to idle
+  useEffect(() => {
+    if (videoState === "idle") {
+      setVideoReady(false);
+      posterOpacity.setValue(1);
+      bufferAnim.setValue(0);
+    }
+  }, [videoState]);
+
+  // Fade poster out when video is ready (crossfade poster → video)
+  useEffect(() => {
+    if (videoReady) {
+      Animated.timing(posterOpacity, {
+        toValue: 0, duration: 350, useNativeDriver: true,
+      }).start();
+    }
+  }, [videoReady]);
+
   // Inject play/pause when visibility changes (native WebView)
   useEffect(() => {
     if (videoState !== "playing" || !webviewRef.current) return;
@@ -598,9 +633,9 @@ function ShortVideoCard({
         />
       )}
 
-      {/* ── Background: video or TMDB backdrop ── */}
+      {/* ── Background: video layer ── */}
       {showWebVideo && finalUrl ? (
-        // Web: <video> element — iframe cannot play raw MP4 bytes from proxy
+        // Web: <video> element with canplay/progress events for crossfade + buffer bar
         React.createElement("video", {
           key: finalUrl,
           ref: webVideoRef,
@@ -613,6 +648,15 @@ function ShortVideoCard({
             position: "absolute" as const, top: 0, left: 0,
             width: "100%", height: "100%",
             objectFit: "cover", background: "#000",
+          },
+          onCanPlay: () => setVideoReady(true),
+          onPlaying: () => setVideoReady(true),
+          onProgress: (e: any) => {
+            const v = e.target;
+            if (bufferBarRef.current && v.buffered && v.buffered.length > 0 && v.duration > 0) {
+              const pct = v.buffered.end(v.buffered.length - 1) / v.duration;
+              bufferBarRef.current.style.width = `${Math.round(pct * 100)}%`;
+            }
           },
           onError: () => setVideoState("error"),
         })
@@ -636,18 +680,59 @@ function ShortVideoCard({
             try {
               const msg = JSON.parse(e.nativeEvent.data);
               if (msg.type === "error") setVideoState("error");
+              if (msg.type === "canplay") setVideoReady(true);
+              if (msg.type === "buffer" && typeof msg.pct === "number") {
+                Animated.timing(bufferAnim, {
+                  toValue: msg.pct, duration: 200, useNativeDriver: false,
+                }).start();
+              }
             } catch {}
           }}
           scrollEnabled={false}
           bounces={false}
         />
-      ) : (
+      ) : null}
+
+      {/* ── Poster crossfade overlay — always rendered, fades out on canplay ── */}
+      <Animated.View
+        style={[StyleSheet.absoluteFill, { opacity: posterOpacity }]}
+        pointerEvents="none"
+      >
         <Image
           source={{ uri: item.backdrop ?? undefined }}
           style={StyleSheet.absoluteFill}
           contentFit="cover"
-          transition={400}
+          transition={300}
         />
+      </Animated.View>
+
+      {/* ── Buffer progress bar (top of card) ── */}
+      {(showNativeVideo || showWebVideo) && (
+        <View style={s.bufferTrack} pointerEvents="none">
+          {isWeb ? (
+            // Web: direct DOM ref manipulation (no React state = no re-render)
+            React.createElement("div", {
+              ref: bufferBarRef,
+              style: {
+                height: "100%", width: "0%",
+                background: "#e50914", borderRadius: 2,
+                transition: "width 0.2s linear",
+              },
+            })
+          ) : (
+            // Native: Animated.View driven by postMessage buffer events
+            <Animated.View
+              style={[
+                s.bufferFill,
+                {
+                  width: bufferAnim.interpolate({
+                    inputRange: [0, 1], outputRange: ["0%", "100%"],
+                  }) as any,
+                },
+              ]}
+            />
+          )}
+        </View>
       )}
 
       {/* ── Top gradient ── */}
@@ -835,11 +920,18 @@ export default function ShortsScreen() {
     });
   }, [router]);
 
-  // Pre-fetch lookups for the next 2 items while the current one plays
+  // Pre-fetch lookups for the next 10 items so video starts instantly when the card appears
   useEffect(() => {
-    const targets = [items[visibleIndex + 1], items[visibleIndex + 2]].filter(Boolean);
+    const targets = items.slice(visibleIndex + 1, visibleIndex + 11).filter(Boolean);
     targets.forEach((it) => prefetchLookup(it));
   }, [visibleIndex, items]);
+
+  // On initial load, immediately prefetch the first 10 items
+  useEffect(() => {
+    if (items.length > 0) {
+      items.slice(0, 10).forEach((it) => prefetchLookup(it));
+    }
+  }, [items.length > 0]);
 
   const viewabilityConfig = useRef({ viewAreaCoveragePercentThreshold: 55 }).current;
   const onViewableItemsChanged = useRef(
@@ -993,6 +1085,15 @@ const s = StyleSheet.create({
   },
   dotActive: {
     backgroundColor: RED, height: 12, borderRadius: 3,
+  },
+
+  // Buffer progress bar
+  bufferTrack: {
+    position: "absolute", top: 0, left: 0, right: 0, height: 3,
+    backgroundColor: "rgba(255,255,255,0.15)", overflow: "hidden",
+  },
+  bufferFill: {
+    height: 3, backgroundColor: "#e50914", borderRadius: 2,
   },
 
   // Spinner
