@@ -862,6 +862,62 @@ function ShortVideoCard({
   );
 }
 
+// ─── TMDB genre ID → PT-BR name map ──────────────────────────────────────────
+const TMDB_GENRE_NAMES: Record<number, string> = {
+  // Movies
+  28:    "Ação",
+  12:    "Aventura",
+  16:    "Animação",
+  35:    "Comédia",
+  80:    "Crime",
+  99:    "Documentário",
+  18:    "Drama",
+  10751: "Família",
+  14:    "Fantasia",
+  36:    "História",
+  27:    "Terror",
+  10402: "Música",
+  9648:  "Mistério",
+  10749: "Romance",
+  878:   "Ficção Científica",
+  10770: "Telefilme",
+  53:    "Suspense",
+  10752: "Guerra",
+  37:    "Faroeste",
+  // TV extra
+  10759: "Ação/Aventura",
+  10762: "Infantil",
+  10763: "Notícias",
+  10764: "Reality",
+  10765: "Sci-Fi/Fantasia",
+  10766: "Novela",
+  10767: "Talk Show",
+  10768: "Guerra/Política",
+};
+
+// Short display names for the badge (space-constrained)
+const GENRE_SHORT: Record<number, string> = {
+  878:   "Sci-Fi",
+  10749: "Romance",
+  10751: "Família",
+  10752: "Guerra",
+  10759: "Ação/Av.",
+  10765: "Sci-Fi/Fan.",
+  10768: "Guerra/Pol.",
+};
+
+function genreName(id: number): string {
+  return GENRE_SHORT[id] ?? TMDB_GENRE_NAMES[id] ?? String(id);
+}
+
+// Returns top-N genre names sorted by view count
+function getTopGenreNames(prefs: Record<number, number>, n = 2): string[] {
+  return Object.entries(prefs)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, n)
+    .map(([id]) => genreName(Number(id)));
+}
+
 // ─── Genre preference store ───────────────────────────────────────────────────
 // Tracks which genres the user has watched in Shorts (AsyncStorage).
 // Updated every time a card is visible for 3+ seconds.
@@ -1133,12 +1189,16 @@ export default function ShortsScreen() {
             <View style={s.aiHeaderBadge}>
               <Text style={s.aiHeaderBadgeText}>IA</Text>
             </View>
-            {isPersonalized && (
-              <View style={s.personalizedBadge}>
-                <Feather name="star" size={9} color="#fff" />
-                <Text style={s.personalizedBadgeText}>Gosto</Text>
-              </View>
-            )}
+            {isPersonalized && (() => {
+              const names = getTopGenreNames(genrePrefs, 2);
+              const label = names.length > 0 ? names.join(", ") : "Gosto";
+              return (
+                <View style={s.personalizedBadge}>
+                  <Feather name="star" size={9} color="#fff" />
+                  <Text style={s.personalizedBadgeText}>{label}</Text>
+                </View>
+              );
+            })()}
           </View>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
             <TouchableOpacity
