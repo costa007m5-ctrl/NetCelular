@@ -9,6 +9,7 @@ import {
   Dimensions,
   FlatList,
   Platform,
+  RefreshControl,
   Share,
   StyleSheet,
   Text,
@@ -924,13 +925,14 @@ export default function ShortsScreen() {
   // Personalization state
   const [genrePrefs, setGenrePrefs] = useState<Record<number, number>>({});
   const [isPersonalized, setIsPersonalized] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const loadFeed = useCallback(async (p = 1) => {
+  const loadFeed = useCallback(async (p = 1, overridePrefs?: Record<number, number>) => {
     if (p === 1) setLoading(true);
     else setLoadingMore(true);
 
     // Load genre preferences from AsyncStorage and pass to feed
-    const prefs = await loadGenrePrefs();
+    const prefs = overridePrefs ?? await loadGenrePrefs();
     const topGenres = getTopGenreIds(prefs, 5);
     const { items: newItems, personalized } = await fetchShortsFeed(p, topGenres);
 
@@ -942,6 +944,20 @@ export default function ShortsScreen() {
     if (p === 1) setLoading(false);
     else setLoadingMore(false);
   }, []);
+
+  // Pull-to-refresh: clears genre preferences and reloads feed from scratch
+  const clearPrefsAndRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await AsyncStorage.removeItem(GENRE_PREFS_KEY);
+      setGenrePrefs({});
+      setIsPersonalized(false);
+      setVisibleIndex(0);
+      await loadFeed(1, {});
+    } finally {
+      setRefreshing(false);
+    }
+  }, [loadFeed]);
 
   // Load genre prefs on mount (for header badge)
   useEffect(() => {
@@ -1051,6 +1067,15 @@ export default function ShortsScreen() {
         onViewableItemsChanged={onViewableItemsChanged}
         onEndReached={loadMore}
         onEndReachedThreshold={2}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={clearPrefsAndRefresh}
+            tintColor={RED}
+            colors={[RED]}
+            progressBackgroundColor="#000"
+          />
+        }
         renderItem={({ item, index }) => (
           <ShortVideoCard
             item={item}
