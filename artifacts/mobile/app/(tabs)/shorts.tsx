@@ -403,9 +403,12 @@ function ShortVideoCard({
     injectMute(next);
   };
 
-  const showVideo = videoState === "playing" && finalUrl && !!WebView;
-  const html = showVideo
-    ? buildShortVideoHtml(finalUrl, item.startTimeSeconds, item.clipDurationSeconds, muted)
+  // Web: render native <iframe> — react-native-webview doesn't support web
+  // Native: render WebView with srcdoc (html template handles CDN playback)
+  const showWebVideo   = isWeb && videoState === "playing" && !!finalUrl;
+  const showNativeVideo = !isWeb && videoState === "playing" && !!finalUrl && !!WebView;
+  const html = showNativeVideo
+    ? buildShortVideoHtml(finalUrl!, item.startTimeSeconds, item.clipDurationSeconds, muted)
     : null;
 
   return (
@@ -431,8 +434,19 @@ function ShortVideoCard({
         />
       )}
 
-      {/* ── Background: WebView video or TMDB backdrop ── */}
-      {showVideo && html ? (
+      {/* ── Background: video or TMDB backdrop ── */}
+      {showWebVideo && finalUrl ? (
+        // Web: native <iframe> — react-native-webview doesn't run in a browser
+        React.createElement("iframe", {
+          src: finalUrl,
+          style: {
+            position: "absolute" as const, top: 0, left: 0,
+            width: "100%", height: "100%", border: "none",
+          },
+          allow: "autoplay; fullscreen",
+          allowFullScreen: true,
+        })
+      ) : showNativeVideo && html ? (
         <WebView
           ref={webviewRef}
           style={StyleSheet.absoluteFill}
@@ -511,8 +525,8 @@ function ShortVideoCard({
           label="Detalhes"
           onPress={() => onDetail(item)}
         />
-        {/* Mute toggle — só mostra quando o vídeo está tocando */}
-        {showVideo && (
+        {/* Mute toggle — só mostra quando o vídeo está tocando (nativo apenas) */}
+        {showNativeVideo && (
           <ActionBtn
             icon={muted ? "volume-x" : "volume-2"}
             label={muted ? "Som" : "Mudo"}
@@ -558,7 +572,7 @@ function ShortVideoCard({
             <Text style={s.watchBtnText}>Assistir completo</Text>
           </TouchableOpacity>
 
-          {showVideo && (
+          {(showWebVideo || showNativeVideo) && (
             <View style={s.clipPill}>
               <Feather name="scissors" size={10} color="rgba(255,255,255,0.7)" />
               <Text style={s.clipText}>{item.clipDurationSeconds}s</Text>
