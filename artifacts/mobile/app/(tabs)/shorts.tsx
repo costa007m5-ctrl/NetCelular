@@ -37,7 +37,10 @@ const IS_NATIVE = Platform.OS !== "web";
 // ─── CDN helpers (same logic as flix2-player) ─────────────────────────────────
 const FONTE_HOSTS = ["72yrci50ppqp71.com", "fontedecanais.me", "hubby.cx"];
 const isFonteUrl = (u: string) => FONTE_HOSTS.some((h) => u.includes(h));
-const isHubbyCx = (u: string) => u.includes("hubby.cx");
+const isHubbyCx  = (u: string) => u.includes("hubby.cx");
+// nixplay.lat is the Xtream CDN — returns 302 to fontedecanais on device IP.
+// Chrome (Android WebView) follows the redirect natively; no resolver needed.
+const isNixplay  = (u: string) => u.includes("nixplay.lat");
 // Upgrade http://fontedecanais:80 → https:// (porta 443 funciona)
 const fonteToHttps = (u: string) =>
   u.startsWith("http://")
@@ -345,7 +348,8 @@ function ShortVideoCard({
   // baseUrl for the WebView srcdoc — must match CDN origin to avoid CORS
   const [webViewBaseUrl, setWebViewBaseUrl] = useState("https://hubby.cx");
   const [shared, setShared] = useState(false); // brief "Copiado!" feedback
-  const webviewRef = useRef<any>(null);
+  const webviewRef   = useRef<any>(null);
+  const webVideoRef  = useRef<any>(null); // ref for web <video> element
 
   // Resolver WebView (hidden) — captures hubby.cx redirect URL on native
   // Same pattern as flix2-player.tsx
@@ -473,6 +477,17 @@ function ShortVideoCard({
           } catch { /* fall through */ }
         }
 
+        // Native + nixplay.lat: play directly — Chrome WebView follows 302 to
+        // fontedecanais natively on device IP (no server proxy needed).
+        // baseUrl="https://nixplay.lat" sets the Referer header for CDN auth.
+        if (IS_NATIVE && isNixplay(raw)) {
+          if (cancelled) return;
+          setWebViewBaseUrl("https://nixplay.lat");
+          setFinalUrl(raw);
+          setVideoState("playing");
+          return;
+        }
+
         // Level 3 (last resort): stream proxy — same URL as flix2-player uses
         if (cancelled) return;
         const proxied = getProxiedStreamUrl(raw);
@@ -488,13 +503,20 @@ function ShortVideoCard({
     return () => { cancelled = true; };
   }, [isVisible]);
 
-  // Inject play/pause when visibility changes
+  // Inject play/pause when visibility changes (native WebView)
   useEffect(() => {
     if (videoState !== "playing" || !webviewRef.current) return;
     const cmd = isVisible ? { type: "play" } : { type: "pause" };
     const js = `(function(){ var e = new MessageEvent('message',{data:'${JSON.stringify(cmd).replace(/'/g, "\\'")}'}); window.dispatchEvent(e); })(); true;`;
     webviewRef.current.injectJavaScript?.(js);
   }, [isVisible, videoState]);
+
+  // Play/pause web <video> element when card scrolls in/out
+  useEffect(() => {
+    if (!isWeb || videoState !== "playing" || !webVideoRef.current) return;
+    if (isVisible) { webVideoRef.current.play?.().catch(() => {}); }
+    else           { webVideoRef.current.pause?.(); }
+  }, [isVisible, videoState, isWeb]);
 
   // Animate info overlay
   useEffect(() => {
@@ -545,7 +567,7 @@ function ShortVideoCard({
     } catch { /* user dismissed or no clipboard API */ }
   }, [item, isWeb]);
 
-  // Web: render native <iframe> — react-native-webview doesn't support web
+  // Web: render native <video> element — iframe can't play raw video bytes from proxy
   // Native: render WebView with srcdoc (html template handles CDN playback)
   const showWebVideo   = isWeb && videoState === "playing" && !!finalUrl;
   const showNativeVideo = !isWeb && videoState === "playing" && !!finalUrl && !!WebView;
@@ -578,15 +600,21 @@ function ShortVideoCard({
 
       {/* ── Background: video or TMDB backdrop ── */}
       {showWebVideo && finalUrl ? (
-        // Web: native <iframe> — react-native-webview doesn't run in a browser
-        React.createElement("iframe", {
+        // Web: <video> element — iframe cannot play raw MP4 bytes from proxy
+        React.createElement("video", {
+          key: finalUrl,
+          ref: webVideoRef,
           src: finalUrl,
+          autoPlay: true,
+          playsInline: true,
+          muted: muted,
+          loop: false,
           style: {
             position: "absolute" as const, top: 0, left: 0,
-            width: "100%", height: "100%", border: "none",
+            width: "100%", height: "100%",
+            objectFit: "cover", background: "#000",
           },
-          allow: "autoplay; fullscreen",
-          allowFullScreen: true,
+          onError: () => setVideoState("error"),
         })
       ) : showNativeVideo && html ? (
         <WebView
