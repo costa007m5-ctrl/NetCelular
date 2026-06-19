@@ -45,12 +45,69 @@ const fonteToHttps = (u: string) =>
     : u;
 const BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
-// ─── Lookup pre-fetch cache ───────────────────────────────────────────────────
-// Stores raw hubby.cx stream URLs by item.id — populated by prefetchLookup().
-// ShortVideoCard reads this first so it can skip the API call and jump straight
-// to the WebView redirect resolver, saving 1-3 seconds of perceived latency.
-const LOOKUP_CACHE = new Map<string, string>(); // itemId → raw stream URL (hubby.cx)
+// ─── Lookup / episode cache ───────────────────────────────────────────────────
+// Stores playable stream URLs by item.id — populated by prefetchLookup().
+// For movies: raw hubby.cx URL from /flix2/lookup.
+// For series: URL of the picked "interesting" episode from /flix2/series-episodes.
+const LOOKUP_CACHE = new Map<string, string>(); // itemId → playable stream URL
 const PREFETCH_IN_FLIGHT = new Set<string>();   // itemIds currently being fetched
+
+// ── Episode picker — selects an "interesting" episode from a series ────────────
+// Strategy: avoid S1E1 (slow intros), prefer middle episodes from mid-seasons.
+type RawEpisode = { season: number; episode: number; stream_url: string };
+
+function pickInterestingEpisode(episodes: RawEpisode[]): RawEpisode | null {
+  if (episodes.length === 0) return null;
+
+  // Group by season
+  const bySeason = new Map<number, RawEpisode[]>();
+  for (const ep of episodes) {
+    if (!bySeason.has(ep.season)) bySeason.set(ep.season, []);
+    bySeason.get(ep.season)!.push(ep);
+  }
+  const seasons = [...bySeason.keys()].sort((a, b) => a - b);
+  const totalSeasons = seasons.length;
+
+  // Pick target season: prefer mid-series seasons (more interesting plot)
+  let targetSeason: number;
+  if (totalSeasons >= 3) {
+    // Pick season 2 or 3 for peak-TV quality
+    const midSeasons = seasons.slice(1, 3);
+    targetSeason = midSeasons[Math.floor(Math.random() * midSeasons.length)];
+  } else {
+    // 1-2 seasons: use whatever is available
+    targetSeason = seasons[Math.floor(Math.random() * totalSeasons)];
+  }
+
+  const pool = (bySeason.get(targetSeason) ?? []).filter((ep) => {
+    // Skip S1E1 and S1E2 — usually slow exposition
+    if (ep.season === 1 && ep.episode <= 2) return false;
+    return true;
+  });
+  const finalPool = pool.length > 0 ? pool : (bySeason.get(targetSeason) ?? episodes);
+
+  // Pick randomly from the pool (avoid always showing the same episode)
+  return finalPool[Math.floor(Math.random() * finalPool.length)] ?? null;
+}
+
+// ── Resolve series → episode stream URL ───────────────────────────────────────
+async function resolveSeriesEpisode(seriesId: string, base: string): Promise<string> {
+  // Check episodes cache first
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 12000);
+  try {
+    const res = await fetch(`${base}/r2/flix2/series-episodes?seriesId=${seriesId}`, { signal: ctrl.signal });
+    clearTimeout(t);
+    if (!res.ok) return "";
+    const data = await res.json() as any;
+    if (!data.found || !Array.isArray(data.episodes) || data.episodes.length === 0) return "";
+    const picked = pickInterestingEpisode(data.episodes as RawEpisode[]);
+    return picked?.stream_url ?? "";
+  } catch {
+    clearTimeout(t);
+    return "";
+  }
+}
 
 async function prefetchLookup(item: ShortItem): Promise<void> {
   // Skip if already cached or in flight
@@ -66,9 +123,19 @@ async function prefetchLookup(item: ShortItem): Promise<void> {
     clearTimeout(t);
     if (!res.ok) return;
     const data = await res.json() as any;
-    const raw: string = data.item?.stream_url ?? "";
-    const isDirectVideo = raw.length > 0 && !raw.startsWith("flix2id:") && !raw.includes("player_api.php") && raw !== "null";
-    if (data.found && isDirectVideo) LOOKUP_CACHE.set(item.id, raw);
+    if (!data.found) return;
+
+    let raw: string = data.item?.stream_url ?? "";
+    const isDirectVideo = (u: string) =>
+      u.length > 0 && !u.startsWith("flix2id:") && !u.includes("player_api.php") && u !== "null";
+
+    if (!isDirectVideo(raw)) {
+      // Series: no direct URL — pick a random episode
+      const seriesId = String(data.item?.id ?? data.item?.series_id ?? "");
+      if (seriesId) raw = await resolveSeriesEpisode(seriesId, base);
+    }
+
+    if (isDirectVideo(raw)) LOOKUP_CACHE.set(item.id, raw);
   } catch {
     clearTimeout(t);
   } finally {
