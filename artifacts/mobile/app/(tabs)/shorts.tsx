@@ -339,6 +339,9 @@ function ShortVideoCard({
         // was playing, skip the API call entirely and go straight to CDN resolution.
         let raw = LOOKUP_CACHE.get(item.id) ?? "";
 
+        const isDirectVideo = (u: string) =>
+          u.length > 0 && !u.startsWith("flix2id:") && !u.includes("player_api.php") && u !== "null";
+
         if (!raw) {
           // Cache miss — do the lookup now (AbortSignal.timeout crashes on Hermes)
           const ctrl = new AbortController();
@@ -351,9 +354,19 @@ function ShortVideoCard({
             if (cancelled) return;
             if (!res.ok) throw new Error("lookup failed");
             const data = await res.json() as any;
+            if (!data.found) { setVideoState("error"); return; }
+
             raw = data.item?.stream_url ?? "";
-            const isDirectVideo = raw.length > 0 && !raw.startsWith("flix2id:") && !raw.includes("player_api.php") && raw !== "null";
-            if (!data.found || !isDirectVideo) { setVideoState("error"); return; }
+
+            // ── Series: stream_url is null — fetch episodes and pick one ─────────
+            if (!isDirectVideo(raw)) {
+              const seriesId = String(data.item?.id ?? data.item?.series_id ?? "");
+              if (!seriesId) { setVideoState("error"); return; }
+              raw = await resolveSeriesEpisode(seriesId, base);
+              if (cancelled) return;
+            }
+
+            if (!isDirectVideo(raw)) { setVideoState("error"); return; }
             // Store in cache for future use
             LOOKUP_CACHE.set(item.id, raw);
           } catch {
@@ -364,9 +377,7 @@ function ShortVideoCard({
         }
 
         if (cancelled) return;
-        // Validate cached/fetched URL
-        const isDirectVideo = raw.length > 0 && !raw.startsWith("flix2id:") && !raw.includes("player_api.php") && raw !== "null";
-        if (!isDirectVideo) { setVideoState("error"); return; }
+        if (!isDirectVideo(raw)) { setVideoState("error"); return; }
 
         if (isWeb) {
           // Web: use the same proxy as flix2-player → /api/stream/proxy
