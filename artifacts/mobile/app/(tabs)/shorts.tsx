@@ -9,6 +9,7 @@ import {
   Dimensions,
   FlatList,
   Platform,
+  Share,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -235,6 +236,7 @@ function ShortVideoCard({
   // baseUrl for the WebView srcdoc — must match CDN origin to avoid CORS
   const [webViewBaseUrl, setWebViewBaseUrl] = useState("https://hubby.cx");
   const [muted, setMuted] = useState(true);
+  const [shared, setShared] = useState(false); // brief "Copiado!" feedback
   const webviewRef = useRef<any>(null);
 
   // Resolver WebView (hidden) — captures hubby.cx redirect URL on native
@@ -403,6 +405,24 @@ function ShortVideoCard({
     injectMute(next);
   };
 
+  // ── Share ─────────────────────────────────────────────────────────────────────
+  const handleShare = useCallback(async () => {
+    const emoji = item.type === "movie" ? "🎬" : "📺";
+    const stars = "⭐".repeat(Math.round(item.rating / 2));
+    const msg = `${emoji} ${item.title} (${item.year}) ${stars}\n\nAssistindo no NETPLAY — o melhor streaming! 🍿`;
+
+    try {
+      if (isWeb) {
+        // Web: copy to clipboard + brief icon feedback
+        await navigator.clipboard?.writeText(msg);
+        setShared(true);
+        setTimeout(() => setShared(false), 2000);
+      } else {
+        await Share.share({ message: msg, title: item.title });
+      }
+    } catch { /* user dismissed or no clipboard API */ }
+  }, [item, isWeb]);
+
   // Web: render native <iframe> — react-native-webview doesn't support web
   // Native: render WebView with srcdoc (html template handles CDN playback)
   const showWebVideo   = isWeb && videoState === "playing" && !!finalUrl;
@@ -516,9 +536,10 @@ function ShortVideoCard({
           onPress={() => onSave(item.id)}
         />
         <ActionBtn
-          icon="share-2"
-          label="Partilhar"
-          onPress={() => {}}
+          icon={shared ? "check" : "share-2"}
+          label={shared ? "Copiado!" : "Partilhar"}
+          color={shared ? "#4ade80" : "#fff"}
+          onPress={handleShare}
         />
         <ActionBtn
           icon="info"
