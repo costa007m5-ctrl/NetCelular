@@ -5517,4 +5517,32 @@ router.get("/veo/stats", (_req, res) => {
   res.json({ ok: true, enabled: veoSettings.enabled, totalItems, settings: veoSettings, types: typeStats });
 });
 
+/**
+ * Check whether a title is available in the Flix 2.0 Xtream catalog.
+ * Uses the in-memory FLIX2_INDEX_CACHE (built during warm-up, 15k+ entries).
+ * Tries TMDB-ID key first, then falls back to normalized title key.
+ * Returns false when the cache isn't warm yet (server just started).
+ */
+export function isFlixAvailable(tmdbId: number, title: string, contentType: "movie" | "tv"): boolean {
+  const types = contentType === "movie" ? ["movies"] : ["series", "animes"];
+  const normTitle = normalizeTitleForSearch(title);
+  const titleKey  = normTitle ? `title:${normTitle}` : "";
+
+  for (const t of types) {
+    const cached = FLIX2_INDEX_CACHE.get(t);
+    if (!cached) continue;
+    const idx = cached.index;
+    // 1. TMDB-ID key (fast path — only works when provider sends tmdb_id)
+    if (tmdbId > 0 && idx[String(tmdbId)]) return true;
+    // 2. Title key — covers the majority of items (provider doesn't always send TMDB IDs)
+    if (titleKey && idx[titleKey]) return true;
+  }
+  return false;
+}
+
+/** Returns true when at least one Flix 2.0 index has been built (cache is warm). */
+export function isFlixCacheWarm(): boolean {
+  return FLIX2_INDEX_CACHE.size > 0;
+}
+
 export default router;

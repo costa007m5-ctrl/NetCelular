@@ -14,7 +14,7 @@
 
 import { Router } from "express";
 import { scoreScene } from "../lib/scene-scorer";
-import { getIdsByType } from "../lib/redeflix-cache";
+import { isFlixAvailable, isFlixCacheWarm } from "./r2";
 
 const router = Router();
 
@@ -191,20 +191,13 @@ async function buildFeed(type: "all" | "movie" | "tv", limit: number): Promise<S
   addItems(topMovies?.results ?? [], "movie");
   addItems(topTv?.results ?? [], "tv");
 
-  // 3. Check Flix 2.0 availability and promote those items
-  let movieFlix2Ids: Set<number> = new Set();
-  let tvFlix2Ids: Set<number> = new Set();
-  try {
-    movieFlix2Ids = new Set(getIdsByType("movie"));
-    tvFlix2Ids = new Set(getIdsByType("tv") as number[]);
-  } catch {}
+  // 3. Check Flix 2.0 availability using the in-memory title index (FLIX2_INDEX_CACHE).
+  // isFlixAvailable() checks both TMDB-ID key and normalized-title key — covers all items
+  // even when the Xtream provider doesn't send tmdb_id in the catalog response.
+  const cacheIsWarm = isFlixCacheWarm();
 
   for (const item of raw) {
-    if (item.type === "movie" && movieFlix2Ids.has(item.tmdbId)) {
-      item.availableOnFlix2 = true;
-    } else if (item.type === "tv" && tvFlix2Ids.has(item.tmdbId)) {
-      item.availableOnFlix2 = true;
-    }
+    item.availableOnFlix2 = isFlixAvailable(item.tmdbId, item.title, item.type);
   }
 
   // 4. Sort: Flix 2.0 available first, then by rating
@@ -215,7 +208,7 @@ async function buildFeed(type: "all" | "movie" | "tv", limit: number): Promise<S
     return b.rating - a.rating;
   });
 
-  // 5. Shuffle within each group (available / not-available) for variety
+  // 5. Shuffle within each group for variety
   function shuffleGroup(arr: ShortsItem[]): ShortsItem[] {
     for (let i = arr.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -225,7 +218,8 @@ async function buildFeed(type: "all" | "movie" | "tv", limit: number): Promise<S
   }
 
   const available = shuffleGroup(raw.filter((i) => i.availableOnFlix2));
-  const final = available.slice(0, Math.max(limit, 50));
+  // When cache is cold, fall back to all items so the screen isn't empty
+  const final = (cacheIsWarm ? available : shuffleGroup(raw)).slice(0, Math.max(limit, 50));
 
   FEED_CACHE.set(cacheKey, { items: final, cachedAt: Date.now() });
   return final;
