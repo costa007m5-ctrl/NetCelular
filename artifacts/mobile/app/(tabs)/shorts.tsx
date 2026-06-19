@@ -340,6 +340,7 @@ function ShortVideoCard({
   onLike,
   onSave,
   onDetail,
+  onMoreLikeThis,
 }: {
   item: ShortItem;
   isVisible: boolean;
@@ -348,6 +349,7 @@ function ShortVideoCard({
   onLike: (id: string) => void;
   onSave: (id: string) => void;
   onDetail: (item: ShortItem) => void;
+  onMoreLikeThis: (item: ShortItem) => void;
 }) {
   const insets = useSafeAreaInsets();
   const isWeb = Platform.OS === "web";
@@ -360,6 +362,7 @@ function ShortVideoCard({
   // baseUrl for the WebView srcdoc — must match CDN origin to avoid CORS
   const [webViewBaseUrl, setWebViewBaseUrl] = useState("https://hubby.cx");
   const [shared, setShared] = useState(false); // brief "Copiado!" feedback
+  const [boosted, setBoosted] = useState(false); // brief "Feed atualizado!" feedback
   // videoReady: true once video emits canplay — triggers poster crossfade
   const [videoReady, setVideoReady] = useState(false);
   const webviewRef   = useRef<any>(null);
@@ -823,11 +826,28 @@ function ShortVideoCard({
           </View>
         </View>
 
-        {/* Watch full + clip info */}
+        {/* Watch full + clip info + Mais como este */}
         <View style={s.bottomRow}>
           <TouchableOpacity style={s.watchBtn} onPress={() => onDetail(item)} activeOpacity={0.85}>
             <Feather name="play-circle" size={15} color="#fff" />
             <Text style={s.watchBtnText}>Assistir completo</Text>
+          </TouchableOpacity>
+
+          {/* "Mais como este" — boosts this item's genres in the feed */}
+          <TouchableOpacity
+            style={[s.moreBtn, boosted && s.moreBtnActive]}
+            activeOpacity={0.75}
+            onPress={() => {
+              if (boosted) return;
+              setBoosted(true);
+              onMoreLikeThis(item);
+              setTimeout(() => setBoosted(false), 3000);
+            }}
+          >
+            <Feather name={boosted ? "check" : "sliders"} size={13} color={boosted ? "#4ade80" : "#fff"} />
+            <Text style={[s.moreBtnText, boosted && { color: "#4ade80" }]}>
+              {boosted ? "Feed atualizado!" : "Mais como este"}
+            </Text>
           </TouchableOpacity>
 
           {(showWebVideo || showNativeVideo) && (
@@ -986,6 +1006,17 @@ export default function ShortsScreen() {
     });
   }, [router]);
 
+  // "Mais como este" — heavily boost this item's genres (×5) then reload feed
+  const onMoreLikeThis = useCallback(async (item: ShortItem) => {
+    if (!item.genreIds?.length) return;
+    // Boost each genre 5× for instant strong signal
+    await recordGenreView([...item.genreIds, ...item.genreIds, ...item.genreIds, ...item.genreIds, ...item.genreIds]);
+    const updated = await loadGenrePrefs();
+    setGenrePrefs(updated);
+    await loadFeed(1, updated);
+    setVisibleIndex(0);
+  }, [loadFeed]);
+
   // Record genre view after card is visible for 3s — builds personalization profile
   useEffect(() => {
     const item = items[visibleIndex];
@@ -1085,6 +1116,7 @@ export default function ShortsScreen() {
             onLike={onLike}
             onSave={onSave}
             onDetail={onDetail}
+            onMoreLikeThis={onMoreLikeThis}
           />
         )}
         getItemLayout={(_, index) => ({ length: H, offset: H * index, index })}
@@ -1258,6 +1290,15 @@ const s = StyleSheet.create({
     paddingVertical: 9, paddingHorizontal: 16,
   },
   watchBtnText: { color: "#fff", fontSize: 13, fontWeight: "800" },
+  moreBtn: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    backgroundColor: "rgba(255,255,255,0.15)", borderRadius: 10,
+    paddingVertical: 9, paddingHorizontal: 12,
+  },
+  moreBtnActive: {
+    backgroundColor: "rgba(74,222,128,0.18)",
+  },
+  moreBtnText: { color: "#fff", fontSize: 12, fontWeight: "700" },
   clipPill: {
     flexDirection: "row", alignItems: "center", gap: 4,
     backgroundColor: "rgba(255,255,255,0.15)", borderRadius: 20,
