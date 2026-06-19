@@ -23,6 +23,7 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { getApiBase } from "@/lib/api";
+import { getProxiedStreamUrl } from "@/lib/gdrive-index";
 import { ProfileAvatarButton } from "@/components/ProfileAvatarButton";
 
 let WebView: any = null;
@@ -31,6 +32,17 @@ try { WebView = require("react-native-webview").WebView; } catch {}
 const { width: W, height: H } = Dimensions.get("window");
 const RED = "#e50914";
 const IS_NATIVE = Platform.OS !== "web";
+
+// ─── CDN helpers (same logic as flix2-player) ─────────────────────────────────
+const FONTE_HOSTS = ["72yrci50ppqp71.com", "fontedecanais.me", "hubby.cx"];
+const isFonteUrl = (u: string) => FONTE_HOSTS.some((h) => u.includes(h));
+const isHubbyCx = (u: string) => u.includes("hubby.cx");
+// Upgrade http://fontedecanais:80 → https:// (porta 443 funciona)
+const fonteToHttps = (u: string) =>
+  u.startsWith("http://")
+    ? u.replace(/^http:\/\//, "https://").replace(/:80(\/|$|\?)/, (_, s: string) => s ?? "")
+    : u;
+const BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -187,15 +199,30 @@ function ShortVideoCard({
   const bottomPad = isWeb ? 34 : insets.bottom;
 
   const [videoState, setVideoState] = useState<VideoState>("idle");
-  const [streamUrl, setStreamUrl] = useState<string | null>(null);
+  // finalUrl is the resolved playable URL (fontedecanais HTTPS, or proxied URL)
+  const [finalUrl, setFinalUrl] = useState<string | null>(null);
+  // baseUrl for the WebView srcdoc — must match CDN origin to avoid CORS
+  const [webViewBaseUrl, setWebViewBaseUrl] = useState("https://hubby.cx");
   const [muted, setMuted] = useState(true);
   const webviewRef = useRef<any>(null);
+
+  // Resolver WebView (hidden) — captures hubby.cx redirect URL on native
+  // Same pattern as flix2-player.tsx
+  const [resolverUrl, setResolverUrl] = useState<string | null>(null);
+  const resolverCallbackRef = useRef<((url: string) => void) | null>(null);
+  const resolverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const infoY   = useRef(new Animated.Value(30)).current;
   const infoOp  = useRef(new Animated.Value(0)).current;
   const aiBadgeScale = useRef(new Animated.Value(0)).current;
 
-  // Resolve stream URL when visible — calls flix2/lookup directly
+  // ── Resolve stream URL when visible ─────────────────────────────────────────
+  // Mirrors flix2-player loadVideoUrl() exactly:
+  //   1. Lookup Flix2 catalog → get hubby.cx URL
+  //   2. Native + hubby.cx → resolver WebView captures fontedecanais redirect URL
+  //   3. Server fallback → /api/admin/check-link → location header
+  //   4. Last resort → /api/stream/proxy (same proxy used by flix2-player)
+  //   5. Web → getProxiedStreamUrl() → /api/stream/proxy
   useEffect(() => {
     if (!isVisible || videoState !== "idle") return;
 
@@ -205,33 +232,80 @@ function ShortVideoCard({
     const resolve = async () => {
       // AbortSignal.timeout() crashes on Hermes — always use AbortController+setTimeout
       const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 8000);
+      const timer = setTimeout(() => ctrl.abort(), 10000);
       try {
-        const base = getApiBase(); // sync — /api on web, https://domain/api on native
+        const base = getApiBase();
         const catalogType = item.type === "movie" ? "movies" : "series";
-        const url = `${base}/r2/flix2/lookup?tmdbId=${item.tmdbId}&type=${catalogType}&title=${encodeURIComponent(item.title)}`;
-        const res = await fetch(url, { signal: ctrl.signal });
+        const lookupUrl = `${base}/r2/flix2/lookup?tmdbId=${item.tmdbId}&type=${catalogType}&title=${encodeURIComponent(item.title)}&year=${item.year ?? ""}`;
+        const res = await fetch(lookupUrl, { signal: ctrl.signal });
         clearTimeout(timer);
         if (cancelled) return;
         if (!res.ok) throw new Error("lookup failed");
         const data = await res.json() as any;
         const raw: string = data.item?.stream_url ?? "";
-        // Only accept direct video URLs — series info URLs (player_api.php) not playable
-        const isDirectVideo = raw.length > 0 && !raw.startsWith("flix2id:") && !raw.includes("player_api.php");
-        if (data.found && isDirectVideo) {
-          // On web, stream URLs are HTTP (after hubby.cx redirect) → blocked as mixed content.
-          // Route through our HTTPS proxy. Use absolute URL — srcdoc iframes need it.
-          let finalUrl = raw;
-          if (isWeb && raw.startsWith("https://hubby.cx/")) {
-            const origin = typeof window !== "undefined" && window.location?.origin
-              ? window.location.origin : "";
-            finalUrl = `${origin}/api/shorts/stream-proxy?url=${encodeURIComponent(raw)}`;
-          }
-          setStreamUrl(finalUrl);
+        // Only accept direct video URLs — series player_api.php not playable
+        const isDirectVideo = raw.length > 0 && !raw.startsWith("flix2id:") && !raw.includes("player_api.php") && raw !== "null";
+        if (!data.found || !isDirectVideo) { setVideoState("error"); return; }
+
+        if (isWeb) {
+          // Web: use the same proxy as flix2-player → /api/stream/proxy
+          const proxied = getProxiedStreamUrl(raw);
+          setWebViewBaseUrl(typeof window !== "undefined" ? window.location.origin : "");
+          setFinalUrl(proxied);
           setVideoState("playing");
-        } else {
-          setVideoState("error");
+          return;
         }
+
+        // ── Native: resolve hubby.cx redirect via device WebView (same as flix2-player) ──
+        if (isHubbyCx(raw) && WebView) {
+          let capturedUrl: string | null = null;
+          try {
+            capturedUrl = await new Promise<string>((resolve2, reject2) => {
+              resolverCallbackRef.current = resolve2;
+              resolverTimerRef.current = setTimeout(() => {
+                resolverCallbackRef.current = null;
+                reject2(new Error("timeout"));
+              }, 8000);
+              setResolverUrl(raw);
+            });
+          } catch { /* timeout — fall through to server-side */ } finally {
+            if (resolverTimerRef.current) { clearTimeout(resolverTimerRef.current); resolverTimerRef.current = null; }
+            setResolverUrl(null);
+          }
+
+          if (capturedUrl && isFonteUrl(capturedUrl)) {
+            if (cancelled) return;
+            setWebViewBaseUrl("https://hubby.cx");
+            setFinalUrl(fonteToHttps(capturedUrl));
+            setVideoState("playing");
+            return;
+          }
+
+          // Level 2: server-side check-link (HEAD request captures 302 Location)
+          try {
+            const ctrl2 = new AbortController();
+            const t2 = setTimeout(() => ctrl2.abort(), 6000);
+            const r2 = await fetch(`${base}/admin/check-link?url=${encodeURIComponent(raw)}`, { signal: ctrl2.signal });
+            clearTimeout(t2);
+            if (r2.ok) {
+              const d2 = await r2.json();
+              if (d2.location && d2.location !== raw) {
+                if (cancelled) return;
+                setWebViewBaseUrl("https://hubby.cx");
+                setFinalUrl(fonteToHttps(d2.location));
+                setVideoState("playing");
+                return;
+              }
+            }
+          } catch { /* fall through */ }
+        }
+
+        // Level 3 (last resort): stream proxy — same URL as flix2-player uses
+        if (cancelled) return;
+        const proxied = getProxiedStreamUrl(raw);
+        setWebViewBaseUrl(base.replace(/\/api$/, ""));
+        setFinalUrl(proxied);
+        setVideoState("playing");
       } catch {
         clearTimeout(timer);
         if (!cancelled) setVideoState("error");
@@ -242,7 +316,7 @@ function ShortVideoCard({
     return () => { cancelled = true; };
   }, [isVisible]);
 
-  // Inject play/pause commands when visibility changes
+  // Inject play/pause when visibility changes
   useEffect(() => {
     if (videoState !== "playing" || !webviewRef.current) return;
     const cmd = isVisible ? { type: "play" } : { type: "pause" };
@@ -278,28 +352,51 @@ function ShortVideoCard({
     injectMute(next);
   };
 
-  // On web: WebView renders as <iframe srcdoc>, stream goes through HTTPS proxy
-  // On native: WebView renders natively with direct CDN URL
-  const showVideo = videoState === "playing" && streamUrl && !!WebView;
-  const showProxyVideo = false; // replaced by unified WebView approach above
-
+  const showVideo = videoState === "playing" && finalUrl && !!WebView;
   const html = showVideo
-    ? buildShortVideoHtml(streamUrl, item.startTimeSeconds, item.clipDurationSeconds, muted)
+    ? buildShortVideoHtml(finalUrl, item.startTimeSeconds, item.clipDurationSeconds, muted)
     : null;
 
   return (
     <View style={{ width: W, height: H }}>
+
+      {/* ── Hidden resolver WebView (native only) — captures hubby.cx → fontedecanais redirect ── */}
+      {resolverUrl && WebView && IS_NATIVE && (
+        <WebView
+          style={{ width: 0, height: 0, position: "absolute" }}
+          source={{ uri: resolverUrl }}
+          userAgent={BROWSER_UA}
+          onShouldStartLoadWithRequest={(req: any) => {
+            const url: string = req.url ?? "";
+            if (isFonteUrl(url) && !isHubbyCx(url)) {
+              if (resolverCallbackRef.current) {
+                resolverCallbackRef.current(url);
+                resolverCallbackRef.current = null;
+              }
+              return false; // don't navigate — we captured the URL
+            }
+            return true;
+          }}
+        />
+      )}
 
       {/* ── Background: WebView video or TMDB backdrop ── */}
       {showVideo && html ? (
         <WebView
           ref={webviewRef}
           style={StyleSheet.absoluteFill}
-          source={{ html }}
+          source={{ html, baseUrl: webViewBaseUrl }}
           allowsInlineMediaPlayback
           mediaPlaybackRequiresUserAction={false}
           allowsAirPlayForMediaPlayback={false}
           javaScriptEnabled
+          domStorageEnabled
+          originWhitelist={["*"]}
+          mixedContentMode="always"
+          allowsProtectedMedia
+          setSupportMultipleWindows={false}
+          overScrollMode="never"
+          userAgent={BROWSER_UA}
           onMessage={(e: any) => {
             try {
               const msg = JSON.parse(e.nativeEvent.data);
@@ -309,21 +406,6 @@ function ShortVideoCard({
           scrollEnabled={false}
           bounces={false}
         />
-      ) : showProxyVideo ? (
-        // Web: backdrop + play icon overlay (stream URLs are HTTP, blocked as mixed content on web)
-        <View style={StyleSheet.absoluteFill}>
-          <Image
-            source={{ uri: item.backdrop ?? undefined }}
-            style={StyleSheet.absoluteFill}
-            contentFit="cover"
-          />
-          <View style={s.webPlayOverlay} pointerEvents="none">
-            <View style={s.webPlayCircle}>
-              <Feather name="play" size={32} color="#fff" />
-            </View>
-            <Text style={s.webPlayLabel}>Abra no app para assistir</Text>
-          </View>
-        </View>
       ) : (
         <Image
           source={{ uri: item.backdrop ?? undefined }}
@@ -440,20 +522,25 @@ function ShortVideoCard({
 // ─── Fetch shorts feed ────────────────────────────────────────────────────────
 
 async function fetchShortsFeed(page = 1): Promise<ShortItem[]> {
+  // AbortSignal.timeout() crashes on Hermes — use AbortController+setTimeout
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 10000);
   try {
     const base = getApiBase();
     const res = await fetch(`${base}/shorts/feed?page=${page}&limit=20`, {
-      signal: AbortSignal.timeout(10000),
+      signal: ctrl.signal,
     });
+    clearTimeout(t);
     if (!res.ok) throw new Error("feed error");
     const data = await res.json() as any;
-    return (data.items ?? []).map((item: any, i: number) => ({
+    return (data.items ?? []).map((item: any) => ({
       ...item,
       liked: false,
       likes: Math.floor(Math.random() * 9000) + 1000,
       saved: false,
     }));
   } catch {
+    clearTimeout(t);
     return [];
   }
 }
@@ -731,19 +818,4 @@ const s = StyleSheet.create({
     color: "rgba(255,255,255,0.7)", fontSize: 11, fontWeight: "600",
   },
 
-  // Web-only play overlay
-  webPlayOverlay: {
-    position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
-    alignItems: "center", justifyContent: "center", gap: 12,
-  },
-  webPlayCircle: {
-    width: 72, height: 72, borderRadius: 36,
-    backgroundColor: "rgba(229,9,20,0.85)",
-    alignItems: "center", justifyContent: "center",
-    borderWidth: 2, borderColor: "rgba(255,255,255,0.4)",
-  },
-  webPlayLabel: {
-    color: "rgba(255,255,255,0.8)", fontSize: 13, fontWeight: "700",
-    textShadowColor: "rgba(0,0,0,0.9)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4,
-  },
 });

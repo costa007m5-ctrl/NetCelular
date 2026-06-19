@@ -12,9 +12,10 @@ description: How the Shorts TikTok-style feed resolves and plays Flix2 videos on
 ## Key fixes
 
 - **`enrichItem()` in r2.ts `/flix2/lookup`**: when a found item has `stream_url: null/""` and type=`"filme"`, builds URL as `${FLIX2_SERVER}/movie/${FLIX2_USER}/${FLIX2_PASS}/${item.id}.${ext}`. Applied on ALL return paths (Path 2a warm, 2b partial, 3 raw).
-- **Web proxy URL must be absolute**: `srcdoc` iframes resolve relative URLs relative to `null` origin; use `window.location.origin + "/api/shorts/stream-proxy?url="` so the browser can resolve the URL.
-- **`showVideo` no longer gated on `IS_NATIVE`**: WebView renders as `<iframe srcdoc>` on web, plays the proxied HTTPS video URL fine.
-- **`showProxyVideo` overlay removed**: replaced by unified WebView approach for both platforms.
+- **Resolver WebView (hidden)**: `ShortVideoCard` uses same pattern as `flix2-player.tsx` — a 0x0 WebView loads the hubby.cx URL; `onShouldStartLoadWithRequest` captures the 302 redirect to fontedecanais before the WebView navigates. This resolves the CDN URL on the device (device IP is accepted; datacenter IPs are blocked).
+- **WebView props must match flix2-player**: `mixedContentMode="always"`, `userAgent=BROWSER_UA`, `domStorageEnabled`, `originWhitelist={["*"]}`, `setSupportMultipleWindows={false}`, `source={{ html, baseUrl }}` — all required for APK video playback.
+- **Web uses `getProxiedStreamUrl()`** from `lib/gdrive-index.ts` → `/api/stream/proxy?url=...` (same proxy as flix2-player). NOT the custom `/api/shorts/stream-proxy` endpoint.
+- **`fetchShortsFeed` fixed**: replaced `AbortSignal.timeout()` (crashes Hermes) with `AbortController+setTimeout`.
 
 ## Route mount structure
 
