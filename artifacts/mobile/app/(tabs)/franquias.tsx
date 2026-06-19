@@ -27,6 +27,7 @@ import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
+import { ProfileAvatarButton } from "@/components/ProfileAvatarButton";
 import { HeroBanner } from "@/components/HeroBanner";
 import { TopTenCard } from "@/components/TopTenCard";
 import { SearchTriggerBar } from "@/components/SearchTriggerBar";
@@ -925,10 +926,14 @@ export default function FranquiasScreen() {
             <Text style={q.logoGold}>FRAN</Text>
             <Text style={q.logoWhite}>QUIAS</Text>
           </View>
-          <View style={{ flexDirection: "row", gap: 4 }}>
+          <View style={{ flexDirection: "row", gap: 4, alignItems: "center" }}>
+            <TouchableOpacity style={q.iconBtn} onPress={() => router.push("/buscar" as any)} activeOpacity={0.75}>
+              <Feather name="search" size={20} color="rgba(255,255,255,0.82)" />
+            </TouchableOpacity>
             <TouchableOpacity style={q.iconBtn} onPress={() => router.push("/(tabs)/list" as any)} activeOpacity={0.75}>
               <Feather name="bookmark" size={20} color="rgba(255,255,255,0.82)" />
             </TouchableOpacity>
+            <ProfileAvatarButton />
           </View>
         </View>
       </Animated.View>

@@ -10,6 +10,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
@@ -18,6 +19,7 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
+import { ProfileAvatarButton } from "@/components/ProfileAvatarButton";
 import {
   liveTvApi,
   LiveChannel,
@@ -755,6 +757,21 @@ export default function CanaisScreen() {
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       <StatusBar style="light" />
 
+      {/* ── Profile + Search top-right overlay (always touchable) ── */}
+      <View
+        style={[styles.topActions, { top: topInset + 8 }]}
+        pointerEvents="box-none"
+      >
+        <TouchableOpacity
+          style={styles.iconBtn}
+          onPress={() => router.push("/buscar")}
+          activeOpacity={0.75}
+        >
+          <Feather name="search" size={20} color="rgba(255,255,255,0.82)" />
+        </TouchableOpacity>
+        <ProfileAvatarButton />
+      </View>
+
       {/* Sticky floating header */}
       <Animated.View
         style={[
@@ -1069,6 +1086,15 @@ export default function CanaisScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   center: { alignItems: "center", justifyContent: "center", gap: 12 },
+
+  // ── Top-right avatar overlay
+  topActions: {
+    position: "absolute", right: 10, zIndex: 200,
+    flexDirection: "row", alignItems: "center", gap: 0,
+  },
+  iconBtn: {
+    width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: 20,
+  },
 
   // ── Sticky header
   stickyHeader: {

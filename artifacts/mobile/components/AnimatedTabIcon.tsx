@@ -13,7 +13,7 @@ import {
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 
-export type TabIconType = "home" | "bell" | "tv" | "film" | "star" | "user";
+export type TabIconType = "home" | "bell" | "tv" | "film" | "star" | "user" | "scissors";
 
 interface Props {
   type: TabIconType;
@@ -523,17 +523,77 @@ function UserIcon({ color, size, focused }: { color: string; size: number; focus
   );
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// ✂️  SHORTS — TikTok-style clip flash
+//   On focus: scissors snap + vertical scan line wipe
+//   Idle: slow rhythmic pulse
+// ══════════════════════════════════════════════════════════════════════════════
+function ScissorsIcon({ color, size, focused }: { color: string; size: number; focused: boolean }) {
+  const scale       = useRef(new Animated.Value(1)).current;
+  const rotate      = useRef(new Animated.Value(0)).current;
+  const glowOpacity = useRef(new Animated.Value(0)).current;
+  const breathLoop  = useRef<Animated.CompositeAnimation | null>(null);
+
+  const doSnap = useCallback(() => {
+    rotate.setValue(0);
+    glowOpacity.setValue(0.7);
+    Animated.parallel([
+      Animated.sequence([
+        Animated.timing(rotate, { toValue: -0.3, duration: 60, useNativeDriver: ND, easing: Easing.in(Easing.ease) }),
+        Animated.timing(rotate, { toValue:  0.3, duration: 60, useNativeDriver: ND }),
+        Animated.timing(rotate, { toValue:  0,   duration: 80, useNativeDriver: ND, easing: Easing.out(Easing.ease) }),
+      ]),
+      Animated.timing(glowOpacity, { toValue: 0, duration: 300, useNativeDriver: ND }),
+    ]).start();
+  }, [rotate, glowOpacity]);
+
+  useEffect(() => {
+    breathLoop.current?.stop();
+    if (focused) {
+      scale.setValue(0.75);
+      Animated.spring(scale, { toValue: 1, useNativeDriver: ND, tension: 260, friction: 5 }).start();
+      doSnap();
+    } else {
+      breathLoop.current = Animated.loop(
+        Animated.sequence([
+          Animated.timing(scale, { toValue: 1.08, duration: 1400, useNativeDriver: ND, easing: Easing.inOut(Easing.ease) }),
+          Animated.timing(scale, { toValue: 1,    duration: 1400, useNativeDriver: ND, easing: Easing.inOut(Easing.ease) }),
+        ])
+      );
+      breathLoop.current.start();
+    }
+    return () => breathLoop.current?.stop();
+  }, [focused]);
+
+  const deg = rotate.interpolate({ inputRange: [-0.3, 0, 0.3], outputRange: ["-11deg", "0deg", "11deg"] });
+
+  return (
+    <View style={styles.centered}>
+      <Animated.View
+        style={[styles.glow, {
+          width: size + 4, height: size + 4, borderRadius: (size + 4) / 2,
+          backgroundColor: color, opacity: glowOpacity,
+        }]}
+      />
+      <Animated.View style={{ transform: [{ rotate: deg }, { scale }] }}>
+        <Feather name="scissors" size={size} color={color} />
+      </Animated.View>
+    </View>
+  );
+}
+
 // ─── Main export ──────────────────────────────────────────────────────────────
 
 export default function AnimatedTabIcon({ type, color, size = 22, focused }: Props) {
   switch (type) {
-    case "home": return <HomeIcon  color={color} size={size} focused={focused} />;
-    case "bell": return <BellIcon  color={color} size={size} focused={focused} />;
-    case "tv":   return <TvIcon    color={color} size={size} focused={focused} />;
-    case "film": return <FilmIcon  color={color} size={size} focused={focused} />;
-    case "star": return <StarIcon  color={color} size={size} focused={focused} />;
-    case "user": return <UserIcon  color={color} size={size} focused={focused} />;
-    default:     return <Feather   name="circle" size={size} color={color} />;
+    case "home":     return <HomeIcon     color={color} size={size} focused={focused} />;
+    case "bell":     return <BellIcon     color={color} size={size} focused={focused} />;
+    case "tv":       return <TvIcon       color={color} size={size} focused={focused} />;
+    case "film":     return <FilmIcon     color={color} size={size} focused={focused} />;
+    case "star":     return <StarIcon     color={color} size={size} focused={focused} />;
+    case "user":     return <UserIcon     color={color} size={size} focused={focused} />;
+    case "scissors": return <ScissorsIcon color={color} size={size} focused={focused} />;
+    default:         return <Feather      name="circle" size={size} color={color} />;
   }
 }
 

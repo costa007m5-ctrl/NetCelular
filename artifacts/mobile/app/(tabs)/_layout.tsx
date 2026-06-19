@@ -37,9 +37,9 @@ function NativeTabLayout({ isAdmin }: { isAdmin: boolean }) {
         <Icon sf={{ default: "star", selected: "star.fill" }} />
         <Label>Franquias</Label>
       </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="profile">
-        <Icon sf={{ default: "person", selected: "person.fill" }} />
-        <Label>Perfil</Label>
+      <NativeTabs.Trigger name="shorts">
+        <Icon sf={{ default: "scissors", selected: "scissors" }} />
+        <Label>Shorts</Label>
       </NativeTabs.Trigger>
     </NativeTabs>
   );
@@ -172,18 +172,19 @@ function ClassicTabLayout({ isAdmin }: { isAdmin: boolean }) {
         }}
       />
       <Tabs.Screen
-        name="profile"
+        name="shorts"
         options={{
-          title: "Perfil",
+          title: "Shorts",
           tabBarIcon: ({ color, focused }) =>
             isIOS
-              ? <SymbolView name="person" tintColor={color} size={22} />
-              : <AnimatedTabIcon type="user" color={color} size={22} focused={focused} />,
+              ? <SymbolView name="scissors" tintColor={color} size={22} />
+              : <AnimatedTabIcon type="scissors" color={color} size={22} focused={focused} />,
           tabBarLabel: ({ color, focused }) =>
-            <AnimatedTabLabel type="user" label="Perfil" color={color} focused={focused} />,
+            <AnimatedTabLabel type="scissors" label="Shorts" color={color} focused={focused} />,
         }}
       />
       {/* Hidden screens — accessible via router.push */}
+      <Tabs.Screen name="profile" options={{ href: null }} />
       <Tabs.Screen name="descobrir" options={{ href: null }} />
       <Tabs.Screen name="downloads" options={{ href: null }} />
       <Tabs.Screen name="list" options={{ href: null }} />

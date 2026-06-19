@@ -27,6 +27,7 @@ import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
+import { ProfileAvatarButton } from "@/components/ProfileAvatarButton";
 import type { ContentItem } from "@/constants/content";
 import { r2Route } from "@/lib/r2-direct";
 
@@ -625,10 +626,17 @@ export default function CinemaScreen() {
               <Text style={sty.yearBadgeText}>2026</Text>
             </View>
           </View>
-          <TouchableOpacity style={sty.iconBtn}
-            onPress={() => router.push("/(tabs)/list")} activeOpacity={0.75}>
-            <Feather name="bookmark" size={20} color="rgba(255,255,255,0.8)" />
-          </TouchableOpacity>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+            <TouchableOpacity style={sty.iconBtn}
+              onPress={() => router.push("/buscar")} activeOpacity={0.75}>
+              <Feather name="search" size={20} color="rgba(255,255,255,0.8)" />
+            </TouchableOpacity>
+            <TouchableOpacity style={sty.iconBtn}
+              onPress={() => router.push("/(tabs)/list")} activeOpacity={0.75}>
+              <Feather name="bookmark" size={20} color="rgba(255,255,255,0.8)" />
+            </TouchableOpacity>
+            <ProfileAvatarButton />
+          </View>
         </View>
       </View>
 

@@ -7,7 +7,7 @@ import { Animated, Easing, Platform, StyleSheet, Text } from "react-native";
 
 const ND = Platform.OS !== "web";
 
-export type TabLabelType = "home" | "bell" | "tv" | "film" | "star" | "user";
+export type TabLabelType = "home" | "bell" | "tv" | "film" | "star" | "user" | "scissors";
 
 interface Props {
   type: TabLabelType;
@@ -178,17 +178,43 @@ function UserLabel({ label, color, focused }: { label: string; color: string; fo
   );
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// ✂️ SHORTS — quick cut zoom-in from center
+// ══════════════════════════════════════════════════════════════════════════════
+function ScissorsLabel({ label, color, focused }: { label: string; color: string; focused: boolean }) {
+  const scale   = useRef(new Animated.Value(1)).current;
+  const opacity = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    if (focused) {
+      scale.setValue(1.6);
+      opacity.setValue(0);
+      Animated.parallel([
+        Animated.spring(scale,   { toValue: 1, useNativeDriver: ND, tension: 300, friction: 6 }),
+        Animated.timing(opacity, { toValue: 1, duration: 180, useNativeDriver: ND }),
+      ]).start();
+    }
+  }, [focused]);
+
+  return (
+    <Animated.Text style={[styles.label, { color, transform: [{ scale }], opacity }]}>
+      {label}
+    </Animated.Text>
+  );
+}
+
 // ─── Main export ──────────────────────────────────────────────────────────────
 
 export default function AnimatedTabLabel({ type, label, color, focused }: Props) {
   switch (type) {
-    case "home": return <HomeLabel  label={label} color={color} focused={focused} />;
-    case "bell": return <BellLabel  label={label} color={color} focused={focused} />;
-    case "tv":   return <TvLabel    label={label} color={color} focused={focused} />;
-    case "film": return <FilmLabel  label={label} color={color} focused={focused} />;
-    case "star": return <StarLabel  label={label} color={color} focused={focused} />;
-    case "user": return <UserLabel  label={label} color={color} focused={focused} />;
-    default:     return <Text style={[styles.label, { color }]}>{label}</Text>;
+    case "home":     return <HomeLabel     label={label} color={color} focused={focused} />;
+    case "bell":     return <BellLabel     label={label} color={color} focused={focused} />;
+    case "tv":       return <TvLabel       label={label} color={color} focused={focused} />;
+    case "film":     return <FilmLabel     label={label} color={color} focused={focused} />;
+    case "star":     return <StarLabel     label={label} color={color} focused={focused} />;
+    case "user":     return <UserLabel     label={label} color={color} focused={focused} />;
+    case "scissors": return <ScissorsLabel label={label} color={color} focused={focused} />;
+    default:         return <Text style={[styles.label, { color }]}>{label}</Text>;
   }
 }
 

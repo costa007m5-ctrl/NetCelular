@@ -28,6 +28,7 @@ import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
+import { ProfileAvatarButton } from "@/components/ProfileAvatarButton";
 import { r2Route } from "@/lib/r2-direct";
 import { getProxiedStreamUrl } from "@/lib/gdrive-index";
 import { api, TMDB_IMG, tmdbItemToContent, type TmdbItem } from "@/lib/api";
@@ -1788,11 +1789,16 @@ export default function NovidadesScreen() {
               </View>
             )}
           </View>
-          <View style={{ flexDirection: "row", gap: 10 }}>
+          <View style={{ flexDirection: "row", gap: 4, alignItems: "center" }}>
+            <TouchableOpacity style={root.iconBtn}
+              onPress={() => router.push("/buscar")} activeOpacity={0.75}>
+              <Feather name="search" size={19} color="rgba(255,255,255,0.75)" />
+            </TouchableOpacity>
             <TouchableOpacity style={root.iconBtn}
               onPress={() => router.push("/(tabs)/list")} activeOpacity={0.75}>
               <Feather name="bookmark" size={19} color="rgba(255,255,255,0.75)" />
             </TouchableOpacity>
+            <ProfileAvatarButton />
           </View>
         </View>
       </View>
