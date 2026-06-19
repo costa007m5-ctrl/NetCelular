@@ -44,6 +44,37 @@ const fonteToHttps = (u: string) =>
     : u;
 const BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
+// ─── Lookup pre-fetch cache ───────────────────────────────────────────────────
+// Stores raw hubby.cx stream URLs by item.id — populated by prefetchLookup().
+// ShortVideoCard reads this first so it can skip the API call and jump straight
+// to the WebView redirect resolver, saving 1-3 seconds of perceived latency.
+const LOOKUP_CACHE = new Map<string, string>(); // itemId → raw stream URL (hubby.cx)
+const PREFETCH_IN_FLIGHT = new Set<string>();   // itemIds currently being fetched
+
+async function prefetchLookup(item: ShortItem): Promise<void> {
+  // Skip if already cached or in flight
+  if (LOOKUP_CACHE.has(item.id) || PREFETCH_IN_FLIGHT.has(item.id)) return;
+  PREFETCH_IN_FLIGHT.add(item.id);
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 10000);
+  try {
+    const base = getApiBase();
+    const catalogType = item.type === "movie" ? "movies" : "series";
+    const url = `${base}/r2/flix2/lookup?tmdbId=${item.tmdbId}&type=${catalogType}&title=${encodeURIComponent(item.title)}&year=${item.year ?? ""}`;
+    const res = await fetch(url, { signal: ctrl.signal });
+    clearTimeout(t);
+    if (!res.ok) return;
+    const data = await res.json() as any;
+    const raw: string = data.item?.stream_url ?? "";
+    const isDirectVideo = raw.length > 0 && !raw.startsWith("flix2id:") && !raw.includes("player_api.php") && raw !== "null";
+    if (data.found && isDirectVideo) LOOKUP_CACHE.set(item.id, raw);
+  } catch {
+    clearTimeout(t);
+  } finally {
+    PREFETCH_IN_FLIGHT.delete(item.id);
+  }
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface ShortItem {
@@ -218,6 +249,7 @@ function ShortVideoCard({
 
   // ── Resolve stream URL when visible ─────────────────────────────────────────
   // Mirrors flix2-player loadVideoUrl() exactly:
+  //   0. Check LOOKUP_CACHE (populated by prefetchLookup) — skip API call if hit
   //   1. Lookup Flix2 catalog → get hubby.cx URL
   //   2. Native + hubby.cx → resolver WebView captures fontedecanais redirect URL
   //   3. Server fallback → /api/admin/check-link → location header
@@ -230,22 +262,42 @@ function ShortVideoCard({
     let cancelled = false;
 
     const resolve = async () => {
-      // AbortSignal.timeout() crashes on Hermes — always use AbortController+setTimeout
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 10000);
       try {
         const base = getApiBase();
-        const catalogType = item.type === "movie" ? "movies" : "series";
-        const lookupUrl = `${base}/r2/flix2/lookup?tmdbId=${item.tmdbId}&type=${catalogType}&title=${encodeURIComponent(item.title)}&year=${item.year ?? ""}`;
-        const res = await fetch(lookupUrl, { signal: ctrl.signal });
-        clearTimeout(timer);
+
+        // ── Path 0: pre-fetch cache (populated by ShortsScreen prefetchLookup) ──
+        // If the lookup was already done in the background while the previous item
+        // was playing, skip the API call entirely and go straight to CDN resolution.
+        let raw = LOOKUP_CACHE.get(item.id) ?? "";
+
+        if (!raw) {
+          // Cache miss — do the lookup now (AbortSignal.timeout crashes on Hermes)
+          const ctrl = new AbortController();
+          const timer = setTimeout(() => ctrl.abort(), 10000);
+          try {
+            const catalogType = item.type === "movie" ? "movies" : "series";
+            const lookupUrl = `${base}/r2/flix2/lookup?tmdbId=${item.tmdbId}&type=${catalogType}&title=${encodeURIComponent(item.title)}&year=${item.year ?? ""}`;
+            const res = await fetch(lookupUrl, { signal: ctrl.signal });
+            clearTimeout(timer);
+            if (cancelled) return;
+            if (!res.ok) throw new Error("lookup failed");
+            const data = await res.json() as any;
+            raw = data.item?.stream_url ?? "";
+            const isDirectVideo = raw.length > 0 && !raw.startsWith("flix2id:") && !raw.includes("player_api.php") && raw !== "null";
+            if (!data.found || !isDirectVideo) { setVideoState("error"); return; }
+            // Store in cache for future use
+            LOOKUP_CACHE.set(item.id, raw);
+          } catch {
+            clearTimeout(timer);
+            if (!cancelled) setVideoState("error");
+            return;
+          }
+        }
+
         if (cancelled) return;
-        if (!res.ok) throw new Error("lookup failed");
-        const data = await res.json() as any;
-        const raw: string = data.item?.stream_url ?? "";
-        // Only accept direct video URLs — series player_api.php not playable
+        // Validate cached/fetched URL
         const isDirectVideo = raw.length > 0 && !raw.startsWith("flix2id:") && !raw.includes("player_api.php") && raw !== "null";
-        if (!data.found || !isDirectVideo) { setVideoState("error"); return; }
+        if (!isDirectVideo) { setVideoState("error"); return; }
 
         if (isWeb) {
           // Web: use the same proxy as flix2-player → /api/stream/proxy
@@ -307,7 +359,6 @@ function ShortVideoCard({
         setFinalUrl(proxied);
         setVideoState("playing");
       } catch {
-        clearTimeout(timer);
         if (!cancelled) setVideoState("error");
       }
     };
@@ -595,6 +646,12 @@ export default function ShortsScreen() {
       params: { type: item.type, id: String(item.tmdbId), title: item.title },
     });
   }, [router]);
+
+  // Pre-fetch lookups for the next 2 items while the current one plays
+  useEffect(() => {
+    const targets = [items[visibleIndex + 1], items[visibleIndex + 2]].filter(Boolean);
+    targets.forEach((it) => prefetchLookup(it));
+  }, [visibleIndex, items]);
 
   const viewabilityConfig = useRef({ viewAreaCoveragePercentThreshold: 55 }).current;
   const onViewableItemsChanged = useRef(
