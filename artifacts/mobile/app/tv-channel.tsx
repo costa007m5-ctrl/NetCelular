@@ -91,6 +91,12 @@ interface PremiereItem {
   overview: string;
 }
 
+interface CarouselSection {
+  id: string;
+  title: string;
+  items: ContentItem[];
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function parseTime(airtime: string): Date {
@@ -275,6 +281,68 @@ function ContentGrid({ items, onPress }: { items: ContentItem[]; onPress: (item:
   );
 }
 
+// ── CarouselCard — wider card for horizontal carousels ────────────────────────
+const CAROUSEL_CARD_W = 110;
+function CarouselCard({ item, onPress }: { item: ContentItem; onPress: (item: ContentItem) => void }) {
+  return (
+    <TouchableOpacity onPress={() => onPress(item)} style={{ width: CAROUSEL_CARD_W }} activeOpacity={0.8}>
+      <View style={st.carouselPoster}>
+        {item.poster ? (
+          <Image source={{ uri: item.poster }} style={{ width: "100%", height: "100%" }} contentFit="cover" />
+        ) : (
+          <LinearGradient colors={["#1a1a2e", "#16213e"]} style={{ flex: 1 }} />
+        )}
+        <View style={[
+          st.carouselTypeBadge,
+          { backgroundColor: item.type === "movie" ? "#e5091422" : "#3b82f622" },
+        ]}>
+          <Text style={[st.carouselTypeText, { color: item.type === "movie" ? "#e50914" : "#3b82f6" }]}>
+            {item.type === "movie" ? "FILME" : "SÉRIE"}
+          </Text>
+        </View>
+      </View>
+      <Text style={st.carouselTitle} numberOfLines={2}>{item.title}</Text>
+      {item.rating > 0 && (
+        <View style={st.carouselMeta}>
+          <Feather name="star" size={9} color="#ffd700" />
+          <Text style={st.carouselRating}>{item.rating.toFixed(1)}</Text>
+          <Text style={st.carouselYear}>{item.year}</Text>
+        </View>
+      )}
+    </TouchableOpacity>
+  );
+}
+
+// ── HorizontalCarousel ────────────────────────────────────────────────────────
+function HorizontalCarousel({
+  section,
+  accent,
+  onPress,
+}: {
+  section: CarouselSection;
+  accent: string;
+  onPress: (item: ContentItem) => void;
+}) {
+  if (section.items.length === 0) return null;
+  return (
+    <View style={st.carouselSection}>
+      <View style={[st.sectionHeader, { marginBottom: 10 }]}>
+        <View style={[st.sectionBar, { backgroundColor: accent }]} />
+        <Text style={st.sectionTitle}>{section.title}</Text>
+      </View>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
+      >
+        {section.items.map((item) => (
+          <CarouselCard key={`${section.id}-${item.tmdbId}-${item.type}`} item={item} onPress={onPress} />
+        ))}
+      </ScrollView>
+    </View>
+  );
+}
+
 function PremiereCard({
   item,
   accent,
@@ -340,6 +408,9 @@ export default function TvChannelScreen() {
   const [contentLoading, setContentLoading] = useState(true);
   const [premieres, setPremieres] = useState<{ series: PremiereItem[]; movies: PremiereItem[] }>({ series: [], movies: [] });
   const [premiereLoading, setPremiereLoading] = useState(true);
+  const [seriesCarousels, setSeriesCarousels] = useState<CarouselSection[]>([]);
+  const [movieCarousels, setMovieCarousels] = useState<CarouselSection[]>([]);
+  const [carouselLoading, setCarouselLoading] = useState(true);
   const [tab, setTab] = useState<"guide" | "series" | "movies" | "premieres">("guide");
   const scrollY = useRef(new Animated.Value(0)).current;
 
@@ -372,13 +443,26 @@ export default function TvChannelScreen() {
       .finally(() => setContentLoading(false));
   }, [channelId]);
 
-  // Load premieres
+  // Load premieres (channel-specific)
   useEffect(() => {
-    tvApi.getPremieres()
+    tvApi.getChannelPremieres(channelId)
       .then((r) => { if (r.ok) setPremieres({ series: (r.series ?? []) as PremiereItem[], movies: (r.movies ?? []) as PremiereItem[] }); })
       .catch(() => {})
       .finally(() => setPremiereLoading(false));
-  }, []);
+  }, [channelId]);
+
+  // Load carousels
+  useEffect(() => {
+    tvApi.getChannelCarousels(channelId)
+      .then((r) => {
+        if (r.ok) {
+          setSeriesCarousels((r.seriesCarousels ?? []) as CarouselSection[]);
+          setMovieCarousels((r.movieCarousels ?? []) as CarouselSection[]);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setCarouselLoading(false));
+  }, [channelId]);
 
   // Current + next program
   const now = new Date();
@@ -668,20 +752,22 @@ export default function TvChannelScreen() {
         {/* SERIES */}
         {tab === "series" && (
           <View style={st.section}>
-            <View style={st.sectionHeader}>
-              <View style={[st.sectionBar, { backgroundColor: accent }]} />
-              <Feather name="tv" size={13} color={accent} />
-              <Text style={st.sectionTitle}>Séries do Canal</Text>
-            </View>
-            {contentLoading ? (
-              <ActivityIndicator color={accent} style={{ marginTop: 24 }} />
-            ) : content.shows.length === 0 ? (
+            {carouselLoading ? (
+              <ActivityIndicator color={accent} style={{ marginTop: 40 }} />
+            ) : seriesCarousels.length === 0 ? (
               <View style={st.empty}>
-                <Feather name="inbox" size={32} color="rgba(255,255,255,0.15)" />
+                <Feather name="tv" size={32} color="rgba(255,255,255,0.15)" />
                 <Text style={st.emptyText}>Nenhuma série encontrada</Text>
               </View>
             ) : (
-              <ContentGrid items={content.shows} onPress={goToDetail} />
+              seriesCarousels.map((section) => (
+                <HorizontalCarousel
+                  key={section.id}
+                  section={section}
+                  accent={accent}
+                  onPress={goToDetail}
+                />
+              ))
             )}
           </View>
         )}
@@ -689,20 +775,22 @@ export default function TvChannelScreen() {
         {/* MOVIES */}
         {tab === "movies" && (
           <View style={st.section}>
-            <View style={st.sectionHeader}>
-              <View style={[st.sectionBar, { backgroundColor: accent }]} />
-              <Feather name="film" size={13} color={accent} />
-              <Text style={st.sectionTitle}>Filmes do Canal</Text>
-            </View>
-            {contentLoading ? (
-              <ActivityIndicator color={accent} style={{ marginTop: 24 }} />
-            ) : content.movies.length === 0 ? (
+            {carouselLoading ? (
+              <ActivityIndicator color={accent} style={{ marginTop: 40 }} />
+            ) : movieCarousels.length === 0 ? (
               <View style={st.empty}>
-                <Feather name="inbox" size={32} color="rgba(255,255,255,0.15)" />
+                <Feather name="film" size={32} color="rgba(255,255,255,0.15)" />
                 <Text style={st.emptyText}>Nenhum filme encontrado</Text>
               </View>
             ) : (
-              <ContentGrid items={content.movies} onPress={goToDetail} />
+              movieCarousels.map((section) => (
+                <HorizontalCarousel
+                  key={section.id}
+                  section={section}
+                  accent={accent}
+                  onPress={goToDetail}
+                />
+              ))
             )}
           </View>
         )}
@@ -915,6 +1003,26 @@ const st = StyleSheet.create({
   descMeta: { flexDirection: "row", gap: 8, marginTop: 12 },
   catBadge: { borderRadius: 6, borderWidth: 1, paddingHorizontal: 8, paddingVertical: 3 },
   catText: { fontSize: 9, fontWeight: "800", letterSpacing: 0.5 },
+
+  // Carousel
+  carouselSection: { marginBottom: 28 },
+  carouselPoster: {
+    width: CAROUSEL_CARD_W,
+    height: CAROUSEL_CARD_W * 1.5,
+    borderRadius: 10,
+    overflow: "hidden",
+    backgroundColor: "#111",
+    marginBottom: 6,
+  },
+  carouselTypeBadge: {
+    position: "absolute", bottom: 5, left: 5,
+    borderRadius: 4, paddingHorizontal: 4, paddingVertical: 2,
+  },
+  carouselTypeText: { fontSize: 7, fontWeight: "800" },
+  carouselTitle: { fontSize: 11, fontWeight: "700", color: "#fff", lineHeight: 14 },
+  carouselMeta: { flexDirection: "row", alignItems: "center", gap: 3, marginTop: 2 },
+  carouselRating: { fontSize: 9, color: "rgba(255,255,255,0.55)", fontWeight: "600" },
+  carouselYear: { fontSize: 9, color: "rgba(255,255,255,0.3)", marginLeft: 3 },
 
   // Empty
   empty: { alignItems: "center", paddingVertical: 32, gap: 8 },

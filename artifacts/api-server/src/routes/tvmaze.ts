@@ -692,6 +692,207 @@ router.get("/tv/schedule/today", async (req: any, res: any) => {
   }
 });
 
+// ── Rich carousels for series & movies tabs ───────────────────────────────────
+router.get("/tv/channel/:channelId/carousels", async (req: any, res: any) => {
+  const { channelId } = req.params;
+  const channel = CHANNELS.find((c) => c.id === channelId);
+  if (!channel) { res.status(404).json({ error: "Channel not found" }); return; }
+
+  const cacheKey = `carousels:${channelId}`;
+  const cached = cacheGet(cacheKey, 3 * 60 * 60 * 1000);
+  if (cached) { res.json(cached); return; }
+
+  const mapItem = (r: any, type: "tv" | "movie") => ({
+    tmdbId: r.id,
+    type,
+    title: r.title ?? r.name ?? "",
+    year: parseInt((r.release_date ?? r.first_air_date ?? "2024").slice(0, 4)),
+    rating: Math.round((r.vote_average ?? 0) * 10) / 10,
+    poster: r.poster_path ? `${TMDB_IMG}/w342${r.poster_path}` : null,
+    backdrop: r.backdrop_path ? `${TMDB_IMG}/w780${r.backdrop_path}` : null,
+    overview: r.overview ?? "",
+    genreIds: r.genre_ids ?? [],
+  });
+
+  const slice = (r: any, n = 15) =>
+    (Array.isArray(r) ? r : (r?.results ?? [])).filter((i: any) => i.poster_path).slice(0, n);
+
+  const tv = (params: Record<string, string>) =>
+    tmdbFetch<any>("/discover/tv", { sort_by: "popularity.desc", watch_region: "BR", "vote_count.gte": "15", ...params })
+      .catch(() => ({ results: [] }));
+
+  const mv = (params: Record<string, string>) =>
+    tmdbFetch<any>("/discover/movie", { sort_by: "popularity.desc", watch_region: "BR", "vote_count.gte": "30", ...params })
+      .catch(() => ({ results: [] }));
+
+  const today = new Date().toISOString().slice(0, 10);
+  const thisYear = new Date().getFullYear();
+
+  try {
+    const [
+      chShowsRes,
+      popularTv, topRatedTv, recentTv, dramaTv, comedyTv, actionTv, docTv, animTv, realityTv,
+      crimeTv, scifiTv,
+      novelasRes,
+      popularMv, topRatedMv, nowPlayingMv, actionMv, comedyMv, dramaMv, thrillerMv, scifiMv,
+      horror, mv90s, mv2000s, mv2010s, animMv,
+    ] = await Promise.all([
+      // channel-specific shows
+      channel.tmdbNetworkId
+        ? tmdbFetch<any>("/discover/tv", { with_networks: String(channel.tmdbNetworkId), sort_by: "popularity.desc", page: "1" }).catch(() => ({ results: [] }))
+        : Promise.resolve({ results: [] }),
+      // TV series carousels
+      tv({ page: "1" }),
+      tv({ sort_by: "vote_average.desc", "vote_count.gte": "100", page: "1" }),
+      tv({ "first_air_date.gte": `${thisYear - 1}-01-01`, page: "1" }),
+      tv({ with_genres: "18", page: "1" }),       // drama
+      tv({ with_genres: "35", page: "1" }),       // comedy
+      tv({ with_genres: "10759", page: "1" }),    // action & adventure
+      tv({ with_genres: "99", page: "1" }),       // documentary
+      tv({ with_genres: "16", page: "1" }),       // animation
+      tv({ with_genres: "10764", page: "1" }),    // reality
+      tv({ with_genres: "80", page: "1" }),       // crime
+      tv({ with_genres: "10765", page: "1" }),    // sci-fi & fantasy
+      // novelas (BR-focused search)
+      tmdbFetch<any>("/search/tv", { query: "novela", language: "pt-BR", page: "1" }).catch(() => ({ results: [] })),
+      // Movie carousels
+      mv({ page: "1" }),
+      mv({ sort_by: "vote_average.desc", "vote_count.gte": "500", page: "1" }),
+      tmdbFetch<any>("/movie/now_playing", { language: "pt-BR", region: "BR", page: "1" }).catch(() => ({ results: [] })),
+      mv({ with_genres: "28", page: "1" }),       // action
+      mv({ with_genres: "35", page: "1" }),       // comedy
+      mv({ with_genres: "18", page: "1" }),       // drama
+      mv({ with_genres: "53", page: "1" }),       // thriller
+      mv({ with_genres: "878", page: "1" }),      // sci-fi
+      mv({ with_genres: "27", page: "1" }),       // horror
+      mv({ "primary_release_date.gte": "1990-01-01", "primary_release_date.lte": "1999-12-31", "vote_count.gte": "100", page: "1" }),
+      mv({ "primary_release_date.gte": "2000-01-01", "primary_release_date.lte": "2009-12-31", "vote_count.gte": "100", page: "1" }),
+      mv({ "primary_release_date.gte": "2010-01-01", "primary_release_date.lte": "2019-12-31", "vote_count.gte": "100", page: "1" }),
+      mv({ with_genres: "16", page: "1" }),       // animation
+    ]);
+
+    const chShows = slice(chShowsRes);
+
+    const seriesCarousels = [
+      ...(chShows.length > 0 ? [{ id: "canal", title: `Séries do ${channel.shortName}`, items: chShows.map((r) => mapItem(r, "tv")) }] : []),
+      { id: "popular", title: "Mais Populares", items: slice(popularTv).map((r) => mapItem(r, "tv")) },
+      { id: "top", title: "Melhores Avaliadas", items: slice(topRatedTv).map((r) => mapItem(r, "tv")) },
+      { id: "recent", title: "Lançamentos Recentes", items: slice(recentTv).map((r) => mapItem(r, "tv")) },
+      { id: "drama", title: "Drama", items: slice(dramaTv).map((r) => mapItem(r, "tv")) },
+      { id: "comedy", title: "Comédia", items: slice(comedyTv).map((r) => mapItem(r, "tv")) },
+      { id: "action", title: "Ação & Aventura", items: slice(actionTv).map((r) => mapItem(r, "tv")) },
+      { id: "crime", title: "Crime & Suspense", items: slice(crimeTv).map((r) => mapItem(r, "tv")) },
+      { id: "scifi", title: "Ficção Científica", items: slice(scifiTv).map((r) => mapItem(r, "tv")) },
+      { id: "reality", title: "Reality Shows", items: slice(realityTv).map((r) => mapItem(r, "tv")) },
+      { id: "doc", title: "Documentários", items: slice(docTv).map((r) => mapItem(r, "tv")) },
+      { id: "anim", title: "Animação", items: slice(animTv).map((r) => mapItem(r, "tv")) },
+      { id: "novelas", title: "Novelas", items: slice(novelasRes).map((r) => mapItem(r, "tv")) },
+    ].filter((c) => c.items.length > 0);
+
+    const movieCarousels = [
+      { id: "popular", title: "Mais Populares", items: slice(popularMv).map((r) => mapItem(r, "movie")) },
+      { id: "top", title: "Melhores Avaliados", items: slice(topRatedMv).map((r) => mapItem(r, "movie")) },
+      { id: "now", title: "Em Cartaz / Recentes", items: slice(nowPlayingMv).map((r) => mapItem(r, "movie")) },
+      { id: "action", title: "Ação", items: slice(actionMv).map((r) => mapItem(r, "movie")) },
+      { id: "comedy", title: "Comédia", items: slice(comedyMv).map((r) => mapItem(r, "movie")) },
+      { id: "drama", title: "Drama", items: slice(dramaMv).map((r) => mapItem(r, "movie")) },
+      { id: "thriller", title: "Thriller", items: slice(thrillerMv).map((r) => mapItem(r, "movie")) },
+      { id: "scifi", title: "Ficção Científica", items: slice(scifiMv).map((r) => mapItem(r, "movie")) },
+      { id: "horror", title: "Terror & Horror", items: slice(horror).map((r) => mapItem(r, "movie")) },
+      { id: "90s", title: "Clássicos Anos 90", items: slice(mv90s).map((r) => mapItem(r, "movie")) },
+      { id: "2000s", title: "Anos 2000", items: slice(mv2000s).map((r) => mapItem(r, "movie")) },
+      { id: "2010s", title: "Anos 2010", items: slice(mv2010s).map((r) => mapItem(r, "movie")) },
+      { id: "anim", title: "Animação", items: slice(animMv).map((r) => mapItem(r, "movie")) },
+    ].filter((c) => c.items.length > 0);
+
+    const data = { ok: true, channelId, seriesCarousels, movieCarousels };
+    cacheSet(cacheKey, data);
+    res.json(data);
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message ?? "Error" });
+  }
+});
+
+// ── Channel-specific premieres ─────────────────────────────────────────────────
+router.get("/tv/channel/:channelId/premieres", async (req: any, res: any) => {
+  const { channelId } = req.params;
+  const channel = CHANNELS.find((c) => c.id === channelId);
+  if (!channel) { res.status(404).json({ error: "Channel not found" }); return; }
+
+  const cacheKey = `ch_premieres:${channelId}`;
+  const cached = cacheGet(cacheKey, 2 * 60 * 60 * 1000);
+  if (cached) { res.json(cached); return; }
+
+  const mapItem = (r: any, type: "tv" | "movie") => ({
+    tmdbId: r.id,
+    type,
+    title: r.title ?? r.name ?? "",
+    year: parseInt((r.release_date ?? r.first_air_date ?? "2024").slice(0, 4)),
+    rating: Math.round((r.vote_average ?? 0) * 10) / 10,
+    poster: r.poster_path ? `${TMDB_IMG}/w342${r.poster_path}` : null,
+    backdrop: r.backdrop_path ? `${TMDB_IMG}/w780${r.backdrop_path}` : null,
+    releaseDate: r.release_date ?? r.first_air_date ?? null,
+    overview: r.overview ?? "",
+  });
+
+  const today = new Date();
+  const past14 = new Date(today.getTime() - 14 * 24 * 60 * 60 * 1000);
+  const in60 = new Date(today.getTime() + 60 * 24 * 60 * 60 * 1000);
+  const fmt = (d: Date) => d.toISOString().slice(0, 10);
+
+  try {
+    const channelParams: Record<string, string> = {};
+    if (channel.tmdbNetworkId) channelParams["with_networks"] = String(channel.tmdbNetworkId);
+
+    const [tvRes, mvRes, tvUpcoming, mvUpcoming] = await Promise.allSettled([
+      tmdbFetch<any>("/discover/tv", {
+        ...channelParams,
+        sort_by: "first_air_date.desc",
+        watch_region: "BR",
+        "first_air_date.gte": fmt(past14),
+        "first_air_date.lte": fmt(in60),
+        page: "1",
+      }),
+      tmdbFetch<any>("/discover/movie", {
+        ...channelParams,
+        sort_by: "release_date.desc",
+        watch_region: "BR",
+        "release_date.gte": fmt(past14),
+        "release_date.lte": fmt(in60),
+        page: "1",
+      }),
+      // fallback: upcoming on streaming platforms if channel has few results
+      tmdbFetch<any>("/tv/on_the_air", { watch_region: "BR", page: "1" }),
+      tmdbFetch<any>("/movie/upcoming", { region: "BR", page: "1" }),
+    ]);
+
+    let series = tvRes.status === "fulfilled" ? (tvRes.value.results ?? []) : [];
+    let movies = mvRes.status === "fulfilled" ? (mvRes.value.results ?? []) : [];
+
+    // Supplement with general upcoming content if channel-specific is sparse
+    if (series.length < 4 && tvUpcoming.status === "fulfilled") {
+      series = [...series, ...(tvUpcoming.value.results ?? [])];
+    }
+    if (movies.length < 4 && mvUpcoming.status === "fulfilled") {
+      movies = [...movies, ...(mvUpcoming.value.results ?? [])];
+    }
+
+    // Deduplicate by id
+    const dedupe = (arr: any[]) => arr.filter((r, i, a) => a.findIndex((x) => x.id === r.id) === i);
+
+    const data = {
+      ok: true,
+      channelId,
+      series: dedupe(series).filter((r: any) => r.poster_path || r.backdrop_path).slice(0, 20).map((r: any) => mapItem(r, "tv")),
+      movies: dedupe(movies).filter((r: any) => r.poster_path || r.backdrop_path).slice(0, 20).map((r: any) => mapItem(r, "movie")),
+    };
+    cacheSet(cacheKey, data);
+    res.json(data);
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message ?? "Error" });
+  }
+});
+
 // TMDB trending for a category (used by channel category filter)
 router.get("/tv/trending", async (req: any, res: any) => {
   const category = (req.query.category as string) || "all";

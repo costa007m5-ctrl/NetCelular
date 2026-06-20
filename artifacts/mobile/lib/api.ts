@@ -429,6 +429,16 @@ export const tvApi = {
   getPremieres: () =>
     apiFetch<{ ok: boolean; series: any[]; movies: any[] }>("/tv/premieres"),
 
+  getChannelPremieres: (channelId: string) =>
+    apiFetch<{ ok: boolean; series: any[]; movies: any[] }>(`/tv/channel/${channelId}/premieres`),
+
+  getChannelCarousels: (channelId: string) =>
+    apiFetch<{
+      ok: boolean;
+      seriesCarousels: Array<{ id: string; title: string; items: any[] }>;
+      movieCarousels: Array<{ id: string; title: string; items: any[] }>;
+    }>(`/tv/channel/${channelId}/carousels`),
+
   getShow: (showId: string | number) =>
     apiFetch<any>(`/tv/show/${showId}`),
 
