@@ -1963,6 +1963,39 @@ export default function ShortsScreen() {
               </View>
             </View>
 
+            {/* Compartilhar Desafio */}
+            <TouchableOpacity
+              onPress={async () => {
+                const watched = challengeProgress?.watched ?? 0;
+                const goal    = 5; // all challenges require 5 Shorts
+                try {
+                  await Share.share({
+                    message:
+                      `${challenge.emoji} Estou fazendo o Desafio "${challenge.title}" no NETPLAY!\n` +
+                      `${watched}/${goal} concluído${watched >= goal ? " ✅" : " — bora junto?"}`,
+                    title: "Desafio Semanal NETPLAY",
+                  });
+                } catch {}
+              }}
+              hitSlop={12}
+              activeOpacity={0.75}
+              style={{
+                backgroundColor: "rgba(255,255,255,0.08)",
+                borderRadius: 20,
+                paddingHorizontal: 10,
+                paddingVertical: 5,
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 5,
+                marginRight: 8,
+              }}
+            >
+              <Feather name="share-2" size={12} color="rgba(255,255,255,0.75)" />
+              <Text style={{ color: "rgba(255,255,255,0.75)", fontSize: 11, fontWeight: "700" }}>
+                Compartilhar
+              </Text>
+            </TouchableOpacity>
+
             {/* Dismiss */}
             <TouchableOpacity
               onPress={() => {
