@@ -31,6 +31,7 @@ import { getApiBase } from "@/lib/api";
 import { getProxiedStreamUrl } from "@/lib/gdrive-index";
 import { ProfileAvatarButton } from "@/components/ProfileAvatarButton";
 import { recordShortsWatch } from "@/lib/shorts-history";
+import { toggleShortsLike, loadShortsLikes } from "@/lib/shorts-likes";
 
 let WebView: any = null;
 try { WebView = require("react-native-webview").WebView; } catch {}
@@ -1433,7 +1434,21 @@ export default function ShortsScreen() {
   }, [loadingMore, hasMore, page, loadFeed]);
 
   const onLike = useCallback((id: string) => {
-    setItems((prev) => prev.map((it) => it.id === id ? { ...it, liked: !it.liked } : it));
+    setItems((prev) => {
+      const updated = prev.map((it) => {
+        if (it.id !== id) return it;
+        const isNowLiked = !it.liked;
+        // Persist like/unlike to AsyncStorage (non-blocking)
+        if (!it.isTrendingRow && it.tmdbId) {
+          toggleShortsLike(
+            { id: it.id, tmdbId: it.tmdbId, type: it.type, title: it.title, poster: it.poster },
+            isNowLiked
+          );
+        }
+        return { ...it, liked: isNowLiked };
+      });
+      return updated;
+    });
   }, []);
 
   const onSave = useCallback((id: string) => {

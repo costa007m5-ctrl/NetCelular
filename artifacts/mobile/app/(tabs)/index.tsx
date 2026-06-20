@@ -2291,6 +2291,8 @@ export default function HomeScreen() {
   const [shortsGenreLabel, setShortsGenreLabel] = useState("Baseado no seu gosto nos Shorts");
   // ── Continuar Shorts — itens assistidos recentemente nos Shorts ──────────
   const [continueShorts, setContinueShorts] = useState<{ id: string; tmdbId: number; type: "movie" | "tv"; title: string; poster: string | null; progress: number }[]>([]);
+  // ── Shorts curtidos — itens curtidos pelo usuário nos Shorts ─────────────
+  const [shortsLikes, setShortsLikes] = useState<{ id: string; tmdbId: number; type: "movie" | "tv"; title: string; poster: string | null; likedAt: number }[]>([]);
 
   // ── genre carousels per category ──────────────────────────────────────────
   const [genreRows, setGenreRows] = useState<Record<string, ContentItem[]>>({});
@@ -2462,6 +2464,15 @@ export default function HomeScreen() {
           const history = await loadShortsHistory();
           if (!cancelled && history.length > 0) {
             setContinueShorts(history.slice(0, 10));
+          }
+        } catch {}
+
+        try {
+          // Load liked Shorts for "Curtidos por Você" ranking
+          const { loadShortsLikes } = await import("@/lib/shorts-likes");
+          const likes = await loadShortsLikes();
+          if (!cancelled && likes.length > 0) {
+            setShortsLikes(likes.slice(0, 10));
           }
         } catch {}
 
@@ -3003,6 +3014,7 @@ export default function HomeScreen() {
                       subtitle={`${continueShorts.length} título${continueShorts.length > 1 ? "s" : ""} assistido${continueShorts.length > 1 ? "s" : ""}`}
                       onSeeAll={() => router.push("/(tabs)/shorts" as any)}
                     />
+
                     <ScrollView
                       horizontal
                       showsHorizontalScrollIndicator={false}
@@ -3035,6 +3047,65 @@ export default function HomeScreen() {
                             </View>
                           </View>
                           <Text numberOfLines={2} style={{ color: "rgba(255,255,255,0.8)", fontSize: 11, fontWeight: "600", marginTop: 5, lineHeight: 14 }}>
+                            {sh.title}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+                </AnimatedSection>
+              )}
+
+              {/* ── 6.9 CURTIDOS POR VOCÊ ────────────────────────────────────── */}
+              {shortsLikes.length > 0 && (
+                <AnimatedSection anim={s[5]}>
+                  <View style={styles.section}>
+                    <SectionHeader
+                      title="Curtidos por Você"
+                      icon="heart"
+                      accentColor="#e50914"
+                      subtitle="Seus Shorts favoritos"
+                      onSeeAll={() => router.push("/(tabs)/shorts" as any)}
+                    />
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
+                    >
+                      {shortsLikes.map((sh, idx) => (
+                        <TouchableOpacity
+                          key={sh.id}
+                          activeOpacity={0.85}
+                          onPress={() => router.push({ pathname: "/detail", params: { type: sh.type, id: String(sh.tmdbId), title: sh.title } } as any)}
+                          style={{ width: 110 }}
+                        >
+                          <View style={{ width: 110, height: 162, borderRadius: 10, overflow: "hidden", backgroundColor: "#1a1a1a" }}>
+                            {sh.poster ? (
+                              <Image source={{ uri: sh.poster }} style={{ width: 110, height: 162 }} contentFit="cover" />
+                            ) : (
+                              <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+                                <Feather name="film" size={28} color="rgba(255,255,255,0.2)" />
+                              </View>
+                            )}
+                            {/* Gradient overlay at bottom */}
+                            <View style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 48, backgroundColor: "transparent" }}>
+                              <View style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 48, backgroundColor: "rgba(0,0,0,0.55)" }} />
+                            </View>
+                            {/* Rank badge — top left */}
+                            <View style={{
+                              position: "absolute", top: 0, left: 0,
+                              backgroundColor: "#e50914",
+                              paddingHorizontal: 7, paddingVertical: 3,
+                              borderBottomRightRadius: 8,
+                            }}>
+                              <Text style={{ color: "#fff", fontSize: 13, fontWeight: "900" }}>{idx + 1}</Text>
+                            </View>
+                            {/* Heart icon — bottom right */}
+                            <View style={{ position: "absolute", bottom: 7, right: 8 }}>
+                              <Feather name="heart" size={14} color="#e50914" />
+                            </View>
+                          </View>
+                          <Text numberOfLines={2} style={{ color: "rgba(255,255,255,0.85)", fontSize: 11, fontWeight: "700", marginTop: 5, lineHeight: 14 }}>
                             {sh.title}
                           </Text>
                         </TouchableOpacity>
