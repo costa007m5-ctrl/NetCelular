@@ -49,35 +49,103 @@ function addToHistory(prev: string[], q: string): string[] {
   return next;
 }
 
-type Flix2RawItem = { title: string; _type: string; thumbnail?: string | null; tmdb_id?: number };
+// ─── Fuzzy search utilities ───────────────────────────────────────────────────
 
-async function fetchFlix2Catalog(type: string): Promise<Flix2RawItem[]> {
-  try {
-    const base = r2Base();
-    const url = base
-      ? `${base}/flix2/catalog-full?type=${type}`
-      : `/api/r2/flix2/catalog-full?type=${type}`;
-    const ctrl = new AbortController();
-    const tid = setTimeout(() => ctrl.abort(), 120_000);
-    const res = await fetch(url, { signal: ctrl.signal });
-    clearTimeout(tid);
-    if (!res.ok) return [];
-    const data = await res.json();
-    const kindMap: Record<string, string> = { movies: "movie", series: "series", animes: "anime" };
-    return (data.data ?? []).map((item: any) => ({
-      title: item.title ?? item.name ?? "",
-      _type: kindMap[type] ?? "movie",
-      thumbnail: item.poster ?? item.thumbnail ?? null,
-      tmdb_id: item.tmdb_id ?? 0,
-    })).filter((i: Flix2RawItem) => i.title);
-  } catch {
-    return [];
-  }
+function normalize(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
-type Flix2SearchResult = { titles: Set<string>; raw: Flix2RawItem[] };
+function levenshtein(a: string, b: string): number {
+  const m = a.length, n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  const dp: number[] = Array.from({ length: n + 1 }, (_, i) => i);
+  for (let i = 1; i <= m; i++) {
+    let prev = i;
+    for (let j = 1; j <= n; j++) {
+      const val = a[i - 1] === b[j - 1]
+        ? dp[j - 1]
+        : 1 + Math.min(dp[j], prev, dp[j - 1]);
+      dp[j - 1] = prev;
+      prev = val;
+    }
+    dp[n] = prev;
+  }
+  return dp[n];
+}
 
-async function flix2Search(q: string): Promise<Flix2SearchResult> {
+function fuzzyScore(title: string, query: string): number {
+  const nt = normalize(title);
+  const nq = normalize(query);
+  if (!nq) return 0;
+  if (nt === nq) return 100;
+  if (nt.startsWith(nq)) return 92;
+  if (nt.includes(nq)) return 84;
+
+  const tWords = nt.split(" ");
+  const qWords = nq.split(" ").filter(w => w.length > 1);
+  if (qWords.length === 0) return 0;
+
+  // Word-level fuzzy: each query word matches a title word (prefix OR edit dist ≤ 1)
+  const hits = qWords.filter(qw =>
+    tWords.some(tw => tw.startsWith(qw) || (qw.length >= 4 && levenshtein(qw, tw.slice(0, qw.length + 1)) <= 1))
+  ).length;
+
+  if (hits === qWords.length) return 76;
+  if (hits >= Math.ceil(qWords.length * 0.6)) return 55 + (hits / qWords.length) * 18;
+
+  // Whole-string Levenshtein (capped for perf)
+  const cap = 28;
+  const dist = levenshtein(nt.slice(0, cap), nq.slice(0, cap));
+  const maxLen = Math.max(Math.min(nt.length, cap), Math.min(nq.length, cap), 1);
+  const sim = 1 - dist / maxLen;
+  if (sim >= 0.72) return 30 + sim * 18;
+
+  return 0;
+}
+
+// Maps Portuguese terms to English search equivalents for TMDB
+const KEYWORD_MAP: [RegExp, string][] = [
+  [/terror|medo|assusta/,             "horror"],
+  [/super.?her[oó]i?s?/,             "superhero"],
+  [/ficç[aã]o\s*cient[ií]fica|sci.?fi|espaço|nave\s+espacial/, "science fiction"],
+  [/anim[eê]s?|manga/,               "anime"],
+  [/anim[aã]ç[aã]o|infantil|pixar/,  "animation"],
+  [/document[aá]rio|documentais/,     "documentary"],
+  [/com[eé]dia|engraçad|rir\b/,      "comedy"],
+  [/romance|amor|casal/,              "romance"],
+  [/suspense|thriller/,               "thriller"],
+  [/western|faroeste/,               "western"],
+  [/musical|m[uú]sica/,              "music"],
+  [/esporte|futebol|basquete/,        "sport"],
+  [/guerra|batalha|milit/,            "war"],
+  [/hist[oó]rico|[eé]poca|medieval/,  "historical"],
+  [/policial|crime|detetive/,         "crime"],
+  [/a[çc][aã]o|aventura/,            "action adventure"],
+  [/drama|s[eé]rio/,                  "drama"],
+];
+
+function expandQuery(q: string): string {
+  const nq = normalize(q);
+  for (const [pattern, replacement] of KEYWORD_MAP) {
+    if (pattern.test(nq)) return replacement;
+  }
+  return q;
+}
+
+// Strip [L], [D], (2026) etc. for fuzzy title comparison
+const cleanT = (s: string) =>
+  s.replace(/\s*\[[^\]]*\]/g, "").replace(/\s*\(\d{4}\)/g, "").replace(/[:\-–]/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+
+type Flix2RawItem = { title: string; _type: string; thumbnail?: string | null; tmdb_id?: number };
+
+async function flix2Search(q: string): Promise<{ titles: Set<string>; raw: Flix2RawItem[] }> {
   try {
     const base = r2Base();
     const url = base
@@ -103,52 +171,52 @@ async function flix2Search(q: string): Promise<Flix2SearchResult> {
   }
 }
 
-/** Busca instantânea no cache prefetchado — sem chamada de rede */
-async function searchFromCache(q: string): Promise<Flix2SearchResult> {
-  const qLow = q.toLowerCase();
+async function searchFromCache(q: string): Promise<{ titles: Set<string>; raw: Flix2RawItem[] }> {
+  const nq = normalize(q);
   const [movies, series, animes] = await Promise.all([
     getCached("movies"),
     getCached("series"),
     getCached("animes"),
   ]);
-  const titles = new Set<string>();
-  const raw: Flix2RawItem[] = [];
+  const scored: Array<{ score: number; item: Flix2RawItem }> = [];
+  const seen = new Set<string>();
+
   const pushItems = (items: any[] | null, type: string) => {
     if (!items) return;
     for (const item of items) {
-      if (item.title?.toLowerCase().includes(qLow)) {
-        const t = item.title.toLowerCase().trim();
-        if (!titles.has(t)) {
-          titles.add(t);
-          raw.push({ title: item.title, _type: type, thumbnail: item.poster ?? item.thumbnail ?? null, tmdb_id: item.tmdb_id ?? 0 });
-        }
-      }
+      if (!item.title) continue;
+      const score = fuzzyScore(item.title, q);
+      if (score < 30) continue;
+      const key = normalize(item.title);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      scored.push({
+        score,
+        item: { title: item.title, _type: type, thumbnail: item.poster ?? item.thumbnail ?? null, tmdb_id: item.tmdb_id ?? 0 },
+      });
     }
   };
+
   pushItems(movies, "movie");
   pushItems(series, "series");
   pushItems(animes, "anime");
-  return { titles, raw: raw.slice(0, 60) };
+  scored.sort((a, b) => b.score - a.score);
+
+  const titles = new Set<string>();
+  const raw = scored.slice(0, 60).map(({ item }) => {
+    titles.add(item.title.toLowerCase().trim());
+    return item;
+  });
+  return { titles, raw };
 }
 
 const { width: W } = Dimensions.get("window");
-const RED    = "#e50914";
-const AMBER  = "#f59e0b";
-const TEAL   = "#0891b2";
-const PURPLE = "#8b5cf6";
-const GREEN  = "#22c55e";
-const PINK   = "#ec4899";
-const CARD_W_3 = (W - 32 - 16) / 3;
-const CARD_W_H = 140;
+const RED   = "#e50914";
+const GREEN = "#22c55e";
 
-const TMDB_KEY  = "8f0beb08cf016ec8de49e454e09879ec";
 const TMDB_BASE = "https://api.themoviedb.org/3";
-
-// Strip [L], [D], [HD], (2026) etc. for fuzzy title comparison
-const cleanT = (s: string) =>
-  s.replace(/\s*\[[^\]]*\]/g, "").replace(/\s*\(\d{4}\)/g, "").replace(/[:\-–]/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+const TMDB_KEY  = "8f0beb08cf016ec8de49e454e09879ec";
 const IMG_W500  = "https://image.tmdb.org/t/p/w500";
-const IMG_W185  = "https://image.tmdb.org/t/p/w185";
 const IMG_W780  = "https://image.tmdb.org/t/p/w780";
 
 async function tfetch(path: string, params: Record<string, string> = {}): Promise<any> {
@@ -157,7 +225,10 @@ async function tfetch(path: string, params: Record<string, string> = {}): Promis
     url.searchParams.set("api_key", TMDB_KEY);
     url.searchParams.set("language", "pt-BR");
     for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-    const r = await fetch(url.toString());
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 10000);
+    const r = await fetch(url.toString(), { signal: ctrl.signal });
+    clearTimeout(tid);
     if (!r.ok) return { results: [] };
     return r.json();
   } catch { return { results: [] }; }
@@ -183,114 +254,73 @@ function toItem(raw: any, forcedType?: "movie" | "tv"): ContentItem {
   };
 }
 
-const CATEGORIES = [
-  { id: "trending",  label: "Em Alta",   icon: "trending-up" as const, color: RED,    bg: "rgba(229,9,20,0.18)" },
-  { id: "live",      label: "Ao Vivo",   icon: "radio"       as const, color: TEAL,   bg: "rgba(8,145,178,0.18)" },
-  { id: "new",       label: "Novidades", icon: "bell"        as const, color: PURPLE, bg: "rgba(139,92,246,0.18)" },
-  { id: "ia",        label: "IA Picks",  icon: "cpu"         as const, color: GREEN,  bg: "rgba(34,197,94,0.18)" },
-  { id: "cinema",    label: "Cinema",    icon: "film"        as const, color: AMBER,  bg: "rgba(245,158,11,0.18)" },
-  { id: "series",    label: "Séries",    icon: "tv"          as const, color: PINK,   bg: "rgba(236,72,153,0.18)" },
+// ─── Quick suggestion chips shown when idle ────────────────────────────────────
+const SUGGESTIONS = [
+  { label: "Marvel",     emoji: "⚡", q: "Marvel" },
+  { label: "Terror",     emoji: "👻", q: "terror" },
+  { label: "Anime",      emoji: "⛩️", q: "anime" },
+  { label: "Comédia",    emoji: "😂", q: "comédia" },
+  { label: "Sci-Fi",     emoji: "🚀", q: "ficção científica" },
+  { label: "Disney",     emoji: "✨", q: "Disney" },
+  { label: "Crime",      emoji: "🔍", q: "crime policial" },
+  { label: "Drama",      emoji: "🎭", q: "drama" },
 ];
 
-const GENRES = [
-  { id: "28",    label: "Ação",         color: "#ef4444" },
-  { id: "35",    label: "Comédia",      color: "#f59e0b" },
-  { id: "18",    label: "Drama",        color: "#8b5cf6" },
-  { id: "27",    label: "Terror",       color: "#1d4ed8" },
-  { id: "878",   label: "Ficção Cient.", color: "#0891b2" },
-  { id: "10749", label: "Romance",      color: "#ec4899" },
-  { id: "53",    label: "Suspense",     color: "#dc2626" },
-  { id: "12",    label: "Aventura",     color: "#16a34a" },
-  { id: "16",    label: "Animação",     color: "#ea580c" },
-  { id: "99",    label: "Documentário", color: "#0284c7" },
-  { id: "10751", label: "Família",      color: "#d97706" },
-  { id: "14",    label: "Fantasia",     color: "#7c3aed" },
-];
+// ─── Components ───────────────────────────────────────────────────────────────
 
-const MOODS = [
-  { id: "epico",    label: "Algo épico",        emoji: "⚡", query: "épico aventura ação" },
-  { id: "rir",      label: "Quero rir",          emoji: "😂", query: "comédia" },
-  { id: "assustar", label: "Quero me assustar",  emoji: "👻", query: "terror" },
-  { id: "chorar",   label: "Quero chorar",        emoji: "😢", query: "drama romance" },
-  { id: "acao",     label: "Muita ação",          emoji: "💥", query: "ação" },
-  { id: "sci",      label: "Ficção Científica",   emoji: "🚀", query: "ficção científica" },
-];
-
-const HOT_TAGS = ["#Marvel", "#Netflix", "#Anime", "#KDrama", "#Oscar", "#Pixar", "#DC", "#Disney"];
-
-type SourceFilter = "global" | "tmdb" | "flix2" | "drive";
-
-const SOURCE_FILTERS: {
-  id: SourceFilter; label: string; icon: keyof typeof Feather.glyphMap;
-  color: string; bg: string;
-}[] = [
-  { id: "global", label: "Global",    icon: "globe",      color: "#fff",     bg: "rgba(255,255,255,0.12)" },
-  { id: "tmdb",   label: "TMDB",      icon: "database",   color: "#01b4e4",  bg: "rgba(1,180,228,0.14)" },
-  { id: "flix2",  label: "Flix 2.0",  icon: "zap",        color: "#a855f7",  bg: "rgba(168,85,247,0.14)" },
-  { id: "drive",  label: "Drive",     icon: "hard-drive",  color: "#22c55e",  bg: "rgba(34,197,94,0.14)" },
-];
-
-function PosterCard({ item, onPress, showRating = true, width, inFlix2 = false, variantLabel }: {
+function PosterCard({ item, onPress, inFlix2 = false, variantLabel }: {
   item: ContentItem;
   onPress: () => void;
-  showRating?: boolean;
-  width?: number;
   inFlix2?: boolean;
   variantLabel?: string;
 }) {
-  const fixedW = width ?? 0;
-  const fixedH = fixedW * 1.5;
-  const outer = fixedW > 0 ? { width: fixedW, marginBottom: 4 } : { width: "32%" as const, marginBottom: 4 };
-  const imgBox = fixedW > 0
-    ? { width: fixedW, height: fixedH, borderRadius: 10, overflow: "hidden" as const, backgroundColor: "#1a0a14", marginBottom: 5 }
-    : { width: "100%" as const, aspectRatio: 2 / 3, borderRadius: 10, overflow: "hidden" as const, backgroundColor: "#1a0a14", marginBottom: 5 };
   const variantColor = variantLabel === "LEG" ? "#3b82f6" : variantLabel === "DUB" ? "#f59e0b" : "#6366f1";
   return (
-    <Pressable style={outer} onPress={onPress}>
-      <View style={imgBox}>
+    <Pressable style={s.card} onPress={onPress}>
+      <View style={s.cardImg}>
         {item.posterPath ? (
           <Image source={{ uri: item.posterPath }} style={StyleSheet.absoluteFill} contentFit="cover" />
         ) : (
-          <LinearGradient colors={["#2a1020","#0e0810"]} style={[StyleSheet.absoluteFill, { alignItems:"center", justifyContent:"center" }]}>
+          <LinearGradient colors={["#2a1020", "#0e0810"]}
+            style={[StyleSheet.absoluteFill, { alignItems: "center", justifyContent: "center" }]}>
             <Feather name="film" size={24} color="rgba(255,255,255,0.1)" />
           </LinearGradient>
         )}
-        <LinearGradient colors={["transparent", "rgba(0,0,0,0.8)"]} style={StyleSheet.absoluteFill} locations={[0.6, 1]} />
-        <View style={{ position:"absolute", top:5, left:5, right:5, flexDirection:"row", justifyContent:"space-between", alignItems:"flex-start" }}>
-          {item.mediaType === "tv" ? (
-            <View style={styles.typeBadge}>
-              <Text style={styles.typeBadgeText}>SÉRIE</Text>
-            </View>
-          ) : (
-            <View style={[styles.typeBadge, { backgroundColor: "rgba(229,9,20,0.8)" }]}>
-              <Text style={styles.typeBadgeText}>FILME</Text>
-            </View>
-          )}
-          {showRating && item.rating >= 6 && (
-            <View style={styles.ratingBadge}>
-              <Text style={styles.ratingText}>★ {item.rating.toFixed(1)}</Text>
-            </View>
-          )}
+        <LinearGradient colors={["transparent", "rgba(0,0,0,0.8)"]}
+          style={StyleSheet.absoluteFill} locations={[0.55, 1]} />
+
+        {/* type badge */}
+        <View style={[s.typeBadge, item.mediaType === "movie" && { backgroundColor: "rgba(229,9,20,0.82)" }]}>
+          <Text style={s.typeBadgeText}>{item.mediaType === "tv" ? "SÉRIE" : "FILME"}</Text>
         </View>
-        {variantLabel && (
-          <View style={[styles.variantBadge, { backgroundColor: `${variantColor}dd`, borderColor: `${variantColor}88` }]}>
+
+        {/* rating */}
+        {item.rating >= 7 && (
+          <View style={s.ratingBadge}>
+            <Text style={s.ratingText}>★ {item.rating.toFixed(1)}</Text>
+          </View>
+        )}
+
+        {/* variant / flix2 badge */}
+        {variantLabel ? (
+          <View style={[s.variantBadge, { backgroundColor: `${variantColor}dd`, borderColor: `${variantColor}88` }]}>
             <Feather name={variantLabel === "LEG" ? "align-left" : "volume-2"} size={7} color="#fff" />
-            <Text style={styles.variantBadgeText}>{variantLabel}</Text>
+            <Text style={s.variantBadgeText}>{variantLabel}</Text>
           </View>
-        )}
-        {!variantLabel && inFlix2 && (
-          <View style={styles.flix2Badge}>
+        ) : inFlix2 ? (
+          <View style={s.flix2Badge}>
             <Feather name="zap" size={8} color="#fff" />
-            <Text style={styles.flix2BadgeText}>FLIX 2.0</Text>
+            <Text style={s.flix2BadgeText}>FLIX</Text>
           </View>
-        )}
+        ) : null}
       </View>
-      <Text style={styles.cardTitle} numberOfLines={2}>
+
+      <Text style={s.cardTitle} numberOfLines={2}>
         {variantLabel
           ? item.title.replace(/\s*\[[^\]]*\]/g, "").replace(/\s*\(\d{4}\)/g, "").trim()
           : item.title}
       </Text>
-      <Text style={styles.cardYear}>{item.year} · {item.mediaType === "tv" ? "Série" : "Filme"}</Text>
+      <Text style={s.cardYear}>{item.year}</Text>
     </Pressable>
   );
 }
@@ -299,99 +329,52 @@ function Flix2OnlyCard({ item, onPress }: { item: Flix2RawItem; onPress?: () => 
   const typeLabel = item._type === "series" ? "SÉRIE" : item._type === "anime" ? "ANIME" : "FILME";
   const typeBg =
     item._type === "series" ? "rgba(8,145,178,0.85)" :
-    item._type === "anime"  ? "rgba(234,88,12,0.85)" : "rgba(229,9,20,0.85)";
+    item._type === "anime"  ? "rgba(234,88,12,0.85)"  : "rgba(229,9,20,0.85)";
   const isLeg = /\[L\]/i.test(item.title);
   const isDub = /\[D\b|Dub\b/i.test(item.title);
   const variantLabel = isLeg ? "LEG" : isDub ? "DUB" : null;
   const variantColor = isLeg ? "#3b82f6" : "#f59e0b";
-  const cleanedTitle = item.title.replace(/\s*\[[^\]]*\]/g, "").replace(/\s*\(\d{4}\)/g, "").trim();
+  const cleanTitle = item.title.replace(/\s*\[[^\]]*\]/g, "").replace(/\s*\(\d{4}\)/g, "").trim();
+
   const inner = (
     <>
-      <View style={{ width: "100%", aspectRatio: 2/3, borderRadius: 10, overflow: "hidden", backgroundColor: "#1a0a14", marginBottom: 5 }}>
+      <View style={s.cardImg}>
         {item.thumbnail ? (
           <Image source={{ uri: item.thumbnail }} style={StyleSheet.absoluteFill} contentFit="cover" />
         ) : (
-          <LinearGradient colors={["#2a1020","#0e0810"]} style={[StyleSheet.absoluteFill, { alignItems:"center", justifyContent:"center" }]}>
+          <LinearGradient colors={["#2a1020", "#0e0810"]}
+            style={[StyleSheet.absoluteFill, { alignItems: "center", justifyContent: "center" }]}>
             <Feather name="film" size={24} color="rgba(255,255,255,0.1)" />
           </LinearGradient>
         )}
-        <LinearGradient colors={["transparent","rgba(0,0,0,0.8)"]} style={StyleSheet.absoluteFill} locations={[0.55, 1]} />
-        <View style={{ position:"absolute", top:5, left:5 }}>
-          <View style={[styles.typeBadge, { backgroundColor: typeBg }]}>
-            <Text style={styles.typeBadgeText}>{typeLabel}</Text>
-          </View>
+        <LinearGradient colors={["transparent", "rgba(0,0,0,0.8)"]}
+          style={StyleSheet.absoluteFill} locations={[0.55, 1]} />
+        <View style={[s.typeBadge, { backgroundColor: typeBg }]}>
+          <Text style={s.typeBadgeText}>{typeLabel}</Text>
         </View>
         {variantLabel ? (
-          <View style={[styles.variantBadge, { backgroundColor: `${variantColor}dd`, borderColor: `${variantColor}88` }]}>
+          <View style={[s.variantBadge, { backgroundColor: `${variantColor}dd`, borderColor: `${variantColor}88` }]}>
             <Feather name={isLeg ? "align-left" : "volume-2"} size={7} color="#fff" />
-            <Text style={styles.variantBadgeText}>{variantLabel}</Text>
+            <Text style={s.variantBadgeText}>{variantLabel}</Text>
           </View>
         ) : (
-          <View style={styles.flix2Badge}>
+          <View style={s.flix2Badge}>
             <Feather name="zap" size={8} color="#fff" />
-            <Text style={styles.flix2BadgeText}>FLIX 2.0</Text>
+            <Text style={s.flix2BadgeText}>FLIX</Text>
           </View>
         )}
       </View>
-      <Text style={styles.cardTitle} numberOfLines={2}>{variantLabel ? cleanedTitle : item.title}</Text>
-      <Text style={styles.cardYear}>{typeLabel[0] + typeLabel.slice(1).toLowerCase()}</Text>
+      <Text style={s.cardTitle} numberOfLines={2}>{cleanTitle}</Text>
+      <Text style={s.cardYear}>{typeLabel[0] + typeLabel.slice(1).toLowerCase()}</Text>
     </>
   );
-  if (onPress) {
-    return <Pressable style={{ width: "32%", marginBottom: 4 }} onPress={onPress}>{inner}</Pressable>;
-  }
-  return <View style={{ width: "32%", marginBottom: 4, opacity: 0.9 }}>{inner}</View>;
+
+  return onPress
+    ? <Pressable style={s.card} onPress={onPress}>{inner}</Pressable>
+    : <View style={[s.card, { opacity: 0.9 }]}>{inner}</View>;
 }
 
-
-function SectionRow({ title, badge, accentColor = RED, onSeeAll, children }: {
-  title: string; badge?: string; accentColor?: string; onSeeAll?: () => void; children: React.ReactNode;
-}) {
-  const anim  = useRef(new Animated.Value(0)).current;
-  const words = title.split(" ");
-  const first = words[0];
-  const rest  = words.slice(1).join(" ");
-
-  useEffect(() => {
-    Animated.timing(anim, {
-      toValue: 1, duration: 420, delay: 80, useNativeDriver: true,
-    }).start();
-  }, []);
-
-  const ty = anim.interpolate({ inputRange: [0, 1], outputRange: [24, 0] });
-
-  return (
-    <Animated.View style={[styles.sectionWrap, { opacity: anim, transform: [{ translateY: ty }] }]}>
-      <View style={[styles.sectionHeader, { overflow: "hidden" }]}>
-        <LinearGradient
-          colors={[`${accentColor}28`, "transparent"]}
-          start={{ x: 0, y: 0 }} end={{ x: 0.7, y: 0 }}
-          style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
-        />
-        <View style={{ flexDirection:"row", alignItems:"center", gap:8 }}>
-          <View style={{ width:3, height:18, borderRadius:2, backgroundColor: accentColor }} />
-          <View style={{ flexDirection:"row", alignItems:"baseline" }}>
-            <Text style={[styles.sectionTitle, { color: accentColor }]}>{first}</Text>
-            {rest.length > 0 && (
-              <Text style={styles.sectionTitle}> {rest}</Text>
-            )}
-          </View>
-          {badge && (
-            <View style={[styles.badge, { backgroundColor: accentColor }]}>
-              <Text style={styles.badgeText}>{badge}</Text>
-            </View>
-          )}
-        </View>
-        {onSeeAll && (
-          <Pressable onPress={onSeeAll} hitSlop={8}>
-            <Text style={[styles.seeAll, { color: accentColor }]}>Ver tudo ›</Text>
-          </Pressable>
-        )}
-      </View>
-      {children}
-    </Animated.View>
-  );
-}
+// ─── Main screen ──────────────────────────────────────────────────────────────
 
 export default function BuscarScreen() {
   const router   = useRouter();
@@ -400,118 +383,125 @@ export default function BuscarScreen() {
   const inputRef = useRef<TextInput>(null);
   const topPad   = insets.top + (Platform.OS === "web" ? 67 : 0);
 
-  // ── R2/Drive catalog ─────────────────────────────────────────────────────
   const { r2All } = useR2Catalog();
 
-  const [query,         setQuery]         = useState(params.q ?? "");
-  const [results,       setResults]       = useState<ContentItem[]>([]);
-  const [loading,       setLoading]       = useState(false);
-  const [flix2Titles,      setFlix2Titles]      = useState<Set<string>>(new Set());
-  const [flix2RawResults,  setFlix2RawResults]  = useState<Flix2RawItem[]>([]);
-  const [flix2Loading,     setFlix2Loading]      = useState(false);
-  const [sourceFilter,     setSourceFilter]      = useState<SourceFilter>("global");
-  const [r2SearchResults,  setR2SearchResults]   = useState<ContentItem[]>([]);
+  const [query,        setQuery]        = useState(params.q ?? "");
+  const [results,      setResults]      = useState<ContentItem[]>([]);
+  const [loading,      setLoading]      = useState(false);
+  const [flix2Titles,  setFlix2Titles]  = useState<Set<string>>(new Set());
+  const [flix2Raw,     setFlix2Raw]     = useState<Flix2RawItem[]>([]);
+  const [flix2Loading, setFlix2Loading] = useState(false);
+  const [searchHistory, setSearchHistory] = useState<string[]>([]);
 
-  // ── Catálogo Flix 2.0 (browse mode) ─────────────────────────────────────
-  const [showFlix2Catalog, setShowFlix2Catalog] = useState(false);
-  const [flix2CatType,     setFlix2CatType]     = useState<"movies"|"series"|"animes">("movies");
-  const [flix2CatItems,    setFlix2CatItems]    = useState<Flix2RawItem[]>([]);
-  const [flix2CatLoading,  setFlix2CatLoading]  = useState(false);
-  const [activeCategory,setActiveCategory]= useState<string>("trending");
-  const [activeGenre,   setActiveGenre]   = useState<string | null>(null);
+  // Animations
+  const barFade  = useRef(new Animated.Value(0)).current;
+  const resFade  = useRef(new Animated.Value(0)).current;
+  const idleFade = useRef(new Animated.Value(1)).current;
 
-  const [genreItems,     setGenreItems]     = useState<ContentItem[]>([]);
-  const [searchHistory,  setSearchHistory]  = useState<string[]>([]);
-  const [micOn,          setMicOn]          = useState(false);
-  const micPulse = useRef(new Animated.Value(1)).current;
-
-  // Carrega histórico salvo na primeira abertura
   useEffect(() => {
     loadHistory().then(setSearchHistory);
-    setTimeout(() => inputRef.current?.focus(), 300);
+    Animated.timing(barFade, { toValue: 1, duration: 500, useNativeDriver: true }).start();
+    setTimeout(() => inputRef.current?.focus(), 350);
   }, []);
 
-  const loadGenre = useCallback(async (genreId: string) => {
-    setActiveGenre(genreId);
-    const data = await tfetch("/discover/multi", { with_genres: genreId, sort_by: "popularity.desc" })
-      .catch(() => tfetch("/discover/movie", { with_genres: genreId, sort_by: "popularity.desc" }));
-    setGenreItems((data.results ?? []).slice(0, 30).map((x: any) => toItem(x)));
-  }, []);
-
-  const startVoice = useCallback(() => {
-    if (Platform.OS !== "web") return;
-    const SR: any = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SR) return;
-    const rec = new SR();
-    rec.lang = "pt-BR"; rec.continuous = false;
-    rec.onstart = () => {
-      setMicOn(true);
-      Animated.loop(Animated.sequence([
-        Animated.timing(micPulse, { toValue: 0.3, duration: 450, useNativeDriver: true }),
-        Animated.timing(micPulse, { toValue: 1,   duration: 450, useNativeDriver: true }),
-      ])).start();
-    };
-    rec.onresult = (e: any) => { setQuery(e.results[0][0].transcript); };
-    rec.onend  = () => { setMicOn(false); micPulse.stopAnimation(); micPulse.setValue(1); };
-    rec.onerror = () => { setMicOn(false); micPulse.setValue(1); };
-    rec.start();
-  }, [micPulse]);
-
+  // ── Search logic ────────────────────────────────────────────────────────────
   useEffect(() => {
     const q = query.trim();
     if (q.length < 2) {
-      setResults([]); setFlix2Titles(new Set()); setFlix2RawResults([]);
-      setR2SearchResults([]);
+      setResults([]);
+      setFlix2Titles(new Set());
+      setFlix2Raw([]);
+      // fade in idle, fade out results
+      Animated.parallel([
+        Animated.timing(idleFade, { toValue: 1, duration: 250, useNativeDriver: true }),
+        Animated.timing(resFade,  { toValue: 0, duration: 150, useNativeDriver: true }),
+      ]).start();
       return;
     }
+
+    // fade out idle
+    Animated.timing(idleFade, { toValue: 0, duration: 150, useNativeDriver: true }).start();
+
     setLoading(true);
     setFlix2Loading(true);
 
-    // R2/Drive: instant in-memory filter
-    setR2SearchResults(r2All.filter(i => i.title.toLowerCase().includes(q.toLowerCase())));
+    let cancelled = false;
+    let cacheHit  = false;
 
-    // Flix 2.0: busca instantânea no cache prefetchado (sem rede)
-    let cacheHit = false;
     const cacheSearch = searchFromCache(q).then((cached) => {
+      if (cancelled) return;
       cacheHit = cached.raw.length > 0;
       if (cacheHit) {
         setFlix2Titles(cached.titles);
-        setFlix2RawResults(cached.raw);
+        setFlix2Raw(cached.raw);
         setFlix2Loading(false);
       }
     });
 
-    // TMDB: debounce 300ms + Flix 2.0 API fallback se cache vazio
+    const expandedQ = expandQuery(q);
+    const searchQ   = expandedQ !== q ? expandedQ : q;
+
     const timer = setTimeout(async () => {
-      await cacheSearch; // aguarda cache resolver (< 50ms normalmente)
+      await cacheSearch;
+      if (cancelled) return;
 
       const tasks: Promise<any>[] = [
-        tfetch("/search/multi", { query: q, include_adult: "false", page: "1" }),
+        tfetch("/search/multi", { query: searchQ, include_adult: "false", page: "1" }),
+        ...(searchQ !== q
+          ? [tfetch("/search/multi", { query: q, include_adult: "false", page: "1" })]
+          : []),
       ];
       if (!cacheHit) tasks.push(flix2Search(q));
 
-      const [tmdbResult, flix2Result] = await Promise.allSettled(tasks);
+      const settled = await Promise.allSettled(tasks);
+      if (cancelled) return;
 
-      if (tmdbResult.status === "fulfilled") {
-        const items: ContentItem[] = (tmdbResult.value.results ?? [])
-          .filter((x: any) => x.media_type === "movie" || x.media_type === "tv")
-          .map((x: any) => toItem(x));
-        setResults(items);
-        // Salva no histórico quando há resultados
-        if (items.length > 0 || cacheHit) {
-          setSearchHistory((prev) => addToHistory(prev, q));
+      // Merge TMDB results from both queries, dedup by id
+      const seen = new Set<string>();
+      const merged: ContentItem[] = [];
+      for (const r of settled.slice(0, 2)) {
+        if (r.status !== "fulfilled") continue;
+        for (const x of (r.value.results ?? [])) {
+          if (x.media_type !== "movie" && x.media_type !== "tv") continue;
+          if (seen.has(String(x.id))) continue;
+          seen.add(String(x.id));
+          merged.push(toItem(x));
         }
+      }
+
+      // Re-rank by fuzzy score (keeps TMDB relevance for top results, surfaces fuzzy matches)
+      const scoredMerged = merged.map(item => ({ item, score: fuzzyScore(item.title, q) }));
+      scoredMerged.sort((a, b) => {
+        // Treat score 0 as a "no keyword match" but still include TMDB results
+        // (TMDB is already relevant by definition; just boost fuzzy matches)
+        const diff = b.score - a.score;
+        if (Math.abs(diff) < 5) return 0; // stable for similar scores
+        return diff;
+      });
+      setResults(scoredMerged.map(x => x.item));
+
+      if (merged.length > 0 || cacheHit) {
+        setSearchHistory(prev => addToHistory(prev, q));
       }
       setLoading(false);
 
-      if (!cacheHit && flix2Result && flix2Result.status === "fulfilled") {
-        setFlix2Titles(flix2Result.value.titles);
-        setFlix2RawResults(flix2Result.value.raw);
-        setFlix2Loading(false);
+      if (!cacheHit && settled.length > 2) {
+        const flix2R = settled[2];
+        if (flix2R.status === "fulfilled") {
+          setFlix2Titles(flix2R.value.titles);
+          setFlix2Raw(flix2R.value.raw);
+          setFlix2Loading(false);
+        }
       }
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [query, r2All]);
+
+      Animated.timing(resFade, { toValue: 1, duration: 300, useNativeDriver: true }).start();
+    }, 280);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [query]);
 
   const goTo = useCallback((item: ContentItem) => {
     router.push({
@@ -520,818 +510,408 @@ export default function BuscarScreen() {
     });
   }, [router]);
 
-  // ── Load Flix 2.0 catalog when catalog mode is opened or type changes ───────
-  useEffect(() => {
-    if (!showFlix2Catalog) return;
-    let cancelled = false;
-    setFlix2CatLoading(true);
-    setFlix2CatItems([]);
-    fetchFlix2Catalog(flix2CatType).then((items) => {
-      if (!cancelled) { setFlix2CatItems(items); setFlix2CatLoading(false); }
-    });
-    return () => { cancelled = true; };
-  }, [showFlix2Catalog, flix2CatType]);
-
   const isSearching = query.trim().length >= 2;
 
+  // ── Build merged result list ────────────────────────────────────────────────
+  const { expandedItems, flix2OnlyRaw, driveItems } = (() => {
+    const flix2ByClean = new Map<string, Flix2RawItem[]>();
+    for (const f of flix2Raw) {
+      const k = cleanT(f.title);
+      if (!flix2ByClean.has(k)) flix2ByClean.set(k, []);
+      flix2ByClean.get(k)!.push(f);
+    }
+
+    type Expanded = { item: ContentItem; variantTitle?: string; variantLabel?: string; r2TmdbId?: number };
+    const expandedItems: Expanded[] = [];
+    const coveredFlix2 = new Set<string>();
+
+    const getR2TmdbId = (varTitle: string): number | undefined => {
+      const vClean = cleanT(varTitle);
+      return (r2All.find(r => cleanT(r.title) === vClean) ?? r2All.find(r => cleanT(r.title) === cleanT(varTitle.replace(/\s*\[[^\]]*\]/g, "").trim())))?.tmdbId;
+    };
+
+    for (const item of results) {
+      const key = cleanT(item.title);
+      const variants = flix2ByClean.get(key) ?? [];
+      const seenLabels = new Set<string>();
+      const uniqueVariants: Array<{ title: string; label: string | undefined }> = [];
+      for (const v of variants) {
+        const lbl = /\[L\]/i.test(v.title) ? "LEG" : /\[D\b|Dub\b/i.test(v.title) ? "DUB" : "__none__";
+        if (!seenLabels.has(lbl)) {
+          seenLabels.add(lbl);
+          coveredFlix2.add(cleanT(v.title));
+          uniqueVariants.push({ title: v.title, label: lbl === "__none__" ? undefined : lbl });
+        }
+      }
+      if (uniqueVariants.length > 1) {
+        for (const uv of uniqueVariants) {
+          expandedItems.push({ item, variantTitle: uv.title, variantLabel: uv.label, r2TmdbId: getR2TmdbId(uv.title) });
+        }
+      } else if (uniqueVariants.length === 1) {
+        expandedItems.push({ item, variantTitle: uniqueVariants[0].title, variantLabel: uniqueVariants[0].label, r2TmdbId: getR2TmdbId(uniqueVariants[0].title) });
+      } else {
+        expandedItems.push({ item });
+      }
+    }
+
+    const flix2OnlyRaw = flix2Raw.filter(r =>
+      !coveredFlix2.has(cleanT(r.title)) && !results.some(t => cleanT(t.title) === cleanT(r.title))
+    );
+
+    const driveItems = r2All.filter(i =>
+      i.title.toLowerCase().includes(query.toLowerCase()) &&
+      !results.some(t => cleanT(t.title) === cleanT(i.title))
+    );
+
+    return { expandedItems, flix2OnlyRaw, driveItems };
+  })();
+
+  const totalCount = expandedItems.length + flix2OnlyRaw.length + driveItems.length;
 
   return (
-    <View style={[styles.root, { paddingTop: topPad }]}>
+    <View style={[s.root, { paddingTop: topPad }]}>
       <StatusBar style="light" />
 
-      {/* ── HEADER ───────────────────────────────────────────────────────────── */}
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} hitSlop={12}>
+      {/* ── HEADER ─────────────────────────────────────────────────────────── */}
+      <Animated.View style={[s.header, { opacity: barFade }]}>
+        <TouchableOpacity style={s.backBtn} onPress={() => router.back()} hitSlop={12}>
           <Feather name="arrow-left" size={20} color="#fff" />
         </TouchableOpacity>
-        <View style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 0 }}>
-          <View style={styles.logoAccent} />
-          <Text style={[styles.headerTitle, { color: RED }]}>BUS</Text>
-          <Text style={styles.headerTitle}>CAR</Text>
+        <View style={s.headerCenter}>
+          <View style={s.logoAccent} />
+          <Text style={[s.headerTitle, { color: RED }]}>BUS</Text>
+          <Text style={s.headerTitle}>CAR</Text>
         </View>
         <View style={{ width: 36 }} />
-      </View>
+      </Animated.View>
 
-      {/* ── SEARCH BAR ───────────────────────────────────────────────────────── */}
-      <View style={styles.searchWrap}>
-        <LinearGradient colors={["rgba(255,255,255,0.1)", "rgba(255,255,255,0.05)"]}
-          style={styles.searchBar}>
-          <View style={styles.searchIconBox}>
-            <Feather name="search" size={15} color={RED} />
+      {/* ── SEARCH BAR ─────────────────────────────────────────────────────── */}
+      <Animated.View style={[s.searchWrap, { opacity: barFade }]}>
+        <View style={s.searchBar}>
+          <View style={s.searchIconBox}>
+            {loading
+              ? <ActivityIndicator color={RED} size="small" />
+              : <Feather name="search" size={16} color={RED} />
+            }
           </View>
           <TextInput
             ref={inputRef}
-            style={styles.searchInput}
+            style={s.searchInput}
             value={query}
             onChangeText={setQuery}
-            placeholder="Buscar filmes, séries, atores, gêneros..."
-            placeholderTextColor="rgba(255,255,255,0.3)"
+            placeholder="Filmes, séries, animes, atores, gêneros..."
+            placeholderTextColor="rgba(255,255,255,0.28)"
             returnKeyType="search"
             autoCorrect={false}
             autoCapitalize="none"
             selectionColor={RED}
+            onSubmitEditing={() => {
+              if (query.trim().length >= 2) {
+                setSearchHistory(prev => addToHistory(prev, query.trim()));
+              }
+            }}
           />
-          {query.length > 0 ? (
-            <Pressable style={styles.clearBtn} hitSlop={10}
-              onPress={() => { setQuery(""); inputRef.current?.focus(); }}>
-              <Feather name="x" size={12} color="#fff" />
-            </Pressable>
-          ) : (
-            <Pressable style={[styles.micBtn, micOn && styles.micBtnActive]} hitSlop={10} onPress={startVoice}>
-              <Animated.View style={micOn ? { opacity: micPulse } : undefined}>
-                <Feather name="mic" size={13} color={micOn ? RED : "rgba(255,255,255,0.4)"} />
-              </Animated.View>
+          {query.length > 0 && (
+            <Pressable style={s.clearBtn} hitSlop={12} onPress={() => { setQuery(""); inputRef.current?.focus(); }}>
+              <Feather name="x" size={13} color="rgba(255,255,255,0.7)" />
             </Pressable>
           )}
-        </LinearGradient>
-      </View>
-
-      {/* ── HISTÓRICO DE BUSCAS ─────────────────────────────────────────────── */}
-      {!isSearching && searchHistory.length > 0 && (
-        <View style={styles.historyWrap}>
-          <View style={styles.historyHeader}>
-            <Feather name="clock" size={11} color="rgba(255,255,255,0.35)" />
-            <Text style={styles.historyLabel}>Recentes</Text>
-            <Pressable hitSlop={10} onPress={() => {
-              setSearchHistory([]);
-              saveHistory([]);
-            }}>
-              <Text style={styles.historyClear}>Limpar</Text>
-            </Pressable>
-          </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-            contentContainerStyle={{ paddingHorizontal: 16, gap: 8, paddingBottom: 6 }}>
-            {searchHistory.map((term) => (
-              <Pressable key={term} style={styles.historyChip}
-                onPress={() => setQuery(term)}>
-                <Feather name="search" size={10} color="rgba(255,255,255,0.45)" />
-                <Text style={styles.historyChipText} numberOfLines={1}>{term}</Text>
-                <Pressable hitSlop={8} onPress={() => {
-                  const next = searchHistory.filter(h => h !== term);
-                  setSearchHistory(next);
-                  saveHistory(next);
-                }}>
-                  <Feather name="x" size={10} color="rgba(255,255,255,0.3)" />
-                </Pressable>
-              </Pressable>
-            ))}
-          </ScrollView>
         </View>
-      )}
 
-      {/* ── SOURCE FILTER PILLS (always visible) ────────────────────────────── */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false}
-        style={{ flexGrow: 0, flexShrink: 0 }}
-        nestedScrollEnabled keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ paddingHorizontal: 16, gap: 8, paddingVertical: 10, alignItems: "center" }}>
-        {SOURCE_FILTERS.map((sf) => {
-          const active = sourceFilter === sf.id;
-          return (
-            <Pressable
-              key={sf.id}
-              style={[
-                styles.sourcePill,
-                active && { backgroundColor: sf.bg, borderColor: sf.color },
-              ]}
-              onPress={() => {
-                setSourceFilter(sf.id);
-                if (sf.id === "flix2" && !isSearching) setShowFlix2Catalog(true);
-                if (sf.id !== "flix2") setShowFlix2Catalog(false);
-              }}>
-              <Feather
-                name={sf.icon}
-                size={12}
-                color={active ? sf.color : "rgba(255,255,255,0.4)"}
-              />
-              <Text style={[styles.sourcePillText, active && { color: sf.color, fontWeight: "800" }]}>
-                {sf.label}
-              </Text>
-              {sf.id === "global" && active && (
-                <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: RED }} />
-              )}
-            </Pressable>
-          );
-        })}
-      </ScrollView>
+        {/* Fuzzy hint */}
+        {isSearching && !loading && totalCount === 0 && !flix2Loading && (
+          <Text style={s.fuzzyHint}>Busca inteligente — tente palavras-chave ou descrições</Text>
+        )}
+      </Animated.View>
 
       {isSearching ? (
-        /* ─────────────────── SEARCH RESULTS ───────────────────────────────── */
-        <View style={{ flex: 1 }}>
-          {/* ── results bar ─────────────────────────────────────────────────── */}
-          <View style={styles.resultsBar}>
-            <View style={{ gap: 4, flex: 1 }}>
-              {loading ? (
-                <ActivityIndicator color={RED} size="small" />
-              ) : (
-                <Text style={styles.resultsLabel}>
-                  {(() => {
-                    const sf = SOURCE_FILTERS.find(s => s.id === sourceFilter)!;
-                    const cnt = sourceFilter === "drive"
-                      ? r2SearchResults.length
-                      : sourceFilter === "flix2"
-                        ? flix2Titles.size + flix2RawResults.filter(r => !results.some(t => t.title.toLowerCase().trim() === r.title.toLowerCase().trim())).length
-                        : results.length;
-                    return cnt > 0
-                      ? `${cnt} resultado${cnt !== 1 ? "s" : ""} em ${sf.label} · "${query.trim()}"`
-                      : `Nenhum resultado em ${sf.label} para "${query.trim()}"`;
-                  })()}
+        /* ─────────────── RESULTS ─────────────────────────────────────────── */
+        <Animated.View style={[{ flex: 1 }, { opacity: resFade }]}>
+          {/* count bar */}
+          {!loading && (
+            <View style={s.countBar}>
+              <Text style={s.countText}>
+                {totalCount > 0
+                  ? `${totalCount} resultado${totalCount !== 1 ? "s" : ""} para `
+                  : "Nenhum resultado para "}
+                <Text style={[s.countText, { color: "#fff", fontWeight: "700" }]}>
+                  "{query.trim()}"
                 </Text>
-              )}
-              {sourceFilter !== "drive" && flix2Loading && (
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                  <ActivityIndicator color="#a855f7" size="small" />
-                  <Text style={[styles.resultsLabel, { fontSize: 11, color: "#a855f7" }]}>Buscando Flix 2.0…</Text>
+              </Text>
+              {flix2Loading && (
+                <View style={s.flix2Pill}>
+                  <ActivityIndicator color="#a855f7" size="small" style={{ transform: [{ scale: 0.65 }] }} />
+                  <Text style={s.flix2PillText}>Flix…</Text>
                 </View>
               )}
-            </View>
-            {/* counts pills */}
-            <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
-              {r2SearchResults.length > 0 && (
-                <View style={{ flexDirection:"row", alignItems:"center", gap:3, paddingHorizontal:7, paddingVertical:3, borderRadius:10, backgroundColor:"rgba(34,197,94,0.14)", borderWidth:1, borderColor:"rgba(34,197,94,0.3)" }}>
-                  <Feather name="hard-drive" size={9} color="#22c55e" />
-                  <Text style={{ color:"#22c55e", fontSize:10, fontWeight:"800" }}>{r2SearchResults.length}</Text>
-                </View>
-              )}
-              {flix2Titles.size > 0 && (
-                <View style={{ flexDirection:"row", alignItems:"center", gap:3, paddingHorizontal:7, paddingVertical:3, borderRadius:10, backgroundColor:"rgba(168,85,247,0.14)", borderWidth:1, borderColor:"rgba(168,85,247,0.3)" }}>
-                  <Feather name="zap" size={9} color="#a855f7" />
-                  <Text style={{ color:"#a855f7", fontSize:10, fontWeight:"800" }}>{flix2Titles.size}</Text>
+              {driveItems.length > 0 && (
+                <View style={[s.flix2Pill, { borderColor: "rgba(34,197,94,0.4)", backgroundColor: "rgba(34,197,94,0.1)" }]}>
+                  <Feather name="hard-drive" size={9} color={GREEN} />
+                  <Text style={[s.flix2PillText, { color: GREEN }]}>{driveItems.length}</Text>
                 </View>
               )}
             </View>
-          </View>
+          )}
 
-          {(() => {
-            // ── Build Flix2 variant map (cleaned title → list of Flix2 items) ─
-            const flix2ByClean = new Map<string, Flix2RawItem[]>();
-            for (const f of flix2RawResults) {
-              const k = cleanT(f.title);
-              if (!flix2ByClean.has(k)) flix2ByClean.set(k, []);
-              flix2ByClean.get(k)!.push(f);
-            }
-
-            // ── Expand TMDB items: 1 TMDB entry → N cards when N Flix2 variants ─
-            // r2TmdbId: the tmdbId actually stored in the registry (may be 0 for Flix2-only)
-            type ExpandedItem = { item: ContentItem; variantTitle?: string; variantLabel?: string; r2TmdbId?: number };
-            const expandedItems: ExpandedItem[] = [];
-            const coveredFlix2Keys = new Set<string>();
-
-            // Helper: find the registry tmdbId for a variant title (prefers exact title match)
-            const getR2TmdbId = (varTitle: string): number | undefined => {
-              const vClean = cleanT(varTitle);
-              const match = r2All.find(r => cleanT(r.title) === vClean)
-                ?? r2All.find(r => cleanT(r.title) === cleanT(varTitle.replace(/\s*\[[^\]]*\]/g, "").replace(/\s*\(\d{4}\)/g, "").trim()));
-              return match?.tmdbId;
-            };
-
-            for (const item of results) {
-              const key = cleanT(item.title);
-              const variants = flix2ByClean.get(key) ?? [];
-              // Deduplicate by variant label — show at most one LEG, one DUB, one unlabeled
-              const seenLabels = new Set<string>();
-              const uniqueVariants: Array<{ title: string; label: string | undefined }> = [];
-              for (const v of variants) {
-                const lbl = /\[L\]/i.test(v.title) ? "LEG" : /\[D\b|Dub\b/i.test(v.title) ? "DUB" : "__none__";
-                if (!seenLabels.has(lbl)) {
-                  seenLabels.add(lbl);
-                  coveredFlix2Keys.add(cleanT(v.title));
-                  uniqueVariants.push({ title: v.title, label: lbl === "__none__" ? undefined : lbl });
-                }
-              }
-              if (uniqueVariants.length > 1) {
-                for (const uv of uniqueVariants) {
-                  expandedItems.push({ item, variantTitle: uv.title, variantLabel: uv.label, r2TmdbId: getR2TmdbId(uv.title) });
-                }
-              } else if (uniqueVariants.length === 1) {
-                expandedItems.push({ item, variantTitle: uniqueVariants[0].title, variantLabel: uniqueVariants[0].label, r2TmdbId: getR2TmdbId(uniqueVariants[0].title) });
-              } else {
-                // No Flix2 match — just show TMDB result as-is
-                expandedItems.push({ item });
-              }
-            }
-
-            // ── Flix2-only: no TMDB match by cleaned title ──────────────────
-            const flix2OnlyRaw = flix2RawResults.filter(
-              r => !coveredFlix2Keys.has(cleanT(r.title)) && !results.some(t => cleanT(t.title) === cleanT(r.title))
-            );
-
-            let tmdbExpanded: ExpandedItem[] = [];
-            let showFlix2Only = false;
-            let driveItems: ContentItem[] = [];
-
-            if (sourceFilter === "global") {
-              tmdbExpanded = expandedItems;
-              showFlix2Only = flix2OnlyRaw.length > 0;
-              driveItems = r2SearchResults.filter(
-                r => !results.some(t => cleanT(t.title) === cleanT(r.title))
-              );
-            } else if (sourceFilter === "tmdb") {
-              tmdbExpanded = expandedItems;
-            } else if (sourceFilter === "flix2") {
-              tmdbExpanded = expandedItems.filter(e =>
-                flix2Titles.has(cleanT(e.item.title)) ||
-                (e.variantTitle ? flix2Titles.has(e.variantTitle.toLowerCase().trim()) : false)
-              );
-              showFlix2Only = flix2OnlyRaw.length > 0;
-            } else if (sourceFilter === "drive") {
-              driveItems = r2SearchResults;
-            }
-
-            const isEmpty = tmdbExpanded.length === 0 && !showFlix2Only && driveItems.length === 0;
-
-            if (loading && sourceFilter !== "drive") {
-              return (
-                <View style={styles.centered}>
-                  <ActivityIndicator color={RED} size="large" />
-                  <Text style={styles.loadingText}>Buscando...</Text>
-                </View>
-              );
-            }
-            if (isEmpty) {
-              const sf = SOURCE_FILTERS.find(s => s.id === sourceFilter)!;
-              return (
-                <View style={styles.centered}>
-                  <Feather name={sf.icon} size={48} color={`${sf.color}22`} />
-                  <Text style={styles.emptyTitle}>Nenhum resultado em {sf.label}</Text>
-                  <Text style={styles.emptySubtitle}>
-                    {sourceFilter === "drive"
-                      ? "Nenhum conteúdo do Drive corresponde à busca"
-                      : sourceFilter === "flix2"
-                        ? "A busca não retornou resultados no catálogo Flix 2.0"
-                        : "Tente outro termo de busca"}
-                  </Text>
-                </View>
-              );
-            }
-            return (
-              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 20 }}>
-
-                {/* ── TMDB results (expanded with Flix2 variants) ───────────── */}
-                {tmdbExpanded.length > 0 && (
-                  <>
-                    {(showFlix2Only || driveItems.length > 0) && (
-                      <View style={[styles.flix2OnlyHeader, { marginBottom: 8 }]}>
-                        <View style={[styles.flix2OnlyAccent, { backgroundColor: "#01b4e4" }]} />
-                        <Feather name="database" size={13} color="#01b4e4" />
-                        <Text style={[styles.flix2OnlyTitle, { color: "#01b4e4" }]}>TMDB</Text>
-                        <Text style={styles.flix2OnlySubtitle}>{tmdbExpanded.length} resultado{tmdbExpanded.length !== 1 ? "s" : ""}</Text>
-                      </View>
-                    )}
-                    <View style={styles.grid}>
-                      {tmdbExpanded.map((e, idx) => (
-                        <PosterCard
-                          key={`${e.item.id}-${idx}`}
-                          item={e.item}
-                          onPress={() => router.push({
-                            pathname: "/detail",
-                            params: {
-                              type: e.item.mediaType ?? (e.item.type === "movie" ? "movie" : "tv"),
-                              // Prefer the tmdbId actually stored in the registry (r2TmdbId).
-                              // Falls back to TMDB search ID so TMDB metadata still loads.
-                              id: String(e.r2TmdbId ?? e.item.tmdbId ?? 0),
-                              title: e.variantTitle ?? e.item.title,
-                              poster: e.item.posterPath ?? "",
-                            },
-                          } as any)}
-                          inFlix2={!!e.variantTitle}
-                          variantLabel={e.variantLabel}
-                        />
-                      ))}
-                    </View>
-                  </>
-                )}
-
-                {/* ── Flix 2.0-only items (no TMDB match) ──────────────────── */}
-                {showFlix2Only && (
-                  <View style={{ marginTop: tmdbExpanded.length > 0 ? 24 : 0 }}>
-                    <View style={styles.flix2OnlyHeader}>
-                      <View style={styles.flix2OnlyAccent} />
-                      <Feather name="zap" size={14} color="#a855f7" />
-                      <Text style={styles.flix2OnlyTitle}>Exclusivos Flix 2.0</Text>
-                      <Text style={styles.flix2OnlySubtitle}>não encontrados no TMDB</Text>
-                    </View>
-                    <View style={styles.grid}>
-                      {flix2OnlyRaw.map((item, i) => (
-                        <Flix2OnlyCard
-                          key={`flix2only-${i}`}
-                          item={item}
-                          onPress={() => router.push({
-                            pathname: "/detail",
-                            params: {
-                              type: item._type === "movie" ? "movie" : "tv",
-                              id: String(item.tmdb_id || 0),
-                              title: item.title,
-                              poster: item.thumbnail ?? "",
-                            },
-                          } as any)}
-                        />
-                      ))}
-                    </View>
-                  </View>
-                )}
-
-                {/* ── Drive/R2 items ───────────────────────────────────────── */}
-                {driveItems.length > 0 && (
-                  <View style={{ marginTop: (tmdbExpanded.length > 0 || showFlix2Only) ? 24 : 0 }}>
-                    {(tmdbExpanded.length > 0 || showFlix2Only) && (
-                      <View style={styles.flix2OnlyHeader}>
-                        <View style={[styles.flix2OnlyAccent, { backgroundColor: "#22c55e" }]} />
-                        <Feather name="hard-drive" size={13} color="#22c55e" />
-                        <Text style={[styles.flix2OnlyTitle, { color: "#22c55e" }]}>Drive</Text>
-                        <Text style={styles.flix2OnlySubtitle}>{driveItems.length} item{driveItems.length !== 1 ? "ns" : ""} no armazenamento</Text>
-                      </View>
-                    )}
-                    <View style={styles.grid}>
-                      {driveItems.map((item) => (
-                        <PosterCard key={item.id} item={item} onPress={() => goTo(item)} />
-                      ))}
-                    </View>
-                  </View>
-                )}
-
-              </ScrollView>
-            );
-          })()}
-        </View>
-      ) : showFlix2Catalog ? (
-        /* ─────────────────── CATÁLOGO FLIX 2.0 ────────────────────────────── */
-        <View style={{ flex: 1 }}>
-          {/* header */}
-          <View style={styles.catHeader}>
-            <TouchableOpacity style={styles.backBtn} onPress={() => setShowFlix2Catalog(false)} hitSlop={12}>
-              <Feather name="arrow-left" size={20} color="#fff" />
-            </TouchableOpacity>
-            <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 6 }}>
-              <Feather name="zap" size={16} color="#a855f7" />
-              <Text style={styles.catHeaderTitle}>Catálogo</Text>
-              <Text style={[styles.catHeaderTitle, { color: "#a855f7" }]}>Flix 2.0</Text>
+          {loading && expandedItems.length === 0 ? (
+            <View style={s.centered}>
+              <ActivityIndicator color={RED} size="large" />
+              <Text style={s.loadingText}>Buscando...</Text>
             </View>
-            {flix2CatLoading && <ActivityIndicator color="#a855f7" size="small" />}
-            {!flix2CatLoading && (
-              <Text style={styles.catCount}>{flix2CatItems.length} títulos</Text>
-            )}
-          </View>
-
-          {/* type tabs */}
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}
-            contentContainerStyle={{ paddingHorizontal: 16, gap: 8, paddingBottom: 12 }}>
-            {([
-              { key: "movies",  label: "🎬 Filmes"  },
-              { key: "series",  label: "📺 Séries"  },
-              { key: "animes",  label: "⛩️ Animes"  },
-            ] as { key: "movies"|"series"|"animes"; label: string }[]).map((t) => (
-              <Pressable key={t.key}
-                style={[styles.catTypeTab, flix2CatType === t.key && styles.catTypeTabActive]}
-                onPress={() => setFlix2CatType(t.key)}>
-                <Text style={[styles.catTypeTabText, flix2CatType === t.key && { color: "#fff" }]}>
-                  {t.label}
-                </Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-
-          {flix2CatLoading ? (
-            <View style={styles.centered}>
-              <ActivityIndicator color="#a855f7" size="large" />
-              <Text style={[styles.loadingText, { color: "#a855f7" }]}>Carregando catálogo…</Text>
-              <Text style={[styles.loadingText, { fontSize: 11, marginTop: 4 }]}>Pode demorar na primeira vez</Text>
-            </View>
-          ) : flix2CatItems.length === 0 ? (
-            <View style={styles.centered}>
-              <Feather name="zap" size={48} color="rgba(168,85,247,0.15)" />
-              <Text style={styles.emptyTitle}>Catálogo indisponível</Text>
-              <Text style={styles.emptySubtitle}>Tente novamente em instantes</Text>
+          ) : totalCount === 0 && !flix2Loading ? (
+            <View style={s.centered}>
+              <Feather name="search" size={52} color="rgba(255,255,255,0.06)" />
+              <Text style={s.emptyTitle}>Nada encontrado</Text>
+              <Text style={s.emptySubtitle}>Tente um sinônimo, gênero ou nome parecido</Text>
             </View>
           ) : (
-            <FlatList
-              data={flix2CatItems}
-              keyExtractor={(item, i) => `cat-${i}-${item.title}`}
-              numColumns={3}
-              contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 100, rowGap: 12 }}
-              columnWrapperStyle={{ justifyContent: "space-between" }}
-              showsVerticalScrollIndicator={false}
-              renderItem={({ item }) => <Flix2OnlyCard item={item} />}
-              initialNumToRender={12}
-              maxToRenderPerBatch={12}
-              windowSize={7}
-              removeClippedSubviews={true}
-              updateCellsBatchingPeriod={50}
-            />
-          )}
-        </View>
+            <ScrollView showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={s.resultsScroll}>
 
-      ) : sourceFilter === "drive" && !isSearching ? (
-        /* ─────────────────── DRIVE / R2 LIBRARY BROWSE ────────────────────── */
-        <View style={{ flex: 1 }}>
-          <View style={[styles.catHeader, { paddingVertical: 8 }]}>
-            <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <View style={{ width: 3, height: 20, borderRadius: 2, backgroundColor: GREEN }} />
-              <Feather name="hard-drive" size={16} color={GREEN} />
-              <Text style={[styles.catHeaderTitle, { color: GREEN }]}>Minha</Text>
-              <Text style={styles.catHeaderTitle}> Biblioteca</Text>
-              {r2All.length > 0 && (
-                <View style={{ backgroundColor: "rgba(34,197,94,0.2)", borderColor: "rgba(34,197,94,0.4)", borderWidth: 1, borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 }}>
-                  <Text style={{ color: GREEN, fontSize: 10, fontWeight: "800" }}>{r2All.length} títulos</Text>
+              {/* TMDB + Flix2 merged grid */}
+              {expandedItems.length > 0 && (
+                <View style={s.grid}>
+                  {expandedItems.map((e, idx) => (
+                    <PosterCard
+                      key={`${e.item.id}-${idx}`}
+                      item={e.item}
+                      onPress={() => router.push({
+                        pathname: "/detail",
+                        params: {
+                          type: e.item.mediaType ?? (e.item.type === "movie" ? "movie" : "tv"),
+                          id: String(e.r2TmdbId ?? e.item.tmdbId ?? 0),
+                          title: e.variantTitle ?? e.item.title,
+                          poster: e.item.posterPath ?? "",
+                        },
+                      } as any)}
+                      inFlix2={!!e.variantTitle}
+                      variantLabel={e.variantLabel}
+                    />
+                  ))}
                 </View>
               )}
-            </View>
-          </View>
-          {r2All.length === 0 ? (
-            <View style={styles.centered}>
-              <Feather name="hard-drive" size={52} color="rgba(34,197,94,0.1)" />
-              <Text style={styles.emptyTitle}>Drive vazio</Text>
-              <Text style={styles.emptySubtitle}>Adicione conteúdo via painel Admin → R2</Text>
-            </View>
-          ) : (
-            <FlatList
-              data={r2All}
-              keyExtractor={(item) => item.id}
-              numColumns={3}
-              contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 100, rowGap: 12 }}
-              columnWrapperStyle={{ justifyContent: "space-between" }}
-              showsVerticalScrollIndicator={false}
-              renderItem={({ item }) => (
-                <PosterCard item={item} onPress={() => goTo(item)} />
+
+              {/* Flix2-only section */}
+              {flix2OnlyRaw.length > 0 && (
+                <View style={{ marginTop: expandedItems.length > 0 ? 20 : 0 }}>
+                  <View style={s.sectionHead}>
+                    <View style={[s.sectionBar, { backgroundColor: "#a855f7" }]} />
+                    <Feather name="zap" size={13} color="#a855f7" />
+                    <Text style={[s.sectionTitle, { color: "#a855f7" }]}>Exclusivos Flix 2.0</Text>
+                  </View>
+                  <View style={s.grid}>
+                    {flix2OnlyRaw.map((item, i) => (
+                      <Flix2OnlyCard
+                        key={`flix2-${i}`}
+                        item={item}
+                        onPress={() => router.push({
+                          pathname: "/detail",
+                          params: { type: item._type === "movie" ? "movie" : "tv", id: String(item.tmdb_id || 0), title: item.title, poster: item.thumbnail ?? "" },
+                        } as any)}
+                      />
+                    ))}
+                  </View>
+                </View>
               )}
-              initialNumToRender={12}
-              maxToRenderPerBatch={12}
-              windowSize={7}
-              removeClippedSubviews
-              updateCellsBatchingPeriod={50}
-            />
+
+              {/* Drive section */}
+              {driveItems.length > 0 && (
+                <View style={{ marginTop: (expandedItems.length > 0 || flix2OnlyRaw.length > 0) ? 20 : 0 }}>
+                  <View style={s.sectionHead}>
+                    <View style={[s.sectionBar, { backgroundColor: GREEN }]} />
+                    <Feather name="hard-drive" size={13} color={GREEN} />
+                    <Text style={[s.sectionTitle, { color: GREEN }]}>Minha Biblioteca</Text>
+                  </View>
+                  <View style={s.grid}>
+                    {driveItems.map(item => (
+                      <PosterCard key={item.id} item={item} onPress={() => goTo(item)} />
+                    ))}
+                  </View>
+                </View>
+              )}
+
+            </ScrollView>
           )}
-        </View>
+        </Animated.View>
 
       ) : (
-        /* ─────────────────── DISCOVERY STATE ──────────────────────────────── */
-        <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled" nestedScrollEnabled
+        /* ─────────────── IDLE STATE ──────────────────────────────────────── */
+        <Animated.ScrollView
+          style={{ flex: 1, opacity: idleFade }}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
           contentContainerStyle={{ paddingBottom: 120 }}>
 
-          {/* ── CATEGORY PILLS (compact) ───────────────────────────────────── */}
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}
-            nestedScrollEnabled directionalLockEnabled
-            contentContainerStyle={styles.pillRow}>
-            {CATEGORIES.map((cat) => (
-              <Pressable key={cat.id}
-                style={[styles.pill, { backgroundColor: cat.bg, borderColor: activeCategory === cat.id ? cat.color : "transparent", borderWidth: 1.5 }]}
-                onPress={() => setActiveCategory(cat.id)}>
-                <Feather name={cat.icon} size={12} color={cat.color} />
-                <Text style={[styles.pillLabel, { color: cat.color }]}>{cat.label}</Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-
-          {/* ── GENRE FILTER ROW ───────────────────────────────────────────── */}
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}
-            nestedScrollEnabled directionalLockEnabled
-            contentContainerStyle={styles.genreRow}>
-            {GENRES.map((g) => (
-              <Pressable key={g.id}
-                style={[styles.genrePill, activeGenre === g.id && { backgroundColor: g.color + "30", borderColor: g.color }]}
-                onPress={() => activeGenre === g.id ? setActiveGenre(null) : loadGenre(g.id)}>
-                <Text style={[styles.genreLabel, activeGenre === g.id && { color: g.color }]}>{g.label}</Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-
-          {/* ── GENRE RESULTS (when genre selected) ───────────────────────── */}
-          {activeGenre && genreItems.length > 0 && (
-            <SectionRow title={GENRES.find(g => g.id === activeGenre)?.label ?? "Gênero"}
-              badge="GÊNERO"
-              accentColor={GENRES.find(g => g.id === activeGenre)?.color ?? RED}>
-              <FlatList
-                data={genreItems}
-                keyExtractor={(item) => item.id}
-                numColumns={3}
-                scrollEnabled={false}
-                contentContainerStyle={{ paddingHorizontal: 16, rowGap: 12, paddingBottom: 8 }}
-                columnWrapperStyle={{ justifyContent: "space-between" }}
-                renderItem={({ item }) => (
-                  <PosterCard item={item} onPress={() => goTo(item)} />
-                )}
-                initialNumToRender={9}
-                maxToRenderPerBatch={9}
-                windowSize={3}
-                removeClippedSubviews={true}
-              />
-            </SectionRow>
+          {/* Search history */}
+          {searchHistory.length > 0 && (
+            <View style={s.historyWrap}>
+              <View style={s.historyHead}>
+                <Feather name="clock" size={11} color="rgba(255,255,255,0.3)" />
+                <Text style={s.historyLabel}>Buscas recentes</Text>
+                <Pressable hitSlop={10} onPress={() => { setSearchHistory([]); saveHistory([]); }}>
+                  <Text style={s.historyClear}>Limpar</Text>
+                </Pressable>
+              </View>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={s.historyRow}>
+                {searchHistory.map(term => (
+                  <Pressable key={term} style={s.historyChip} onPress={() => setQuery(term)}>
+                    <Feather name="search" size={10} color="rgba(255,255,255,0.4)" />
+                    <Text style={s.historyChipText} numberOfLines={1}>{term}</Text>
+                    <Pressable hitSlop={8} onPress={() => {
+                      const next = searchHistory.filter(h => h !== term);
+                      setSearchHistory(next);
+                      saveHistory(next);
+                    }}>
+                      <Feather name="x" size={10} color="rgba(255,255,255,0.25)" />
+                    </Pressable>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
           )}
 
-          {/* ── FLIX 2.0 CATALOG SHORTCUT ─────────────────────────────────── */}
-          <Pressable style={styles.flix2ShortcutCard} onPress={() => setShowFlix2Catalog(true)}>
-            <LinearGradient
-              colors={["rgba(168,85,247,0.18)", "rgba(88,28,135,0.35)"]}
-              start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-              style={StyleSheet.absoluteFill}
-            />
-            <View style={{ flexDirection: "row", alignItems: "center", flex: 1, gap: 12 }}>
-              <View style={styles.flix2ShortcutIcon}>
-                <Feather name="zap" size={22} color="#a855f7" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 2 }}>
-                  <Text style={styles.flix2ShortcutTitle}>Catálogo</Text>
-                  <Text style={[styles.flix2ShortcutTitle, { color: "#a855f7" }]}>Flix 2.0</Text>
-                  <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, backgroundColor: "rgba(168,85,247,0.25)", borderWidth: 1, borderColor: "rgba(168,85,247,0.4)" }}>
-                    <Text style={{ color: "#c084fc", fontSize: 9, fontWeight: "800" }}>PREMIUM</Text>
-                  </View>
-                </View>
-                <Text style={styles.flix2ShortcutSub}>
-                  Filmes · Séries · Animes — navegue o acervo completo
-                </Text>
-              </View>
-              <Feather name="chevron-right" size={20} color="rgba(168,85,247,0.6)" />
+          {/* Suggestion chips */}
+          <View style={s.suggestWrap}>
+            <View style={s.suggestHead}>
+              <View style={[s.sectionBar, { backgroundColor: RED }]} />
+              <Text style={[s.suggestTitle, { color: RED }]}>Popular</Text>
+              <Text style={s.suggestTitle}> agora</Text>
             </View>
-          </Pressable>
-
-          {/* ── MOOD CHIPS ─────────────────────────────────────────────────── */}
-          <View style={styles.moodSection}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 12 }}>
-              <View style={{ width: 3, height: 16, borderRadius: 2, backgroundColor: AMBER }} />
-              <Text style={[styles.moodTitle, { color: AMBER }]}>O que</Text>
-              <Text style={styles.moodTitle}>quer assistir hoje?</Text>
-            </View>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}
-              nestedScrollEnabled directionalLockEnabled
-              contentContainerStyle={{ gap: 8 }}>
-              {MOODS.map((m) => (
-                <Pressable key={m.id} style={styles.moodChip}
-                  onPress={() => setQuery(m.query)}>
-                  <Text style={styles.moodEmoji}>{m.emoji}</Text>
-                  <Text style={styles.moodLabel}>{m.label}</Text>
-                </Pressable>
-              ))}
-            </ScrollView>
-          </View>
-
-          {/* ── HOT TAGS ───────────────────────────────────────────────────── */}
-          <View style={{ paddingHorizontal: 16, marginBottom: 20 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 10 }}>
-              <View style={{ width: 3, height: 16, borderRadius: 2, backgroundColor: PURPLE }} />
-              <Text style={[styles.tagsTitle, { color: PURPLE }]}>#</Text>
-              <Text style={styles.tagsTitle}>Tags em Alta</Text>
-            </View>
-            <View style={styles.tagsWrap}>
-              {HOT_TAGS.map((tag) => (
-                <Pressable key={tag} style={styles.tagChip}
-                  onPress={() => setQuery(tag.replace("#",""))}>
-                  <Text style={styles.tagText}>{tag}</Text>
+            <View style={s.suggestGrid}>
+              {SUGGESTIONS.map(sg => (
+                <Pressable key={sg.q} style={s.suggestChip} onPress={() => setQuery(sg.q)}>
+                  <Text style={s.suggestEmoji}>{sg.emoji}</Text>
+                  <Text style={s.suggestLabel}>{sg.label}</Text>
                 </Pressable>
               ))}
             </View>
           </View>
 
-        </ScrollView>
+          {/* Empty state illustration */}
+          {searchHistory.length === 0 && (
+            <View style={s.emptyIdle}>
+              <View style={s.emptyIdleIcon}>
+                <Feather name="search" size={32} color="rgba(229,9,20,0.5)" />
+              </View>
+              <Text style={s.emptyIdleTitle}>Busca inteligente</Text>
+              <Text style={s.emptyIdleSub}>
+                Aceita erros de digitação, descrições e até sinônimos.{"\n"}
+                Ex: "filme de terror dos anos 90", "herói da marvel"
+              </Text>
+            </View>
+          )}
+
+        </Animated.ScrollView>
       )}
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  root:        { flex: 1, backgroundColor: "#050306" },
-  centered:    { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, paddingHorizontal: 32, paddingVertical: 40 },
+// ─── Styles ───────────────────────────────────────────────────────────────────
+const s = StyleSheet.create({
+  root: { flex: 1, backgroundColor: "#050306" },
 
   /* header */
   header:       { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 10, gap: 10 },
-  backBtn:      { width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.08)", alignItems:"center", justifyContent:"center" },
-  headerTitle:  { color: "#fff", fontSize: 19, fontWeight: "900", letterSpacing: 1.5 },
-  logoAccent:   { width: 4, height: 20, borderRadius: 2, backgroundColor: RED, marginRight: 6 },
+  backBtn:      { width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.08)", alignItems: "center", justifyContent: "center" },
+  headerCenter: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center" },
+  headerTitle:  { color: "#fff", fontSize: 20, fontWeight: "900", letterSpacing: 1.8 },
+  logoAccent:   { width: 4, height: 22, borderRadius: 2, backgroundColor: RED, marginRight: 7 },
 
   /* search bar */
-  searchWrap:   { paddingHorizontal: 16, marginBottom: 12 },
-  searchBar:    { flexDirection: "row", alignItems: "center", borderRadius: 14, borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", paddingHorizontal: 12, paddingVertical: 10, gap: 9 },
-  searchIconBox:{ width: 28, height: 28, borderRadius: 8, backgroundColor: "rgba(229,9,20,0.14)", alignItems:"center", justifyContent:"center" },
-  searchInput:  { flex: 1, fontSize: 14, color: "#fff", fontWeight: "500", padding: 0 },
-  micBtn:       { width: 30, height: 30, borderRadius: 15, alignItems:"center", justifyContent:"center", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", backgroundColor: "rgba(255,255,255,0.06)" },
-  micBtnActive: { borderColor: RED, backgroundColor: "rgba(229,9,20,0.14)" },
-  clearBtn:     { width: 22, height: 22, borderRadius: 11, alignItems:"center", justifyContent:"center", backgroundColor: "rgba(255,255,255,0.2)" },
+  searchWrap: { paddingHorizontal: 16, marginBottom: 6 },
+  searchBar: {
+    flexDirection: "row", alignItems: "center", borderRadius: 16,
+    borderWidth: 1.5, borderColor: "rgba(255,255,255,0.1)",
+    backgroundColor: "rgba(255,255,255,0.06)",
+    paddingHorizontal: 12, paddingVertical: 11, gap: 10,
+  },
+  searchIconBox: {
+    width: 30, height: 30, borderRadius: 8,
+    backgroundColor: "rgba(229,9,20,0.14)",
+    alignItems: "center", justifyContent: "center",
+  },
+  searchInput:  { flex: 1, fontSize: 15, color: "#fff", fontWeight: "500", padding: 0 },
+  clearBtn:     { width: 26, height: 26, borderRadius: 13, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.14)" },
+  fuzzyHint:    { color: "rgba(255,255,255,0.2)", fontSize: 11, fontWeight: "500", paddingHorizontal: 4, marginTop: 6 },
 
-  /* history */
-  historyWrap:     { marginBottom: 6 },
-  historyHeader:   { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 16, paddingBottom: 6 },
-  historyLabel:    { flex: 1, fontSize: 11, color: "rgba(255,255,255,0.35)", fontWeight: "600", letterSpacing: 0.5 },
-  historyClear:    { fontSize: 11, color: "rgba(229,9,20,0.7)", fontWeight: "700" },
-  historyChip:     { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.07)", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", maxWidth: 160 },
-  historyChipText: { flex: 1, fontSize: 12, color: "rgba(255,255,255,0.75)", fontWeight: "500" },
+  /* count bar */
+  countBar: {
+    flexDirection: "row", alignItems: "center", flexWrap: "wrap",
+    gap: 8, paddingHorizontal: 16, marginBottom: 10, marginTop: 4,
+  },
+  countText:    { color: "rgba(255,255,255,0.4)", fontSize: 12, fontWeight: "600" },
+  flix2Pill: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10,
+    backgroundColor: "rgba(168,85,247,0.1)", borderWidth: 1, borderColor: "rgba(168,85,247,0.3)",
+  },
+  flix2PillText: { color: "#a855f7", fontSize: 10, fontWeight: "700" },
 
-  /* category pills (compact) */
-  pillRow:   { paddingHorizontal: 16, gap: 8, marginBottom: 10 },
-  pill:      { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 20 },
-  pillLabel: { fontSize: 13, fontWeight: "700" },
+  /* results */
+  resultsScroll: { paddingHorizontal: 16, paddingBottom: 120, rowGap: 0 },
+  grid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", rowGap: 14 },
 
-  /* genre pills */
-  genreRow:   { paddingHorizontal: 16, gap: 8, marginBottom: 16 },
-  genrePill:  { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", backgroundColor: "rgba(255,255,255,0.06)" },
-  genreLabel: { color: "rgba(255,255,255,0.65)", fontSize: 12, fontWeight: "600" },
-
-  /* mood section */
-  moodSection: { paddingHorizontal: 16, marginBottom: 16 },
-  moodTitle:   { color: "#fff", fontSize: 14, fontWeight: "700", marginBottom: 10 },
-  moodChip:    { flexDirection:"row", alignItems:"center", gap:6, paddingHorizontal:13, paddingVertical:8, borderRadius:20, backgroundColor:"rgba(255,255,255,0.07)", borderWidth:1, borderColor:"rgba(255,255,255,0.1)" },
-  moodEmoji:   { fontSize: 14 },
-  moodLabel:   { color: "#fff", fontSize: 13, fontWeight: "600" },
-
-  /* hot tags */
-  tagsTitle: { color: "rgba(255,255,255,0.55)", fontSize: 13, fontWeight: "700", marginBottom: 8, letterSpacing: 0.3 },
-  tagsWrap:  { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  tagChip:   { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, backgroundColor: "rgba(255,255,255,0.07)", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)" },
-  tagText:   { color: RED, fontSize: 12, fontWeight: "700" },
-
-  /* section wrapper */
-  sectionWrap:   { marginBottom: 24 },
-  sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, marginBottom: 12 },
-  sectionTitle:  { color: "#fff", fontSize: 15, fontWeight: "700" },
-  seeAll:        { fontSize: 13, fontWeight: "700" },
-  badge:         { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6 },
-  badgeText:     { color: "#fff", fontSize: 10, fontWeight: "800" },
+  /* section headers */
+  sectionHead:  { flexDirection: "row", alignItems: "center", gap: 7, marginBottom: 12, marginTop: 4 },
+  sectionBar:   { width: 3, height: 16, borderRadius: 2 },
+  sectionTitle: { color: "#fff", fontSize: 14, fontWeight: "800", letterSpacing: -0.2 },
 
   /* poster card */
-  cardTitle: { color: "#fff", fontSize: 11, fontWeight: "700", lineHeight: 15 },
-  cardYear:  { color: "rgba(255,255,255,0.38)", fontSize: 10, marginTop: 1 },
-  typeBadge: { paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4, backgroundColor: "rgba(8,145,178,0.8)" },
+  card:    { width: (W - 32 - 16) / 3, marginBottom: 4 },
+  cardImg: {
+    width: "100%", aspectRatio: 2 / 3, borderRadius: 10,
+    overflow: "hidden", backgroundColor: "#1a0a14", marginBottom: 5,
+  },
+  typeBadge:     { position: "absolute", top: 5, left: 5, paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4, backgroundColor: "rgba(8,145,178,0.85)" },
   typeBadgeText: { color: "#fff", fontSize: 9, fontWeight: "800" },
-  ratingBadge: { paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4, backgroundColor: "rgba(0,0,0,0.75)", borderWidth: 1, borderColor: "rgba(245,158,11,0.4)" },
-  ratingText:  { color: "#f59e0b", fontSize: 10, fontWeight: "800" },
-
-  /* backdrop card */
-  backdropCard: { width: 240, borderRadius: 12, overflow: "hidden" },
-  backdropImg:  { width: 240, height: CARD_W_H, backgroundColor: "#1a0a14", borderRadius: 12, overflow: "hidden" },
-  backdropGrad: { position:"absolute", bottom:0, left:0, right:0, height: CARD_W_H * 0.6 },
-  backdropInfo: { position:"absolute", bottom:8, left:8, right:8 },
-  backdropTitle:{ color:"#fff", fontSize:12, fontWeight:"700", lineHeight:16 },
-  backdropYear: { color:"rgba(255,255,255,0.5)", fontSize:10 },
-  backdropDesc: { color:"rgba(255,255,255,0.45)", fontSize:10, marginTop:3, lineHeight:14 },
-  backdropRank: { position:"absolute", top:6, left:8, color:"rgba(255,255,255,0.22)", fontSize:36, fontWeight:"900", fontStyle:"italic" },
-
-  /* search results */
-  resultsBar:   { flexDirection:"row", alignItems:"center", justifyContent:"space-between", paddingHorizontal:16, marginBottom:12, flexWrap:"wrap", gap:8 },
-  resultsLabel: { color:"rgba(255,255,255,0.45)", fontSize:13, fontWeight:"600" },
-  filterChip:   { paddingHorizontal:10, paddingVertical:4, borderRadius:12, backgroundColor:"rgba(255,255,255,0.09)", borderWidth:1, borderColor:"rgba(255,255,255,0.1)" },
-  filterChipText:{ color:"rgba(255,255,255,0.7)", fontSize:11, fontWeight:"600" },
-
-  loadingText:   { color:"rgba(255,255,255,0.4)", fontSize:13, marginTop:8 },
-  emptyTitle:    { color:"rgba(255,255,255,0.5)", fontSize:16, fontWeight:"700" },
-  emptySubtitle: { color:"rgba(255,255,255,0.3)", fontSize:13, textAlign:"center" },
-  emptyHint:     { color:"rgba(255,255,255,0.2)", fontSize:12, textAlign:"center" },
-
-  /* grid */
-  grid: { paddingHorizontal: 16, flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", paddingBottom: 8, rowGap: 12 },
-
-  /* flix2 badge (bottom-left corner of poster) */
-  flix2Badge: {
-    position: "absolute",
-    bottom: 5,
-    left: 5,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 2,
-    paddingHorizontal: 5,
-    paddingVertical: 2,
-    borderRadius: 4,
-    backgroundColor: "rgba(168,85,247,0.85)",
-  },
-  flix2BadgeText: { color: "#fff", fontSize: 8, fontWeight: "900", letterSpacing: 0.3 },
-
-  /* variant badge LEG/DUB (bottom-left corner of poster) */
-  variantBadge: {
-    position: "absolute",
-    bottom: 5,
-    left: 5,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 3,
-    paddingHorizontal: 5,
-    paddingVertical: 2,
-    borderRadius: 4,
-    borderWidth: 0.5,
-  },
+  ratingBadge:   { position: "absolute", top: 5, right: 5, paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4, backgroundColor: "rgba(0,0,0,0.75)", borderWidth: 1, borderColor: "rgba(245,158,11,0.4)" },
+  ratingText:    { color: "#f59e0b", fontSize: 10, fontWeight: "800" },
+  variantBadge:  { position: "absolute", bottom: 5, left: 5, flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4, borderWidth: 0.5 },
   variantBadgeText: { color: "#fff", fontSize: 8, fontWeight: "900", letterSpacing: 0.5 },
+  flix2Badge:    { position: "absolute", bottom: 5, left: 5, flexDirection: "row", alignItems: "center", gap: 2, paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4, backgroundColor: "rgba(168,85,247,0.85)" },
+  flix2BadgeText: { color: "#fff", fontSize: 8, fontWeight: "900", letterSpacing: 0.3 },
+  cardTitle:     { color: "#fff", fontSize: 11, fontWeight: "700", lineHeight: 15 },
+  cardYear:      { color: "rgba(255,255,255,0.35)", fontSize: 10, marginTop: 1 },
 
-  /* flix2 count row in results bar */
-  flix2CountRow: { flexDirection: "row", alignItems: "center", gap: 4 },
-  flix2CountText: { color: "#a855f7", fontSize: 11, fontWeight: "700" },
+  /* loading / empty */
+  centered:    { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, paddingHorizontal: 32, paddingTop: 60 },
+  loadingText: { color: "rgba(255,255,255,0.4)", fontSize: 13, marginTop: 8 },
+  emptyTitle:  { color: "rgba(255,255,255,0.5)", fontSize: 17, fontWeight: "700" },
+  emptySubtitle: { color: "rgba(255,255,255,0.28)", fontSize: 13, textAlign: "center" },
 
-  /* flix2 filter chip (toggle button in results bar) */
-  flix2FilterChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: "#a855f7",
-    backgroundColor: "rgba(168,85,247,0.1)",
-  },
-  flix2FilterChipActive: {
-    backgroundColor: "#a855f7",
-    borderColor: "#a855f7",
-  },
-  flix2FilterChipText: { color: "#a855f7", fontSize: 12, fontWeight: "800" },
+  /* history */
+  historyWrap: { marginTop: 8, marginBottom: 20 },
+  historyHead: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 16, marginBottom: 8 },
+  historyLabel: { flex: 1, fontSize: 11, color: "rgba(255,255,255,0.3)", fontWeight: "600", letterSpacing: 0.5, textTransform: "uppercase" },
+  historyClear: { fontSize: 11, color: "rgba(229,9,20,0.65)", fontWeight: "700" },
+  historyRow:   { paddingHorizontal: 16, gap: 8, paddingBottom: 4 },
+  historyChip:  { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 22, backgroundColor: "rgba(255,255,255,0.07)", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", maxWidth: 170 },
+  historyChipText: { flex: 1, fontSize: 12, color: "rgba(255,255,255,0.7)", fontWeight: "500" },
 
-  /* catalog mode */
-  catHeader:      { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 10, gap: 10 },
-  catHeaderTitle: { color: "#fff", fontSize: 18, fontWeight: "900", letterSpacing: 1 },
-  catCount:       { color: "rgba(255,255,255,0.35)", fontSize: 12, fontWeight: "600" },
-  catTypeTab:     { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, borderWidth: 1.5, borderColor: "rgba(168,85,247,0.3)", backgroundColor: "rgba(168,85,247,0.08)" },
-  catTypeTabActive: { backgroundColor: "#a855f7", borderColor: "#a855f7" },
-  catTypeTabText: { color: "rgba(168,85,247,0.9)", fontSize: 13, fontWeight: "700" },
+  /* suggestions */
+  suggestWrap: { paddingHorizontal: 16, marginBottom: 28 },
+  suggestHead: { flexDirection: "row", alignItems: "center", gap: 7, marginBottom: 14 },
+  suggestTitle: { color: "#fff", fontSize: 15, fontWeight: "800" },
+  suggestGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  suggestChip: {
+    flexDirection: "row", alignItems: "center", gap: 7,
+    paddingHorizontal: 14, paddingVertical: 9, borderRadius: 22,
+    backgroundColor: "rgba(255,255,255,0.07)", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
+  },
+  suggestEmoji: { fontSize: 15 },
+  suggestLabel: { color: "rgba(255,255,255,0.82)", fontSize: 13, fontWeight: "700" },
 
-  /* flix2 shortcut card in discovery */
-  flix2ShortcutCard: {
-    marginHorizontal: 16,
-    marginBottom: 20,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "rgba(168,85,247,0.3)",
-    overflow: "hidden",
-    padding: 16,
-    flexDirection: "row",
-    alignItems: "center",
+  /* idle empty state */
+  emptyIdle:     { alignItems: "center", paddingTop: 40, paddingHorizontal: 36, gap: 14 },
+  emptyIdleIcon: {
+    width: 72, height: 72, borderRadius: 36, borderWidth: 1.5,
+    borderColor: "rgba(229,9,20,0.2)", backgroundColor: "rgba(229,9,20,0.08)",
+    alignItems: "center", justifyContent: "center", marginBottom: 4,
   },
-  flix2ShortcutIcon: {
-    width: 46,
-    height: 46,
-    borderRadius: 12,
-    backgroundColor: "rgba(168,85,247,0.15)",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(168,85,247,0.3)",
-  },
-  flix2ShortcutTitle: { color: "#fff", fontSize: 16, fontWeight: "900" },
-  flix2ShortcutSub:   { color: "rgba(255,255,255,0.4)", fontSize: 12, fontWeight: "500" },
-
-  /* source filter pills */
-  sourcePill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 22,
-    borderWidth: 1.5,
-    borderColor: "rgba(255,255,255,0.12)",
-    backgroundColor: "rgba(255,255,255,0.06)",
-  },
-  sourcePillText: {
-    color: "rgba(255,255,255,0.55)",
-    fontSize: 13,
-    fontWeight: "700",
-    letterSpacing: 0.2,
-  },
-
-  /* flix2 exclusive section header */
-  flix2OnlyHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 16,
-    marginBottom: 12,
-  },
-  flix2OnlyAccent: { width: 3, height: 16, borderRadius: 2, backgroundColor: "#a855f7" },
-  flix2OnlyTitle:    { color: "#fff", fontSize: 15, fontWeight: "700" },
-  flix2OnlySubtitle: { color: "rgba(255,255,255,0.35)", fontSize: 11, fontWeight: "500" },
+  emptyIdleTitle: { color: "rgba(255,255,255,0.6)", fontSize: 18, fontWeight: "800", letterSpacing: -0.3 },
+  emptyIdleSub:   { color: "rgba(255,255,255,0.25)", fontSize: 12, fontWeight: "500", textAlign: "center", lineHeight: 18 },
 });
