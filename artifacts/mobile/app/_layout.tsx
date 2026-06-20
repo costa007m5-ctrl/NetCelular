@@ -75,8 +75,26 @@ function NotificationHandler() {
         return;
       }
 
-      // 3. Shorts friend recommendation → detail screen
+      // 3. Shorts friend recommendation → reaction screen
       if (notifCategory === "shorts_friend" && tmdbId && contentType) {
+        router.push({
+          pathname: "/shorts-reaction",
+          params: {
+            tmdbId: String(tmdbId),
+            contentType,
+            title,
+            poster: (data as any)?.poster ?? "",
+            senderId: (data as any)?.senderId ?? "",
+            senderName: (data as any)?.senderName ?? "Um amigo",
+            genre: (data as any)?.genre ?? "",
+            year: String((data as any)?.year ?? ""),
+          },
+        });
+        return;
+      }
+
+      // 3b. Shorts reaction received → go to the content detail
+      if (notifCategory === "shorts_reaction" && tmdbId && contentType) {
         router.push({
           pathname: "/detail",
           params: { type: contentType, id: String(tmdbId), title },
