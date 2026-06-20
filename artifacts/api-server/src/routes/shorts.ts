@@ -66,6 +66,7 @@ interface ShortsItem {
   startTimeSeconds: number;
   clipDurationSeconds: number;
   sceneLabel: string;
+  sceneIndex: number;
   availableOnFlix2: boolean;
 }
 
@@ -92,8 +93,19 @@ async function fetchTmdbDetails(id: number, type: "movie" | "tv"): Promise<any> 
   }
 }
 
-function mapTmdbItem(raw: any, type: "movie" | "tv"): ShortsItem | null {
-  if (!raw || (!raw.backdrop_path && !raw.poster_path)) return null;
+// Quantas cenas distintas gerar por conteúdo no feed.
+// Filmes populares e séries rendem mais cenas; títulos menores ficam com 2.
+const SCENES_PER_ITEM = 3;
+
+/**
+ * Gera múltiplos ShortsItem a partir de um único item TMDB.
+ * Cada item representa uma cena distinta do mesmo conteúdo —
+ * timestamp diferente, duração diferente, label diferente.
+ * Isso evita repetição no feed e aumenta a variedade sem precisar
+ * de mais conteúdos distintos.
+ */
+function mapTmdbItemMultiScene(raw: any, type: "movie" | "tv"): ShortsItem[] {
+  if (!raw || (!raw.backdrop_path && !raw.poster_path)) return [];
 
   const tmdbId = raw.id;
   const title = raw.title ?? raw.name ?? "";
@@ -104,29 +116,41 @@ function mapTmdbItem(raw: any, type: "movie" | "tv"): ShortsItem | null {
       ? (raw.runtime ?? 0)
       : (raw.episode_run_time?.[0] ?? 45);
 
-  const score = scoreScene({ tmdbId, genreIds, overview, runtimeMinutes });
-
   const year =
     type === "movie"
       ? parseInt((raw.release_date ?? "2024").slice(0, 4))
       : parseInt((raw.first_air_date ?? "2024").slice(0, 4));
 
-  return {
-    id: `${type}-${tmdbId}`,
-    tmdbId,
-    type,
-    title,
-    overview,
-    poster: raw.poster_path ? `${TMDB_IMG_BASE}/w342${raw.poster_path}` : null,
-    backdrop: raw.backdrop_path ? `${TMDB_IMG_BASE}/w780${raw.backdrop_path}` : null,
-    year: isNaN(year) ? 2024 : year,
-    rating: Math.round((raw.vote_average ?? 0) * 10) / 10,
-    genreIds,
-    genre: firstGenre(genreIds),
-    runtime: runtimeMinutes,
-    ...score,
-    availableOnFlix2: false,
-  };
+  const poster = raw.poster_path ? `${TMDB_IMG_BASE}/w342${raw.poster_path}` : null;
+  const backdrop = raw.backdrop_path ? `${TMDB_IMG_BASE}/w780${raw.backdrop_path}` : null;
+  const rating = Math.round((raw.vote_average ?? 0) * 10) / 10;
+  const genre = firstGenre(genreIds);
+  const safeYear = isNaN(year) ? 2024 : year;
+
+  const items: ShortsItem[] = [];
+
+  for (let sceneIndex = 0; sceneIndex < SCENES_PER_ITEM; sceneIndex++) {
+    const score = scoreScene({ tmdbId, genreIds, overview, runtimeMinutes, sceneIndex });
+
+    items.push({
+      id: `${type}-${tmdbId}-s${sceneIndex}`,
+      tmdbId,
+      type,
+      title,
+      overview,
+      poster,
+      backdrop,
+      year: safeYear,
+      rating,
+      genreIds,
+      genre,
+      runtime: runtimeMinutes,
+      ...score,
+      availableOnFlix2: false,
+    });
+  }
+
+  return items;
 }
 
 // ── Genre boost (personalization) ──────────────────────────────────────────────
@@ -186,7 +210,7 @@ async function buildFeed(type: "all" | "movie" | "tv", limit: number): Promise<S
 
   const [trendMovies, popMovies, topMovies, trendTv, popTv, topTv] = await Promise.all(fetches);
 
-  // 2. Merge, deduplicate, map
+  // 2. Merge, deduplicate, map — cada conteúdo gera SCENES_PER_ITEM cenas distintas
   const seen = new Set<string>();
   const raw: ShortsItem[] = [];
 
@@ -198,8 +222,10 @@ async function buildFeed(type: "all" | "movie" | "tv", limit: number): Promise<S
       const key = `${contentType}-${r.id}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      const item = mapTmdbItem(r, contentType);
-      if (item && item.rating >= 5.0) raw.push(item);
+      const scenes = mapTmdbItemMultiScene(r, contentType);
+      for (const scene of scenes) {
+        if (scene.rating >= 5.0) raw.push(scene);
+      }
     }
   };
 
@@ -310,7 +336,8 @@ router.get("/shorts/resolve", async (req: any, res: any) => {
         ? (details?.runtime ?? 100)
         : (details?.episode_run_time?.[0] ?? 45);
 
-    const score = scoreScene({ tmdbId, genreIds, overview: details?.overview ?? "", runtimeMinutes: effectiveRuntime });
+    const sceneIndex = Math.max(0, Number(req.query.sceneIndex ?? 0));
+    const score = scoreScene({ tmdbId, genreIds, overview: details?.overview ?? "", runtimeMinutes: effectiveRuntime, sceneIndex });
 
     // Resolve Flix 2.0 stream URL via the r2 /flix2/lookup endpoint (internal request)
     let streamUrl: string | null = null;

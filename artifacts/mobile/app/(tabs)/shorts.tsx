@@ -228,6 +228,7 @@ interface ShortItem {
   startTimeSeconds: number;
   clipDurationSeconds: number;
   sceneLabel: string;
+  sceneIndex?: number;
   availableOnFlix2: boolean;
   liked: boolean;
   likes: number;
