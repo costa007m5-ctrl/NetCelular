@@ -200,6 +200,7 @@ export default function ProfileScreen() {
   const [loadingBanners, setLoadingBanners] = useState(false);
 
   const [earnedBadges, setEarnedBadges] = useState<import("@/lib/shorts-challenge").EarnedBadge[]>([]);
+  const [digestEnabled, setDigestEnabled] = useState(true);
 
   const [showInfoModal, setShowInfoModal] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
@@ -304,6 +305,9 @@ export default function ProfileScreen() {
     });
     import("@/lib/shorts-challenge").then(({ getEarnedBadges }) => {
       getEarnedBadges().then((b) => { if (b.length) setEarnedBadges(b); }).catch(() => {});
+    }).catch(() => {});
+    import("@/lib/shorts-digest").then(({ isDigestEnabled }) => {
+      isDigestEnabled().then((v) => setDigestEnabled(v)).catch(() => {});
     }).catch(() => {});
   }, []);
 
@@ -863,6 +867,19 @@ export default function ProfileScreen() {
             icon="tag" label="Promoções e Ofertas"
             toggle toggleValue={settings.notifPromo}
             onToggle={(v) => updateLocalSetting("notifPromo", v)}
+          />
+          <Row
+            icon="users"
+            label="Resumo Semanal de Amigos"
+            value="Shorts recebidos de amigos"
+            toggle
+            toggleValue={digestEnabled}
+            onToggle={(v) => {
+              setDigestEnabled(v);
+              import("@/lib/shorts-digest").then(({ setDigestEnabled: set }) => {
+                set(v).catch(() => {});
+              }).catch(() => {});
+            }}
           />
           <Row
             icon="smartphone" label="Registrar este dispositivo"

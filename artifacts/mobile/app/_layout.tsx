@@ -114,6 +114,12 @@ function NotificationHandler() {
         return;
       }
 
+      // 3c. Shorts friends digest → received shorts list
+      if (notifCategory === "shorts_digest") {
+        router.push("/shorts-shares" as any);
+        return;
+      }
+
       // 4. New content / weekly digest → Novidades tab
       if (notifCategory === "new_content" || notifCategory === "weekly_digest") {
         router.push("/(tabs)/novidades");
@@ -200,6 +206,43 @@ function WatchlistNotificationChecker() {
   return null;
 }
 
+/** Fires the weekly "Shorts de Amigos" digest when the app comes to foreground. */
+function ShortsDigestChecker() {
+  const { user } = useAuth();
+  const checkedRef = React.useRef(false);
+
+  useEffect(() => {
+    if (!user?.id || Platform.OS === "web") return;
+
+    // Check once on mount (cold start)
+    if (!checkedRef.current) {
+      checkedRef.current = true;
+      const t = setTimeout(() => {
+        import("@/lib/shorts-digest").then(({ maybeSendDigest }) => {
+          maybeSendDigest().catch(() => {});
+        }).catch(() => {});
+      }, 8000); // delay so it doesn't compete with cold-start fetches
+      return () => clearTimeout(t);
+    }
+  }, [user?.id]);
+
+  // Also re-check whenever the app comes back to foreground
+  useEffect(() => {
+    if (!user?.id || Platform.OS === "web") return;
+    const { AppState } = require("react-native");
+    const sub = AppState.addEventListener("change", (state: string) => {
+      if (state === "active") {
+        import("@/lib/shorts-digest").then(({ maybeSendDigest }) => {
+          maybeSendDigest().catch(() => {});
+        }).catch(() => {});
+      }
+    });
+    return () => sub?.remove?.();
+  }, [user?.id]);
+
+  return null;
+}
+
 /** Auto-registers the device push token whenever the authenticated user changes. */
 function PushTokenRegistrar() {
   const { user } = useAuth();
@@ -248,6 +291,7 @@ function RootNavigator() {
     <>
       <NotificationHandler />
       <WatchlistNotificationChecker />
+      <ShortsDigestChecker />
       <PushTokenRegistrar />
       <CatalogPrefetcher />
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: "#000" } }}>
