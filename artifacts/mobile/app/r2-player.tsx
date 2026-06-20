@@ -47,6 +47,10 @@ try { ScreenOrientation = require("expo-screen-orientation"); } catch {}
 let NavBar: any = null;
 try { NavBar = require("expo-navigation-bar"); } catch {}
 
+let activateKeepAwake: (() => void) | null = null;
+let deactivateKeepAwake: (() => void) | null = null;
+try { const ka = require("expo-keep-awake"); activateKeepAwake = ka.activateKeepAwake; deactivateKeepAwake = ka.deactivateKeepAwake; } catch {}
+
 const RED = "#e50914";
 const TMDB_IMG = (path: string | null | undefined, size = "w1280") =>
   path ? `https://image.tmdb.org/t/p/${size}${path}` : null;
@@ -283,6 +287,7 @@ export default function R2PlayerScreen() {
   const panelAnim = useRef(new Animated.Value(0)).current;
   const loadProgress = useRef(new Animated.Value(0)).current;
   const controlsOpacity = useRef(new Animated.Value(1)).current;
+  const videoOpacity = useRef(new Animated.Value(0)).current;
   const seekFlashLeft = useRef(new Animated.Value(0)).current;
   const seekFlashRight = useRef(new Animated.Value(0)).current;
   const speedBoostOpacity = useRef(new Animated.Value(0)).current;
@@ -297,6 +302,7 @@ export default function R2PlayerScreen() {
   const positionMsRef = useRef(0);
   const durationMsRef = useRef(0);
   const seekBarWidthRef = useRef(0);
+  const lastPosSetRef = useRef(0); // throttle setPositionMs to avoid excessive re-renders
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTapRef = useRef<{ time: number; x: number } | null>(null);
   const tapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -932,13 +938,17 @@ export default function R2PlayerScreen() {
     // else: buffering=true OR video never started yet — don't touch isPlaying
     const pos = status.positionMillis ?? 0;
     const dur = status.durationMillis ?? 0;
-    setPositionMs(pos);
-    setDurationMs(dur);
+    // Always update refs so seekBy / saveProgress see the latest value
     positionMsRef.current = pos;
     durationMsRef.current = dur;
-    if (dur > 0) {
-      const estimated = Math.min(1, (pos / dur) + 0.15);
-      setBufferedRatio(estimated);
+    // Throttle React state updates to max once per 500ms to prevent
+    // excessive re-renders (which cause flickering of the Video native layer)
+    const now = Date.now();
+    if (now - lastPosSetRef.current >= 500) {
+      lastPosSetRef.current = now;
+      setPositionMs(pos);
+      setDurationMs(dur);
+      if (dur > 0) setBufferedRatio(Math.min(1, (pos / dur) + 0.15));
     }
     if (status.didJustFinish) {
       if (continuousPlay) goToNextEpisode();
@@ -1032,6 +1042,25 @@ export default function R2PlayerScreen() {
   useEffect(() => {
     if (!isPlaying && phase === "ready") saveProgress();
   }, [isPlaying]);
+
+  // ── Animate video opacity on phase change (avoids inline style flicker) ──
+  useEffect(() => {
+    Animated.timing(videoOpacity, {
+      toValue: phase === "ready" ? 1 : 0,
+      duration: 150,
+      useNativeDriver: true,
+    }).start();
+  }, [phase]);
+
+  // ── Keep screen awake while playing ─────────────────────────────────────
+  useEffect(() => {
+    if (isPlaying && phase === "ready") {
+      activateKeepAwake?.();
+    } else {
+      deactivateKeepAwake?.();
+    }
+    return () => { deactivateKeepAwake?.(); };
+  }, [isPlaying, phase]);
 
   // ── Controls auto-hide trigger ────────────────────────────────────────────
   useEffect(() => { if (phase === "ready") showControls(); }, [phase]);
@@ -1430,16 +1459,18 @@ export default function R2PlayerScreen() {
       {/* ── Video container ──────────────────────────────────────────────────── */}
       <Animated.View style={{ width: videoWidthAnim, height: "100%", overflow: "hidden" }}>
         {videoUrl && Video && (
-          <Video
-            ref={videoRef}
-            source={videoSourceHeaders ? { uri: videoUrl, headers: videoSourceHeaders } : { uri: videoUrl }}
-            style={[StyleSheet.absoluteFill, { opacity: phase === "ready" ? 1 : 0 }]}
-            resizeMode={ResizeMode?.CONTAIN ?? "contain"}
-            shouldPlay={phase === "ready" && isPlaying}
-            onLoad={onVideoLoad}
-            onPlaybackStatusUpdate={onPlaybackStatusUpdate}
-            useNativeControls={false}
-          />
+          <Animated.View style={[StyleSheet.absoluteFill, { opacity: videoOpacity }]} pointerEvents="none">
+            <Video
+              ref={videoRef}
+              source={videoSourceHeaders ? { uri: videoUrl, headers: videoSourceHeaders } : { uri: videoUrl }}
+              style={StyleSheet.absoluteFill}
+              resizeMode={ResizeMode?.CONTAIN ?? "contain"}
+              shouldPlay={phase === "ready" && isPlaying}
+              onLoad={onVideoLoad}
+              onPlaybackStatusUpdate={onPlaybackStatusUpdate}
+              useNativeControls={false}
+            />
+          </Animated.View>
         )}
 
         {/* Buffering spinner — appears when video is buffering mid-playback */}
