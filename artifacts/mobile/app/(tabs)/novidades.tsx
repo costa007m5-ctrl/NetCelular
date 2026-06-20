@@ -30,7 +30,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { ProfileAvatarButton } from "@/components/ProfileAvatarButton";
 import { r2Route } from "@/lib/r2-direct";
-import { getProxiedStreamUrl } from "@/lib/gdrive-index";
 import { api, TMDB_IMG, tmdbItemToContent, type TmdbItem } from "@/lib/api";
 import type { ContentItem } from "@/constants/content";
 
@@ -94,9 +93,14 @@ interface EpGroup {
   latestEpStill?: string; latestEpOverview?: string;
 }
 
-let EpVideoComp: any = null;
-let EpResizeMode: any = {};
-try { const av = require("expo-av"); EpVideoComp = av.Video; EpResizeMode = av.ResizeMode; } catch {}
+let WebViewEp: any = null;
+try { WebViewEp = require("react-native-webview").WebView; } catch {}
+const IS_NATIVE_EP = Platform.OS !== "web";
+
+function buildEpPreviewHtml(uri: string, muted: boolean): string {
+  const escaped = uri.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  return `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no"/><style>*{margin:0;padding:0;background:#000}html,body,video{width:100%;height:100%;overflow:hidden}video{object-fit:cover;display:block}</style></head><body><video id="v" playsinline webkit-playsinline autoplay ${muted ? "muted" : ""} preload="auto"></video><script>(function(){var v=document.getElementById('v');var rn=window.ReactNativeWebView;function send(t,d){try{rn.postMessage(JSON.stringify(Object.assign({type:t},d||{})))}catch(e){}}v.addEventListener('loadedmetadata',function(){send('ready',{duration:v.duration*1000});v.play().catch(function(){})});v.addEventListener('canplay',function(){if(v.paused)v.play().catch(function(){})});v.addEventListener('error',function(){send('error',{code:v.error?v.error.code:-1})});window.addEventListener('message',function(e){var d=e.data;if(typeof d==='string'){if(d.indexOf('seek:')==0){v.currentTime=parseFloat(d.slice(5));v.play().catch(function(){})}else if(d==='mute'){v.muted=true}else if(d==='unmute'){v.muted=false}}});v.src='${escaped}';})()</script></body></html>`;
+}
 
 interface AllData {
   trending: TmdbItem[];
@@ -946,7 +950,11 @@ function EpPreviewRow({
   const ep = item.ep;
   const g = item.group;
   const epLabel = `S${String(ep.season).padStart(2, "0")} E${String(ep.episode).padStart(2, "0")}`;
-  const canPreview = EpVideoComp !== null;
+  const webviewEpRef = useRef<any>(null);
+  const [epDuration, setEpDuration] = useState(0);
+  const [autoSeeked, setAutoSeeked] = useState(false);
+  const [activeScene, setActiveScene] = useState<number | null>(null);
+  const canPreview = IS_NATIVE_EP ? WebViewEp !== null : false;
 
   // Episode still is the primary banner (landscape 16:9); falls back to series backdrop then poster
   const stillUrl = (!stillErr && g.latestEpStill) ? resolveImgUrl(g.latestEpStill, "w780") : null;
@@ -961,8 +969,27 @@ function EpPreviewRow({
   // Reset video state when play starts/stops
   useEffect(() => {
     setVidLoading(isPlaying);
-    if (!isPlaying) { setVidReady(false); setVidErrored(false); }
+    if (!isPlaying) {
+      setVidReady(false);
+      setVidErrored(false);
+      setEpDuration(0);
+      setAutoSeeked(false);
+      setActiveScene(null);
+    }
   }, [isPlaying]);
+
+  // Sync mute toggle via injectedJavaScript (no need to remount WebView)
+  useEffect(() => {
+    if (!isPlaying || !vidReady) return;
+    webviewEpRef.current?.injectJavaScript(`document.getElementById('v').muted=${muted};void 0`);
+  }, [muted, isPlaying, vidReady]);
+
+  const seekToScene = useCallback((pct: number, idx: number) => {
+    if (!epDuration) return;
+    const sec = Math.floor((epDuration / 1000) * pct);
+    setActiveScene(idx);
+    webviewEpRef.current?.injectJavaScript(`document.getElementById('v').currentTime=${sec};document.getElementById('v').play();void 0`);
+  }, [epDuration]);
 
   return (
     <View style={epr.card}>
@@ -998,27 +1025,50 @@ function EpPreviewRow({
           <LinearGradient colors={["#1a0c24", "#0c0818", "#080510"]} style={StyleSheet.absoluteFill} />
         )}
 
-        {/* Video preview — proxy via servidor evita bloqueio do Cloudflare no APK */}
+        {/* WebView video preview — mesmo player do Shorts/Flix 2.0, funciona no APK */}
         {isPlaying && canPreview && !vidErrored && (
-          <EpVideoComp
-            source={{ uri: getProxiedStreamUrl(ep.stream_url) }}
-            style={[StyleSheet.absoluteFill, {
-              opacity: vidReady ? 1 : 0,
-            }]}
-            resizeMode={EpResizeMode.CONTAIN ?? "contain"}
-            isMuted={muted}
-            shouldPlay
-            isLooping
-            useNativeControls={false}
-            onLoadStart={() => { setVidLoading(true); setVidReady(false); }}
-            onReadyForDisplay={() => { setVidLoading(false); setVidReady(true); }}
-            onLoad={() => { setVidLoading(false); setVidReady(true); }}
-            onError={() => { setVidLoading(false); setVidReady(false); setVidErrored(true); }}
-            progressUpdateIntervalMillis={500}
+          <WebViewEp
+            ref={webviewEpRef}
+            style={[StyleSheet.absoluteFill, { opacity: vidReady ? 1 : 0 }]}
+            originWhitelist={["*"]}
+            source={{ html: buildEpPreviewHtml(ep.stream_url, muted) }}
+            allowsInlineMediaPlayback
+            mediaPlaybackRequiresUserAction={false}
+            javaScriptEnabled
+            scrollEnabled={false}
+            allowsFullscreenVideo={false}
+            onMessage={(e: any) => {
+              try {
+                const msg = JSON.parse(e.nativeEvent.data);
+                if (msg.type === "ready") {
+                  setVidLoading(false);
+                  setVidReady(true);
+                  if (msg.duration > 30000 && !autoSeeked) {
+                    setAutoSeeked(true);
+                    setEpDuration(msg.duration);
+                    // Auto-seek: pula intro (~15%), vai direto para a ação
+                    const seekSec = Math.floor((msg.duration / 1000) * 0.15);
+                    setTimeout(() => {
+                      webviewEpRef.current?.injectJavaScript(
+                        `document.getElementById('v').currentTime=${seekSec};document.getElementById('v').play();void 0`
+                      );
+                    }, 600);
+                  } else if (msg.duration > 0 && !epDuration) {
+                    setEpDuration(msg.duration);
+                  }
+                } else if (msg.type === "error") {
+                  setVidLoading(false);
+                  setVidReady(false);
+                  setVidErrored(true);
+                }
+              } catch {}
+            }}
+            onError={() => { setVidLoading(false); setVidErrored(true); }}
+            onHttpError={() => { setVidLoading(false); setVidErrored(true); }}
           />
         )}
-        {/* Timeout: if native player hangs loading for 8s, give up gracefully */}
-        {isPlaying && vidLoading && !vidReady && !vidErrored && Platform.OS !== "web" && (
+        {/* Timeout: 10s sem resposta → desiste graciosamente */}
+        {isPlaying && vidLoading && !vidReady && !vidErrored && (
           <HangTimeout onTimeout={() => { setVidLoading(false); setVidErrored(true); }} />
         )}
 
@@ -1050,6 +1100,32 @@ function EpPreviewRow({
         {/* S/E badge */}
         <View style={epr.epTag}><Text style={epr.epTagTxt}>{epLabel}</Text></View>
       </View>
+
+      {/* ── Melhores Momentos — navegação por cenas ───────────────── */}
+      {isPlaying && vidReady && epDuration > 30000 && (
+        <View style={epr.scenesRow}>
+          <Text style={epr.scenesLabel}>Melhores Momentos</Text>
+          <View style={epr.sceneBtns}>
+            {([
+              { label: "▶ Início",  emoji: "▶",  pct: 0.08 },
+              { label: "⚡ Ação",   emoji: "⚡", pct: 0.30 },
+              { label: "🔥 Clímax", emoji: "🔥", pct: 0.60 },
+              { label: "🎬 Final",  emoji: "🎬", pct: 0.82 },
+            ] as { label: string; emoji: string; pct: number }[]).map((s, i) => (
+              <TouchableOpacity
+                key={i}
+                onPress={() => seekToScene(s.pct, i)}
+                activeOpacity={0.75}
+                style={[epr.sceneBtn, activeScene === i && epr.sceneBtnActive]}
+              >
+                <Text style={[epr.sceneBtnTxt, activeScene === i && epr.sceneBtnTxtActive]}>
+                  {s.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      )}
 
       {/* ── Info below thumbnail ──────────────────────────────────── */}
       <View style={epr.info}>
@@ -1103,27 +1179,34 @@ function EpPreviewRow({
   );
 }
 const epr = StyleSheet.create({
-  card:          { marginBottom: 16, backgroundColor: "rgba(255,255,255,0.05)", borderRadius: 16, overflow: "hidden" },
-  thumb:         { width: "100%", aspectRatio: 16 / 9, maxHeight: 195, backgroundColor: "#000", overflow: "hidden" },
-  loadingOverlay:{ ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "rgba(0,0,0,0.38)" },
-  loadingText:   { fontSize: 11, color: "rgba(255,255,255,0.85)", fontWeight: "600" },
-  liveBadge:     { position: "absolute", top: 8, left: 10, flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "rgba(229,9,20,0.92)", borderRadius: 5, paddingHorizontal: 8, paddingVertical: 3 },
-  liveDot:       { width: 5, height: 5, borderRadius: 3, backgroundColor: "#fff" },
-  liveTxt:       { fontSize: 8, fontWeight: "900", color: "#fff", letterSpacing: 0.8 },
-  epTag:         { position: "absolute", bottom: 6, left: 10, backgroundColor: `${TEAL}ee`, borderRadius: 5, paddingHorizontal: 8, paddingVertical: 3 },
-  epTagTxt:      { fontSize: 9, fontWeight: "900", color: "#fff" },
-  info:          { padding: 14, gap: 7 },
-  metaRow:       { flexDirection: "row", gap: 8, flexWrap: "wrap" },
-  metaBadge:     { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: `${TEAL}18`, borderWidth: 1, borderColor: `${TEAL}30`, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 },
-  metaBadgeTxt:  { fontSize: 10, fontWeight: "700", color: TEAL },
-  epName:        { fontSize: 12, fontWeight: "600", color: "rgba(255,255,255,0.6)", lineHeight: 16 },
-  synopsis:      { fontSize: 12, color: "rgba(255,255,255,0.5)", lineHeight: 18 },
-  logoImg:       { width: 110, height: 36, alignSelf: "flex-start", marginTop: -2 },
-  btnRow:        { flexDirection: "row", gap: 10, marginTop: 4 },
-  playBtn:       { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: RED, paddingVertical: 12, borderRadius: 10 },
-  playBtnTxt:    { fontSize: 13, fontWeight: "800", color: "#fff" },
-  seriesBtn:     { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, paddingVertical: 12, borderRadius: 10, backgroundColor: `${TEAL}15`, borderWidth: 1, borderColor: `${TEAL}35` },
-  seriesBtnTxt:  { fontSize: 13, fontWeight: "700", color: TEAL },
+  card:             { marginBottom: 16, backgroundColor: "rgba(255,255,255,0.05)", borderRadius: 16, overflow: "hidden" },
+  thumb:            { width: "100%", aspectRatio: 16 / 9, maxHeight: 195, backgroundColor: "#000", overflow: "hidden" },
+  loadingOverlay:   { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "rgba(0,0,0,0.38)" },
+  loadingText:      { fontSize: 11, color: "rgba(255,255,255,0.85)", fontWeight: "600" },
+  liveBadge:        { position: "absolute", top: 8, left: 10, flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "rgba(229,9,20,0.92)", borderRadius: 5, paddingHorizontal: 8, paddingVertical: 3 },
+  liveDot:          { width: 5, height: 5, borderRadius: 3, backgroundColor: "#fff" },
+  liveTxt:          { fontSize: 8, fontWeight: "900", color: "#fff", letterSpacing: 0.8 },
+  epTag:            { position: "absolute", bottom: 6, left: 10, backgroundColor: `${TEAL}ee`, borderRadius: 5, paddingHorizontal: 8, paddingVertical: 3 },
+  epTagTxt:         { fontSize: 9, fontWeight: "900", color: "#fff" },
+  scenesRow:        { paddingHorizontal: 12, paddingTop: 10, paddingBottom: 4, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)" },
+  scenesLabel:      { fontSize: 10, fontWeight: "800", color: "rgba(255,255,255,0.35)", letterSpacing: 0.8, marginBottom: 7, textTransform: "uppercase" },
+  sceneBtns:        { flexDirection: "row", gap: 7 },
+  sceneBtn:         { flex: 1, alignItems: "center", paddingVertical: 7, borderRadius: 8, backgroundColor: "rgba(255,255,255,0.07)", borderWidth: 1, borderColor: "rgba(255,255,255,0.10)" },
+  sceneBtnActive:   { backgroundColor: `${TEAL}25`, borderColor: `${TEAL}55` },
+  sceneBtnTxt:      { fontSize: 10, fontWeight: "700", color: "rgba(255,255,255,0.5)" },
+  sceneBtnTxtActive:{ color: TEAL },
+  info:             { padding: 14, gap: 7 },
+  metaRow:          { flexDirection: "row", gap: 8, flexWrap: "wrap" },
+  metaBadge:        { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: `${TEAL}18`, borderWidth: 1, borderColor: `${TEAL}30`, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 },
+  metaBadgeTxt:     { fontSize: 10, fontWeight: "700", color: TEAL },
+  epName:           { fontSize: 12, fontWeight: "600", color: "rgba(255,255,255,0.6)", lineHeight: 16 },
+  synopsis:         { fontSize: 12, color: "rgba(255,255,255,0.5)", lineHeight: 18 },
+  logoImg:          { width: 110, height: 36, alignSelf: "flex-start", marginTop: -2 },
+  btnRow:           { flexDirection: "row", gap: 10, marginTop: 4 },
+  playBtn:          { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: RED, paddingVertical: 12, borderRadius: 10 },
+  playBtnTxt:       { fontSize: 13, fontWeight: "800", color: "#fff" },
+  seriesBtn:        { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 14, paddingVertical: 12, borderRadius: 10, backgroundColor: `${TEAL}15`, borderWidth: 1, borderColor: `${TEAL}35` },
+  seriesBtnTxt:     { fontSize: 13, fontWeight: "700", color: TEAL },
 });
 
 // ─── SingleEpSheet ────────────────────────────────────────────────────────────
