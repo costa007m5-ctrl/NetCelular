@@ -30,6 +30,7 @@ import { useColors } from "@/hooks/useColors";
 import { getApiBase } from "@/lib/api";
 import { getProxiedStreamUrl } from "@/lib/gdrive-index";
 import { ProfileAvatarButton } from "@/components/ProfileAvatarButton";
+import { recordShortsWatch } from "@/lib/shorts-history";
 
 let WebView: any = null;
 try { WebView = require("react-native-webview").WebView; } catch {}
@@ -1464,14 +1465,24 @@ export default function ShortsScreen() {
     setVisibleIndex(0);
   }, [loadFeed]);
 
-  // Record genre view after card is visible for 3s — builds personalization profile
+  // Record genre view + watch history after card is visible for 3s
   useEffect(() => {
     const item = items[visibleIndex];
-    if (!item?.genreIds?.length) return;
+    if (!item || item.isTrendingRow) return;
+    if (!item.genreIds?.length && !item.tmdbId) return;
     const timer = setTimeout(async () => {
-      await recordGenreView(item.genreIds);
-      const updated = await loadGenrePrefs();
-      setGenrePrefs(updated);
+      if (item.genreIds?.length) {
+        await recordGenreView(item.genreIds);
+        const updated = await loadGenrePrefs();
+        setGenrePrefs(updated);
+      }
+      // Record in watch history: progress = 3s / clipDuration, clamped 0.15..0.85
+      const rawPct = item.clipDurationSeconds > 0 ? 3 / item.clipDurationSeconds : 0.4;
+      const progress = Math.min(0.85, Math.max(0.15, rawPct));
+      await recordShortsWatch(
+        { id: item.id, tmdbId: item.tmdbId, type: item.type, title: item.title, poster: item.poster },
+        progress
+      );
     }, 3000);
     return () => clearTimeout(timer);
   }, [visibleIndex, items]);

@@ -2289,6 +2289,8 @@ export default function HomeScreen() {
   // ── Shorts para você — personalized picks from Shorts feed ────────────────
   const [shortsForYou, setShortsForYou] = useState<ContentItem[]>([]);
   const [shortsGenreLabel, setShortsGenreLabel] = useState("Baseado no seu gosto nos Shorts");
+  // ── Continuar Shorts — itens assistidos recentemente nos Shorts ──────────
+  const [continueShorts, setContinueShorts] = useState<{ id: string; tmdbId: number; type: "movie" | "tv"; title: string; poster: string | null; progress: number }[]>([]);
 
   // ── genre carousels per category ──────────────────────────────────────────
   const [genreRows, setGenreRows] = useState<Record<string, ContentItem[]>>({});
@@ -2454,6 +2456,15 @@ export default function HomeScreen() {
     useCallback(() => {
       let cancelled = false;
       const load = async () => {
+        try {
+          // Load "Continuar Shorts" watch history (runs independently of genre prefs)
+          const { loadShortsHistory } = await import("@/lib/shorts-history");
+          const history = await loadShortsHistory();
+          if (!cancelled && history.length > 0) {
+            setContinueShorts(history.slice(0, 10));
+          }
+        } catch {}
+
         try {
           const raw = await AsyncStorage.getItem("netplay_shorts_genre_prefs_v1");
           const prefs: Record<number, number> = raw ? JSON.parse(raw) : {};
@@ -2977,6 +2988,58 @@ export default function HomeScreen() {
                       onSeeAll={() => router.push("/(tabs)/shorts" as any)}
                     />
                     <PosterRow items={shortsForYou} onPress={goTo} showTitle />
+                  </View>
+                </AnimatedSection>
+              )}
+
+              {/* ── 6.8 CONTINUAR SHORTS ─────────────────────────────────────── */}
+              {continueShorts.length > 0 && (
+                <AnimatedSection anim={s[5]}>
+                  <View style={styles.section}>
+                    <SectionHeader
+                      title="Continuar Shorts"
+                      icon="play-circle"
+                      accentColor={RED}
+                      subtitle={`${continueShorts.length} título${continueShorts.length > 1 ? "s" : ""} assistido${continueShorts.length > 1 ? "s" : ""}`}
+                      onSeeAll={() => router.push("/(tabs)/shorts" as any)}
+                    />
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
+                    >
+                      {continueShorts.map((sh) => (
+                        <TouchableOpacity
+                          key={sh.id}
+                          activeOpacity={0.85}
+                          onPress={() => router.push({ pathname: "/detail", params: { type: sh.type, id: String(sh.tmdbId), title: sh.title } } as any)}
+                          style={{ width: 100 }}
+                        >
+                          <View style={{ width: 100, height: 148, borderRadius: 10, overflow: "hidden", backgroundColor: "#1a1a1a" }}>
+                            {sh.poster ? (
+                              <Image source={{ uri: sh.poster }} style={{ width: 100, height: 148 }} contentFit="cover" />
+                            ) : (
+                              <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+                                <Feather name="film" size={28} color="rgba(255,255,255,0.2)" />
+                              </View>
+                            )}
+                            {/* Progress bar overlay */}
+                            <View style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 3, backgroundColor: "rgba(255,255,255,0.15)" }}>
+                              <View style={{ height: 3, width: `${Math.round(sh.progress * 100)}%`, backgroundColor: RED, borderRadius: 2 }} />
+                            </View>
+                            {/* Play icon */}
+                            <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 3, alignItems: "center", justifyContent: "center" }}>
+                              <View style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: "rgba(0,0,0,0.55)", alignItems: "center", justifyContent: "center" }}>
+                                <Feather name="play" size={13} color="#fff" />
+                              </View>
+                            </View>
+                          </View>
+                          <Text numberOfLines={2} style={{ color: "rgba(255,255,255,0.8)", fontSize: 11, fontWeight: "600", marginTop: 5, lineHeight: 14 }}>
+                            {sh.title}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
                   </View>
                 </AnimatedSection>
               )}
