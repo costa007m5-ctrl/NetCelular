@@ -551,4 +551,166 @@ router.post("/shorts/cache/invalidate", (req: any, res: any) => {
   res.json({ ok: true, message: "Shorts feed cache cleared" });
 });
 
+// ── Top 10 Em Alta Agora ────────────────────────────────────────────────────
+// Returns the weekly Top 10 trending titles (movies + TV combined).
+// Also powers the push notification system: every 6 hours the server
+// compares the current Top 10 with the last known snapshot and sends
+// a push notification for each new entrant (max 3 per cycle).
+
+interface Top10Item {
+  tmdbId: number;
+  type: "movie" | "tv";
+  title: string;
+  poster: string | null;
+  backdrop: string | null;
+  rating: number;
+  year: number;
+  genre: string;
+}
+
+let _top10Snapshot: Top10Item[] = [];
+let _top10Cache: { items: Top10Item[]; cachedAt: number } | null = null;
+const TOP10_TTL_MS = 3 * 60 * 60 * 1000; // 3 h
+
+async function buildTop10(): Promise<Top10Item[]> {
+  if (_top10Cache && Date.now() - _top10Cache.cachedAt < TOP10_TTL_MS) {
+    return _top10Cache.items;
+  }
+
+  const [movRes, tvRes] = await Promise.all([
+    tmdbFetch<any>("/trending/movie/week").catch(() => ({ results: [] })),
+    tmdbFetch<any>("/trending/tv/week").catch(() => ({ results: [] })),
+  ]);
+
+  // Interleave movies + TV to produce a mixed Top 10 by popularity rank
+  const movies: any[] = movRes.results ?? [];
+  const tvs: any[] = tvRes.results ?? [];
+
+  const seen = new Set<string>();
+  const combined: Array<{ raw: any; type: "movie" | "tv"; rank: number }> = [];
+
+  const maxLen = Math.max(movies.length, tvs.length);
+  for (let i = 0; i < maxLen; i++) {
+    if (movies[i]) combined.push({ raw: movies[i], type: "movie", rank: i });
+    if (tvs[i])    combined.push({ raw: tvs[i],    type: "tv",    rank: i });
+  }
+
+  // Sort by rank then pick the first 10 unique
+  combined.sort((a, b) => a.rank - b.rank);
+
+  const items: Top10Item[] = [];
+  for (const { raw, type } of combined) {
+    if (items.length >= 10) break;
+    if (!raw.poster_path && !raw.backdrop_path) continue;
+    const key = `${type}-${raw.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const title = raw.title ?? raw.name ?? "";
+    const year = parseInt((raw.release_date ?? raw.first_air_date ?? "2024").slice(0, 4));
+    items.push({
+      tmdbId: raw.id,
+      type,
+      title,
+      poster: raw.poster_path ? `${TMDB_IMG_BASE}/w342${raw.poster_path}` : null,
+      backdrop: raw.backdrop_path ? `${TMDB_IMG_BASE}/w780${raw.backdrop_path}` : null,
+      rating: Math.round((raw.vote_average ?? 0) * 10) / 10,
+      year: isNaN(year) ? 2024 : year,
+      genre: firstGenre(raw.genre_ids ?? []),
+    });
+  }
+
+  _top10Cache = { items, cachedAt: Date.now() };
+  return items;
+}
+
+router.get("/shorts/top10", async (_req: any, res: any) => {
+  try {
+    const items = await buildTop10();
+    res.json({ ok: true, items, total: items.length, cachedAt: _top10Cache?.cachedAt ?? 0 });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "Internal error" });
+  }
+});
+
+// ── Auto notify: detect Top 10 changes and push to all users ─────────────────
+async function checkTop10AndNotify(): Promise<void> {
+  try {
+    const current = await buildTop10();
+    if (_top10Snapshot.length === 0) {
+      _top10Snapshot = current;
+      console.log("[top10-notify] Snapshot inicial registrado:", current.length, "itens");
+      return;
+    }
+
+    const prevIds = new Set(_top10Snapshot.map((i) => `${i.type}-${i.tmdbId}`));
+    const newEntrants = current.filter((i) => !prevIds.has(`${i.type}-${i.tmdbId}`));
+
+    if (newEntrants.length === 0) {
+      console.log("[top10-notify] Top 10 sem mudanças");
+      return;
+    }
+
+    console.log(`[top10-notify] ${newEntrants.length} novos entrants detectados`);
+    _top10Snapshot = current;
+
+    const { sendToAll, addPushLog } = await import("../lib/push-notifications.js");
+
+    for (const item of newEntrants.slice(0, 3)) {
+      const pushTitle = `🔥 Novo no Top 10`;
+      const pushBody  = `"${item.title}" entrou no Top 10 da semana nos Shorts!`;
+      const data = {
+        type: "shorts_top10",
+        tmdbId: String(item.tmdbId),
+        contentType: item.type,
+        contentTitle: item.title,
+        screen: "shorts",
+      };
+
+      try {
+        const result = await sendToAll(
+          pushTitle,
+          pushBody,
+          data,
+          item.backdrop ?? item.poster ?? undefined,
+        );
+        addPushLog({
+          title: pushTitle,
+          body: pushBody,
+          source: "auto:top10",
+          sent: result.sent,
+          failed: result.failed,
+          total: result.sent + result.failed,
+        });
+        console.log(`[top10-notify] Push enviado: "${item.title}" — sent=${result.sent}`);
+      } catch (e) {
+        console.error("[top10-notify] Erro ao enviar push:", e);
+      }
+    }
+  } catch (e) {
+    console.error("[top10-notify] Erro geral:", e);
+  }
+}
+
+// Run initial snapshot after 30s, then check every 6 hours
+setTimeout(checkTop10AndNotify, 30_000);
+setInterval(checkTop10AndNotify, 6 * 60 * 60 * 1000);
+
+// Manual trigger (admin) — useful for testing or forcing a check
+router.post("/shorts/notify-top10", async (req: any, res: any) => {
+  const adminKey = process.env["ADMIN_API_KEY"] ?? "";
+  const provided  = (req.headers["x-admin-key"] as string | undefined) ?? req.query.admin_key ?? "";
+  if (adminKey && provided !== adminKey) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+  try {
+    const before = (_top10Snapshot ?? []).map((i) => i.title);
+    await checkTop10AndNotify();
+    const after = (_top10Snapshot ?? []).map((i) => i.title);
+    res.json({ ok: true, before, after });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "Internal error" });
+  }
+});
+
 export default router;

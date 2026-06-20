@@ -63,6 +63,17 @@ interface WhatsNewItem {
   overview?: string;
   exclusive?: boolean;
 }
+
+interface Top10Item {
+  tmdbId: number;
+  type: "movie" | "tv";
+  title: string;
+  poster: string | null;
+  backdrop: string | null;
+  rating: number;
+  year: number;
+  genre: string;
+}
 interface WhatsNewResp {
   ok: boolean;
   warming?: boolean;
@@ -1507,6 +1518,17 @@ export default function NovidadesScreen() {
     load().finally(() => setRefreshing(false));
   }, [load]);
 
+  // ── Top 10 Em Alta Agora ─────────────────────────────────────────────────
+  const [top10, setTop10] = useState<Top10Item[]>([]);
+  const [top10Loading, setTop10Loading] = useState(true);
+
+  useEffect(() => {
+    r2Route<{ ok: boolean; items: Top10Item[] }>("/shorts/top10")
+      .then((r) => { if (r.ok) setTop10(r.items); })
+      .catch(() => {})
+      .finally(() => setTop10Loading(false));
+  }, []);
+
   // ── Episode groups ───────────────────────────────────────────────────────
   const [epGroups, setEpGroups] = useState<EpGroup[]>([]);
   const [epLoading, setEpLoading] = useState(false);
@@ -1890,6 +1912,76 @@ export default function NovidadesScreen() {
           )}
         </View>
 
+        {/* ── 🔥 TOP 10 EM ALTA AGORA ──────────────────────────────────── */}
+        {(top10Loading || top10.length > 0) && (
+          <View style={root.section}>
+            <SectionHeader
+              title="Top 10 Agora"
+              icon="bar-chart-2"
+              badge={top10.length}
+              accentColor="#e50914"
+              subtitle="Os mais quentes do momento no Shorts"
+            />
+            {top10Loading ? (
+              <SkeletonRow count={4} width={100} height={148} />
+            ) : (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 4 }}>
+                {top10.map((item, i) => {
+                  const rankColor = i === 0 ? "#ffd700" : i === 1 ? "#c0c0c0" : i === 2 ? "#cd7f32" : "rgba(255,255,255,0.45)";
+                  return (
+                    <TouchableOpacity
+                      key={`top10_${item.tmdbId}_${item.type}`}
+                      activeOpacity={0.78}
+                      onPress={() =>
+                        router.push({
+                          pathname: "/detail",
+                          params: {
+                            type: item.type,
+                            id: String(item.tmdbId),
+                            title: item.title,
+                            poster: item.poster ?? "",
+                          },
+                        })
+                      }
+                      style={top10st.card}>
+                      {/* Poster */}
+                      <View style={top10st.posterWrap}>
+                        {item.poster ? (
+                          <Image
+                            source={{ uri: item.poster }}
+                            style={top10st.poster}
+                            contentFit="cover"
+                          />
+                        ) : (
+                          <LinearGradient colors={["#1a1a2e", "#16213e"]} style={top10st.poster} />
+                        )}
+                        {/* Type badge */}
+                        <View style={[top10st.typeBadge, { backgroundColor: item.type === "movie" ? "rgba(229,9,20,0.88)" : "rgba(59,130,246,0.88)" }]}>
+                          <Text style={top10st.typeBadgeText}>{item.type === "movie" ? "FILME" : "SÉRIE"}</Text>
+                        </View>
+                      </View>
+                      {/* Rank number */}
+                      <View style={top10st.rankRow}>
+                        <Text style={[top10st.rank, { color: rankColor }]}>#{i + 1}</Text>
+                        <Text style={top10st.genre} numberOfLines={1}>{item.genre}</Text>
+                      </View>
+                      <Text style={top10st.title} numberOfLines={2}>{item.title}</Text>
+                      <View style={top10st.ratingRow}>
+                        <Feather name="star" size={10} color="#ffd700" />
+                        <Text style={top10st.rating}>{item.rating.toFixed(1)}</Text>
+                        <Text style={top10st.year}>{item.year}</Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            )}
+          </View>
+        )}
+
         {/* ── EM ALTA ESTA SEMANA (FILMES) ─────────────────────────────── */}
         <View style={root.section}>
           <SectionHeader title="Em Alta Esta Semana" icon="trending-up" badge={trendingMovieItems.length}
@@ -2056,6 +2148,21 @@ export default function NovidadesScreen() {
     </View>
   );
 }
+
+const top10st = StyleSheet.create({
+  card: { width: 100, marginRight: 10 },
+  posterWrap: { width: 100, height: 148, borderRadius: 10, overflow: "hidden", marginBottom: 6 },
+  poster: { width: "100%", height: "100%" },
+  typeBadge: { position: "absolute", bottom: 6, left: 6, borderRadius: 4, paddingHorizontal: 5, paddingVertical: 2 },
+  typeBadgeText: { fontSize: 8, fontWeight: "800", color: "#fff", letterSpacing: 0.3 },
+  rankRow: { flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 2 },
+  rank: { fontSize: 13, fontWeight: "900", letterSpacing: -0.5 },
+  genre: { fontSize: 9, color: "rgba(255,255,255,0.4)", fontWeight: "600", flex: 1 },
+  title: { fontSize: 11, fontWeight: "700", color: "#fff", lineHeight: 15, marginBottom: 3 },
+  ratingRow: { flexDirection: "row", alignItems: "center", gap: 3 },
+  rating: { fontSize: 10, fontWeight: "600", color: "rgba(255,255,255,0.6)" },
+  year: { fontSize: 10, color: "rgba(255,255,255,0.3)", marginLeft: 4 },
+});
 
 const root = StyleSheet.create({
   bg: { flex: 1 },
