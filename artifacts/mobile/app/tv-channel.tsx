@@ -29,6 +29,7 @@ import { Feather } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { tvApi } from "@/lib/api";
+import { loadFavorites, toggleFavorite, isFavorite } from "@/lib/tv-favorites";
 
 const { width: W, height: H } = Dimensions.get("window");
 const IS_WEB = Platform.OS === "web";
@@ -328,6 +329,19 @@ export default function TvChannelScreen() {
   const [tab, setTab] = useState<"guide" | "series" | "movies" | "premieres">("guide");
   const scrollY = useRef(new Animated.Value(0)).current;
 
+  // Favorites
+  const [favorites, setFavorites] = useState<string[]>([]);
+  const fav = isFavorite(channelId, favorites);
+
+  useEffect(() => {
+    loadFavorites().then(setFavorites).catch(() => {});
+  }, []);
+
+  const handleToggleFav = useCallback(async () => {
+    const { favorites: next } = await toggleFavorite(channelId);
+    setFavorites(next);
+  }, [channelId]);
+
   // Load schedule
   useEffect(() => {
     tvApi.getChannelSchedule(channelId)
@@ -400,7 +414,9 @@ export default function TvChannelScreen() {
           <Feather name="arrow-left" size={20} color="#fff" />
         </TouchableOpacity>
         <Text style={st.stickyTitle} numberOfLines={1}>{channel?.shortName ?? channelId}</Text>
-        <View style={{ width: 40 }} />
+        <TouchableOpacity onPress={handleToggleFav} style={st.backBtn}>
+          <Feather name="heart" size={18} color={fav ? accent : "rgba(255,255,255,0.45)"} />
+        </TouchableOpacity>
       </Animated.View>
 
       <Animated.ScrollView
@@ -437,6 +453,18 @@ export default function TvChannelScreen() {
             style={[st.heroBack, { top: topPad + 8 }]}
           >
             <Feather name="arrow-left" size={20} color="#fff" />
+          </TouchableOpacity>
+
+          {/* Fav button */}
+          <TouchableOpacity
+            onPress={handleToggleFav}
+            style={[st.heroFavBtn, { top: topPad + 8 }]}
+          >
+            <Feather
+              name="heart"
+              size={18}
+              color={fav ? accent : "rgba(255,255,255,0.45)"}
+            />
           </TouchableOpacity>
 
           {/* Channel identity */}
@@ -725,6 +753,12 @@ const st = StyleSheet.create({
   hero: { position: "relative", justifyContent: "flex-end" },
   heroBack: {
     position: "absolute", left: 16, zIndex: 10,
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    alignItems: "center", justifyContent: "center",
+  },
+  heroFavBtn: {
+    position: "absolute", right: 16, zIndex: 10,
     width: 38, height: 38, borderRadius: 19,
     backgroundColor: "rgba(0,0,0,0.5)",
     alignItems: "center", justifyContent: "center",

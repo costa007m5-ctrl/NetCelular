@@ -21,6 +21,7 @@ import { Feather } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
 import { ProfileAvatarButton } from "@/components/ProfileAvatarButton";
 import { tvApi } from "@/lib/api";
+import { loadFavorites, toggleFavorite, isFavorite } from "@/lib/tv-favorites";
 import {
   liveTvApi,
   LiveChannel,
@@ -686,6 +687,11 @@ export default function CanaisScreen() {
   const [tvGuide, setTvGuide] = useState<Record<string, TvGuideNetwork>>({});
   const [tvGuideLoading, setTvGuideLoading] = useState(true);
   const [selectedTvCat, setSelectedTvCat] = useState<string>("all");
+  const [tvFavorites, setTvFavorites] = useState<string[]>([]);
+
+  useEffect(() => {
+    loadFavorites().then(setTvFavorites).catch(() => {});
+  }, []);
 
   useEffect(() => {
     Promise.all([
@@ -699,6 +705,14 @@ export default function CanaisScreen() {
       .catch(() => {})
       .finally(() => setTvGuideLoading(false));
   }, []);
+
+  const handleTvFavorite = useCallback(async (ch: TvChannel, e: any) => {
+    e?.stopPropagation?.();
+    const { favorites } = await toggleFavorite(ch.id);
+    setTvFavorites(favorites);
+  }, []);
+
+  const favoriteChannels = tvChannels.filter((c) => isFavorite(c.id, tvFavorites));
 
   const goToTvChannel = useCallback(
     (ch: TvChannel) => {
@@ -932,6 +946,66 @@ export default function CanaisScreen() {
                 </View>
               </View>
 
+              {/* ── Meus Canais (favoritos) ── */}
+              {favoriteChannels.length > 0 && (
+                <View style={{ marginBottom: 16 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 20, marginBottom: 10 }}>
+                    <Feather name="heart" size={12} color="#e50914" />
+                    <Text style={{ fontSize: 12, fontWeight: "700", color: "rgba(255,255,255,0.7)" }}>
+                      Meus Canais
+                    </Text>
+                    <Text style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", marginLeft: 4 }}>
+                      {favoriteChannels.length} favorito{favoriteChannels.length > 1 ? "s" : ""}
+                    </Text>
+                  </View>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
+                  >
+                    {favoriteChannels.map((ch) => {
+                      const nowEp = getCurrentProgram(ch);
+                      return (
+                        <TouchableOpacity
+                          key={`fav-${ch.id}`}
+                          onPress={() => goToTvChannel(ch)}
+                          activeOpacity={0.8}
+                          style={[styles.tvMyCard, { borderColor: ch.color + "55" }]}
+                        >
+                          <LinearGradient
+                            colors={[ch.bgColor || "#0a0a14", ch.color + "33"]}
+                            style={StyleSheet.absoluteFill}
+                          />
+                          <View style={[styles.tvMyCardBar, { backgroundColor: ch.color }]} />
+                          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                            <View style={[styles.tvMyBadge, { backgroundColor: ch.color }]}>
+                              <Text style={styles.tvMyBadgeText} numberOfLines={1}>{ch.shortName}</Text>
+                            </View>
+                            <TouchableOpacity
+                              onPress={(e) => handleTvFavorite(ch, e)}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            >
+                              <Feather name="heart" size={13} color={ch.color} />
+                            </TouchableOpacity>
+                          </View>
+                          {nowEp ? (
+                            <View style={{ marginTop: 6 }}>
+                              <View style={{ flexDirection: "row", alignItems: "center", gap: 3, marginBottom: 2 }}>
+                                <View style={[styles.tvLiveDot, { backgroundColor: ch.color }]} />
+                                <Text style={[styles.tvLiveLabel, { color: ch.color }]}>AO VIVO</Text>
+                              </View>
+                              <Text style={styles.tvMyShow} numberOfLines={2}>{nowEp.show.name}</Text>
+                            </View>
+                          ) : (
+                            <Text style={[styles.tvNoGuide, { marginTop: 6 }]}>Sem programa{"\n"}agora</Text>
+                          )}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+              )}
+
               {/* Category filter pills */}
               <ScrollView
                 horizontal
@@ -1025,8 +1099,19 @@ export default function CanaisScreen() {
                           </View>
                         )}
 
-                        {/* Arrow */}
-                        <View style={styles.tvCardArrow}>
+                        {/* Fav + Arrow row */}
+                        <View style={styles.tvCardFooter}>
+                          <TouchableOpacity
+                            onPress={(e) => handleTvFavorite(ch, e)}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            style={styles.tvCardHeart}
+                          >
+                            <Feather
+                              name={isFavorite(ch.id, tvFavorites) ? "heart" : "heart"}
+                              size={13}
+                              color={isFavorite(ch.id, tvFavorites) ? ch.color : "rgba(255,255,255,0.25)"}
+                            />
+                          </TouchableOpacity>
                           <Feather name="chevron-right" size={14} color={ch.color} />
                         </View>
                       </TouchableOpacity>
@@ -1815,10 +1900,49 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 15,
   },
-  tvCardArrow: {
+  tvCardFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: "auto" as any,
+    paddingTop: 6,
+  },
+  tvCardHeart: {
+    padding: 2,
+  },
+
+  // ── My Channels (favorites) row
+  tvMyCard: {
+    width: W * 0.36,
+    height: 120,
+    borderRadius: 12,
+    borderWidth: 1,
+    overflow: "hidden",
+    padding: 10,
+  },
+  tvMyCardBar: {
     position: "absolute",
-    bottom: 10,
-    right: 10,
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 2,
+  },
+  tvMyBadge: {
+    borderRadius: 5,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    alignSelf: "flex-start",
+  },
+  tvMyBadgeText: {
+    fontSize: 10,
+    fontWeight: "900",
+    color: "#fff",
+  },
+  tvMyShow: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#fff",
+    lineHeight: 14,
   },
 
   // ── States
