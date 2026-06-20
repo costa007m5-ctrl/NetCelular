@@ -8,8 +8,10 @@ import {
   Animated,
   Dimensions,
   FlatList,
+  Modal,
   Platform,
   RefreshControl,
+  ScrollView,
   Share,
   StyleSheet,
   Text,
@@ -980,6 +982,184 @@ async function fetchShortsFeed(page = 1, preferGenres: number[] = []): Promise<{
   }
 }
 
+// ─── Shorts Report Modal ──────────────────────────────────────────────────────
+// Shows a visual genre profile: bar chart, stats, top genre.
+// Opened by tapping the "★ Gênero" badge in the Shorts header.
+
+const BAR_COLORS = ["#e50914","#7c3aed","#3b82f6","#f59e0b","#22c55e","#ec4899","#06b6d4","#f97316","#8b5cf6","#10b981"];
+
+function ShortsReportModal({
+  visible,
+  prefs,
+  onClose,
+  onReset,
+}: {
+  visible: boolean;
+  prefs: Record<number, number>;
+  onClose: () => void;
+  onReset: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  const isWeb = Platform.OS === "web";
+  const topPad = isWeb ? 24 : insets.top;
+
+  // Build sorted genre list
+  const entries = Object.entries(prefs)
+    .map(([id, count]) => ({ id: Number(id), name: genreName(Number(id)), count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10);
+
+  const totalViews = Object.values(prefs).reduce((s, v) => s + v, 0);
+  const maxCount = entries[0]?.count ?? 1;
+  const topGenre = entries[0]?.name ?? "—";
+  const genreCount = entries.length;
+
+  if (!visible) return null;
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={rm.backdrop}>
+        <View style={[rm.sheet, { paddingTop: topPad + 8 }]}>
+
+          {/* Header */}
+          <View style={rm.header}>
+            <View style={rm.headerLeft}>
+              <LinearGradient colors={["#7c3aed","#e50914"]} style={rm.headerIcon} start={{x:0,y:0}} end={{x:1,y:1}}>
+                <Feather name="bar-chart-2" size={14} color="#fff" />
+              </LinearGradient>
+              <View>
+                <Text style={rm.headerTitle}>Perfil de Gosto</Text>
+                <Text style={rm.headerSub}>Baseado nos seus Shorts assistidos</Text>
+              </View>
+            </View>
+            <TouchableOpacity style={rm.closeBtn} onPress={onClose} activeOpacity={0.75}>
+              <Feather name="x" size={20} color="rgba(255,255,255,0.7)" />
+            </TouchableOpacity>
+          </View>
+
+          {/* Stats row */}
+          <View style={rm.statsRow}>
+            <View style={rm.statCard}>
+              <Text style={rm.statValue}>{totalViews}</Text>
+              <Text style={rm.statLabel}>Visualizações</Text>
+            </View>
+            <View style={[rm.statCard, { borderColor: "#7c3aed" }]}>
+              <Text style={[rm.statValue, { color: "#a78bfa" }]}>{topGenre}</Text>
+              <Text style={rm.statLabel}>Gênero Favorito</Text>
+            </View>
+            <View style={[rm.statCard, { borderColor: "#3b82f6" }]}>
+              <Text style={[rm.statValue, { color: "#60a5fa" }]}>{genreCount}</Text>
+              <Text style={rm.statLabel}>Gêneros</Text>
+            </View>
+          </View>
+
+          {/* Bar chart */}
+          <ScrollView style={rm.chartScroll} showsVerticalScrollIndicator={false}>
+            <Text style={rm.chartTitle}>Distribuição por Gênero</Text>
+            {entries.map((entry, i) => {
+              const pct = maxCount > 0 ? entry.count / maxCount : 0;
+              const color = BAR_COLORS[i % BAR_COLORS.length];
+              return (
+                <View key={entry.id} style={rm.barRow}>
+                  <Text style={rm.barLabel} numberOfLines={1}>{entry.name}</Text>
+                  <View style={rm.barTrack}>
+                    <View style={[rm.barFill, { width: `${Math.max(4, pct * 100)}%` as any, backgroundColor: color }]} />
+                  </View>
+                  <Text style={[rm.barCount, { color }]}>{entry.count}</Text>
+                </View>
+              );
+            })}
+
+            {entries.length === 0 && (
+              <View style={{ alignItems: "center", paddingVertical: 32 }}>
+                <Feather name="bar-chart-2" size={40} color="rgba(255,255,255,0.15)" />
+                <Text style={{ color: "rgba(255,255,255,0.3)", marginTop: 12, fontSize: 14 }}>
+                  Assista Shorts para construir seu perfil
+                </Text>
+              </View>
+            )}
+
+            {/* Reset button */}
+            <TouchableOpacity
+              style={rm.resetBtn}
+              activeOpacity={0.8}
+              onPress={() => { onReset(); onClose(); }}
+            >
+              <Feather name="refresh-ccw" size={15} color="#fff" />
+              <Text style={rm.resetBtnText}>Redefinir preferências</Text>
+            </TouchableOpacity>
+            <View style={{ height: 32 }} />
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const rm = StyleSheet.create({
+  backdrop: {
+    flex: 1, backgroundColor: "rgba(0,0,0,0.7)",
+    justifyContent: "flex-end",
+  },
+  sheet: {
+    backgroundColor: "#0e0e14",
+    borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    maxHeight: "88%",
+    borderTopWidth: 1, borderColor: "rgba(255,255,255,0.08)",
+  },
+  header: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingHorizontal: 20, paddingBottom: 16,
+  },
+  headerLeft: { flexDirection: "row", alignItems: "center", gap: 12 },
+  headerIcon: {
+    width: 36, height: 36, borderRadius: 10,
+    alignItems: "center", justifyContent: "center",
+  },
+  headerTitle: { color: "#fff", fontSize: 17, fontWeight: "800" },
+  headerSub: { color: "rgba(255,255,255,0.4)", fontSize: 11, marginTop: 1 },
+  closeBtn: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    alignItems: "center", justifyContent: "center",
+  },
+
+  statsRow: {
+    flexDirection: "row", gap: 10, paddingHorizontal: 20, marginBottom: 20,
+  },
+  statCard: {
+    flex: 1, borderRadius: 12, borderWidth: 1, borderColor: "#e50914",
+    backgroundColor: "rgba(255,255,255,0.04)",
+    paddingVertical: 12, alignItems: "center", gap: 3,
+  },
+  statValue: { color: "#fff", fontSize: 18, fontWeight: "800" },
+  statLabel: { color: "rgba(255,255,255,0.4)", fontSize: 10, fontWeight: "600" },
+
+  chartScroll: { paddingHorizontal: 20 },
+  chartTitle: {
+    color: "rgba(255,255,255,0.5)", fontSize: 11, fontWeight: "700",
+    letterSpacing: 1, textTransform: "uppercase", marginBottom: 14,
+  },
+  barRow: {
+    flexDirection: "row", alignItems: "center", marginBottom: 12, gap: 10,
+  },
+  barLabel: {
+    width: 88, color: "rgba(255,255,255,0.75)", fontSize: 12, fontWeight: "600",
+  },
+  barTrack: {
+    flex: 1, height: 8, backgroundColor: "rgba(255,255,255,0.08)", borderRadius: 4, overflow: "hidden",
+  },
+  barFill: { height: "100%", borderRadius: 4 },
+  barCount: { width: 28, fontSize: 12, fontWeight: "700", textAlign: "right" },
+
+  resetBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    backgroundColor: "rgba(229,9,20,0.15)", borderWidth: 1, borderColor: "#e50914",
+    borderRadius: 12, paddingVertical: 13, marginTop: 24,
+  },
+  resetBtnText: { color: "#e50914", fontSize: 14, fontWeight: "700" },
+});
+
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function ShortsScreen() {
@@ -1002,6 +1182,7 @@ export default function ShortsScreen() {
   const [genrePrefs, setGenrePrefs] = useState<Record<number, number>>({});
   const [isPersonalized, setIsPersonalized] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [showReport, setShowReport] = useState(false);
 
   const loadFeed = useCallback(async (p = 1, overridePrefs?: Record<number, number>) => {
     if (p === 1) setLoading(true);
@@ -1193,10 +1374,15 @@ export default function ShortsScreen() {
               const names = getTopGenreNames(genrePrefs, 2);
               const label = names.length > 0 ? names.join(", ") : "Gosto";
               return (
-                <View style={s.personalizedBadge}>
+                <TouchableOpacity
+                  style={s.personalizedBadge}
+                  activeOpacity={0.75}
+                  onPress={() => setShowReport(true)}
+                >
                   <Feather name="star" size={9} color="#fff" />
                   <Text style={s.personalizedBadgeText}>{label}</Text>
-                </View>
+                  <Feather name="chevron-right" size={9} color="rgba(255,255,255,0.6)" />
+                </TouchableOpacity>
               );
             })()}
           </View>
@@ -1222,6 +1408,14 @@ export default function ShortsScreen() {
           />
         ))}
       </View>
+
+      {/* ── Genre profile report modal ── */}
+      <ShortsReportModal
+        visible={showReport}
+        prefs={genrePrefs}
+        onClose={() => setShowReport(false)}
+        onReset={clearPrefsAndRefresh}
+      />
     </View>
   );
 }
