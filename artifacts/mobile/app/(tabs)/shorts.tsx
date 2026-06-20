@@ -445,6 +445,7 @@ function ShortVideoCard({
   onSave,
   onDetail,
   onMoreLikeThis,
+  onLikeGenre,
   onSendFriend,
 }: {
   item: ShortItem;
@@ -455,6 +456,7 @@ function ShortVideoCard({
   onSave: (id: string) => void;
   onDetail: (item: ShortItem) => void;
   onMoreLikeThis: (item: ShortItem) => void;
+  onLikeGenre: (item: ShortItem) => void;
   onSendFriend: (item: ShortItem) => void;
 }) {
   const insets = useSafeAreaInsets();
@@ -1127,14 +1129,14 @@ function ShortVideoCard({
             </LinearGradient>
           </TouchableOpacity>
 
-          {/* "Mais como este" */}
+          {/* "Gostei" — boost genre silently, never restarts current video */}
           <TouchableOpacity
             style={[s.moreBtn, boosted && s.moreBtnActive]}
             activeOpacity={0.75}
             onPress={() => {
               if (boosted) return;
               setBoosted(true);
-              onMoreLikeThis(item);
+              onLikeGenre(item);
               setTimeout(() => setBoosted(false), 3000);
             }}
           >
@@ -1992,9 +1994,18 @@ export default function ShortsScreen() {
     });
   }, [router]);
 
+  // "Gostei" — boost genre silently WITHOUT reloading feed or resetting position
+  const onLikeGenre = useCallback(async (item: ShortItem) => {
+    if (!item.genreIds?.length) return;
+    await recordGenreView([...item.genreIds, ...item.genreIds, ...item.genreIds, ...item.genreIds, ...item.genreIds]);
+    const updated = await loadGenrePrefs();
+    setGenrePrefs(updated);
+    // Feed adapts on next natural load — user keeps watching current item
+  }, []);
+
+  // "Mais como este" (swipe-up action) — full reload to new personalised feed
   const onMoreLikeThis = useCallback(async (item: ShortItem) => {
     if (!item.genreIds?.length) return;
-    // Boost each genre 5× for instant strong signal
     await recordGenreView([...item.genreIds, ...item.genreIds, ...item.genreIds, ...item.genreIds, ...item.genreIds]);
     const updated = await loadGenrePrefs();
     setGenrePrefs(updated);
@@ -2130,6 +2141,7 @@ export default function ShortsScreen() {
               onSave={onSave}
               onDetail={onDetail}
               onMoreLikeThis={onMoreLikeThis}
+              onLikeGenre={onLikeGenre}
               onSendFriend={onSendFriend}
             />
           );
@@ -2455,7 +2467,7 @@ const s = StyleSheet.create({
 
   // Bottom row
   bottomRow: {
-    flexDirection: "row", alignItems: "center", gap: 8,
+    flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap",
   },
   watchBtn: {
     borderRadius: 11, overflow: "hidden",
