@@ -6,6 +6,7 @@ import React, { useEffect, useRef } from "react";
 import { Animated, Easing, Platform, StyleSheet, Text } from "react-native";
 
 const ND = Platform.OS !== "web";
+const IS_WEB = Platform.OS === "web";
 
 export type TabLabelType = "home" | "bell" | "tv" | "film" | "star" | "user" | "scissors";
 
@@ -157,6 +158,7 @@ function UserLabel({ label, color, focused }: { label: string; color: string; fo
     if (focused) {
       opacity.setValue(0.3);
       Animated.timing(opacity, { toValue: 1, duration: 300, useNativeDriver: ND, easing: Easing.out(Easing.ease) }).start(() => {
+        if (IS_WEB) return; // web Animated.loop on JS thread causes layout repaints
         pulse.current = Animated.loop(
           Animated.sequence([
             Animated.timing(opacity, { toValue: 0.75, duration: 900, useNativeDriver: ND, easing: Easing.inOut(Easing.ease) }),

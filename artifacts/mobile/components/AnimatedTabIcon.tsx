@@ -23,6 +23,7 @@ interface Props {
 }
 
 const ND = Platform.OS !== "web"; // useNativeDriver
+const IS_WEB = Platform.OS === "web"; // disable idle loops on web to prevent JS-thread flicker
 
 // ─── Reusable: animated ring that expands and fades ─────────────────────────
 
@@ -156,8 +157,8 @@ function HomeIcon({ color, size, focused }: { color: string; size: number; focus
       // Icon: stream-in spring
       scale.setValue(0.7);
       Animated.spring(scale, { toValue: 1, useNativeDriver: ND, tension: 200, friction: 6 }).start();
-    } else {
-      // Idle: slow breath like a standby LED
+    } else if (!IS_WEB) {
+      // Idle: slow breath like a standby LED (native only — web loop causes JS-thread re-renders)
       breathLoop.current = Animated.loop(
         Animated.sequence([
           Animated.timing(scale, { toValue: 1.06, duration: 1800, useNativeDriver: ND, easing: Easing.inOut(Easing.ease) }),
@@ -221,9 +222,9 @@ function BellIcon({ color, size, focused }: { color: string; size: number; focus
     }
   }, [focused]);
 
-  // Periodic idle zap
+  // Periodic idle zap (native only — setInterval setState causes web re-renders → flicker)
   useEffect(() => {
-    if (focused) return;
+    if (focused || IS_WEB) return;
     const t = setInterval(() => { if (Math.random() < 0.5) doZap(); }, 7000);
     return () => clearInterval(t);
   }, [focused, doZap]);
@@ -265,9 +266,9 @@ function TvIcon({ color, size, focused }: { color: string; size: number; focused
     }
   }, [focused]);
 
-  // Idle: signal rings pulse like a live broadcast
+  // Idle: signal rings pulse like a live broadcast (native only — setInterval setState → web flicker)
   useEffect(() => {
-    if (focused) return;
+    if (focused || IS_WEB) return;
     const t = setInterval(() => setRingTick(t => t + 1), 5000);
     return () => clearInterval(t);
   }, [focused]);
@@ -329,9 +330,9 @@ function FilmIcon({ color, size, focused }: { color: string; size: number; focus
     if (focused) doClap();
   }, [focused]);
 
-  // Idle: occasional snap
+  // Idle: occasional snap (native only — setInterval setState → web flicker)
   useEffect(() => {
-    if (focused) return;
+    if (focused || IS_WEB) return;
     const t = setInterval(() => { if (Math.random() < 0.4) doClap(); }, 8000);
     return () => clearInterval(t);
   }, [focused, doClap]);
@@ -385,9 +386,9 @@ function StarIcon({ color, size, focused }: { color: string; size: number; focus
     }
   }, [focused]);
 
-  // Idle: beacon ring
+  // Idle: beacon ring (native only — setInterval setState → web flicker)
   useEffect(() => {
-    if (focused) return;
+    if (focused || IS_WEB) return;
     const t = setInterval(() => setRingTick(t => t + 1), 6000);
     return () => clearInterval(t);
   }, [focused]);
@@ -467,9 +468,10 @@ function UserIcon({ color, size, focused }: { color: string; size: number; focus
         Animated.timing(dotOpacity, { toValue: 1, duration: 200, useNativeDriver: ND }),
       ]).start();
     } else {
-      // Idle: ring gently breathes
+      // Idle: ring gently breathes (native only — web Animated.loop on JS thread → repaints)
       Animated.timing(dotOpacity, { toValue: 0, duration: 200, useNativeDriver: ND }).start();
       Animated.timing(ringOpacity, { toValue: 0, duration: 300, useNativeDriver: ND }).start(() => {
+        if (IS_WEB) return;
         ringLoop.current = Animated.loop(
           Animated.sequence([
             Animated.timing(ringOpacity, { toValue: 0.15, duration: 2000, useNativeDriver: ND, easing: Easing.inOut(Easing.ease) }),
@@ -553,7 +555,8 @@ function ScissorsIcon({ color, size, focused }: { color: string; size: number; f
       scale.setValue(0.75);
       Animated.spring(scale, { toValue: 1, useNativeDriver: ND, tension: 260, friction: 5 }).start();
       doSnap();
-    } else {
+    } else if (!IS_WEB) {
+      // Idle breath (native only — web Animated.loop runs on JS thread → layout repaints)
       breathLoop.current = Animated.loop(
         Animated.sequence([
           Animated.timing(scale, { toValue: 1.08, duration: 1400, useNativeDriver: ND, easing: Easing.inOut(Easing.ease) }),

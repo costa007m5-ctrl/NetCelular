@@ -3,7 +3,7 @@ import { Redirect, Tabs } from "expo-router";
 import { Icon, Label, NativeTabs } from "expo-router/unstable-native-tabs";
 import { SymbolView } from "expo-symbols";
 import { Feather } from "@expo/vector-icons";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Platform, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -45,10 +45,51 @@ function NativeTabLayout({ isAdmin }: { isAdmin: boolean }) {
   );
 }
 
+// ── Stable tab bar background — extracted as a component so it never remounts ──
+// If defined inline inside screenOptions, a new function reference is created on
+// every render of ClassicTabLayout, causing React Navigation to unmount+remount
+// the background element on every re-render → full-screen flash.
+const TabBarBackground = React.memo(function TabBarBackground() {
+  const isIOS = Platform.OS === "ios";
+  const isAndroid = Platform.OS === "android";
+  const tabBarHeight = 64;
+  return (
+    <View style={StyleSheet.absoluteFill}>
+      <View style={[StyleSheet.absoluteFill, styles.tabBg, { borderRadius: 32 }]}>
+        {isIOS ? (
+          <BlurView
+            intensity={95}
+            tint="dark"
+            style={[StyleSheet.absoluteFill, { borderRadius: 32, overflow: "hidden" }]}
+          />
+        ) : (
+          <View style={[StyleSheet.absoluteFill, { borderRadius: 32, backgroundColor: "rgba(10,10,10,0.97)" }]} />
+        )}
+        <View style={[styles.tabBorder, { borderRadius: 32 }]} />
+      </View>
+      {isAndroid && (
+        <View
+          style={{
+            position: "absolute",
+            top: tabBarHeight,
+            left: -18,
+            right: -18,
+            bottom: -220,
+            backgroundColor: "#000",
+          }}
+        />
+      )}
+    </View>
+  );
+});
+
+function renderTabBarBackground() {
+  return <TabBarBackground />;
+}
+
 function ClassicTabLayout({ isAdmin }: { isAdmin: boolean }) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const isIOS = Platform.OS === "ios";
   const isWeb = Platform.OS === "web";
   const isAndroid = Platform.OS === "android";
 
@@ -74,34 +115,7 @@ function ClassicTabLayout({ isAdmin }: { isAdmin: boolean }) {
           elevation: 0,
           shadowOpacity: 0,
         },
-        tabBarBackground: () => (
-          <View style={StyleSheet.absoluteFill}>
-            <View style={[StyleSheet.absoluteFill, styles.tabBg, { borderRadius: 32 }]}>
-              {isIOS ? (
-                <BlurView
-                  intensity={95}
-                  tint="dark"
-                  style={[StyleSheet.absoluteFill, { borderRadius: 32, overflow: "hidden" }]}
-                />
-              ) : (
-                <View style={[StyleSheet.absoluteFill, { borderRadius: 32, backgroundColor: "rgba(10,10,10,0.97)" }]} />
-              )}
-              <View style={[styles.tabBorder, { borderRadius: 32 }]} />
-            </View>
-            {isAndroid && (
-              <View
-                style={{
-                  position: "absolute",
-                  top: tabBarHeight,
-                  left: -18,
-                  right: -18,
-                  bottom: -220,
-                  backgroundColor: "#000",
-                }}
-              />
-            )}
-          </View>
-        ),
+        tabBarBackground: renderTabBarBackground,
         tabBarLabelStyle: {
           fontSize: 10,
           fontWeight: "700",
