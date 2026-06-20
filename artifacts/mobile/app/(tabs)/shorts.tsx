@@ -63,11 +63,46 @@ const fonteToHttps = (u: string) =>
 const BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
 // ─── Lookup / episode cache ───────────────────────────────────────────────────
-// Stores playable stream URLs by item.id — populated by prefetchLookup().
-// For movies: raw hubby.cx URL from /flix2/lookup.
-// For series: URL of the picked "interesting" episode from /flix2/series-episodes.
-const LOOKUP_CACHE = new Map<string, string>(); // itemId → playable stream URL
-const PREFETCH_IN_FLIGHT = new Set<string>();   // itemIds currently being fetched
+// LOOKUP_CACHE: raw stream URL from Flix2 (may be hubby.cx redirect URL)
+// RESOLVED_CACHE: final playable URL after redirect resolution (fontedecanais HTTPS)
+//   — populated by prefetchResolve() running in background while user watches current item
+//   — when hit, card starts playing instantly with zero network calls on visible
+const LOOKUP_CACHE   = new Map<string, string>(); // itemId → raw stream URL
+const RESOLVED_CACHE = new Map<string, string>(); // itemId → final resolved URL (ready to play)
+const PREFETCH_IN_FLIGHT = new Set<string>();     // itemIds currently being lookup-fetched
+const RESOLVE_IN_FLIGHT  = new Set<string>();     // itemIds currently being redirect-resolved
+
+// Pre-resolve a raw URL to the final playable URL via server-side redirect follow.
+// Stores result in RESOLVED_CACHE[itemId]. Runs entirely in background (fire-and-forget).
+async function prefetchResolve(itemId: string, rawUrl: string): Promise<void> {
+  if (RESOLVED_CACHE.has(itemId) || RESOLVE_IN_FLIGHT.has(itemId)) return;
+  RESOLVE_IN_FLIGHT.add(itemId);
+  try {
+    // Non-hubby URLs are already final (fontedecanais / nixplay direct) — cache as-is
+    if (!isHubbyCx(rawUrl)) {
+      RESOLVED_CACHE.set(itemId, isFonteUrl(rawUrl) ? fonteToHttps(rawUrl) : rawUrl);
+      return;
+    }
+    // Server-side HEAD-follow: resolves hubby.cx 302 → fontedecanais Location header
+    const base = getApiBase();
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 8000);
+    try {
+      const res = await fetch(`${base}/admin/check-link?url=${encodeURIComponent(rawUrl)}`, { signal: ctrl.signal });
+      clearTimeout(t);
+      if (!res.ok) return;
+      const data = await res.json() as any;
+      const loc: string = data.location ?? "";
+      if (loc && loc !== rawUrl) {
+        RESOLVED_CACHE.set(itemId, fonteToHttps(loc));
+      }
+    } catch {
+      clearTimeout(t);
+    }
+  } finally {
+    RESOLVE_IN_FLIGHT.delete(itemId);
+  }
+}
 
 // ── Episode picker — selects an "interesting" episode from a series ────────────
 // Strategy: avoid S1E1 (slow intros), prefer middle episodes from mid-seasons.
@@ -190,7 +225,11 @@ async function prefetchLookup(item: ShortItem): Promise<void> {
       if (seriesId) raw = await resolveSeriesEpisode(seriesId, base);
     }
 
-    if (isDirectVideo(raw)) LOOKUP_CACHE.set(item.id, raw);
+    if (isDirectVideo(raw)) {
+      LOOKUP_CACHE.set(item.id, raw);
+      // Fire-and-forget: pre-resolve redirect so card plays instantly when visible
+      prefetchResolve(item.id, raw);
+    }
   } catch {
     clearTimeout(t);
   } finally {
@@ -480,13 +519,13 @@ function ShortVideoCard({
   const aiBadgeScale = useRef(new Animated.Value(0)).current;
 
   // ── Resolve stream URL when visible ─────────────────────────────────────────
-  // Mirrors flix2-player loadVideoUrl() exactly:
-  //   0. Check LOOKUP_CACHE (populated by prefetchLookup) — skip API call if hit
-  //   1. Lookup Flix2 catalog → get hubby.cx URL
-  //   2. Native + hubby.cx → resolver WebView captures fontedecanais redirect URL
-  //   3. Server fallback → /api/admin/check-link → location header
-  //   4. Last resort → /api/stream/proxy (same proxy used by flix2-player)
-  //   5. Web → getProxiedStreamUrl() → /api/stream/proxy
+  // Resolution priority (fastest to slowest):
+  //   0. RESOLVED_CACHE hit → instant play (redirect already resolved in bg)
+  //   1. LOOKUP_CACHE hit → skip API call, go straight to CDN resolution
+  //   2. Flix2 lookup API → get raw hubby.cx URL
+  //   3. Native + hubby.cx → resolver WebView captures fontedecanais redirect
+  //   4. Server fallback → /api/admin/check-link → location header
+  //   5. Last resort → /api/stream/proxy
   useEffect(() => {
     if (!isVisible || videoState !== "idle") return;
 
@@ -497,9 +536,24 @@ function ShortVideoCard({
       try {
         const base = getApiBase();
 
-        // ── Path 0: pre-fetch cache (populated by ShortsScreen prefetchLookup) ──
-        // If the lookup was already done in the background while the previous item
-        // was playing, skip the API call entirely and go straight to CDN resolution.
+        // ── Path 0: RESOLVED_CACHE — final URL already pre-resolved in background ──
+        // This is the fast path: happens when prefetchResolve() completed before
+        // this card became visible. No network calls needed — play instantly.
+        const preResolved = RESOLVED_CACHE.get(item.id);
+        if (preResolved) {
+          if (cancelled) return;
+          if (isWeb) {
+            setFinalUrl(getProxiedStreamUrl(preResolved));
+            setWebViewBaseUrl(typeof window !== "undefined" ? window.location.origin : "");
+          } else {
+            setWebViewBaseUrl(isFonteUrl(preResolved) ? "https://hubby.cx" : isNixplay(preResolved) ? "https://nixplay.lat" : "https://hubby.cx");
+            setFinalUrl(preResolved);
+          }
+          setVideoState("playing");
+          return;
+        }
+
+        // ── Path 1: LOOKUP_CACHE — raw URL cached, but redirect not yet resolved ──
         let raw = LOOKUP_CACHE.get(item.id) ?? "";
 
         const isDirectVideo = (u: string) =>
@@ -530,8 +584,9 @@ function ShortVideoCard({
             }
 
             if (!isDirectVideo(raw)) { setVideoState("error"); return; }
-            // Store in cache for future use
+            // Store in lookup cache + kick off background redirect resolution
             LOOKUP_CACHE.set(item.id, raw);
+            prefetchResolve(item.id, raw);
           } catch {
             clearTimeout(timer);
             if (!cancelled) setVideoState("error");
@@ -570,8 +625,10 @@ function ShortVideoCard({
 
           if (capturedUrl && isFonteUrl(capturedUrl)) {
             if (cancelled) return;
+            const finalFonte = fonteToHttps(capturedUrl);
+            RESOLVED_CACHE.set(item.id, finalFonte); // cache for instant back-scroll
             setWebViewBaseUrl("https://hubby.cx");
-            setFinalUrl(fonteToHttps(capturedUrl));
+            setFinalUrl(finalFonte);
             setVideoState("playing");
             return;
           }
@@ -586,8 +643,10 @@ function ShortVideoCard({
               const d2 = await r2.json();
               if (d2.location && d2.location !== raw) {
                 if (cancelled) return;
+                const finalFonte2 = fonteToHttps(d2.location);
+                RESOLVED_CACHE.set(item.id, finalFonte2); // cache for instant back-scroll
                 setWebViewBaseUrl("https://hubby.cx");
-                setFinalUrl(fonteToHttps(d2.location));
+                setFinalUrl(finalFonte2);
                 setVideoState("playing");
                 return;
               }
@@ -600,6 +659,7 @@ function ShortVideoCard({
         // baseUrl="https://nixplay.lat" sets the Referer header for CDN auth.
         if (IS_NATIVE && isNixplay(raw)) {
           if (cancelled) return;
+          RESOLVED_CACHE.set(item.id, raw); // cache for instant back-scroll
           setWebViewBaseUrl("https://nixplay.lat");
           setFinalUrl(raw);
           setVideoState("playing");
@@ -1649,6 +1709,16 @@ export default function ShortsScreen() {
     loadFeed(page + 1);
   }, [loadingMore, hasMore, page, loadFeed]);
 
+  // Trigger next-page load when user is 8 items from the end of the current batch
+  // (instead of waiting for onEndReached which fires only at actual list end)
+  useEffect(() => {
+    if (items.length === 0 || loadingMore || !hasMore) return;
+    const itemsRemaining = items.filter((it) => !it.isTrendingRow).length - visibleIndex;
+    if (itemsRemaining <= 8) {
+      loadMore();
+    }
+  }, [visibleIndex, items.length]);
+
   const onLike = useCallback((id: string) => {
     setItems((prev) => {
       const updated = prev.map((it) => {
@@ -1745,16 +1815,23 @@ export default function ShortsScreen() {
     return () => clearTimeout(timer);
   }, [visibleIndex, items]);
 
-  // Pre-fetch lookups for the next 10 items so video starts instantly when the card appears
+  // Pre-fetch lookups + redirect resolution for items ahead so video is instant.
+  // Covers current item + next 10 (full batch). Also fires for items before current
+  // (back-scroll) so returning to a previous card is also instant.
   useEffect(() => {
-    const targets = items.slice(visibleIndex + 1, visibleIndex + 11).filter(Boolean);
-    targets.forEach((it) => prefetchLookup(it));
+    // Forward: next 10 items (priority — user will likely scroll forward)
+    const ahead = items.slice(visibleIndex, visibleIndex + 11).filter((it) => !it.isTrendingRow);
+    ahead.forEach((it) => prefetchLookup(it));
+
+    // Backward: previous 3 items (back-scroll recovery)
+    const behind = items.slice(Math.max(0, visibleIndex - 3), visibleIndex).filter((it) => !it.isTrendingRow);
+    behind.forEach((it) => prefetchLookup(it));
   }, [visibleIndex, items]);
 
-  // On initial load, immediately prefetch the first 10 items
+  // On initial load, immediately prefetch first 10 items in parallel batches
   useEffect(() => {
     if (items.length > 0) {
-      items.slice(0, 10).forEach((it) => prefetchLookup(it));
+      items.slice(0, 10).filter((it) => !it.isTrendingRow).forEach((it) => prefetchLookup(it));
     }
   }, [items.length > 0]);
 
@@ -1813,7 +1890,7 @@ export default function ShortsScreen() {
         viewabilityConfig={viewabilityConfig}
         onViewableItemsChanged={onViewableItemsChanged}
         onEndReached={loadMore}
-        onEndReachedThreshold={2}
+        onEndReachedThreshold={5}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
