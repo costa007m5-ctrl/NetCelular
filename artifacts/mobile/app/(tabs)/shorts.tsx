@@ -363,6 +363,7 @@ function ShortVideoCard({
   onSave,
   onDetail,
   onMoreLikeThis,
+  onSendFriend,
 }: {
   item: ShortItem;
   isVisible: boolean;
@@ -372,6 +373,7 @@ function ShortVideoCard({
   onSave: (id: string) => void;
   onDetail: (item: ShortItem) => void;
   onMoreLikeThis: (item: ShortItem) => void;
+  onSendFriend: (item: ShortItem) => void;
 }) {
   const insets = useSafeAreaInsets();
   const isWeb = Platform.OS === "web";
@@ -856,6 +858,11 @@ function ShortVideoCard({
           label={shared ? "Copiado!" : "Partilhar"}
           color={shared ? "#4ade80" : "#fff"}
           onPress={handleShare}
+        />
+        <ActionBtn
+          icon="send"
+          label="Amigos"
+          onPress={() => onSendFriend(item)}
         />
         <ActionBtn
           icon="info"
@@ -1556,6 +1563,23 @@ export default function ShortsScreen() {
   }, [router]);
 
   // "Mais como este" — heavily boost this item's genres (×5) then reload feed
+  const onSendFriend = useCallback((item: ShortItem) => {
+    if (!item.tmdbId) return;
+    router.push({
+      pathname: "/shorts-send-friend",
+      params: {
+        tmdbId: String(item.tmdbId),
+        type: item.type,
+        title: item.title,
+        poster: item.poster ?? "",
+        overview: item.overview ?? "",
+        year: String(item.year ?? ""),
+        rating: String(item.rating ?? ""),
+        genre: item.genre ?? "",
+      },
+    });
+  }, [router]);
+
   const onMoreLikeThis = useCallback(async (item: ShortItem) => {
     if (!item.genreIds?.length) return;
     // Boost each genre 5× for instant strong signal
@@ -1687,6 +1711,7 @@ export default function ShortsScreen() {
               onSave={onSave}
               onDetail={onDetail}
               onMoreLikeThis={onMoreLikeThis}
+              onSendFriend={onSendFriend}
             />
           );
         }}

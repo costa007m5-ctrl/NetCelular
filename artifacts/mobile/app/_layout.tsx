@@ -75,7 +75,16 @@ function NotificationHandler() {
         return;
       }
 
-      // 3. New content / weekly digest → Novidades tab
+      // 3. Shorts friend recommendation → detail screen
+      if (notifCategory === "shorts_friend" && tmdbId && contentType) {
+        router.push({
+          pathname: "/detail",
+          params: { type: contentType, id: String(tmdbId), title },
+        });
+        return;
+      }
+
+      // 4. New content / weekly digest → Novidades tab
       if (notifCategory === "new_content" || notifCategory === "weekly_digest") {
         router.push("/(tabs)/novidades");
         return;
