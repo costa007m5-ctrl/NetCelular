@@ -485,10 +485,12 @@ function ShortVideoCard({
   // ── Content logo (TMDB) ──────────────────────────────────────────────────────
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [logoErr, setLogoErr] = useState(false);
+  const logoAnim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     if (!item.tmdbId) return;
     setLogoUrl(null);
     setLogoErr(false);
+    logoAnim.setValue(0);
     let cancelled = false;
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 5000);
@@ -499,7 +501,7 @@ function ShortVideoCard({
         clearTimeout(t);
         if (!r.ok || cancelled) return;
         const d = await r.json();
-        if (!cancelled && d.logo_path) setLogoUrl(`https://image.tmdb.org/t/p/w300${d.logo_path}`);
+        if (!cancelled && d.logo_path) setLogoUrl(`https://image.tmdb.org/t/p/w500${d.logo_path}`);
       } catch { /* silently fall back to text title */ }
     })();
     return () => { cancelled = true; ctrl.abort(); clearTimeout(t); };
@@ -1067,6 +1069,14 @@ function ShortVideoCard({
         )}
       </View>
 
+      {/* ── Premium bottom gradient overlay ── */}
+      <LinearGradient
+        colors={["transparent", "rgba(0,0,0,0.55)", "rgba(0,0,0,0.88)", "#000"]}
+        locations={[0, 0.3, 0.65, 1]}
+        style={s.bottomGradient}
+        pointerEvents="none"
+      />
+
       {/* ── Bottom info ── */}
       <Animated.View
         style={[s.info, { bottom: bottomPad + 92, opacity: infoOp, transform: [{ translateY: infoY }] }]}
@@ -1074,46 +1084,50 @@ function ShortVideoCard({
       >
         {/* AI Scene badge */}
         <Animated.View style={[s.aiBadge, { transform: [{ scale: aiBadgeScale }] }]}>
-          <LinearGradient colors={["#7c3aed", "#a855f7"]} style={s.aiBadgeInner} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
+          <LinearGradient colors={["#6d28d9", "#a855f7"]} style={s.aiBadgeInner} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
             <Feather name="zap" size={10} color="#fff" />
             <Text style={s.aiBadgeText}>IA • {item.sceneLabel}</Text>
           </LinearGradient>
         </Animated.View>
 
-        {/* Poster + info row */}
-        <View style={s.infoRow}>
-          <Image source={{ uri: item.poster ?? undefined }} style={s.miniPoster} contentFit="cover" />
-          <View style={{ flex: 1 }}>
-            {logoUrl && !logoErr ? (
-              <Image
-                source={{ uri: logoUrl }}
-                style={s.infoLogo}
-                contentFit="contain"
-                onError={() => setLogoErr(true)}
-              />
-            ) : (
-              <Text style={s.infoTitle} numberOfLines={2}>{item.title}</Text>
-            )}
-            <View style={s.infoMeta}>
-              <View style={s.genrePill}>
-                <Text style={s.genreText}>{item.genre}</Text>
-              </View>
-              <Text style={s.metaText}>{item.year}</Text>
-              <Feather name="star" size={11} color="#f59e0b" />
-              <Text style={[s.metaText, { color: "#f59e0b" }]}>{item.rating}</Text>
-            </View>
-            <Text style={s.overview} numberOfLines={2}>{item.overview}</Text>
+        {/* Logo or title */}
+        {logoUrl && !logoErr ? (
+          <Animated.Image
+            source={{ uri: logoUrl }}
+            style={[s.infoLogo, { opacity: logoAnim }]}
+            resizeMode="contain"
+            onLoad={() => Animated.timing(logoAnim, { toValue: 1, duration: 400, useNativeDriver: true }).start()}
+            onError={() => { setLogoErr(true); logoAnim.setValue(1); }}
+          />
+        ) : (
+          <Text style={s.infoTitle} numberOfLines={2}>{item.title}</Text>
+        )}
+
+        {/* Meta row */}
+        <View style={s.infoMeta}>
+          <View style={s.genrePill}>
+            <Text style={s.genreText}>{item.genre}</Text>
           </View>
+          <Text style={s.metaDot}>·</Text>
+          <Text style={s.metaText}>{item.year}</Text>
+          <Text style={s.metaDot}>·</Text>
+          <Feather name="star" size={11} color="#f59e0b" />
+          <Text style={[s.metaText, { color: "#f59e0b" }]}>{item.rating}</Text>
         </View>
 
-        {/* Watch full + clip info + Mais como este */}
+        {/* Overview */}
+        <Text style={s.overview} numberOfLines={2}>{item.overview}</Text>
+
+        {/* Action row */}
         <View style={s.bottomRow}>
           <TouchableOpacity style={s.watchBtn} onPress={() => onDetail(item)} activeOpacity={0.85}>
-            <Feather name="play-circle" size={15} color="#fff" />
-            <Text style={s.watchBtnText}>Assistir completo</Text>
+            <LinearGradient colors={[RED, "#c20812"]} style={s.watchBtnGrad} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
+              <Feather name="play" size={13} color="#fff" />
+              <Text style={s.watchBtnText}>Assistir completo</Text>
+            </LinearGradient>
           </TouchableOpacity>
 
-          {/* "Mais como este" — boosts this item's genres in the feed */}
+          {/* "Mais como este" */}
           <TouchableOpacity
             style={[s.moreBtn, boosted && s.moreBtnActive]}
             activeOpacity={0.75}
@@ -1124,15 +1138,15 @@ function ShortVideoCard({
               setTimeout(() => setBoosted(false), 3000);
             }}
           >
-            <Feather name={boosted ? "check" : "sliders"} size={13} color={boosted ? "#4ade80" : "#fff"} />
+            <Feather name={boosted ? "check" : "thumbs-up"} size={13} color={boosted ? "#4ade80" : "rgba(255,255,255,0.9)"} />
             <Text style={[s.moreBtnText, boosted && { color: "#4ade80" }]}>
-              {boosted ? "Feed atualizado!" : "Mais como este"}
+              {boosted ? "Adicionado!" : "Gostei"}
             </Text>
           </TouchableOpacity>
 
           {(showWebVideo || showNativeVideo) && (
             <View style={s.clipPill}>
-              <Feather name="scissors" size={10} color="rgba(255,255,255,0.7)" />
+              <Feather name="scissors" size={10} color="rgba(255,255,255,0.6)" />
               <Text style={s.clipText}>{item.clipDurationSeconds}s</Text>
             </View>
           )}
@@ -2249,59 +2263,69 @@ const s = StyleSheet.create({
     color: "#fff", fontSize: 10, fontWeight: "800", letterSpacing: 0.3,
   },
 
+  // Premium bottom gradient
+  bottomGradient: {
+    position: "absolute", left: 0, right: 0, bottom: 0, height: "60%",
+  },
+
   // Bottom info
   info: {
-    position: "absolute", left: 0, right: 80, paddingHorizontal: 16, gap: 8,
-  },
-  infoRow: { flexDirection: "row", gap: 12, alignItems: "flex-start" },
-  miniPoster: {
-    width: 52, height: 76, borderRadius: 8,
-    borderWidth: 1.5, borderColor: "rgba(255,255,255,0.2)",
+    position: "absolute", left: 0, right: 80, paddingHorizontal: 18, gap: 10,
   },
   infoTitle: {
-    color: "#fff", fontSize: 17, fontWeight: "800", letterSpacing: 0.2, marginBottom: 5,
+    color: "#fff", fontSize: 22, fontWeight: "900", letterSpacing: -0.3,
+    textShadowColor: "rgba(0,0,0,0.8)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 6,
   },
   infoLogo: {
-    width: "100%", height: 44, marginBottom: 5,
+    width: "85%", height: 62,
     alignSelf: "flex-start",
   },
   infoMeta: {
-    flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 4,
+    flexDirection: "row", alignItems: "center", gap: 7, flexWrap: "wrap",
   },
   genrePill: {
-    backgroundColor: "rgba(229,9,20,0.85)", borderRadius: 6,
-    paddingHorizontal: 7, paddingVertical: 2,
+    backgroundColor: "rgba(229,9,20,0.9)", borderRadius: 5,
+    paddingHorizontal: 8, paddingVertical: 3,
   },
-  genreText: { color: "#fff", fontSize: 10, fontWeight: "700" },
-  metaText: { color: "rgba(255,255,255,0.7)", fontSize: 12, fontWeight: "600" },
-  overview: { color: "rgba(255,255,255,0.6)", fontSize: 12, lineHeight: 17 },
+  genreText: { color: "#fff", fontSize: 11, fontWeight: "800", letterSpacing: 0.2 },
+  metaDot: { color: "rgba(255,255,255,0.4)", fontSize: 14, fontWeight: "300" },
+  metaText: { color: "rgba(255,255,255,0.75)", fontSize: 12, fontWeight: "600" },
+  overview: {
+    color: "rgba(255,255,255,0.65)", fontSize: 12.5, lineHeight: 18,
+    textShadowColor: "rgba(0,0,0,0.6)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4,
+  },
 
   // Bottom row
   bottomRow: {
-    flexDirection: "row", alignItems: "center", gap: 10,
+    flexDirection: "row", alignItems: "center", gap: 8,
   },
   watchBtn: {
-    flexDirection: "row", alignItems: "center", gap: 7,
-    backgroundColor: RED, borderRadius: 10,
-    paddingVertical: 9, paddingHorizontal: 16,
+    borderRadius: 11, overflow: "hidden",
   },
-  watchBtnText: { color: "#fff", fontSize: 13, fontWeight: "800" },
+  watchBtnGrad: {
+    flexDirection: "row", alignItems: "center", gap: 7,
+    paddingVertical: 10, paddingHorizontal: 18,
+  },
+  watchBtnText: { color: "#fff", fontSize: 13, fontWeight: "800", letterSpacing: 0.2 },
   moreBtn: {
-    flexDirection: "row", alignItems: "center", gap: 5,
-    backgroundColor: "rgba(255,255,255,0.15)", borderRadius: 10,
-    paddingVertical: 9, paddingHorizontal: 12,
+    flexDirection: "row", alignItems: "center", gap: 6,
+    backgroundColor: "rgba(255,255,255,0.12)",
+    borderRadius: 11, borderWidth: 1, borderColor: "rgba(255,255,255,0.18)",
+    paddingVertical: 10, paddingHorizontal: 14,
   },
   moreBtnActive: {
-    backgroundColor: "rgba(74,222,128,0.18)",
+    backgroundColor: "rgba(74,222,128,0.15)",
+    borderColor: "rgba(74,222,128,0.35)",
   },
-  moreBtnText: { color: "#fff", fontSize: 12, fontWeight: "700" },
+  moreBtnText: { color: "rgba(255,255,255,0.9)", fontSize: 12, fontWeight: "700" },
   clipPill: {
     flexDirection: "row", alignItems: "center", gap: 4,
-    backgroundColor: "rgba(255,255,255,0.15)", borderRadius: 20,
-    paddingHorizontal: 8, paddingVertical: 4,
+    backgroundColor: "rgba(255,255,255,0.1)", borderRadius: 20,
+    paddingHorizontal: 9, paddingVertical: 5,
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.15)",
   },
   clipText: {
-    color: "rgba(255,255,255,0.7)", fontSize: 11, fontWeight: "600",
+    color: "rgba(255,255,255,0.65)", fontSize: 11, fontWeight: "600",
   },
 
 });
