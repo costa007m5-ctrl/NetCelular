@@ -1,6 +1,7 @@
 import React, {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -814,9 +815,13 @@ function ShortVideoCard({
   // Native: render WebView with srcdoc (html template handles CDN playback)
   const showWebVideo   = isWeb && videoState === "playing" && !!finalUrl;
   const showNativeVideo = !isWeb && videoState === "playing" && !!finalUrl && !!WebView;
-  const html = showNativeVideo
-    ? buildShortVideoHtml(finalUrl!, item.startTimeSeconds, item.clipDurationSeconds, muted)
-    : null;
+  // Always build HTML with muted=true so mute toggling never changes the source
+  // (changing source causes a full WebView reload → black flash).
+  // The actual mute state is applied via injectMute() in the useEffect below.
+  const html = useMemo(
+    () => showNativeVideo ? buildShortVideoHtml(finalUrl!, item.startTimeSeconds, item.clipDurationSeconds, true) : null,
+    [showNativeVideo, finalUrl, item.startTimeSeconds, item.clipDurationSeconds]
+  );
 
   return (
     <TouchableOpacity
