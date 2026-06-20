@@ -399,3 +399,36 @@ export function tmdbItemToContent(item: TmdbItem) {
     mediaType: (isMovie ? "movie" : "tv") as "movie" | "tv",
   };
 }
+
+// ─── TV Guide API ─────────────────────────────────────────────────────────────
+// Routes: /api/tv/...  (TVmaze schedule + TMDB discovery)
+
+export const tvApi = {
+  getChannels: () =>
+    apiFetch<{ ok: boolean; channels: any[] }>("/tv/channels"),
+
+  getGuide: (date?: string) => {
+    const d = date ?? new Date().toISOString().slice(0, 10);
+    return apiFetch<{ ok: boolean; date: string; byNetwork: Record<string, any> }>(
+      `/tv/guide?date=${d}`
+    );
+  },
+
+  getChannelSchedule: (channelId: string, date?: string) => {
+    const d = date ?? new Date().toISOString().slice(0, 10);
+    return apiFetch<{ ok: boolean; episodes: any[]; channel: any }>(
+      `/tv/channel/${channelId}/schedule?date=${d}`
+    );
+  },
+
+  getChannelContent: (channelId: string) =>
+    apiFetch<{ ok: boolean; shows: any[]; movies: any[]; channel: any }>(
+      `/tv/channel/${channelId}/content`
+    ),
+
+  getPremieres: () =>
+    apiFetch<{ ok: boolean; series: any[]; movies: any[] }>("/tv/premieres"),
+
+  getShow: (showId: string | number) =>
+    apiFetch<any>(`/tv/show/${showId}`),
+};

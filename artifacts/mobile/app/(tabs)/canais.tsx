@@ -20,6 +20,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
 import { ProfileAvatarButton } from "@/components/ProfileAvatarButton";
+import { tvApi } from "@/lib/api";
 import {
   liveTvApi,
   LiveChannel,
@@ -672,6 +673,70 @@ export default function CanaisScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // ── TVmaze channel guide ──────────────────────────────────────────────────
+  type TvChannel = {
+    id: string; name: string; shortName: string; description: string; tagline: string;
+    category: string; color: string; bgColor: string; accentColor: string;
+    tvmazeNetworkId: number | null; tmdbNetworkId: number | null;
+  };
+  type TvGuideEp = { id: number; name: string; airtime: string; runtime: number; show: { id: number; name: string; genres: string[]; image: { medium: string } | null } };
+  type TvGuideNetwork = { network: { id: number; name: string }; episodes: TvGuideEp[] };
+
+  const [tvChannels, setTvChannels] = useState<TvChannel[]>([]);
+  const [tvGuide, setTvGuide] = useState<Record<string, TvGuideNetwork>>({});
+  const [tvGuideLoading, setTvGuideLoading] = useState(true);
+  const [selectedTvCat, setSelectedTvCat] = useState<string>("all");
+
+  useEffect(() => {
+    Promise.all([
+      tvApi.getChannels(),
+      tvApi.getGuide(),
+    ])
+      .then(([chRes, guideRes]) => {
+        if (chRes.ok) setTvChannels(chRes.channels ?? []);
+        if (guideRes.ok) setTvGuide(guideRes.byNetwork ?? {});
+      })
+      .catch(() => {})
+      .finally(() => setTvGuideLoading(false));
+  }, []);
+
+  const goToTvChannel = useCallback(
+    (ch: TvChannel) => {
+      router.push({
+        pathname: "/tv-channel",
+        params: { channelId: ch.id, channelJson: JSON.stringify(ch) },
+      } as never);
+    },
+    [router]
+  );
+
+  // Find current program for a channel via TVmaze network ID
+  function getCurrentProgram(ch: TvChannel): TvGuideEp | null {
+    if (!ch.tvmazeNetworkId) return null;
+    const net = tvGuide[String(ch.tvmazeNetworkId)];
+    if (!net) return null;
+    const now = new Date();
+    return net.episodes.find((ep) => {
+      const [h, m] = ep.airtime.split(":").map(Number);
+      const start = new Date(); start.setHours(h, m, 0, 0);
+      const end = new Date(start.getTime() + (ep.runtime ?? 60) * 60000);
+      return now >= start && now <= end;
+    }) ?? null;
+  }
+
+  const TV_CATS = [
+    { key: "all", label: "Todos" },
+    { key: "aberta", label: "Aberta" },
+    { key: "fechada", label: "Fechada" },
+    { key: "news", label: "Notícias" },
+    { key: "esporte", label: "Esporte" },
+    { key: "infantil", label: "Infantil" },
+  ];
+
+  const filteredTvChannels = selectedTvCat === "all"
+    ? tvChannels
+    : tvChannels.filter((c) => c.category === selectedTvCat);
+
   const scrollY = useRef(new Animated.Value(0)).current;
   const headerOpacity = scrollY.interpolate({
     inputRange: [0, HERO_H * 0.6],
@@ -849,6 +914,128 @@ export default function CanaisScreen() {
         ) : (
           /* ── FULL HOME VIEW ── */
           <>
+            {/* ══════════════════════════════════════════════════════════════
+                GRADE DE PROGRAMAÇÃO — TVmaze + TMDB
+            ══════════════════════════════════════════════════════════════ */}
+            <View style={{ marginBottom: 24 }}>
+              {/* Section header */}
+              <View style={{ paddingHorizontal: 20, marginBottom: 12 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <View style={{ width: 3, height: 20, borderRadius: 2, backgroundColor: "#e50914" }} />
+                    <Feather name="tv" size={14} color="#e50914" />
+                    <View>
+                      <Text style={styles.sectionTitle}>Grade de Programação</Text>
+                      <Text style={styles.sectionSubtitle}>TV aberta e fechada • Pressione para ver programação completa</Text>
+                    </View>
+                  </View>
+                </View>
+              </View>
+
+              {/* Category filter pills */}
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ paddingHorizontal: 16, gap: 8, marginBottom: 12 }}
+              >
+                {TV_CATS.map((cat) => (
+                  <TouchableOpacity
+                    key={cat.key}
+                    onPress={() => setSelectedTvCat(cat.key)}
+                    style={[
+                      styles.pill,
+                      selectedTvCat === cat.key && {
+                        backgroundColor: "#e5091422",
+                        borderColor: "#e5091466",
+                      },
+                    ]}
+                    activeOpacity={0.75}
+                  >
+                    <Text style={[
+                      styles.pillText,
+                      selectedTvCat === cat.key && { color: "#e50914" },
+                    ]}>
+                      {cat.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              {/* Channel cards */}
+              {tvGuideLoading ? (
+                <ActivityIndicator color="#e50914" style={{ marginVertical: 20 }} />
+              ) : (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
+                >
+                  {filteredTvChannels.map((ch) => {
+                    const nowEp = getCurrentProgram(ch);
+                    return (
+                      <TouchableOpacity
+                        key={ch.id}
+                        onPress={() => goToTvChannel(ch)}
+                        activeOpacity={0.8}
+                        style={[
+                          styles.tvChannelCard,
+                          { borderColor: ch.color + "33" },
+                        ]}
+                      >
+                        {/* Card background gradient */}
+                        <LinearGradient
+                          colors={[ch.bgColor || "#0a0a14", ch.color + "22", "#0a0a14"]}
+                          style={StyleSheet.absoluteFill}
+                        />
+
+                        {/* Channel color bar top */}
+                        <View style={[styles.tvCardBar, { backgroundColor: ch.color }]} />
+
+                        {/* Channel badge */}
+                        <View style={[styles.tvCardBadge, { backgroundColor: ch.color }]}>
+                          <Text style={styles.tvCardBadgeText} numberOfLines={1}>
+                            {ch.shortName}
+                          </Text>
+                        </View>
+
+                        {/* Channel name */}
+                        <Text style={styles.tvCardName} numberOfLines={1}>{ch.name}</Text>
+
+                        {/* Category label */}
+                        <Text style={styles.tvCardCat}>{ch.category.toUpperCase()}</Text>
+
+                        {/* Divider */}
+                        <View style={styles.tvCardDivider} />
+
+                        {/* Now playing */}
+                        {nowEp ? (
+                          <View style={{ flex: 1 }}>
+                            <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 3 }}>
+                              <View style={[styles.tvLiveDot, { backgroundColor: ch.color }]} />
+                              <Text style={[styles.tvLiveLabel, { color: ch.color }]}>AO VIVO</Text>
+                            </View>
+                            <Text style={styles.tvNowShow} numberOfLines={2}>{nowEp.show.name}</Text>
+                            {nowEp.name && nowEp.name !== nowEp.show.name && (
+                              <Text style={styles.tvNowEp} numberOfLines={1}>{nowEp.name}</Text>
+                            )}
+                          </View>
+                        ) : (
+                          <View style={{ flex: 1, justifyContent: "center" }}>
+                            <Text style={styles.tvNoGuide}>Toque para ver{"\n"}a programação</Text>
+                          </View>
+                        )}
+
+                        {/* Arrow */}
+                        <View style={styles.tvCardArrow}>
+                          <Feather name="chevron-right" size={14} color={ch.color} />
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              )}
+            </View>
+
             {/* ── Ao Vivo Agora carousel ── */}
             {channels.length > 0 && (
               <View style={{ marginBottom: 24 }}>
@@ -1549,6 +1736,89 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1,
+  },
+
+  // ── TV Guide channel cards
+  tvChannelCard: {
+    width: W * 0.42,
+    height: 160,
+    borderRadius: 14,
+    borderWidth: 1,
+    overflow: "hidden",
+    padding: 12,
+    justifyContent: "flex-start",
+  },
+  tvCardBar: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 3,
+  },
+  tvCardBadge: {
+    alignSelf: "flex-start",
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    marginBottom: 6,
+    marginTop: 4,
+  },
+  tvCardBadgeText: {
+    fontSize: 11,
+    fontWeight: "900",
+    color: "#fff",
+    letterSpacing: 0.3,
+  },
+  tvCardName: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "rgba(255,255,255,0.85)",
+    marginBottom: 2,
+  },
+  tvCardCat: {
+    fontSize: 8,
+    fontWeight: "600",
+    color: "rgba(255,255,255,0.3)",
+    letterSpacing: 0.8,
+    marginBottom: 8,
+  },
+  tvCardDivider: {
+    height: 1,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    marginBottom: 8,
+  },
+  tvLiveDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+  },
+  tvLiveLabel: {
+    fontSize: 8,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+  },
+  tvNowShow: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#fff",
+    lineHeight: 15,
+    marginTop: 2,
+  },
+  tvNowEp: {
+    fontSize: 9,
+    color: "rgba(255,255,255,0.45)",
+    marginTop: 2,
+  },
+  tvNoGuide: {
+    fontSize: 10,
+    color: "rgba(255,255,255,0.3)",
+    textAlign: "center",
+    lineHeight: 15,
+  },
+  tvCardArrow: {
+    position: "absolute",
+    bottom: 10,
+    right: 10,
   },
 
   // ── States
