@@ -282,7 +282,7 @@ function ContentGrid({ items, onPress }: { items: ContentItem[]; onPress: (item:
 }
 
 // ── CarouselCard — wider card for horizontal carousels ────────────────────────
-const CAROUSEL_CARD_W = 110;
+const CAROUSEL_CARD_W = Math.round(W * 0.38); // ~137px on 360px screen
 function CarouselCard({ item, onPress }: { item: ContentItem; onPress: (item: ContentItem) => void }) {
   return (
     <TouchableOpacity onPress={() => onPress(item)} style={{ width: CAROUSEL_CARD_W }} activeOpacity={0.8}>
@@ -333,7 +333,8 @@ function HorizontalCarousel({
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
+        nestedScrollEnabled={true}
+        contentContainerStyle={{ paddingHorizontal: 16, gap: 12 }}
       >
         {section.items.map((item) => (
           <CarouselCard key={`${section.id}-${item.tmdbId}-${item.type}`} item={item} onPress={onPress} />
@@ -725,22 +726,18 @@ export default function TvChannelScreen() {
                       </Text>
                     </View>
                     {content.shows.length > 0 && (
-                      <>
-                        <View style={[st.sectionHeader, { marginTop: 12 }]}>
-                          <Feather name="tv" size={12} color="rgba(255,255,255,0.5)" />
-                          <Text style={[st.sectionTitle, { fontSize: 12, color: "rgba(255,255,255,0.5)" }]}>Séries</Text>
-                        </View>
-                        <ContentGrid items={content.shows.slice(0, 9)} onPress={goToDetail} />
-                      </>
+                      <HorizontalCarousel
+                        section={{ id: "prog-shows", title: "Séries do Canal", items: content.shows.slice(0, 15) }}
+                        accent={accent}
+                        onPress={goToDetail}
+                      />
                     )}
                     {content.movies.length > 0 && (
-                      <>
-                        <View style={[st.sectionHeader, { marginTop: 12 }]}>
-                          <Feather name="film" size={12} color="rgba(255,255,255,0.5)" />
-                          <Text style={[st.sectionTitle, { fontSize: 12, color: "rgba(255,255,255,0.5)" }]}>Filmes</Text>
-                        </View>
-                        <ContentGrid items={content.movies.slice(0, 9)} onPress={goToDetail} />
-                      </>
+                      <HorizontalCarousel
+                        section={{ id: "prog-movies", title: "Filmes do Canal", items: content.movies.slice(0, 15) }}
+                        accent={accent}
+                        onPress={goToDetail}
+                      />
                     )}
                   </>
                 )}
@@ -807,7 +804,7 @@ export default function TvChannelScreen() {
             {premiereLoading ? (
               <ActivityIndicator color={accent} style={{ marginTop: 24 }} />
             ) : premieres.series.length === 0 ? null : (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 10, marginBottom: 24 }}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} nestedScrollEnabled={true} contentContainerStyle={{ paddingHorizontal: 16, gap: 10, marginBottom: 24 }}>
                 {premieres.series.map((item) => (
                   <PremiereCard key={`ps-${item.tmdbId}`} item={item} accent={accent} onPress={goToDetail} />
                 ))}
@@ -827,7 +824,7 @@ export default function TvChannelScreen() {
                 <Text style={st.emptyText}>Nenhuma estreia encontrada</Text>
               </View>
             ) : (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 10, marginBottom: 24 }}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} nestedScrollEnabled={true} contentContainerStyle={{ paddingHorizontal: 16, gap: 10, marginBottom: 24 }}>
                 {premieres.movies.map((item) => (
                   <PremiereCard key={`pm-${item.tmdbId}`} item={item} accent={accentColor} onPress={goToDetail} />
                 ))}
@@ -1019,10 +1016,10 @@ const st = StyleSheet.create({
     borderRadius: 4, paddingHorizontal: 4, paddingVertical: 2,
   },
   carouselTypeText: { fontSize: 7, fontWeight: "800" },
-  carouselTitle: { fontSize: 11, fontWeight: "700", color: "#fff", lineHeight: 14 },
-  carouselMeta: { flexDirection: "row", alignItems: "center", gap: 3, marginTop: 2 },
-  carouselRating: { fontSize: 9, color: "rgba(255,255,255,0.55)", fontWeight: "600" },
-  carouselYear: { fontSize: 9, color: "rgba(255,255,255,0.3)", marginLeft: 3 },
+  carouselTitle: { fontSize: 12, fontWeight: "700", color: "#fff", lineHeight: 16 },
+  carouselMeta: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 3 },
+  carouselRating: { fontSize: 10, color: "rgba(255,255,255,0.55)", fontWeight: "600" },
+  carouselYear: { fontSize: 10, color: "rgba(255,255,255,0.3)", marginLeft: 3 },
 
   // Empty
   empty: { alignItems: "center", paddingVertical: 32, gap: 8 },
