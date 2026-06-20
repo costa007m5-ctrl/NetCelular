@@ -549,6 +549,62 @@ export async function sendPushViaServer(
   }
 }
 
+/* ── Shorts: genre feed smart notifications ── */
+
+const SHORTS_GENRE_NOTIF_KEY = "netplay_shorts_genre_notif_id";
+const SHORTS_GENRE_NOTIF_LAST_KEY = "netplay_shorts_genre_notif_last";
+const SHORTS_GENRE_COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6 horas entre notificações
+
+/**
+ * Agenda uma notificação local (4-7 horas depois) avisando que novos
+ * Shorts do gênero favorito do usuário estão disponíveis.
+ * Respeita cooldown de 6h e a config de notificações do usuário.
+ */
+export async function scheduleShortsFeedNotification(genreName: string): Promise<void> {
+  if (Platform.OS === "web") return;
+  try {
+    const enabled = await getNotificationsEnabled();
+    if (!enabled) return;
+
+    // Cooldown — não re-agenda se já foi agendada há menos de 6h
+    const lastRaw = await AsyncStorage.getItem(SHORTS_GENRE_NOTIF_LAST_KEY);
+    if (lastRaw && Date.now() - parseInt(lastRaw, 10) < SHORTS_GENRE_COOLDOWN_MS) return;
+
+    const Notifications = require("expo-notifications");
+
+    // Cancela notificação anterior
+    const prevId = await AsyncStorage.getItem(SHORTS_GENRE_NOTIF_KEY);
+    if (prevId) await Notifications.cancelScheduledNotificationAsync(prevId).catch(() => {});
+
+    // Agenda entre 4 e 7 horas depois (jitter para evitar previsibilidade)
+    const hoursLater = 4 + Math.floor(Math.random() * 4);
+    const id = await Notifications.scheduleNotificationAsync({
+      content: {
+        title: `⚡ Novos Shorts em ${genreName}`,
+        body: `Seu feed foi atualizado com os melhores Shorts de ${genreName}. Abra o NETPLAY!`,
+        sound: true,
+        data: { type: "shorts_genre_feed", genre: genreName, deepLinkTo: "shorts" },
+      },
+      trigger: _ch({ seconds: hoursLater * 3600 }),
+    });
+
+    await AsyncStorage.setItem(SHORTS_GENRE_NOTIF_KEY, id);
+    await AsyncStorage.setItem(SHORTS_GENRE_NOTIF_LAST_KEY, String(Date.now()));
+  } catch {}
+}
+
+export async function cancelShortsFeedNotification(): Promise<void> {
+  if (Platform.OS === "web") return;
+  try {
+    const Notifications = require("expo-notifications");
+    const id = await AsyncStorage.getItem(SHORTS_GENRE_NOTIF_KEY);
+    if (id) {
+      await Notifications.cancelScheduledNotificationAsync(id).catch(() => {});
+      await AsyncStorage.removeItem(SHORTS_GENRE_NOTIF_KEY);
+    }
+  } catch {}
+}
+
 /* ── Watchlist: detect new registry items and notify the user ── */
 
 const REGISTRY_SNAPSHOT_KEY = "netplay_registry_snapshot_v2";

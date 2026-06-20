@@ -32,6 +32,7 @@ import { getProxiedStreamUrl } from "@/lib/gdrive-index";
 import { ProfileAvatarButton } from "@/components/ProfileAvatarButton";
 import { recordShortsWatch } from "@/lib/shorts-history";
 import { toggleShortsLike, loadShortsLikes } from "@/lib/shorts-likes";
+import { scheduleShortsFeedNotification } from "@/lib/notifications";
 
 let WebView: any = null;
 try { WebView = require("react-native-webview").WebView; } catch {}
@@ -392,6 +393,9 @@ function ShortVideoCard({
   const posterOpacity = useRef(new Animated.Value(1)).current;
   // bufferAnim: 0→1 for native buffer bar (driven by WebView postMessage)
   const bufferAnim = useRef(new Animated.Value(0)).current;
+  // paused: user tapped to pause; pauseIconOp: flashes play/pause icon on tap
+  const [paused, setPaused] = useState(false);
+  const pauseIconOp = useRef(new Animated.Value(0)).current;
 
   // Resolver WebView (hidden) — captures hubby.cx redirect URL on native
   // Same pattern as flix2-player.tsx
@@ -609,6 +613,37 @@ function ShortVideoCard({
     onToggleMute();
   };
 
+  // ── Tap-to-pause / play ───────────────────────────────────────────────────
+  const injectPlayPause = useCallback((shouldPause: boolean) => {
+    if (IS_NATIVE && webviewRef.current) {
+      const cmd = shouldPause ? { type: "pause" } : { type: "play" };
+      const js = `(function(){ var e = new MessageEvent('message',{data:'${JSON.stringify(cmd).replace(/'/g, "\\'")}'}); window.dispatchEvent(e); })(); true;`;
+      webviewRef.current.injectJavaScript?.(js);
+    }
+    if (isWeb && webVideoRef.current) {
+      if (shouldPause) webVideoRef.current.pause?.();
+      else webVideoRef.current.play?.().catch(() => {});
+    }
+  }, [isWeb]);
+
+  const togglePause = useCallback(() => {
+    if (videoState !== "playing") return;
+    const next = !paused;
+    setPaused(next);
+    injectPlayPause(next);
+    // Flash the icon overlay
+    pauseIconOp.setValue(1);
+    Animated.timing(pauseIconOp, { toValue: 0, duration: 600, delay: 350, useNativeDriver: true }).start();
+  }, [paused, videoState, injectPlayPause, pauseIconOp]);
+
+  // Auto-resume when card comes back into view (user scrolled away + back)
+  useEffect(() => {
+    if (isVisible && paused) {
+      setPaused(false);
+      injectPlayPause(false);
+    }
+  }, [isVisible]);
+
   // ── Share ─────────────────────────────────────────────────────────────────────
   const handleShare = useCallback(async () => {
     const emoji = item.type === "movie" ? "🎬" : "📺";
@@ -636,7 +671,11 @@ function ShortVideoCard({
     : null;
 
   return (
-    <View style={{ width: W, height: H }}>
+    <TouchableOpacity
+      style={{ width: W, height: H }}
+      activeOpacity={1}
+      onPress={togglePause}
+    >
 
       {/* ── Hidden resolver WebView (native only) — captures hubby.cx → fontedecanais redirect ── */}
       {resolverUrl && WebView && IS_NATIVE && (
@@ -878,7 +917,28 @@ function ShortVideoCard({
           )}
         </View>
       </Animated.View>
-    </View>
+
+      {/* ── Tap-to-pause overlay icon (TikTok-style flash) ── */}
+      <Animated.View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          top: 0, left: 0, right: 0, bottom: 0,
+          alignItems: "center",
+          justifyContent: "center",
+          opacity: pauseIconOp,
+        }}
+      >
+        <View style={{
+          width: 72, height: 72, borderRadius: 36,
+          backgroundColor: "rgba(0,0,0,0.55)",
+          alignItems: "center", justifyContent: "center",
+        }}>
+          <Feather name={paused ? "pause" : "play"} size={34} color="#fff" />
+        </View>
+      </Animated.View>
+
+    </TouchableOpacity>
   );
 }
 
@@ -1401,7 +1461,14 @@ export default function ShortsScreen() {
     setItems((prev) => p === 1 ? finalItems : [...prev, ...newItems]);
     setHasMore(newItems.length >= 20);
     setPage(p);
-    if (p === 1) setIsPersonalized(personalized);
+    if (p === 1) {
+      setIsPersonalized(personalized);
+      // Agenda notificação inteligente para o gênero favorito (6h cooldown)
+      if (personalized && topGenres.length > 0) {
+        const topGenreName = TMDB_GENRE_NAMES[topGenres[0]] ?? "Filmes & Séries";
+        scheduleShortsFeedNotification(topGenreName).catch(() => {});
+      }
+    }
 
     if (p === 1) setLoading(false);
     else setLoadingMore(false);
