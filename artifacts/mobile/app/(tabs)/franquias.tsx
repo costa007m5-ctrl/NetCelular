@@ -527,7 +527,6 @@ function SectionHeader({ title, icon, onSeeAll, badge, accentColor = AMBER, subt
       />
       <View style={s.secLeft}>
         <View style={[s.acBar, { backgroundColor: accentColor }]} />
-        {icon && <View style={[s.iconWrap, { backgroundColor: `${accentColor}18` }]}><Feather name={icon} size={13} color={accentColor} /></View>}
         <View style={{ flex: 1 }}>
           <View style={{ flexDirection: "row", alignItems: "baseline" }}>
             {(() => {

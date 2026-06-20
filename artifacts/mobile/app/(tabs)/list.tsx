@@ -489,7 +489,10 @@ export default function ListScreen() {
               </Pressable>
             </View>
           </View>
-          <Text style={s.pageTitle}>Minha Lista</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 }}>
+            <View style={s.logoAccent} />
+            <Text style={s.pageTitle}><Text style={{ color: "#22c55e" }}>MINHA</Text>{" LISTA"}</Text>
+          </View>
           <Text style={s.pageSubtitle}>Tudo que você salvou para assistir depois.</Text>
         </View>
 
@@ -645,12 +648,12 @@ const s = StyleSheet.create({
     shadowOffset: { width: 0, height: 0 },
   },
   avatarText: { fontSize: 16, fontWeight: "800", color: "#fff" },
+  logoAccent: { width: 3, height: 26, borderRadius: 2, backgroundColor: "#22c55e" },
   pageTitle: {
-    fontSize: 30,
+    fontSize: 26,
     fontWeight: "900",
     color: "#fff",
-    letterSpacing: -0.8,
-    marginBottom: 6,
+    letterSpacing: 1,
   },
   pageSubtitle: {
     fontSize: 13,

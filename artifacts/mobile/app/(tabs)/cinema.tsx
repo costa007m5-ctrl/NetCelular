@@ -616,15 +616,10 @@ export default function CinemaScreen() {
           colors={["rgba(10,8,4,0.98)", "rgba(10,8,4,0.7)", "transparent"]}
           style={StyleSheet.absoluteFill} />
         <View style={sty.headerInner}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            {/* Film reel icon */}
-            <View style={sty.reelWrap}>
-              <Feather name="film" size={16} color={GOLD} />
-            </View>
-            <Text style={sty.logoGold}>CINEMA</Text>
-            <View style={sty.yearBadge}>
-              <Text style={sty.yearBadgeText}>2026</Text>
-            </View>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <View style={sty.logoAccent} />
+            <Text style={sty.logoGold}>CINE</Text>
+            <Text style={sty.logoWhite}>MA</Text>
           </View>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
             <TouchableOpacity style={sty.iconBtn}
@@ -727,14 +722,9 @@ const sty = StyleSheet.create({
     flexDirection: "row", alignItems: "center",
     justifyContent: "space-between", paddingHorizontal: 16,
   },
-  reelWrap: {
-    width: 34, height: 34, borderRadius: 10,
-    alignItems: "center", justifyContent: "center",
-    backgroundColor: `${GOLD}20`, borderWidth: 1, borderColor: `${GOLD}40`,
-  },
+  logoAccent: { width: 3, height: 22, borderRadius: 2, backgroundColor: GOLD },
   logoGold: { color: GOLD, fontSize: 22, fontWeight: "900", letterSpacing: 2.5 },
-  yearBadge: { backgroundColor: GOLD, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
-  yearBadgeText: { color: "#000", fontSize: 12, fontWeight: "900" },
+  logoWhite: { color: "#fff", fontSize: 22, fontWeight: "900", letterSpacing: 2.5 },
   iconBtn: { padding: 6 },
 
   // ── Rotating Banner

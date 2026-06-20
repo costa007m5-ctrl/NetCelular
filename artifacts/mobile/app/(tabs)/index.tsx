@@ -386,11 +386,6 @@ function SectionHeader({ title, icon, onSeeAll, badge, accentColor = RED, subtit
       />
       <View style={styles.sectionLeft}>
         <View style={[styles.accentBar, { backgroundColor: accentColor }]} />
-        {icon && (
-          <View style={[styles.iconWrap, { backgroundColor: `${accentColor}18` }]}>
-            <Feather name={icon} size={13} color={accentColor} />
-          </View>
-        )}
         <View>
           <View style={{ flexDirection: "row", alignItems: "baseline" }}>
             {(() => {

@@ -1931,11 +1931,10 @@ export default function ShortsScreen() {
       {/* ── Floating header ── */}
       <View style={[s.header, { paddingTop: topPad }]} pointerEvents="box-none">
         <View style={s.headerInner}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <LinearGradient colors={["#7c3aed", "#e50914"]} style={s.headerIcon} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
-              <Feather name="zap" size={13} color="#fff" />
-            </LinearGradient>
-            <Text style={s.headerTitle}>SHORTS</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <View style={s.logoAccent} />
+            <Text style={s.headerTitle}>SHO</Text>
+            <Text style={s.headerTitleB}>RTS</Text>
             <View style={s.aiHeaderBadge}>
               <Text style={s.aiHeaderBadgeText}>IA</Text>
             </View>
@@ -2138,12 +2137,9 @@ const s = StyleSheet.create({
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
     paddingHorizontal: 18, paddingVertical: 6,
   },
-  headerIcon: {
-    width: 26, height: 26, borderRadius: 8, alignItems: "center", justifyContent: "center",
-  },
-  headerTitle: {
-    color: "#fff", fontSize: 18, fontWeight: "900", letterSpacing: 2,
-  },
+  logoAccent: { width: 3, height: 22, borderRadius: 2, backgroundColor: "#8b5cf6" },
+  headerTitle: { color: "#8b5cf6", fontSize: 18, fontWeight: "900", letterSpacing: 2 },
+  headerTitleB: { color: "#fff", fontSize: 18, fontWeight: "900", letterSpacing: 2 },
   aiHeaderBadge: {
     backgroundColor: "#7c3aed", borderRadius: 5,
     paddingHorizontal: 5, paddingVertical: 2,

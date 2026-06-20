@@ -241,11 +241,6 @@ function SectionHeader({
       />
       <View style={sh.left}>
         <View style={[sh.bar, { backgroundColor: accentColor }]} />
-        {icon && (
-          <View style={[sh.iconBox, { backgroundColor: `${accentColor}1a` }]}>
-            <Feather name={icon} size={13} color={accentColor} />
-          </View>
-        )}
         <View>
           <View style={{ flexDirection: "row", alignItems: "baseline" }}>
             <Text style={[sh.title, { color: accentColor }]}>{first}</Text>
@@ -1882,10 +1877,8 @@ export default function NovidadesScreen() {
           style={StyleSheet.absoluteFill}
         />
         <View style={root.headerInner}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <LinearGradient colors={[RED, "#ff4d5a"]} style={root.sparkleBox}>
-              <Feather name="zap" size={12} color="#fff" />
-            </LinearGradient>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <View style={root.logoAccent} />
             <Text style={root.logoA}>NOVI</Text>
             <Text style={root.logoB}>DADES</Text>
             {totalNew > 0 && (
@@ -2251,7 +2244,7 @@ const root = StyleSheet.create({
   bg: { flex: 1 },
   header: { position: "absolute", top: 0, left: 0, right: 0, zIndex: 100 },
   headerInner: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingBottom: 12 },
-  sparkleBox: { width: 28, height: 28, borderRadius: 9, alignItems: "center", justifyContent: "center" },
+  logoAccent: { width: 3, height: 22, borderRadius: 2, backgroundColor: RED },
   logoA: { fontSize: 20, fontWeight: "900", color: RED, letterSpacing: 1 },
   logoB: { fontSize: 20, fontWeight: "900", color: "#fff", letterSpacing: 1 },
   countBadge: { backgroundColor: `${RED}25`, borderWidth: 1, borderColor: `${RED}50`, borderRadius: 8, paddingHorizontal: 7, paddingVertical: 2 },

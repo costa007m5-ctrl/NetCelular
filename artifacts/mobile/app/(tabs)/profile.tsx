@@ -621,7 +621,10 @@ export default function ProfileScreen() {
             style={s.heroGradient}
           >
             <View style={[s.heroTop, { paddingTop: insets.top + 16 }]}>
-              <Text style={[s.screenTitle, { color: "rgba(255,255,255,0.4)" }]}>MEU PERFIL</Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <View style={s.titleAccentBar} />
+                <Text style={s.screenTitle}><Text style={{ color: "#0891b2" }}>MEU</Text>{" PERFIL"}</Text>
+              </View>
               {profileBanner && (
                 <Pressable onPress={() => setShowBannerModal(true)} style={s.changeBannerBtn}>
                   <Feather name="image" size={13} color="rgba(255,255,255,0.5)" />
@@ -1652,7 +1655,8 @@ const s = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
-  screenTitle: { fontSize: 11, fontWeight: "700", letterSpacing: 3 },
+  titleAccentBar: { width: 3, height: 18, borderRadius: 2, backgroundColor: "#0891b2" },
+  screenTitle: { fontSize: 13, fontWeight: "900", letterSpacing: 2, color: "#fff" },
   changeBannerBtn: {
     flexDirection: "row",
     alignItems: "center",
