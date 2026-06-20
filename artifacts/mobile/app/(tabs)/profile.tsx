@@ -875,6 +875,7 @@ export default function ProfileScreen() {
         {/* ── COMUNIDADE ──────────────────────────────────── */}
         <Section title="COMUNIDADE">
           <Row icon="share-2" label="Compartilhar Perfil" onPress={handleShare} />
+          <Row icon="film" label="Shorts Compartilhados" onPress={() => router.push("/shorts-shares")} />
           <Row icon="user-plus" label="Convidar Amigos" onPress={handleInvite} />
           <Row icon="star" label="Avaliar o NETPLAY" accent onPress={handleRate} last />
         </Section>

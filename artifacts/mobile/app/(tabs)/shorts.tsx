@@ -33,6 +33,7 @@ import { ProfileAvatarButton } from "@/components/ProfileAvatarButton";
 import { recordShortsWatch } from "@/lib/shorts-history";
 import { toggleShortsLike, loadShortsLikes } from "@/lib/shorts-likes";
 import { scheduleShortsFeedNotification } from "@/lib/notifications";
+import { recordShortsShare } from "@/lib/shorts-shares";
 
 let WebView: any = null;
 try { WebView = require("react-native-webview").WebView; } catch {}
@@ -656,8 +657,24 @@ function ShortVideoCard({
         await navigator.clipboard?.writeText(msg);
         setShared(true);
         setTimeout(() => setShared(false), 2000);
+        // Registra o compartilhamento no histórico (web também)
+        recordShortsShare({
+          id: item.id, tmdbId: item.tmdbId, type: item.type,
+          title: item.title, poster: item.poster, backdrop: item.backdrop,
+          year: item.year, rating: item.rating, genre: item.genre,
+          overview: item.overview,
+        }).catch(() => {});
       } else {
-        await Share.share({ message: msg, title: item.title });
+        const result = await Share.share({ message: msg, title: item.title });
+        // Registra apenas se o usuário de fato compartilhou (não cancelou)
+        if (result.action === Share.sharedAction) {
+          recordShortsShare({
+            id: item.id, tmdbId: item.tmdbId, type: item.type,
+            title: item.title, poster: item.poster, backdrop: item.backdrop,
+            year: item.year, rating: item.rating, genre: item.genre,
+            overview: item.overview,
+          }).catch(() => {});
+        }
       }
     } catch { /* user dismissed or no clipboard API */ }
   }, [item, isWeb]);
