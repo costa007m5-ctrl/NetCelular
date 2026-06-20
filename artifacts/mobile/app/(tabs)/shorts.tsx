@@ -190,6 +190,17 @@ async function prefetchLookup(item: ShortItem): Promise<void> {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+interface TrendingGenreEntry {
+  id: string;
+  tmdbId: number;
+  type: "movie" | "tv";
+  title: string;
+  poster: string | null;
+  backdrop: string | null;
+  rating: number;
+  year: number;
+}
+
 interface ShortItem {
   id: string;
   tmdbId: number;
@@ -211,6 +222,11 @@ interface ShortItem {
   liked: boolean;
   likes: number;
   saved: boolean;
+  // Trending row sentinel — set when this slot is a "Trending por Gênero" card
+  isTrendingRow?: boolean;
+  trendingGenreId?: number;
+  trendingGenreName?: string;
+  trendingItems?: TrendingGenreEntry[];
 }
 
 type VideoState = "idle" | "resolving" | "playing" | "error";
@@ -982,6 +998,163 @@ async function fetchShortsFeed(page = 1, preferGenres: number[] = []): Promise<{
   }
 }
 
+// ─── Trending genre fetch ─────────────────────────────────────────────────────
+
+async function fetchTrendingGenre(genreId: number): Promise<{ genreName: string; items: TrendingGenreEntry[] }> {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const base = getApiBase();
+    const res = await fetch(`${base}/shorts/trending-genre?genreId=${genreId}&limit=12`, { signal: ctrl.signal });
+    clearTimeout(t);
+    if (!res.ok) return { genreName: "", items: [] };
+    const data = await res.json() as any;
+    return { genreName: data.genreName ?? "", items: data.items ?? [] };
+  } catch {
+    clearTimeout(t);
+    return { genreName: "", items: [] };
+  }
+}
+
+// ─── Trending Genre Card ──────────────────────────────────────────────────────
+// Full-screen card rendered inside the vertical FlatList at position ~5.
+// Shows a horizontal scrollable row of poster cards for the user's top genre.
+
+function TrendingGenreCard({
+  genreName: gName,
+  genreId,
+  items,
+  onPress,
+}: {
+  genreName: string;
+  genreId: number;
+  items: TrendingGenreEntry[];
+  onPress: (item: TrendingGenreEntry) => void;
+}) {
+  const BAR_COLOR = BAR_COLORS[0]; // use the genre's color slot
+
+  return (
+    <View style={tg.root}>
+      {/* Blurred dark gradient background */}
+      <LinearGradient
+        colors={["#0a0010", "#100008", "#000"]}
+        style={StyleSheet.absoluteFill}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+      />
+
+      {/* Header */}
+      <View style={tg.header}>
+        <LinearGradient
+          colors={["#7c3aed", "#e50914"]}
+          style={tg.headerIcon}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+        >
+          <Feather name="trending-up" size={16} color="#fff" />
+        </LinearGradient>
+        <View>
+          <Text style={tg.headerTitle}>Trending em {gName}</Text>
+          <Text style={tg.headerSub}>Os mais populares do seu gênero favorito</Text>
+        </View>
+      </View>
+
+      {/* Horizontal poster grid */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={tg.scrollContent}
+        style={tg.scroll}
+      >
+        {items.map((item, i) => (
+          <TouchableOpacity
+            key={item.id}
+            style={tg.card}
+            activeOpacity={0.85}
+            onPress={() => onPress(item)}
+          >
+            <Image
+              source={{ uri: item.poster ?? item.backdrop ?? "" }}
+              style={tg.poster}
+              contentFit="cover"
+            />
+            {/* Rating badge */}
+            <View style={tg.ratingBadge}>
+              <Feather name="star" size={9} color="#f59e0b" />
+              <Text style={tg.ratingText}>{item.rating.toFixed(1)}</Text>
+            </View>
+            {/* Rank number */}
+            <View style={tg.rankBadge}>
+              <Text style={tg.rankText}>{i + 1}</Text>
+            </View>
+            <LinearGradient
+              colors={["transparent", "rgba(0,0,0,0.9)"]}
+              style={tg.cardGrad}
+            />
+            <Text style={tg.cardTitle} numberOfLines={2}>{item.title}</Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+
+      {/* Swipe hint */}
+      <View style={tg.swipeHint}>
+        <Feather name="chevrons-down" size={18} color="rgba(255,255,255,0.3)" />
+        <Text style={tg.swipeHintText}>Deslize para continuar os Shorts</Text>
+      </View>
+    </View>
+  );
+}
+
+const tg = StyleSheet.create({
+  root: {
+    width: W, height: H,
+    backgroundColor: "#000",
+    justifyContent: "center",
+  },
+  header: {
+    flexDirection: "row", alignItems: "center", gap: 14,
+    paddingHorizontal: 20, paddingBottom: 24,
+  },
+  headerIcon: {
+    width: 44, height: 44, borderRadius: 13,
+    alignItems: "center", justifyContent: "center",
+  },
+  headerTitle: { color: "#fff", fontSize: 20, fontWeight: "800" },
+  headerSub: { color: "rgba(255,255,255,0.4)", fontSize: 12, marginTop: 2 },
+
+  scroll: { flexGrow: 0 },
+  scrollContent: { paddingHorizontal: 16, gap: 12 },
+
+  card: { width: 130, borderRadius: 12, overflow: "hidden", backgroundColor: "#111" },
+  poster: { width: 130, height: 190, borderRadius: 12 },
+  cardGrad: {
+    position: "absolute", bottom: 0, left: 0, right: 0, height: 70, borderRadius: 12,
+  },
+  cardTitle: {
+    position: "absolute", bottom: 8, left: 7, right: 7,
+    color: "#fff", fontSize: 11, fontWeight: "700",
+  },
+  ratingBadge: {
+    position: "absolute", top: 7, right: 7,
+    flexDirection: "row", alignItems: "center", gap: 2,
+    backgroundColor: "rgba(0,0,0,0.7)", borderRadius: 8,
+    paddingHorizontal: 5, paddingVertical: 2,
+  },
+  ratingText: { color: "#f59e0b", fontSize: 10, fontWeight: "700" },
+  rankBadge: {
+    position: "absolute", top: 7, left: 7,
+    backgroundColor: "rgba(229,9,20,0.85)", borderRadius: 6,
+    paddingHorizontal: 5, paddingVertical: 2,
+  },
+  rankText: { color: "#fff", fontSize: 11, fontWeight: "900" },
+
+  swipeHint: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center",
+    gap: 6, marginTop: 28,
+  },
+  swipeHintText: { color: "rgba(255,255,255,0.3)", fontSize: 12 },
+});
+
 // ─── Shorts Report Modal ──────────────────────────────────────────────────────
 // Shows a visual genre profile: bar chart, stats, top genre.
 // Opened by tapping the "★ Gênero" badge in the Shorts header.
@@ -1193,7 +1366,37 @@ export default function ShortsScreen() {
     const topGenres = getTopGenreIds(prefs, 5);
     const { items: newItems, personalized } = await fetchShortsFeed(p, topGenres);
 
-    setItems((prev) => p === 1 ? newItems : [...prev, ...newItems]);
+    // On first page + personalized: inject a "Trending por Gênero" card at position 4
+    let finalItems = newItems;
+    if (p === 1 && personalized && topGenres.length > 0) {
+      const topGenreId = topGenres[0];
+      // Fetch trending in background — don't block first render
+      fetchTrendingGenre(topGenreId).then(({ genreName: gName, items: tItems }) => {
+        if (tItems.length === 0) return;
+        const trendRow: ShortItem = {
+          id: `trending-row-${topGenreId}`,
+          isTrendingRow: true,
+          trendingGenreId: topGenreId,
+          trendingGenreName: gName,
+          trendingItems: tItems,
+          // Sentinel values — not used for playback
+          tmdbId: 0, title: "", type: "movie",
+          backdrop: null, poster: null, overview: "",
+          year: 0, rating: 0, genre: "", genreIds: [],
+          runtime: 0, startTimePct: 0, startTimeSeconds: 0,
+          clipDurationSeconds: 0, sceneLabel: "",
+          availableOnFlix2: false, liked: false, likes: 0, saved: false,
+        };
+        setItems((prev) => {
+          // Insert at position 4 (after 4 real Shorts), skip if already present
+          if (prev.some((it) => it.isTrendingRow)) return prev;
+          const insertAt = Math.min(4, prev.length);
+          return [...prev.slice(0, insertAt), trendRow, ...prev.slice(insertAt)];
+        });
+      });
+    }
+
+    setItems((prev) => p === 1 ? finalItems : [...prev, ...newItems]);
     setHasMore(newItems.length >= 20);
     setPage(p);
     if (p === 1) setIsPersonalized(personalized);
@@ -1240,6 +1443,13 @@ export default function ShortsScreen() {
     router.push({
       pathname: "/detail",
       params: { type: item.type, id: String(item.tmdbId), title: item.title },
+    });
+  }, [router]);
+
+  const onTrendingPress = useCallback((entry: TrendingGenreEntry) => {
+    router.push({
+      pathname: "/detail",
+      params: { type: entry.type, id: String(entry.tmdbId), title: entry.title },
     });
   }, [router]);
 
@@ -1344,18 +1554,30 @@ export default function ShortsScreen() {
             progressBackgroundColor="#000"
           />
         }
-        renderItem={({ item, index }) => (
-          <ShortVideoCard
-            item={item}
-            isVisible={index === visibleIndex}
-            muted={globalMuted}
-            onToggleMute={toggleGlobalMute}
-            onLike={onLike}
-            onSave={onSave}
-            onDetail={onDetail}
-            onMoreLikeThis={onMoreLikeThis}
-          />
-        )}
+        renderItem={({ item, index }) => {
+          if (item.isTrendingRow) {
+            return (
+              <TrendingGenreCard
+                genreName={item.trendingGenreName ?? ""}
+                genreId={item.trendingGenreId ?? 0}
+                items={item.trendingItems ?? []}
+                onPress={onTrendingPress}
+              />
+            );
+          }
+          return (
+            <ShortVideoCard
+              item={item}
+              isVisible={index === visibleIndex}
+              muted={globalMuted}
+              onToggleMute={toggleGlobalMute}
+              onLike={onLike}
+              onSave={onSave}
+              onDetail={onDetail}
+              onMoreLikeThis={onMoreLikeThis}
+            />
+          );
+        }}
         getItemLayout={(_, index) => ({ length: H, offset: H * index, index })}
       />
 

@@ -427,9 +427,100 @@ router.get("/shorts/stream-proxy", async (req: any, res: any) => {
   }
 });
 
+// ── Trending by genre ───────────────────────────────────────────────────────────
+// Returns top-trending TMDB items for a specific genre, used by the
+// "Trending por Gênero" carrossel card injected inside the Shorts feed.
+
+interface TrendingGenreItem {
+  id: string;
+  tmdbId: number;
+  type: "movie" | "tv";
+  title: string;
+  poster: string | null;
+  backdrop: string | null;
+  rating: number;
+  year: number;
+  genreIds: number[];
+}
+
+const TRENDING_GENRE_CACHE = new Map<string, { items: TrendingGenreItem[]; cachedAt: number }>();
+const TRENDING_GENRE_TTL_MS = 60 * 60 * 1000; // 1 h
+
+async function buildTrendingGenre(genreId: number, limit: number): Promise<TrendingGenreItem[]> {
+  const cacheKey = `${genreId}-${limit}`;
+  const cached = TRENDING_GENRE_CACHE.get(cacheKey);
+  if (cached && Date.now() - cached.cachedAt < TRENDING_GENRE_TTL_MS) return cached.items;
+
+  const params = {
+    with_genres: String(genreId),
+    sort_by: "popularity.desc",
+    region: "BR",
+    "vote_count.gte": "50",
+    page: "1",
+  };
+
+  const [movRes, tvRes] = await Promise.all([
+    tmdbFetch<any>("/discover/movie", params).catch(() => ({ results: [] })),
+    tmdbFetch<any>("/discover/tv", params).catch(() => ({ results: [] })),
+  ]);
+
+  const seen = new Set<string>();
+  const items: TrendingGenreItem[] = [];
+
+  const add = (results: any[], type: "movie" | "tv") => {
+    for (const r of results) {
+      if (!r.poster_path && !r.backdrop_path) continue;
+      const key = `${type}-${r.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const title = r.title ?? r.name ?? "";
+      const year = parseInt((r.release_date ?? r.first_air_date ?? "2024").slice(0, 4));
+      items.push({
+        id: key,
+        tmdbId: r.id,
+        type,
+        title,
+        poster: r.poster_path ? `${TMDB_IMG_BASE}/w342${r.poster_path}` : null,
+        backdrop: r.backdrop_path ? `${TMDB_IMG_BASE}/w300${r.backdrop_path}` : null,
+        rating: Math.round((r.vote_average ?? 0) * 10) / 10,
+        year: isNaN(year) ? 2024 : year,
+        genreIds: r.genre_ids ?? [],
+      });
+    }
+  };
+
+  add(movRes.results ?? [], "movie");
+  add(tvRes.results ?? [], "tv");
+
+  // Sort by rating for within-genre quality ordering
+  items.sort((a, b) => b.rating - a.rating);
+  const final = items.slice(0, Math.max(limit, 12));
+  TRENDING_GENRE_CACHE.set(cacheKey, { items: final, cachedAt: Date.now() });
+  return final;
+}
+
+router.get("/shorts/trending-genre", async (req: any, res: any) => {
+  try {
+    const genreId = Number(req.query.genreId);
+    const limit = Math.min(20, Math.max(6, Number(req.query.limit ?? 12)));
+
+    if (!genreId || isNaN(genreId)) {
+      res.status(400).json({ error: "genreId required" });
+      return;
+    }
+
+    const items = await buildTrendingGenre(genreId, limit);
+    res.json({ genreId, genreName: GENRE_MAP[genreId] ?? "Popular", items });
+  } catch (err: any) {
+    req.log?.error({ err }, "shorts/trending-genre error");
+    res.status(500).json({ error: err?.message ?? "Internal error" });
+  }
+});
+
 // Invalidate feed cache (admin use)
 router.post("/shorts/cache/invalidate", (req: any, res: any) => {
   FEED_CACHE.clear();
+  TRENDING_GENRE_CACHE.clear();
   res.json({ ok: true, message: "Shorts feed cache cleared" });
 });
 
