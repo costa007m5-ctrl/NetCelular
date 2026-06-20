@@ -34,6 +34,8 @@ import { recordShortsWatch } from "@/lib/shorts-history";
 import { toggleShortsLike, loadShortsLikes } from "@/lib/shorts-likes";
 import { scheduleShortsFeedNotification } from "@/lib/notifications";
 import { recordShortsShare } from "@/lib/shorts-shares";
+import { subscribeToViewerCount } from "@/lib/shorts-viewers";
+import { useAuth } from "@/lib/auth-context";
 
 let WebView: any = null;
 try { WebView = require("react-native-webview").WebView; } catch {}
@@ -352,6 +354,41 @@ function ActionBtn({
   );
 }
 
+// ─── Pulsing red dot — used in the live viewer badge ─────────────────────────
+
+function PulsingDot() {
+  const scale = useRef(new Animated.Value(1)).current;
+  const op    = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    const anim = Animated.loop(
+      Animated.parallel([
+        Animated.sequence([
+          Animated.timing(scale, { toValue: 1.55, duration: 700, useNativeDriver: true }),
+          Animated.timing(scale, { toValue: 1,    duration: 700, useNativeDriver: true }),
+        ]),
+        Animated.sequence([
+          Animated.timing(op, { toValue: 0.3, duration: 700, useNativeDriver: true }),
+          Animated.timing(op, { toValue: 1,   duration: 700, useNativeDriver: true }),
+        ]),
+      ])
+    );
+    anim.start();
+    return () => anim.stop();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <Animated.View
+      style={{
+        width: 7, height: 7, borderRadius: 3.5,
+        backgroundColor: "#e50914",
+        transform: [{ scale }],
+        opacity: op,
+      }}
+    />
+  );
+}
+
 // ─── Short Video Card ─────────────────────────────────────────────────────────
 
 function ShortVideoCard({
@@ -399,6 +436,33 @@ function ShortVideoCard({
   // paused: user tapped to pause; pauseIconOp: flashes play/pause icon on tap
   const [paused, setPaused] = useState(false);
   const pauseIconOp = useRef(new Animated.Value(0)).current;
+
+  // ── Live viewer count (Supabase Realtime presence) ──────────────────────────
+  const { user } = useAuth();
+  const [viewerCount, setViewerCount] = useState<number | null>(null);
+  const viewerCountOp = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (!isVisible || !item.tmdbId) {
+      setViewerCount(null);
+      return;
+    }
+    const sub = subscribeToViewerCount(
+      item.tmdbId,
+      user?.id ?? "anon",
+      item.likes,
+      (count) => {
+        setViewerCount(count);
+        // Fade-in the badge the first time
+        Animated.timing(viewerCountOp, { toValue: 1, duration: 400, useNativeDriver: true }).start();
+      },
+    );
+    return () => {
+      sub.unsubscribe();
+      setViewerCount(null);
+      viewerCountOp.setValue(0);
+    };
+  }, [isVisible, item.tmdbId, item.likes, user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Resolver WebView (hidden) — captures hubby.cx redirect URL on native
   // Same pattern as flix2-player.tsx
@@ -824,6 +888,37 @@ function ShortVideoCard({
         style={{ position: "absolute", top: 0, left: 0, right: 0, height: topPad + 80 }}
         pointerEvents="none"
       />
+
+      {/* ── Live viewer badge ─────────────────────────────────────────────────── */}
+      {viewerCount !== null && (
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            top: topPad + 10,
+            left: 14,
+            opacity: viewerCountOp,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 5,
+            backgroundColor: "rgba(0,0,0,0.55)",
+            borderRadius: 20,
+            paddingHorizontal: 9,
+            paddingVertical: 5,
+            borderWidth: StyleSheet.hairlineWidth,
+            borderColor: "rgba(255,255,255,0.15)",
+          }}
+        >
+          {/* Pulsing red dot */}
+          <PulsingDot />
+          <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700", letterSpacing: 0.2 }}>
+            {viewerCount > 999
+              ? `${(viewerCount / 1000).toFixed(1)}k`
+              : String(viewerCount)}{" "}
+            assistindo
+          </Text>
+        </Animated.View>
+      )}
 
       {/* ── Bottom gradient ── */}
       <LinearGradient
