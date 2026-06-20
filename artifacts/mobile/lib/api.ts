@@ -431,4 +431,33 @@ export const tvApi = {
 
   getShow: (showId: string | number) =>
     apiFetch<any>(`/tv/show/${showId}`),
+
+  getTodaySchedule: (date?: string) => {
+    const d = date ?? new Date().toISOString().slice(0, 10);
+    return apiFetch<{
+      ok: boolean;
+      date: string;
+      byChannel: Record<string, TodayEpisode[]>;
+      channels: any[];
+    }>(`/tv/schedule/today?date=${d}`);
+  },
 };
+
+export interface TodayEpisode {
+  id: number;
+  name: string;
+  season: number;
+  number: number;
+  airtime: string;
+  airstamp: string;
+  runtime: number;
+  status: "past" | "live" | "upcoming";
+  show: {
+    id: number;
+    name: string;
+    genres: string[];
+    image: { medium: string; original: string } | null;
+    summary: string;
+    rating: number | null;
+  };
+}

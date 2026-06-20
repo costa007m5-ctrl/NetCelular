@@ -20,7 +20,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
 import { ProfileAvatarButton } from "@/components/ProfileAvatarButton";
-import { tvApi } from "@/lib/api";
+import { tvApi, TodayEpisode } from "@/lib/api";
 import { loadFavorites, toggleFavorite, isFavorite } from "@/lib/tv-favorites";
 import {
   liveTvApi,
@@ -659,6 +659,227 @@ function WhatsonCard({
   );
 }
 
+// ── Today Schedule Section ────────────────────────────────────────────────────
+
+const SCHEDULE_CHANNELS = [
+  { id: "globo",     name: "Globo",    color: "#e30000" },
+  { id: "hbo",       name: "HBO",      color: "#888888" },
+  { id: "espn",      name: "ESPN",     color: "#e30000" },
+  { id: "discovery", name: "Discovery",color: "#013ea8" },
+  { id: "natgeo",    name: "NatGeo",   color: "#f5c400" },
+  { id: "cartoon",   name: "Cartoon",  color: "#00aaff" },
+  { id: "disneych",  name: "Disney CH",color: "#006ed1" },
+];
+
+function EpStatusBadge({ status }: { status: TodayEpisode["status"] }) {
+  if (status === "live") {
+    return (
+      <View style={epStyles.liveBadge}>
+        <PulsingDot color="#e30000" size={5} />
+        <Text style={[epStyles.badgeText, { color: "#e30000" }]}>AO VIVO</Text>
+      </View>
+    );
+  }
+  if (status === "past") {
+    return (
+      <View style={[epStyles.statusBadge, { backgroundColor: "rgba(255,255,255,0.05)" }]}>
+        <Feather name="check" size={8} color="rgba(255,255,255,0.3)" />
+        <Text style={[epStyles.badgeText, { color: "rgba(255,255,255,0.3)" }]}>JÁ PASSOU</Text>
+      </View>
+    );
+  }
+  return (
+    <View style={[epStyles.statusBadge, { backgroundColor: "rgba(255,255,255,0.05)" }]}>
+      <Feather name="clock" size={8} color="rgba(255,255,255,0.4)" />
+      <Text style={[epStyles.badgeText, { color: "rgba(255,255,255,0.4)" }]}>EM BREVE</Text>
+    </View>
+  );
+}
+
+function EpisodeCard({ ep, accent }: { ep: TodayEpisode; accent: string }) {
+  const isPast = ep.status === "past";
+  const isLive = ep.status === "live";
+  const img = ep.show.image?.medium;
+
+  return (
+    <View style={[epStyles.card, isLive && { borderColor: accent + "66" }, isPast && { opacity: 0.55 }]}>
+      {isLive && (
+        <LinearGradient
+          colors={[accent + "18", "transparent"]}
+          style={StyleSheet.absoluteFill}
+        />
+      )}
+      <View style={epStyles.timeCol}>
+        <Text style={[epStyles.time, isLive && { color: accent }, isPast && { color: "rgba(255,255,255,0.3)" }]}>
+          {ep.airtime ?? "--:--"}
+        </Text>
+        <Text style={epStyles.runtime}>{ep.runtime}min</Text>
+      </View>
+      <View style={epStyles.imgWrap}>
+        {img ? (
+          <Image source={{ uri: img }} style={epStyles.img} resizeMode="cover" />
+        ) : (
+          <View style={[epStyles.imgFallback, { backgroundColor: accent + "22" }]}>
+            <Feather name="tv" size={14} color={accent} />
+          </View>
+        )}
+        {isLive && (
+          <View style={[epStyles.imgOverlay, { backgroundColor: accent + "44" }]}>
+            <Feather name="play" size={10} color="#fff" />
+          </View>
+        )}
+      </View>
+      <View style={epStyles.info}>
+        <Text style={[epStyles.showName, isPast && { color: "rgba(255,255,255,0.4)" }]} numberOfLines={1}>
+          {ep.show.name}
+        </Text>
+        {ep.name && ep.name !== ep.show.name && (
+          <Text style={epStyles.epName} numberOfLines={1}>{ep.name}</Text>
+        )}
+        <EpStatusBadge status={ep.status} />
+      </View>
+    </View>
+  );
+}
+
+function TodayScheduleSection({
+  byChannel,
+}: {
+  byChannel: Record<string, TodayEpisode[]>;
+}) {
+  const [sel, setSel] = useState(SCHEDULE_CHANNELS[0].id);
+  const available = SCHEDULE_CHANNELS.filter((c) => byChannel[c.id]?.length);
+  const activeCh = available.find((c) => c.id === sel) ?? available[0];
+  const episodes = (activeCh ? byChannel[activeCh.id] : []) ?? [];
+
+  if (!available.length) return null;
+
+  const liveIdx = episodes.findIndex((e) => e.status === "live");
+  const scrollRef = useRef<ScrollView>(null);
+
+  useEffect(() => {
+    if (liveIdx > 0) {
+      setTimeout(() => {
+        scrollRef.current?.scrollTo({ y: liveIdx * 76, animated: true });
+      }, 400);
+    }
+  }, [liveIdx, sel]);
+
+  return (
+    <View style={{ marginBottom: 24 }}>
+      <View style={{ paddingHorizontal: 20, marginBottom: 12 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}>
+          <View style={{ width: 3, height: 20, borderRadius: 2, backgroundColor: "#e50914" }} />
+          <Feather name="calendar" size={14} color="#e50914" />
+          <View>
+            <Text style={styles.sectionTitle}>Programação de Hoje</Text>
+            <Text style={styles.sectionSubtitle}>O que passou, está passando e vai passar</Text>
+          </View>
+        </View>
+
+        {/* Channel pills */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+          {available.map((ch) => {
+            const isActive = ch.id === (activeCh?.id ?? "");
+            return (
+              <Pressable
+                key={ch.id}
+                onPress={() => setSel(ch.id)}
+                style={[
+                  epStyles.chPill,
+                  isActive && { backgroundColor: ch.color + "22", borderColor: ch.color + "66" },
+                ]}
+              >
+                <Text style={[epStyles.chPillText, isActive && { color: ch.color }]}>{ch.name}</Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </View>
+
+      {/* Episode list */}
+      <ScrollView
+        ref={scrollRef}
+        style={{ maxHeight: 320 }}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingHorizontal: 16, gap: 6 }}
+        nestedScrollEnabled
+      >
+        {episodes.map((ep) => (
+          <EpisodeCard key={ep.id} ep={ep} accent={activeCh?.color ?? "#e50914"} />
+        ))}
+        {episodes.length === 0 && (
+          <View style={{ alignItems: "center", paddingVertical: 24, gap: 8 }}>
+            <Feather name="calendar" size={28} color="rgba(255,255,255,0.15)" />
+            <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 13 }}>
+              Sem programação disponível para hoje
+            </Text>
+          </View>
+        )}
+      </ScrollView>
+    </View>
+  );
+}
+
+const epStyles = StyleSheet.create({
+  card: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: "#111116",
+    borderRadius: 10,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.07)",
+    overflow: "hidden",
+  },
+  timeCol: { width: 46, alignItems: "center" },
+  time: { fontSize: 13, fontWeight: "700", color: "#fff", textAlign: "center" },
+  runtime: { fontSize: 9, color: "rgba(255,255,255,0.3)", marginTop: 2 },
+  imgWrap: { width: 52, height: 52, borderRadius: 8, overflow: "hidden" },
+  img: { width: "100%", height: "100%" },
+  imgFallback: {
+    width: "100%", height: "100%", alignItems: "center", justifyContent: "center",
+  },
+  imgOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  info: { flex: 1, gap: 3 },
+  showName: { fontSize: 13, fontWeight: "700", color: "#fff" },
+  epName: { fontSize: 10, color: "rgba(255,255,255,0.45)" },
+  liveBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(227,0,0,0.12)",
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    alignSelf: "flex-start",
+  },
+  statusBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    alignSelf: "flex-start",
+  },
+  badgeText: { fontSize: 8, fontWeight: "800", letterSpacing: 0.4 },
+  chPill: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+  },
+  chPillText: { fontSize: 12, fontWeight: "600", color: "rgba(255,255,255,0.5)" },
+});
+
 // ── Main Screen ───────────────────────────────────────────────────────────────
 
 export default function CanaisScreen() {
@@ -688,6 +909,7 @@ export default function CanaisScreen() {
   const [tvGuideLoading, setTvGuideLoading] = useState(true);
   const [selectedTvCat, setSelectedTvCat] = useState<string>("all");
   const [tvFavorites, setTvFavorites] = useState<string[]>([]);
+  const [todayByChannel, setTodayByChannel] = useState<Record<string, TodayEpisode[]>>({});
 
   useEffect(() => {
     loadFavorites().then(setTvFavorites).catch(() => {});
@@ -704,6 +926,11 @@ export default function CanaisScreen() {
       })
       .catch(() => {})
       .finally(() => setTvGuideLoading(false));
+
+    // Fetch today's full schedule (past + live + upcoming)
+    tvApi.getTodaySchedule()
+      .then((res) => { if (res.ok) setTodayByChannel(res.byChannel ?? {}); })
+      .catch(() => {});
   }, []);
 
   const handleTvFavorite = useCallback(async (ch: TvChannel, e: any) => {
@@ -1120,6 +1347,11 @@ export default function CanaisScreen() {
                 </ScrollView>
               )}
             </View>
+
+            {/* ── Programação de Hoje (TVmaze) ── */}
+            {Object.keys(todayByChannel).length > 0 && (
+              <TodayScheduleSection byChannel={todayByChannel} />
+            )}
 
             {/* ── Ao Vivo Agora carousel ── */}
             {channels.length > 0 && (

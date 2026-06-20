@@ -18,9 +18,10 @@ import { Router } from "express";
 
 const router = Router();
 
-const TVMAZE_BASE = "https://api.tvmaze.com";
-const TMDB_BASE   = "https://api.themoviedb.org/3";
-const TMDB_IMG    = "https://image.tmdb.org/t/p";
+const TVMAZE_BASE    = "https://api.tvmaze.com";
+const TMDB_BASE      = "https://api.themoviedb.org/3";
+const TMDB_IMG       = "https://image.tmdb.org/t/p";
+const TVMAZE_API_KEY = process.env["TVMAZE_API_KEY"] ?? "reNpE2Bji26A8UNBOqycB92MbTR34bQT";
 
 function getTmdbKey(): string {
   return process.env["TMDB_API_KEY"] ?? "8f0beb08cf016ec8de49e454e09879ec";
@@ -291,14 +292,19 @@ function cacheSet(key: string, data: any): void {
 }
 
 // ── HTTP helpers ──────────────────────────────────────────────────────────────
-async function tvmazeFetch<T>(path: string): Promise<T> {
+async function tvmazeFetch<T>(path: string, useAuth = false): Promise<T> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 9000);
   try {
-    const res = await fetch(`${TVMAZE_BASE}${path}`, {
-      headers: { Accept: "application/json", "User-Agent": "NETPLAY/1.0" },
-      signal: ctrl.signal,
-    });
+    const url = new URL(`${TVMAZE_BASE}${path}`);
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+      "User-Agent": "NETPLAY/1.0",
+    };
+    if (useAuth) {
+      headers["Authorization"] = `Bearer ${TVMAZE_API_KEY}`;
+    }
+    const res = await fetch(url.toString(), { headers, signal: ctrl.signal });
     if (!res.ok) throw new Error(`TVmaze ${res.status}: ${path}`);
     return res.json() as Promise<T>;
   } finally {
@@ -589,6 +595,100 @@ router.get("/tv/premieres", async (_req: any, res: any) => {
     res.json(data);
   } catch (e: any) {
     res.status(500).json({ error: e?.message ?? "Error" });
+  }
+});
+
+// ── Full today schedule per channel (past + live + upcoming) ─────────────────
+router.get("/tv/schedule/today", async (req: any, res: any) => {
+  const date = (req.query.date as string) || new Date().toISOString().slice(0, 10);
+  const cacheKey = `today:${date}`;
+  const cached = cacheGet(cacheKey, 10 * 60 * 1000); // 10 min cache
+  if (cached) { res.json(cached); return; }
+
+  try {
+    const [brRes, webRes] = await Promise.allSettled([
+      tvmazeFetch<any[]>(`/schedule?country=BR&date=${date}`, true),
+      tvmazeFetch<any[]>(`/schedule/web?country=BR&date=${date}`, true),
+    ]);
+
+    const allEps: any[] = [
+      ...(brRes.status === "fulfilled" ? brRes.value : []),
+      ...(webRes.status === "fulfilled" ? webRes.value : []),
+    ];
+
+    const now = Date.now();
+
+    function epStatus(airtime: string, runtime: number): "past" | "live" | "upcoming" {
+      if (!airtime) return "upcoming";
+      const [h, m] = airtime.split(":").map(Number);
+      const start = new Date(date);
+      start.setHours(h, m, 0, 0);
+      const end = new Date(start.getTime() + (runtime ?? 60) * 60000);
+      if (now < start.getTime()) return "upcoming";
+      if (now > end.getTime()) return "past";
+      return "live";
+    }
+
+    // Build per-channel schedule for all our curated channels
+    const byChannel: Record<string, any[]> = {};
+    for (const ch of CHANNELS) {
+      if (!ch.tvmazeNetworkId) continue;
+      const eps = allEps
+        .filter(
+          (ep) =>
+            String(ep.show?.network?.id) === String(ch.tvmazeNetworkId) ||
+            String(ep.show?.webChannel?.id) === String(ch.tvmazeNetworkId)
+        )
+        .sort((a, b) => (a.airtime ?? "").localeCompare(b.airtime ?? ""))
+        .map((ep) => ({
+          id: ep.id,
+          name: ep.name,
+          season: ep.season,
+          number: ep.number,
+          airtime: ep.airtime,
+          airstamp: ep.airstamp,
+          runtime: ep.runtime ?? 60,
+          status: epStatus(ep.airtime, ep.runtime ?? 60),
+          show: {
+            id: ep.show.id,
+            name: ep.show.name,
+            genres: ep.show.genres ?? [],
+            image: ep.show.image,
+            summary: ep.show.summary ?? "",
+            rating: ep.show.rating?.average ?? null,
+          },
+        }));
+      if (eps.length > 0) byChannel[ch.id] = eps;
+    }
+
+    // Also include a raw "all" grouped by network (for channels not in our curated list)
+    const byNetwork: Record<string, any[]> = {};
+    for (const ep of allEps) {
+      const network = ep.show?.network || ep.show?.webChannel;
+      if (!network) continue;
+      const nid = String(network.id);
+      if (!byNetwork[nid]) byNetwork[nid] = [];
+      byNetwork[nid].push({
+        id: ep.id,
+        name: ep.name,
+        airtime: ep.airtime,
+        runtime: ep.runtime ?? 60,
+        status: epStatus(ep.airtime, ep.runtime ?? 60),
+        networkName: network.name,
+        show: {
+          id: ep.show.id,
+          name: ep.show.name,
+          genres: ep.show.genres ?? [],
+          image: ep.show.image,
+        },
+      });
+    }
+
+    const data = { ok: true, date, byChannel, byNetwork, channels: CHANNELS };
+    cacheSet(cacheKey, data);
+    res.json(data);
+  } catch (e: any) {
+    res.status(500).json({ error: e?.message ?? "TVmaze error" });
   }
 });
 
