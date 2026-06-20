@@ -482,6 +482,29 @@ function ShortVideoCard({
   const [paused, setPaused] = useState(false);
   const pauseIconOp = useRef(new Animated.Value(0)).current;
 
+  // ── Content logo (TMDB) ──────────────────────────────────────────────────────
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [logoErr, setLogoErr] = useState(false);
+  useEffect(() => {
+    if (!item.tmdbId) return;
+    setLogoUrl(null);
+    setLogoErr(false);
+    let cancelled = false;
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 5000);
+    (async () => {
+      try {
+        const base = getApiBase();
+        const r = await fetch(`${base}/tmdb/franchise-logo?type=${item.type}&id=${item.tmdbId}`, { signal: ctrl.signal });
+        clearTimeout(t);
+        if (!r.ok || cancelled) return;
+        const d = await r.json();
+        if (!cancelled && d.logo_path) setLogoUrl(`https://image.tmdb.org/t/p/w300${d.logo_path}`);
+      } catch { /* silently fall back to text title */ }
+    })();
+    return () => { cancelled = true; ctrl.abort(); clearTimeout(t); };
+  }, [item.tmdbId, item.type]);
+
   // ── Live viewer count (Supabase Realtime presence) ──────────────────────────
   const { user } = useAuth();
   const [viewerCount, setViewerCount] = useState<number | null>(null);
@@ -1061,7 +1084,16 @@ function ShortVideoCard({
         <View style={s.infoRow}>
           <Image source={{ uri: item.poster ?? undefined }} style={s.miniPoster} contentFit="cover" />
           <View style={{ flex: 1 }}>
-            <Text style={s.infoTitle} numberOfLines={2}>{item.title}</Text>
+            {logoUrl && !logoErr ? (
+              <Image
+                source={{ uri: logoUrl }}
+                style={s.infoLogo}
+                contentFit="contain"
+                onError={() => setLogoErr(true)}
+              />
+            ) : (
+              <Text style={s.infoTitle} numberOfLines={2}>{item.title}</Text>
+            )}
             <View style={s.infoMeta}>
               <View style={s.genrePill}>
                 <Text style={s.genreText}>{item.genre}</Text>
@@ -2228,6 +2260,10 @@ const s = StyleSheet.create({
   },
   infoTitle: {
     color: "#fff", fontSize: 17, fontWeight: "800", letterSpacing: 0.2, marginBottom: 5,
+  },
+  infoLogo: {
+    width: "100%", height: 44, marginBottom: 5,
+    alignSelf: "flex-start",
   },
   infoMeta: {
     flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 4,
