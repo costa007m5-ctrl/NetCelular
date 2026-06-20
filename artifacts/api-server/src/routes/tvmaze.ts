@@ -54,7 +54,7 @@ const CHANNELS: ChannelDef[] = [
     bgColor: "#1a0000",
     accentColor: "#ff4444",
     tvmazeNetworkId: 374,
-    tmdbNetworkId: 65,
+    tmdbNetworkId: 60,  // TV Globo BR (corrected)
   },
   {
     id: "sbt",
@@ -67,7 +67,7 @@ const CHANNELS: ChannelDef[] = [
     bgColor: "#001a40",
     accentColor: "#3399ff",
     tvmazeNetworkId: null,
-    tmdbNetworkId: 278,
+    tmdbNetworkId: null,
   },
   {
     id: "record",
@@ -132,7 +132,7 @@ const CHANNELS: ChannelDef[] = [
     bgColor: "#1a0e00",
     accentColor: "#ffaa33",
     tvmazeNetworkId: null,
-    tmdbNetworkId: 2284,
+    tmdbNetworkId: null,
   },
   {
     id: "multishow",
@@ -171,7 +171,7 @@ const CHANNELS: ChannelDef[] = [
     bgColor: "#1a0208",
     accentColor: "#ff3355",
     tvmazeNetworkId: null,
-    tmdbNetworkId: 119,
+    tmdbNetworkId: 41,  // TNT (corrected)
   },
   {
     id: "discovery",
@@ -184,7 +184,7 @@ const CHANNELS: ChannelDef[] = [
     bgColor: "#000f2a",
     accentColor: "#3366dd",
     tvmazeNetworkId: 11,
-    tmdbNetworkId: 62,
+    tmdbNetworkId: 64,  // Discovery Channel (corrected)
   },
   {
     id: "natgeo",
@@ -197,7 +197,7 @@ const CHANNELS: ChannelDef[] = [
     bgColor: "#1a1400",
     accentColor: "#ffd700",
     tvmazeNetworkId: 39,
-    tmdbNetworkId: 36,
+    tmdbNetworkId: 43,  // National Geographic (corrected)
   },
   {
     id: "cnn_brasil",
@@ -236,7 +236,7 @@ const CHANNELS: ChannelDef[] = [
     bgColor: "#1a0000",
     accentColor: "#ff4444",
     tvmazeNetworkId: 22,
-    tmdbNetworkId: 2739,
+    tmdbNetworkId: null,  // ESPN Brasil has no reliable TMDB network ID
   },
   {
     id: "sportv",
@@ -275,7 +275,7 @@ const CHANNELS: ChannelDef[] = [
     bgColor: "#00142a",
     accentColor: "#3399ff",
     tvmazeNetworkId: 21,
-    tmdbNetworkId: null,
+    tmdbNetworkId: 54,  // Disney Channel (corrected)
   },
 ];
 
@@ -692,14 +692,15 @@ router.get("/tv/schedule/today", async (req: any, res: any) => {
   }
 });
 
-// ── Rich carousels for series & movies tabs ───────────────────────────────────
+// ── Rich carousels for series & movies tabs — CHANNEL-SPECIFIC content only ────
 router.get("/tv/channel/:channelId/carousels", async (req: any, res: any) => {
   const { channelId } = req.params;
   const channel = CHANNELS.find((c) => c.id === channelId);
   if (!channel) { res.status(404).json({ error: "Channel not found" }); return; }
 
-  const cacheKey = `carousels:${channelId}`;
-  const cached = cacheGet(cacheKey, 3 * 60 * 60 * 1000);
+  // Bumped to carousels3 to invalidate old generic-content cache
+  const cacheKey = `carousels3:${channelId}`;
+  const cached = cacheGet(cacheKey, 4 * 60 * 60 * 1000); // 4h
   if (cached) { res.json(cached); return; }
 
   const mapItem = (r: any, type: "tv" | "movie") => ({
@@ -714,96 +715,257 @@ router.get("/tv/channel/:channelId/carousels", async (req: any, res: any) => {
     genreIds: r.genre_ids ?? [],
   });
 
-  const slice = (r: any, n = 15) =>
-    (Array.isArray(r) ? r : (r?.results ?? [])).filter((i: any) => i.poster_path).slice(0, n);
+  // Genre definitions for carousels (TMDB genre IDs)
+  const SERIES_GENRES = [
+    { id: "novelas",   title: "Novelas",              gids: [10766] },
+    { id: "drama",     title: "Séries de Drama",      gids: [18] },
+    { id: "comedy",    title: "Comédia",              gids: [35] },
+    { id: "reality",   title: "Reality Shows",        gids: [10764] },
+    { id: "doc",       title: "Documentários",        gids: [99] },
+    { id: "animation", title: "Animação",             gids: [16] },
+    { id: "family",    title: "Família",              gids: [10751] },
+    { id: "action",    title: "Ação & Aventura",      gids: [10759] },
+    { id: "crime",     title: "Crime & Suspense",     gids: [80] },
+    { id: "talk",      title: "Variedades & Talk",    gids: [10767] },
+    { id: "scifi",     title: "Ficção Científica",    gids: [10765] },
+    { id: "mystery",   title: "Mistério",             gids: [9648] },
+  ];
 
-  const tv = (params: Record<string, string>) =>
-    tmdbFetch<any>("/discover/tv", { sort_by: "popularity.desc", watch_region: "BR", "vote_count.gte": "15", ...params })
-      .catch(() => ({ results: [] }));
+  const MOVIE_GENRES = [
+    { id: "action",    title: "Ação",                 gids: [28, 10759] },
+    { id: "comedy",    title: "Comédia",              gids: [35] },
+    { id: "drama",     title: "Drama",                gids: [18] },
+    { id: "thriller",  title: "Thriller & Suspense",  gids: [53] },
+    { id: "scifi",     title: "Ficção Científica",    gids: [878] },
+    { id: "horror",    title: "Terror & Horror",      gids: [27] },
+    { id: "doc",       title: "Documentários",        gids: [99] },
+    { id: "animation", title: "Animação",             gids: [16] },
+    { id: "romance",   title: "Romance",              gids: [10749] },
+    { id: "adventure", title: "Aventura",             gids: [12] },
+  ];
 
-  const mv = (params: Record<string, string>) =>
-    tmdbFetch<any>("/discover/movie", { sort_by: "popularity.desc", watch_region: "BR", "vote_count.gte": "30", ...params })
-      .catch(() => ({ results: [] }));
+  const withPosters = (arr: any[]) => arr.filter((r: any) => r.poster_path);
+  const dedupe = (arr: any[]) => {
+    const seen = new Set<number>();
+    return arr.filter((r: any) => { if (seen.has(r.id)) return false; seen.add(r.id); return true; });
+  };
 
-  const today = new Date().toISOString().slice(0, 10);
-  const thisYear = new Date().getFullYear();
+  // Channels that produce movies (HBO, TNT, Cinemax)
+  const MOVIE_NETWORK_IDS = new Set([49, 41, 359]);
+  // Globo Filmes production company ID in TMDB
+  const GLOBO_FILMES_COMPANY = 13969;
+
+  // Keywords for channels without TMDB network IDs (fallback to search)
+  const CHANNEL_KEYWORDS: Record<string, string[]> = {
+    sbt:        ["SBT Brasil", "Silvio Santos", "A Praça é Nossa"],
+    record:     ["Record TV", "A Fazenda", "Power Couple Brasil"],
+    band:       ["Bandeirantes", "MasterChef Brasil", "Copa Bandeirantes"],
+    redetv:     ["RedeTV", "Agora é tarde"],
+    cultura:    ["TV Cultura", "Rá Tim Bum"],
+    multishow:  ["Multishow", "humor brasileiro"],
+    cnn_brasil: ["CNN Brasil", "jornalismo brasileiro"],
+    globonews:  ["GloboNews", "jornal globo"],
+    espn:       ["ESPN Brasil", "futebol brasileiro"],
+    sportv:     ["SporTV", "esporte brasileiro"],
+    gnt:        ["GNT", "gastronomia lifestyle"],
+  };
 
   try {
-    const [
-      chShowsRes,
-      popularTv, topRatedTv, recentTv, dramaTv, comedyTv, actionTv, docTv, animTv, realityTv,
-      crimeTv, scifiTv,
-      novelasRes,
-      popularMv, topRatedMv, nowPlayingMv, actionMv, comedyMv, dramaMv, thrillerMv, scifiMv,
-      horror, mv90s, mv2000s, mv2010s, animMv,
-    ] = await Promise.all([
-      // channel-specific shows
-      channel.tmdbNetworkId
-        ? tmdbFetch<any>("/discover/tv", { with_networks: String(channel.tmdbNetworkId), sort_by: "popularity.desc", page: "1" }).catch(() => ({ results: [] }))
-        : Promise.resolve({ results: [] }),
-      // TV series carousels
-      tv({ page: "1" }),
-      tv({ sort_by: "vote_average.desc", "vote_count.gte": "100", page: "1" }),
-      tv({ "first_air_date.gte": `${thisYear - 1}-01-01`, page: "1" }),
-      tv({ with_genres: "18", page: "1" }),       // drama
-      tv({ with_genres: "35", page: "1" }),       // comedy
-      tv({ with_genres: "10759", page: "1" }),    // action & adventure
-      tv({ with_genres: "99", page: "1" }),       // documentary
-      tv({ with_genres: "16", page: "1" }),       // animation
-      tv({ with_genres: "10764", page: "1" }),    // reality
-      tv({ with_genres: "80", page: "1" }),       // crime
-      tv({ with_genres: "10765", page: "1" }),    // sci-fi & fantasy
-      // novelas (BR-focused search)
-      tmdbFetch<any>("/search/tv", { query: "novela", language: "pt-BR", page: "1" }).catch(() => ({ results: [] })),
-      // Movie carousels
-      mv({ page: "1" }),
-      mv({ sort_by: "vote_average.desc", "vote_count.gte": "500", page: "1" }),
-      tmdbFetch<any>("/movie/now_playing", { language: "pt-BR", region: "BR", page: "1" }).catch(() => ({ results: [] })),
-      mv({ with_genres: "28", page: "1" }),       // action
-      mv({ with_genres: "35", page: "1" }),       // comedy
-      mv({ with_genres: "18", page: "1" }),       // drama
-      mv({ with_genres: "53", page: "1" }),       // thriller
-      mv({ with_genres: "878", page: "1" }),      // sci-fi
-      mv({ with_genres: "27", page: "1" }),       // horror
-      mv({ "primary_release_date.gte": "1990-01-01", "primary_release_date.lte": "1999-12-31", "vote_count.gte": "100", page: "1" }),
-      mv({ "primary_release_date.gte": "2000-01-01", "primary_release_date.lte": "2009-12-31", "vote_count.gte": "100", page: "1" }),
-      mv({ "primary_release_date.gte": "2010-01-01", "primary_release_date.lte": "2019-12-31", "vote_count.gte": "100", page: "1" }),
-      mv({ with_genres: "16", page: "1" }),       // animation
-    ]);
+    let seriesCarousels: any[] = [];
+    let movieCarousels: any[] = [];
 
-    const chShows = slice(chShowsRes);
+    if (channel.tmdbNetworkId) {
+      // ── Channels with known TMDB network ID: fetch up to 5 pages ─────────
+      const pages = await Promise.allSettled(
+        [1, 2, 3, 4, 5].map((page) =>
+          tmdbFetch<any>("/discover/tv", {
+            with_networks: String(channel.tmdbNetworkId),
+            sort_by: "popularity.desc",
+            page: String(page),
+          }).catch(() => ({ results: [] }))
+        )
+      );
 
-    const seriesCarousels = [
-      ...(chShows.length > 0 ? [{ id: "canal", title: `Séries do ${channel.shortName}`, items: chShows.map((r) => mapItem(r, "tv")) }] : []),
-      { id: "popular", title: "Mais Populares", items: slice(popularTv).map((r) => mapItem(r, "tv")) },
-      { id: "top", title: "Melhores Avaliadas", items: slice(topRatedTv).map((r) => mapItem(r, "tv")) },
-      { id: "recent", title: "Lançamentos Recentes", items: slice(recentTv).map((r) => mapItem(r, "tv")) },
-      { id: "drama", title: "Drama", items: slice(dramaTv).map((r) => mapItem(r, "tv")) },
-      { id: "comedy", title: "Comédia", items: slice(comedyTv).map((r) => mapItem(r, "tv")) },
-      { id: "action", title: "Ação & Aventura", items: slice(actionTv).map((r) => mapItem(r, "tv")) },
-      { id: "crime", title: "Crime & Suspense", items: slice(crimeTv).map((r) => mapItem(r, "tv")) },
-      { id: "scifi", title: "Ficção Científica", items: slice(scifiTv).map((r) => mapItem(r, "tv")) },
-      { id: "reality", title: "Reality Shows", items: slice(realityTv).map((r) => mapItem(r, "tv")) },
-      { id: "doc", title: "Documentários", items: slice(docTv).map((r) => mapItem(r, "tv")) },
-      { id: "anim", title: "Animação", items: slice(animTv).map((r) => mapItem(r, "tv")) },
-      { id: "novelas", title: "Novelas", items: slice(novelasRes).map((r) => mapItem(r, "tv")) },
-    ].filter((c) => c.items.length > 0);
+      const allShows = dedupe(
+        withPosters(
+          pages
+            .filter((r) => r.status === "fulfilled")
+            .flatMap((r) => (r as any).value.results ?? [])
+        )
+      );
 
-    const movieCarousels = [
-      { id: "popular", title: "Mais Populares", items: slice(popularMv).map((r) => mapItem(r, "movie")) },
-      { id: "top", title: "Melhores Avaliados", items: slice(topRatedMv).map((r) => mapItem(r, "movie")) },
-      { id: "now", title: "Em Cartaz / Recentes", items: slice(nowPlayingMv).map((r) => mapItem(r, "movie")) },
-      { id: "action", title: "Ação", items: slice(actionMv).map((r) => mapItem(r, "movie")) },
-      { id: "comedy", title: "Comédia", items: slice(comedyMv).map((r) => mapItem(r, "movie")) },
-      { id: "drama", title: "Drama", items: slice(dramaMv).map((r) => mapItem(r, "movie")) },
-      { id: "thriller", title: "Thriller", items: slice(thrillerMv).map((r) => mapItem(r, "movie")) },
-      { id: "scifi", title: "Ficção Científica", items: slice(scifiMv).map((r) => mapItem(r, "movie")) },
-      { id: "horror", title: "Terror & Horror", items: slice(horror).map((r) => mapItem(r, "movie")) },
-      { id: "90s", title: "Clássicos Anos 90", items: slice(mv90s).map((r) => mapItem(r, "movie")) },
-      { id: "2000s", title: "Anos 2000", items: slice(mv2000s).map((r) => mapItem(r, "movie")) },
-      { id: "2010s", title: "Anos 2010", items: slice(mv2010s).map((r) => mapItem(r, "movie")) },
-      { id: "anim", title: "Animação", items: slice(animMv).map((r) => mapItem(r, "movie")) },
-    ].filter((c) => c.items.length > 0);
+      // Top shows carousel
+      if (allShows.length > 0) {
+        seriesCarousels.push({
+          id: "destaques",
+          title: `Destaques do ${channel.shortName}`,
+          items: allShows.slice(0, 20).map((r) => mapItem(r, "tv")),
+        });
+      }
+
+      // Genre-based carousels (only if ≥3 items)
+      for (const genre of SERIES_GENRES) {
+        const items = allShows.filter((r) =>
+          genre.gids.some((gid) => (r.genre_ids ?? []).includes(gid))
+        );
+        if (items.length >= 3) {
+          seriesCarousels.push({
+            id: genre.id,
+            title: genre.title,
+            items: items.slice(0, 15).map((r) => mapItem(r, "tv")),
+          });
+        }
+      }
+
+      // ── Movies ─────────────────────────────────────────────────────────────
+      if (MOVIE_NETWORK_IDS.has(channel.tmdbNetworkId)) {
+        // HBO/TNT/Cinemax: fetch movies by network
+        const mvPages = await Promise.allSettled(
+          [1, 2, 3].map((page) =>
+            tmdbFetch<any>("/discover/movie", {
+              with_networks: String(channel.tmdbNetworkId),
+              sort_by: "popularity.desc",
+              page: String(page),
+            }).catch(() => ({ results: [] }))
+          )
+        );
+        const allMovies = dedupe(
+          withPosters(
+            mvPages
+              .filter((r) => r.status === "fulfilled")
+              .flatMap((r) => (r as any).value.results ?? [])
+          )
+        );
+
+        if (allMovies.length > 0) {
+          movieCarousels.push({
+            id: "destaques",
+            title: `Filmes do ${channel.shortName}`,
+            items: allMovies.slice(0, 20).map((r) => mapItem(r, "movie")),
+          });
+          for (const genre of MOVIE_GENRES) {
+            const items = allMovies.filter((r) =>
+              genre.gids.some((gid) => (r.genre_ids ?? []).includes(gid))
+            );
+            if (items.length >= 3) {
+              movieCarousels.push({
+                id: genre.id,
+                title: genre.title,
+                items: items.slice(0, 15).map((r) => mapItem(r, "movie")),
+              });
+            }
+          }
+        }
+      } else if (channel.id === "globo") {
+        // Globo: Globo Filmes productions + Brazilian popular films
+        const [globoFilmesRes, brFilmsRes] = await Promise.allSettled([
+          tmdbFetch<any>("/discover/movie", {
+            with_companies: String(GLOBO_FILMES_COMPANY),
+            sort_by: "popularity.desc",
+            page: "1",
+          }).catch(() => ({ results: [] })),
+          tmdbFetch<any>("/discover/movie", {
+            with_original_language: "pt",
+            sort_by: "popularity.desc",
+            "vote_count.gte": "30",
+            region: "BR",
+            page: "1",
+          }).catch(() => ({ results: [] })),
+        ]);
+        const gfMovies = withPosters((globoFilmesRes as any).value?.results ?? []);
+        const brMovies = withPosters((brFilmsRes as any).value?.results ?? []);
+
+        if (gfMovies.length > 0) {
+          movieCarousels.push({
+            id: "globofilmes",
+            title: "Globo Filmes",
+            items: gfMovies.slice(0, 15).map((r) => mapItem(r, "movie")),
+          });
+        }
+        if (brMovies.length > 0) {
+          movieCarousels.push({
+            id: "cinema_br",
+            title: "Cinema Brasileiro",
+            items: brMovies.slice(0, 15).map((r) => mapItem(r, "movie")),
+          });
+        }
+      } else {
+        // Other TV channels: Brazilian popular films
+        const brFilmsRes = await tmdbFetch<any>("/discover/movie", {
+          with_original_language: "pt",
+          sort_by: "popularity.desc",
+          "vote_count.gte": "20",
+          region: "BR",
+          page: "1",
+        }).catch(() => ({ results: [] }));
+        const brMovies = withPosters(brFilmsRes.results ?? []);
+        if (brMovies.length > 0) {
+          movieCarousels.push({
+            id: "cinema_br",
+            title: "Cinema Brasileiro",
+            items: brMovies.slice(0, 15).map((r) => mapItem(r, "movie")),
+          });
+        }
+      }
+
+    } else {
+      // ── Channels without TMDB network ID: keyword search ─────────────────
+      const keywords = CHANNEL_KEYWORDS[channel.id] ?? [channel.shortName];
+
+      const searchResults = await Promise.allSettled(
+        keywords.map((kw) =>
+          tmdbFetch<any>("/search/tv", { query: kw, language: "pt-BR", page: "1" })
+            .catch(() => ({ results: [] }))
+        )
+      );
+
+      const allShows = dedupe(
+        withPosters(
+          searchResults
+            .filter((r) => r.status === "fulfilled")
+            .flatMap((r) => (r as any).value.results ?? [])
+        )
+      );
+
+      if (allShows.length > 0) {
+        seriesCarousels.push({
+          id: "destaques",
+          title: `Séries do ${channel.shortName}`,
+          items: allShows.slice(0, 15).map((r) => mapItem(r, "tv")),
+        });
+
+        // Genre sub-carousels if enough content
+        for (const genre of SERIES_GENRES) {
+          const items = allShows.filter((r) =>
+            genre.gids.some((gid) => (r.genre_ids ?? []).includes(gid))
+          );
+          if (items.length >= 3) {
+            seriesCarousels.push({
+              id: genre.id,
+              title: genre.title,
+              items: items.slice(0, 15).map((r) => mapItem(r, "tv")),
+            });
+          }
+        }
+      }
+
+      // Brazilian films for movies tab
+      const brFilmsRes = await tmdbFetch<any>("/discover/movie", {
+        with_original_language: "pt",
+        sort_by: "popularity.desc",
+        "vote_count.gte": "20",
+        region: "BR",
+        page: "1",
+      }).catch(() => ({ results: [] }));
+      const brMovies = withPosters(brFilmsRes.results ?? []);
+      if (brMovies.length > 0) {
+        movieCarousels.push({
+          id: "cinema_br",
+          title: "Cinema Brasileiro",
+          items: brMovies.slice(0, 15).map((r) => mapItem(r, "movie")),
+        });
+      }
+    }
 
     const data = { ok: true, channelId, seriesCarousels, movieCarousels };
     cacheSet(cacheKey, data);
