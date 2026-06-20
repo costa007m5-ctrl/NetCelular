@@ -1234,12 +1234,16 @@ export default function CanaisScreen() {
                             </TouchableOpacity>
                           </View>
                           {nowEp ? (
-                            <View style={{ marginTop: 6 }}>
+                            <View style={{ marginTop: 6, flex: 1 }}>
                               <View style={{ flexDirection: "row", alignItems: "center", gap: 3, marginBottom: 2 }}>
                                 <View style={[styles.tvLiveDot, { backgroundColor: ch.color }]} />
                                 <Text style={[styles.tvLiveLabel, { color: ch.color }]}>AO VIVO</Text>
+                                <Text style={[styles.tvLiveTimeLeft, { fontSize: 7 }]}>{getLiveTimeLeft(nowEp)}</Text>
                               </View>
                               <Text style={styles.tvMyShow} numberOfLines={2}>{nowEp.show.name}</Text>
+                              <View style={[styles.tvProgressBar, { marginTop: 6 }]}>
+                                <View style={[styles.tvProgressFill, { width: `${getLiveProgress(nowEp)}%` as any, backgroundColor: ch.color }]} />
+                              </View>
                             </View>
                           ) : (
                             <Text style={[styles.tvNoGuide, { marginTop: 6 }]}>Sem programa{"\n"}agora</Text>
@@ -2189,8 +2193,8 @@ const styles = StyleSheet.create({
 
   // ── My Channels (favorites) row
   tvMyCard: {
-    width: W * 0.36,
-    height: 120,
+    width: W * 0.38,
+    height: 138,
     borderRadius: 12,
     borderWidth: 1,
     overflow: "hidden",
