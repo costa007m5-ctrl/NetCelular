@@ -91,6 +91,7 @@ function ClassicTabLayout({ isAdmin }: { isAdmin: boolean }) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const isWeb = Platform.OS === "web";
+  const isIOS = Platform.OS === "ios";
   const isAndroid = Platform.OS === "android";
 
   const bottomInset = isWeb ? 34 : isAndroid ? Math.max(insets.bottom, 48) + 24 : Math.max(insets.bottom, 4) + 8;
