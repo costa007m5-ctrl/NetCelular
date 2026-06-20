@@ -1630,6 +1630,174 @@ const rm = StyleSheet.create({
   resetBtnText: { color: "#e50914", fontSize: 14, fontWeight: "700" },
 });
 
+// ─── Shorts Loading Screen ────────────────────────────────────────────────────
+
+function ShortsLoadingScreen({ items }: { items: ShortItem[] }) {
+  const { width: SW, height: SH } = Dimensions.get("window");
+  const CARD_W = SW * 0.52;
+  const CARD_H = CARD_W * 1.5;
+
+  // Shimmer sweep — moves across each card once per 1.8s
+  const shimmer = useRef(new Animated.Value(0)).current;
+  // Icon pulse — scale 1→1.08→1
+  const iconScale = useRef(new Animated.Value(1)).current;
+  // Card pulse opacities (staggered)
+  const cardOp0 = useRef(new Animated.Value(0.35)).current;
+  const cardOp1 = useRef(new Animated.Value(0.55)).current;
+  const cardOp2 = useRef(new Animated.Value(0.8)).current;
+  // Dots animation
+  const dot0 = useRef(new Animated.Value(0.2)).current;
+  const dot1 = useRef(new Animated.Value(0.2)).current;
+  const dot2 = useRef(new Animated.Value(0.2)).current;
+
+  useEffect(() => {
+    // Shimmer sweep loop
+    Animated.loop(
+      Animated.timing(shimmer, { toValue: 1, duration: 1600, useNativeDriver: true }),
+    ).start();
+
+    // Icon breathe
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(iconScale, { toValue: 1.1, duration: 900, useNativeDriver: true }),
+        Animated.timing(iconScale, { toValue: 1, duration: 900, useNativeDriver: true }),
+      ])
+    ).start();
+
+    // Card pulse (staggered)
+    const pulse = (anim: Animated.Value, delay: number) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.delay(delay),
+          Animated.timing(anim, { toValue: 1, duration: 700, useNativeDriver: true }),
+          Animated.timing(anim, { toValue: anim === cardOp0 ? 0.35 : anim === cardOp1 ? 0.55 : 0.8, duration: 700, useNativeDriver: true }),
+        ])
+      ).start();
+
+    pulse(cardOp0, 0);
+    pulse(cardOp1, 220);
+    pulse(cardOp2, 440);
+
+    // Dots loader (sequential)
+    const dotLoop = () => {
+      Animated.sequence([
+        Animated.timing(dot0, { toValue: 1, duration: 300, useNativeDriver: true }),
+        Animated.timing(dot1, { toValue: 1, duration: 300, useNativeDriver: true }),
+        Animated.timing(dot2, { toValue: 1, duration: 300, useNativeDriver: true }),
+        Animated.delay(200),
+        Animated.parallel([
+          Animated.timing(dot0, { toValue: 0.2, duration: 200, useNativeDriver: true }),
+          Animated.timing(dot1, { toValue: 0.2, duration: 200, useNativeDriver: true }),
+          Animated.timing(dot2, { toValue: 0.2, duration: 200, useNativeDriver: true }),
+        ]),
+        Animated.delay(100),
+      ]).start(({ finished }) => { if (finished) dotLoop(); });
+    };
+    dotLoop();
+  }, []);
+
+  const shimmerX = shimmer.interpolate({ inputRange: [0, 1], outputRange: [-CARD_W, CARD_W * 1.5] });
+
+  // Poster previews from items or gradient placeholders
+  const posters = items.slice(0, 3).map(i => i.poster).filter(Boolean) as string[];
+
+  const renderCard = (index: number, rotate: string, tx: number, ty: number, opAnim: Animated.Value) => {
+    const poster = posters[index];
+    return (
+      <Animated.View
+        key={index}
+        style={{
+          position: "absolute",
+          width: CARD_W, height: CARD_H, borderRadius: 18,
+          overflow: "hidden",
+          opacity: opAnim,
+          transform: [{ rotate }, { translateX: tx }, { translateY: ty }],
+          shadowColor: "#000",
+          shadowOpacity: 0.6,
+          shadowRadius: 18,
+          shadowOffset: { width: 0, height: 8 },
+          elevation: 12,
+        }}
+      >
+        {poster ? (
+          <Image source={{ uri: poster }} style={{ width: "100%", height: "100%" }} contentFit="cover" />
+        ) : (
+          <LinearGradient
+            colors={index === 0 ? ["#1a1a2e", "#16213e"] : index === 1 ? ["#0f3460", "#533483"] : ["#1a1a2e", "#e94560"]}
+            style={{ flex: 1 }}
+          />
+        )}
+        {/* Dark vignette */}
+        <LinearGradient
+          colors={["transparent", "rgba(0,0,0,0.5)"]}
+          style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: CARD_H * 0.4 }}
+        />
+        {/* Shimmer scan line */}
+        <Animated.View
+          style={{
+            position: "absolute", top: 0, bottom: 0, width: CARD_W * 0.45,
+            transform: [{ translateX: shimmerX }],
+            backgroundColor: "rgba(255,255,255,0.07)",
+          }}
+        />
+        {/* Corner icon */}
+        {index === 2 && (
+          <View style={{ position: "absolute", top: 10, right: 10, backgroundColor: "rgba(0,0,0,0.5)", borderRadius: 8, padding: 5 }}>
+            <Feather name="play" size={12} color="#fff" />
+          </View>
+        )}
+      </Animated.View>
+    );
+  };
+
+  return (
+    <View style={{ flex: 1, backgroundColor: "#000", alignItems: "center", justifyContent: "center" }}>
+      {/* Ambient glow */}
+      <View style={{
+        position: "absolute", width: 280, height: 280, borderRadius: 140,
+        backgroundColor: "#7c3aed", opacity: 0.06,
+        top: SH * 0.22, alignSelf: "center",
+      }} />
+
+      {/* Card deck */}
+      <View style={{ width: CARD_W, height: CARD_H, marginBottom: 52, alignItems: "center", justifyContent: "center" }}>
+        {renderCard(0, "-14deg", -28, -12, cardOp0)}
+        {renderCard(1, "-5deg",  -10,  -4, cardOp1)}
+        {renderCard(2, "2deg",    6,    4, cardOp2)}
+      </View>
+
+      {/* Icon + text */}
+      <Animated.View style={{ transform: [{ scale: iconScale }], marginBottom: 20 }}>
+        <LinearGradient
+          colors={["#7c3aed", "#e50914"]}
+          style={{ width: 56, height: 56, borderRadius: 18, alignItems: "center", justifyContent: "center" }}
+          start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+        >
+          <Feather name="zap" size={22} color="#fff" />
+        </LinearGradient>
+      </Animated.View>
+
+      <Text style={{ color: "#fff", fontSize: 16, fontWeight: "800", letterSpacing: 0.2, marginBottom: 6 }}>
+        IA selecionando as melhores cenas
+      </Text>
+      <Text style={{ color: "rgba(255,255,255,0.38)", fontSize: 12, fontWeight: "500", marginBottom: 22 }}>
+        Powered by TMDB + Flix 2.0
+      </Text>
+
+      {/* Animated dots */}
+      <View style={{ flexDirection: "row", gap: 7 }}>
+        {[dot0, dot1, dot2].map((d, i) => (
+          <Animated.View key={i} style={{
+            width: 6, height: 6, borderRadius: 3,
+            backgroundColor: i === 0 ? "#8b5cf6" : i === 1 ? "#a855f7" : "#c084fc",
+            opacity: d,
+          }} />
+        ))}
+      </View>
+    </View>
+  );
+}
+
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function ShortsScreen() {
@@ -1897,19 +2065,9 @@ export default function ShortsScreen() {
 
   if (loading) {
     return (
-      <View style={[s.root, { alignItems: "center", justifyContent: "center" }]}>
+      <View style={s.root}>
         <StatusBar style="light" />
-        <View style={{ alignItems: "center", gap: 14 }}>
-          <LinearGradient colors={["#7c3aed", "#e50914"]} style={s.loadingIcon}>
-            <Feather name="zap" size={22} color="#fff" />
-          </LinearGradient>
-          <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 14, fontWeight: "600" }}>
-            IA selecionando as melhores cenas...
-          </Text>
-          <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }}>
-            Powered by TMDB + Flix 2.0
-          </Text>
-        </View>
+        <ShortsLoadingScreen items={items} />
       </View>
     );
   }
