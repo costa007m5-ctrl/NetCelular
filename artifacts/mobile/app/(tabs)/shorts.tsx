@@ -1593,7 +1593,7 @@ export default function ShortsScreen() {
       />
 
       {/* ── Floating header ── */}
-      <View style={[s.header, { paddingTop: topPad + 8 }]} pointerEvents="box-none">
+      <View style={[s.header, { paddingTop: topPad }]} pointerEvents="box-none">
         <View style={s.headerInner}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             <LinearGradient colors={["#7c3aed", "#e50914"]} style={s.headerIcon} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
