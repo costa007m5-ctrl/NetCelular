@@ -2293,6 +2293,8 @@ export default function HomeScreen() {
   const [continueShorts, setContinueShorts] = useState<{ id: string; tmdbId: number; type: "movie" | "tv"; title: string; poster: string | null; progress: number }[]>([]);
   // ── Shorts curtidos — itens curtidos pelo usuário nos Shorts ─────────────
   const [shortsLikes, setShortsLikes] = useState<{ id: string; tmdbId: number; type: "movie" | "tv"; title: string; poster: string | null; likedAt: number }[]>([]);
+  // ── Shorts de amigos — recebidos via "Shorts para Amigos" ────────────────
+  const [fromFriendsShorts, setFromFriendsShorts] = useState<import("@/lib/shorts-received").ReceivedShort[]>([]);
 
   // ── genre carousels per category ──────────────────────────────────────────
   const [genreRows, setGenreRows] = useState<Record<string, ContentItem[]>>({});
@@ -2473,6 +2475,15 @@ export default function HomeScreen() {
           const likes = await loadShortsLikes();
           if (!cancelled && likes.length > 0) {
             setShortsLikes(likes.slice(0, 10));
+          }
+        } catch {}
+
+        try {
+          // Load received Shorts from friends for "De Amigos" section
+          const { getAllReceivedShorts } = await import("@/lib/shorts-received");
+          const received = await getAllReceivedShorts();
+          if (!cancelled && received.length > 0) {
+            setFromFriendsShorts(received.slice(0, 10));
           }
         } catch {}
 
@@ -3104,6 +3115,84 @@ export default function HomeScreen() {
                             <View style={{ position: "absolute", bottom: 7, right: 8 }}>
                               <Feather name="heart" size={14} color="#e50914" />
                             </View>
+                          </View>
+                          <Text numberOfLines={2} style={{ color: "rgba(255,255,255,0.85)", fontSize: 11, fontWeight: "700", marginTop: 5, lineHeight: 14 }}>
+                            {sh.title}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+                </AnimatedSection>
+              )}
+
+              {/* ── 6.10 SHORTS DE AMIGOS ────────────────────────────────────── */}
+              {fromFriendsShorts.length > 0 && (
+                <AnimatedSection anim={s[5]}>
+                  <View style={styles.section}>
+                    <SectionHeader
+                      title="De Amigos"
+                      icon="users"
+                      accentColor="#e50914"
+                      subtitle={`${fromFriendsShorts.length} indicação${fromFriendsShorts.length > 1 ? "ões" : ""} recebida${fromFriendsShorts.length > 1 ? "s" : ""}`}
+                      onSeeAll={() => router.push("/shorts-shares" as any)}
+                    />
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
+                    >
+                      {fromFriendsShorts.map((sh) => (
+                        <TouchableOpacity
+                          key={`${sh.tmdbId}-${sh.receivedAt}`}
+                          activeOpacity={0.85}
+                          onPress={() => router.push({
+                            pathname: "/shorts-reaction",
+                            params: {
+                              tmdbId: String(sh.tmdbId),
+                              contentType: sh.contentType,
+                              title: sh.title,
+                              poster: sh.poster ?? "",
+                              senderId: sh.senderId,
+                              senderName: sh.senderName,
+                            },
+                          } as any)}
+                          style={{ width: 110 }}
+                        >
+                          <View style={{ width: 110, height: 162, borderRadius: 10, overflow: "hidden", backgroundColor: "#1a1a1a" }}>
+                            {sh.poster ? (
+                              <Image source={{ uri: sh.poster }} style={{ width: 110, height: 162 }} contentFit="cover" />
+                            ) : (
+                              <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+                                <Feather name="film" size={28} color="rgba(255,255,255,0.2)" />
+                              </View>
+                            )}
+                            {/* Gradient overlay */}
+                            <View style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 56, backgroundColor: "rgba(0,0,0,0.7)" }} />
+                            {/* Sender name at bottom */}
+                            <View style={{ position: "absolute", bottom: 6, left: 6, right: 6 }}>
+                              <Text numberOfLines={1} style={{ color: "rgba(255,255,255,0.6)", fontSize: 9, fontWeight: "600" }}>
+                                {"✈️ " + sh.senderName}
+                              </Text>
+                            </View>
+                            {/* Reaction emoji badge — top right */}
+                            {sh.reactedEmoji ? (
+                              <View style={{
+                                position: "absolute", top: 5, right: 6,
+                                width: 26, height: 26, borderRadius: 13,
+                                backgroundColor: "rgba(0,0,0,0.65)",
+                                alignItems: "center", justifyContent: "center",
+                              }}>
+                                <Text style={{ fontSize: 14 }}>{sh.reactedEmoji}</Text>
+                              </View>
+                            ) : (
+                              /* Unread dot */
+                              <View style={{
+                                position: "absolute", top: 7, right: 8,
+                                width: 8, height: 8, borderRadius: 4,
+                                backgroundColor: "#e50914",
+                              }} />
+                            )}
                           </View>
                           <Text numberOfLines={2} style={{ color: "rgba(255,255,255,0.85)", fontSize: 11, fontWeight: "700", marginTop: 5, lineHeight: 14 }}>
                             {sh.title}

@@ -75,8 +75,20 @@ function NotificationHandler() {
         return;
       }
 
-      // 3. Shorts friend recommendation → reaction screen
+      // 3. Shorts friend recommendation → reaction screen (+ persist locally)
       if (notifCategory === "shorts_friend" && tmdbId && contentType) {
+        // Persist so Home screen can show "De Amigos" section
+        import("@/lib/shorts-received").then(({ saveReceivedShort }) => {
+          saveReceivedShort({
+            tmdbId,
+            contentType,
+            title,
+            poster: (data as any)?.poster ?? "",
+            senderId: (data as any)?.senderId ?? "",
+            senderName: (data as any)?.senderName ?? "Um amigo",
+            receivedAt: Date.now(),
+          }).catch(() => {});
+        }).catch(() => {});
         router.push({
           pathname: "/shorts-reaction",
           params: {

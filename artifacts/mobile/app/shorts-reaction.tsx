@@ -99,8 +99,8 @@ export default function ShortsReactionScreen() {
     setSending(true);
 
     try {
-      // Mark as reacted locally so we don't ask again
-      if (params.tmdbId) await markReacted(Number(params.tmdbId));
+      // Mark as reacted locally so we don't ask again (with the chosen emoji)
+      if (params.tmdbId) await markReacted(Number(params.tmdbId), emoji);
 
       // Get sender push token
       const { data: tokenRows } = await supabase
