@@ -2288,6 +2288,7 @@ export default function HomeScreen() {
   const [animations, setAnimations] = useState<ContentItem[]>([]);
   // ── Shorts para você — personalized picks from Shorts feed ────────────────
   const [shortsForYou, setShortsForYou] = useState<ContentItem[]>([]);
+  const [shortsGenreLabel, setShortsGenreLabel] = useState("Baseado no seu gosto nos Shorts");
 
   // ── genre carousels per category ──────────────────────────────────────────
   const [genreRows, setGenreRows] = useState<Record<string, ContentItem[]>>({});
@@ -2456,11 +2457,28 @@ export default function HomeScreen() {
         try {
           const raw = await AsyncStorage.getItem("netplay_shorts_genre_prefs_v1");
           const prefs: Record<number, number> = raw ? JSON.parse(raw) : {};
-          const topGenres = Object.entries(prefs)
-            .sort(([, a], [, b]) => b - a)
-            .slice(0, 5)
-            .map(([id]) => Number(id));
+          const sorted = Object.entries(prefs).sort(([, a], [, b]) => b - a);
+          const topGenres = sorted.slice(0, 5).map(([id]) => Number(id));
           if (!topGenres.length) return; // no prefs yet — hide section
+
+          // Build the subtitle using PT-BR genre names from smart-preferences
+          const { GENRE_NAMES } = await import("@/lib/smart-preferences");
+          const GENRE_SHORT_INLINE: Record<number, string> = {
+            878: "Sci-Fi", 10749: "Romance", 10751: "Família",
+            10752: "Guerra", 10759: "Ação/Av.", 10765: "Sci-Fi/Fan.", 10768: "Guerra/Pol.",
+          };
+          const topNames = sorted.slice(0, 2).map(([id]) => {
+            const n = Number(id);
+            return GENRE_SHORT_INLINE[n] ?? GENRE_NAMES[n] ?? String(n);
+          });
+          if (!cancelled) {
+            setShortsGenreLabel(
+              topNames.length > 0
+                ? `Baseado em ${topNames.join(", ")}`
+                : "Baseado no seu gosto nos Shorts"
+            );
+          }
+
           const { getApiBase } = await import("@/lib/api");
           const base = getApiBase();
           const ctrl = new AbortController();
@@ -2955,7 +2973,7 @@ export default function HomeScreen() {
                       icon="zap"
                       badge="IA"
                       accentColor="#7c3aed"
-                      subtitle="Baseado no seu gosto nos Shorts"
+                      subtitle={shortsGenreLabel}
                       onSeeAll={() => router.push("/(tabs)/shorts" as any)}
                     />
                     <PosterRow items={shortsForYou} onPress={goTo} showTitle />
