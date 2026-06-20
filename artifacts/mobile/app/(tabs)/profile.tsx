@@ -199,6 +199,8 @@ export default function ProfileScreen() {
   const [bannerMovies, setBannerMovies] = useState<any[]>([]);
   const [loadingBanners, setLoadingBanners] = useState(false);
 
+  const [earnedBadges, setEarnedBadges] = useState<import("@/lib/shorts-challenge").EarnedBadge[]>([]);
+
   const [showInfoModal, setShowInfoModal] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
@@ -300,6 +302,9 @@ export default function ProfileScreen() {
     getLearnedPreferences().then((l) => {
       if (l) setLearnedPrefs(l);
     });
+    import("@/lib/shorts-challenge").then(({ getEarnedBadges }) => {
+      getEarnedBadges().then((b) => { if (b.length) setEarnedBadges(b); }).catch(() => {});
+    }).catch(() => {});
   }, []);
 
   const openPrefsModal = async () => {
@@ -669,6 +674,44 @@ export default function ProfileScreen() {
             </View>
           </LinearGradient>
         </View>
+
+        {/* ── CONQUISTAS (Badges de Desafio Semanal) ────────── */}
+        {earnedBadges.length > 0 && (
+          <View style={{ marginHorizontal: 16, marginBottom: 16 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 }}>
+              <View style={{ width: 26, height: 26, borderRadius: 8, backgroundColor: "rgba(251,191,36,0.15)", alignItems: "center", justifyContent: "center" }}>
+                <Feather name="award" size={13} color="#fbbf24" />
+              </View>
+              <Text style={[{ fontSize: 13, fontWeight: "800", letterSpacing: 0.5, textTransform: "uppercase" }, { color: colors.foreground }]}>Conquistas</Text>
+              <View style={{ flex: 1 }} />
+              <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>{earnedBadges.length} badge{earnedBadges.length > 1 ? "s" : ""}</Text>
+            </View>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+              {earnedBadges.map((badge) => (
+                <View
+                  key={badge.weekKey}
+                  style={{
+                    flexDirection: "row", alignItems: "center", gap: 6,
+                    backgroundColor: "rgba(251,191,36,0.08)",
+                    borderWidth: StyleSheet.hairlineWidth,
+                    borderColor: "rgba(251,191,36,0.35)",
+                    borderRadius: 20,
+                    paddingHorizontal: 12, paddingVertical: 7,
+                  }}
+                >
+                  <Text style={{ fontSize: 16 }}>{badge.emoji}</Text>
+                  <View>
+                    <Text style={{ color: colors.foreground, fontSize: 12, fontWeight: "700" }}>{badge.title}</Text>
+                    <Text style={{ color: colors.mutedForeground, fontSize: 10 }}>
+                      {new Date(badge.completedAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}
+                    </Text>
+                  </View>
+                  <Feather name="check-circle" size={13} color="#fbbf24" style={{ marginLeft: 2 }} />
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
 
         {/* ── MINHA LISTA ──────────────────────────────────── */}
         {watchlist.length > 0 && (

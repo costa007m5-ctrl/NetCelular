@@ -36,6 +36,10 @@ import { scheduleShortsFeedNotification } from "@/lib/notifications";
 import { recordShortsShare } from "@/lib/shorts-shares";
 import { subscribeToViewerCount } from "@/lib/shorts-viewers";
 import { useAuth } from "@/lib/auth-context";
+import {
+  getCurrentChallenge, getChallengeProgress, trackChallengeProgress,
+  GOAL, type ChallengeProgress, type WeeklyChallenge,
+} from "@/lib/shorts-challenge";
 
 let WebView: any = null;
 try { WebView = require("react-native-webview").WebView; } catch {}
@@ -1528,6 +1532,14 @@ export default function ShortsScreen() {
   const [items, setItems] = useState<ShortItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [visibleIndex, setVisibleIndex] = useState(0);
+
+  // ── Weekly Shorts Challenge ──────────────────────────────────────────────────
+  const [challenge, setChallenge] = useState<WeeklyChallenge | null>(null);
+  const [challengeProgress, setChallengeProgress] = useState<ChallengeProgress | null>(null);
+  const challengeProgressRef = useRef<ChallengeProgress | null>(null);
+  const [challengeDismissed, setChallengeDismissed] = useState(false);
+  const [challengeJustCompleted, setChallengeJustCompleted] = useState(false);
+  const challengeBannerY = useRef(new Animated.Value(100)).current;
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -1539,6 +1551,21 @@ export default function ShortsScreen() {
   const [isPersonalized, setIsPersonalized] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [showReport, setShowReport] = useState(false);
+
+  // Keep ref in sync for stale-closure-safe access inside the watch timer
+  useEffect(() => { challengeProgressRef.current = challengeProgress; }, [challengeProgress]);
+
+  // Load challenge on mount + animate banner in
+  useEffect(() => {
+    const c = getCurrentChallenge();
+    setChallenge(c);
+    getChallengeProgress().then((p) => {
+      setChallengeProgress(p);
+      if (!p.completed) {
+        Animated.spring(challengeBannerY, { toValue: 0, useNativeDriver: true, tension: 100, friction: 12 }).start();
+      }
+    }).catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadFeed = useCallback(async (p = 1, overridePrefs?: Record<number, number>) => {
     if (p === 1) setLoading(true);
@@ -1703,6 +1730,16 @@ export default function ShortsScreen() {
         { id: item.id, tmdbId: item.tmdbId, type: item.type, title: item.title, poster: item.poster },
         progress
       );
+      // Track weekly challenge progress
+      if (item.genreIds?.length) {
+        const prevCompleted = challengeProgressRef.current?.completed ?? false;
+        const updatedChallenge = await trackChallengeProgress(item.genreIds);
+        setChallengeProgress(updatedChallenge);
+        if (updatedChallenge.completed && !prevCompleted) {
+          setChallengeJustCompleted(true);
+          setTimeout(() => setChallengeJustCompleted(false), 4500);
+        }
+      }
     }, 3000);
     return () => clearTimeout(timer);
   }, [visibleIndex, items]);
@@ -1870,6 +1907,109 @@ export default function ShortsScreen() {
         onClose={() => setShowReport(false)}
         onReset={clearPrefsAndRefresh}
       />
+
+      {/* ── Weekly Challenge Banner ───────────────────────────────────────────── */}
+      {challenge && !challengeDismissed && challengeProgress && !challengeProgress.completed && (
+        <Animated.View
+          pointerEvents="box-none"
+          style={{
+            position: "absolute",
+            bottom: (isWeb ? 34 : insets.bottom) + 86,
+            left: 14,
+            right: 14,
+            transform: [{ translateY: challengeBannerY }],
+          }}
+        >
+          <View style={{
+            flexDirection: "row",
+            alignItems: "center",
+            backgroundColor: "rgba(10,10,10,0.92)",
+            borderRadius: 16,
+            borderWidth: StyleSheet.hairlineWidth,
+            borderColor: challenge.color + "55",
+            paddingHorizontal: 13,
+            paddingVertical: 11,
+            gap: 10,
+            shadowColor: "#000",
+            shadowOpacity: 0.4,
+            shadowRadius: 12,
+            elevation: 8,
+          }}>
+            {/* Emoji */}
+            <Text style={{ fontSize: 26 }}>{challenge.emoji}</Text>
+
+            {/* Text + progress */}
+            <View style={{ flex: 1 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                <View style={{ backgroundColor: challenge.color + "22", borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2 }}>
+                  <Text style={{ color: challenge.color, fontSize: 9, fontWeight: "800", letterSpacing: 1 }}>DESAFIO SEMANAL</Text>
+                </View>
+              </View>
+              <Text style={{ color: "#fff", fontSize: 12, fontWeight: "700", marginBottom: 6 }}>{challenge.title}</Text>
+              {/* Progress orbs */}
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+                {Array.from({ length: GOAL }).map((_, i) => (
+                  <View
+                    key={i}
+                    style={{
+                      width: 10, height: 10, borderRadius: 5,
+                      backgroundColor: i < (challengeProgress.watched) ? challenge.color : "rgba(255,255,255,0.15)",
+                    }}
+                  />
+                ))}
+                <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 10, marginLeft: 4 }}>
+                  {challengeProgress.watched}/{GOAL}
+                </Text>
+              </View>
+            </View>
+
+            {/* Dismiss */}
+            <TouchableOpacity
+              onPress={() => {
+                Animated.timing(challengeBannerY, { toValue: 100, duration: 220, useNativeDriver: true }).start(
+                  () => setChallengeDismissed(true)
+                );
+              }}
+              hitSlop={12}
+              activeOpacity={0.7}
+            >
+              <Feather name="x" size={15} color="rgba(255,255,255,0.4)" />
+            </TouchableOpacity>
+          </View>
+        </Animated.View>
+      )}
+
+      {/* ── Challenge completion toast ────────────────────────────────────────── */}
+      {challengeJustCompleted && challenge && (
+        <View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            bottom: (isWeb ? 34 : insets.bottom) + 86,
+            left: 14, right: 14,
+            backgroundColor: "rgba(10,10,10,0.95)",
+            borderRadius: 16,
+            borderWidth: 1,
+            borderColor: challenge.color,
+            paddingHorizontal: 16,
+            paddingVertical: 14,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 12,
+            shadowColor: challenge.color,
+            shadowOpacity: 0.4,
+            shadowRadius: 16,
+            elevation: 10,
+          }}
+        >
+          <Text style={{ fontSize: 32 }}>🏆</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: "#fff", fontSize: 14, fontWeight: "800", marginBottom: 2 }}>Desafio Completo!</Text>
+            <Text style={{ color: challenge.color, fontSize: 12, fontWeight: "700" }}>{challenge.emoji} {challenge.title}</Text>
+            <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 11, marginTop: 2 }}>Badge adicionado ao seu Perfil ✨</Text>
+          </View>
+        </View>
+      )}
     </View>
   );
 }
