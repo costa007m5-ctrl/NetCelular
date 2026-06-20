@@ -965,6 +965,24 @@ export default function CanaisScreen() {
     }) ?? null;
   }
 
+  // Calculate live progress percentage (0–100) for a currently airing episode
+  function getLiveProgress(ep: TvGuideEp): number {
+    const [h, m] = ep.airtime.split(":").map(Number);
+    const start = new Date(); start.setHours(h, m, 0, 0);
+    const elapsed = (Date.now() - start.getTime()) / 60000; // minutes
+    const total = ep.runtime ?? 60;
+    return Math.min(100, Math.max(0, Math.round((elapsed / total) * 100)));
+  }
+
+  // Returns a human-readable "Xmin restantes" string
+  function getLiveTimeLeft(ep: TvGuideEp): string {
+    const [h, m] = ep.airtime.split(":").map(Number);
+    const start = new Date(); start.setHours(h, m, 0, 0);
+    const leftMin = Math.round((start.getTime() + (ep.runtime ?? 60) * 60000 - Date.now()) / 60000);
+    if (leftMin <= 0) return "encerra em breve";
+    return `${leftMin}min restam`;
+  }
+
   const TV_CATS = [
     { key: "all", label: "Todos" },
     { key: "aberta", label: "Aberta" },
@@ -1314,11 +1332,21 @@ export default function CanaisScreen() {
                             <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 3 }}>
                               <View style={[styles.tvLiveDot, { backgroundColor: ch.color }]} />
                               <Text style={[styles.tvLiveLabel, { color: ch.color }]}>AO VIVO</Text>
+                              <Text style={styles.tvLiveTimeLeft}>{getLiveTimeLeft(nowEp)}</Text>
                             </View>
-                            <Text style={styles.tvNowShow} numberOfLines={2}>{nowEp.show.name}</Text>
+                            <Text style={styles.tvNowShow} numberOfLines={1}>{nowEp.show.name}</Text>
                             {nowEp.name && nowEp.name !== nowEp.show.name && (
                               <Text style={styles.tvNowEp} numberOfLines={1}>{nowEp.name}</Text>
                             )}
+                            {/* Live progress bar */}
+                            <View style={styles.tvProgressBar}>
+                              <View
+                                style={[
+                                  styles.tvProgressFill,
+                                  { width: `${getLiveProgress(nowEp)}%` as any, backgroundColor: ch.color },
+                                ]}
+                              />
+                            </View>
                           </View>
                         ) : (
                           <View style={{ flex: 1, justifyContent: "center" }}>
@@ -2058,7 +2086,7 @@ const styles = StyleSheet.create({
   // ── TV Guide channel cards
   tvChannelCard: {
     width: W * 0.42,
-    height: 160,
+    height: 178,
     borderRadius: 14,
     borderWidth: 1,
     overflow: "hidden",
@@ -2113,6 +2141,22 @@ const styles = StyleSheet.create({
     fontSize: 8,
     fontWeight: "800",
     letterSpacing: 0.8,
+  },
+  tvLiveTimeLeft: {
+    fontSize: 8,
+    color: "rgba(255,255,255,0.35)",
+    marginLeft: "auto" as any,
+  },
+  tvProgressBar: {
+    height: 3,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderRadius: 2,
+    marginTop: 7,
+    overflow: "hidden",
+  },
+  tvProgressFill: {
+    height: "100%" as any,
+    borderRadius: 2,
   },
   tvNowShow: {
     fontSize: 11,
