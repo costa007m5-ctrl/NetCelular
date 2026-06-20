@@ -1419,7 +1419,9 @@ export default function ShortsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const isWeb = Platform.OS === "web";
-  const topPad = isWeb ? 67 : insets.top;
+  // On web the browser already accounts for its own chrome (address bar, etc.)
+  // so only a small breathing room is needed. Native uses the real safe-area inset.
+  const topPad = isWeb ? 10 : insets.top;
 
   const [items, setItems] = useState<ShortItem[]>([]);
   const [loading, setLoading] = useState(true);
