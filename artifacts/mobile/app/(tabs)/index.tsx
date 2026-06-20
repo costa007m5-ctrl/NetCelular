@@ -2295,6 +2295,8 @@ export default function HomeScreen() {
   const [shortsLikes, setShortsLikes] = useState<{ id: string; tmdbId: number; type: "movie" | "tv"; title: string; poster: string | null; likedAt: number }[]>([]);
   // ── Shorts de amigos — recebidos via "Shorts para Amigos" ────────────────
   const [fromFriendsShorts, setFromFriendsShorts] = useState<import("@/lib/shorts-received").ReceivedShort[]>([]);
+  // ── Top Shorts da Semana — TMDB trending, cached per ISO week ────────────
+  const [topShortsWeek, setTopShortsWeek] = useState<ContentItem[]>([]);
 
   // ── genre carousels per category ──────────────────────────────────────────
   const [genreRows, setGenreRows] = useState<Record<string, ContentItem[]>>({});
@@ -2485,6 +2487,13 @@ export default function HomeScreen() {
           if (!cancelled && received.length > 0) {
             setFromFriendsShorts(received.slice(0, 10));
           }
+        } catch {}
+
+        try {
+          // Load Top Shorts da Semana — TMDB trending, week-cached
+          const { fetchTopShortsWeek } = await import("@/lib/shorts-top-week");
+          const top = await fetchTopShortsWeek();
+          if (!cancelled && top.length > 0) setTopShortsWeek(top);
         } catch {}
 
         try {
@@ -3196,6 +3205,76 @@ export default function HomeScreen() {
                           </View>
                           <Text numberOfLines={2} style={{ color: "rgba(255,255,255,0.85)", fontSize: 11, fontWeight: "700", marginTop: 5, lineHeight: 14 }}>
                             {sh.title}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  </View>
+                </AnimatedSection>
+              )}
+
+              {/* ── 6.11 TOP SHORTS DA SEMANA ────────────────────────────────── */}
+              {topShortsWeek.length > 0 && (
+                <AnimatedSection anim={s[5]}>
+                  <View style={styles.section}>
+                    <SectionHeader
+                      title="Top Shorts da Semana"
+                      icon="zap"
+                      accentColor="#7c3aed"
+                      badge="TRENDING"
+                      subtitle="Os mais assistidos agora no mundo"
+                      onSeeAll={() => router.push("/(tabs)/shorts" as any)}
+                    />
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}
+                    >
+                      {topShortsWeek.map((item, idx) => (
+                        <TouchableOpacity
+                          key={item.id}
+                          activeOpacity={0.85}
+                          onPress={() => goTo(item)}
+                          style={{ width: 110 }}
+                        >
+                          <View style={{ width: 110, height: 162, borderRadius: 10, overflow: "hidden", backgroundColor: "#1a1a1a" }}>
+                            {item.posterPath ? (
+                              <Image source={{ uri: item.posterPath }} style={{ width: 110, height: 162 }} contentFit="cover" />
+                            ) : (
+                              <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+                                <Feather name="film" size={28} color="rgba(255,255,255,0.2)" />
+                              </View>
+                            )}
+                            {/* Dark gradient at bottom */}
+                            <View style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 52, backgroundColor: "rgba(0,0,0,0.72)" }} />
+                            {/* Rating bottom-right */}
+                            <View style={{ position: "absolute", bottom: 7, right: 7, flexDirection: "row", alignItems: "center", gap: 3 }}>
+                              <Feather name="star" size={9} color="#fbbf24" />
+                              <Text style={{ color: "#fbbf24", fontSize: 10, fontWeight: "700" }}>{item.rating}</Text>
+                            </View>
+                            {/* ⚡ Shorts badge — bottom-left */}
+                            <View style={{ position: "absolute", bottom: 7, left: 7, flexDirection: "row", alignItems: "center", gap: 3 }}>
+                              <Feather name="zap" size={9} color="#a78bfa" />
+                              <Text style={{ color: "#a78bfa", fontSize: 9, fontWeight: "700" }}>SHORTS</Text>
+                            </View>
+                            {/* Rank badge — top-left */}
+                            <View style={{
+                              position: "absolute", top: 0, left: 0,
+                              minWidth: 26, paddingHorizontal: 7, paddingVertical: 4,
+                              backgroundColor: "#7c3aed",
+                              borderBottomRightRadius: 8,
+                              alignItems: "center",
+                            }}>
+                              <Text style={{ color: "#fff", fontSize: 13, fontWeight: "900", lineHeight: 14 }}>
+                                {idx + 1}
+                              </Text>
+                            </View>
+                          </View>
+                          <Text numberOfLines={2} style={{ color: "rgba(255,255,255,0.85)", fontSize: 11, fontWeight: "700", marginTop: 5, lineHeight: 14 }}>
+                            {item.title}
+                          </Text>
+                          <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 10, marginTop: 2 }}>
+                            {item.year} · {item.type === "movie" ? "Filme" : "Série"}
                           </Text>
                         </TouchableOpacity>
                       ))}
