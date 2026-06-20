@@ -13,7 +13,6 @@ import {
   ActivityIndicator,
   Animated,
   Dimensions,
-  FlatList,
   Platform,
   Pressable,
   ScrollView,
@@ -231,12 +230,15 @@ function ScheduleItem({
 function ContentCard({
   item,
   onPress,
+  cardWidth,
 }: {
   item: ContentItem;
   onPress: (item: ContentItem) => void;
+  cardWidth?: number;
 }) {
+  const cardStyle = cardWidth ? [st.contentCard, { width: cardWidth }] : st.contentCard;
   return (
-    <TouchableOpacity onPress={() => onPress(item)} style={st.contentCard} activeOpacity={0.8}>
+    <TouchableOpacity onPress={() => onPress(item)} style={cardStyle} activeOpacity={0.8}>
       <View style={st.contentPoster}>
         {item.poster ? (
           <Image source={{ uri: item.poster }} style={{ width: "100%", height: "100%" }} contentFit="cover" />
@@ -258,6 +260,18 @@ function ContentCard({
         </View>
       )}
     </TouchableOpacity>
+  );
+}
+
+// ── ContentGrid — View-based grid (no nested FlatList) to avoid scroll deadlock
+function ContentGrid({ items, onPress }: { items: ContentItem[]; onPress: (item: ContentItem) => void }) {
+  const CARD_W = (W - 32 - 16) / 3; // 3 columns, 16px padding each side, 8px gaps
+  return (
+    <View style={{ flexDirection: "row", flexWrap: "wrap", paddingHorizontal: 16, gap: 8 }}>
+      {items.map((item) => (
+        <ContentCard key={`cg-${item.tmdbId}-${item.type}`} item={item} onPress={onPress} cardWidth={CARD_W} />
+      ))}
+    </View>
   );
 }
 
@@ -585,13 +599,7 @@ export default function TvChannelScreen() {
             </View>
             {schedLoading ? (
               <ActivityIndicator color={accent} style={{ marginTop: 24 }} />
-            ) : schedule.length === 0 ? (
-              <View style={st.empty}>
-                <Feather name="tv" size={32} color="rgba(255,255,255,0.15)" />
-                <Text style={st.emptyText}>Programação não disponível para este canal</Text>
-                <Text style={st.emptySubText}>TVmaze não cobre todos os canais brasileiros ainda</Text>
-              </View>
-            ) : (
+            ) : schedule.length > 0 ? (
               <View style={st.schedList}>
                 {schedule.map((ep) => {
                   const isLive = liveEp?.id === ep.id;
@@ -603,7 +611,6 @@ export default function TvChannelScreen() {
                       isCurrentlyLive={isLive}
                       onPress={(e) => {
                         if (e.show?.id) {
-                          // Navigate to detail with TMDB lookup by show name
                           router.push({
                             pathname: "/detail",
                             params: { type: "tv", id: "0", title: e.show.name },
@@ -614,6 +621,46 @@ export default function TvChannelScreen() {
                   );
                 })}
               </View>
+            ) : (
+              /* No TVmaze data — show popular shows/movies from this channel as fallback */
+              <>
+                {(contentLoading) ? (
+                  <ActivityIndicator color={accent} style={{ marginTop: 24 }} />
+                ) : (content.shows.length === 0 && content.movies.length === 0) ? (
+                  <View style={st.empty}>
+                    <Feather name="tv" size={32} color="rgba(255,255,255,0.15)" />
+                    <Text style={st.emptyText}>Grade não disponível para este canal</Text>
+                    <Text style={st.emptySubText}>Veja as abas Séries e Filmes para o conteúdo do canal</Text>
+                  </View>
+                ) : (
+                  <>
+                    <View style={[st.noSchedBanner, { borderColor: accent + "44", backgroundColor: accent + "0d" }]}>
+                      <Feather name="info" size={12} color={accent} />
+                      <Text style={[st.noSchedBannerText, { color: accent }]}>
+                        Grade de horários não disponível. Veja o que passa neste canal:
+                      </Text>
+                    </View>
+                    {content.shows.length > 0 && (
+                      <>
+                        <View style={[st.sectionHeader, { marginTop: 12 }]}>
+                          <Feather name="tv" size={12} color="rgba(255,255,255,0.5)" />
+                          <Text style={[st.sectionTitle, { fontSize: 12, color: "rgba(255,255,255,0.5)" }]}>Séries</Text>
+                        </View>
+                        <ContentGrid items={content.shows.slice(0, 9)} onPress={goToDetail} />
+                      </>
+                    )}
+                    {content.movies.length > 0 && (
+                      <>
+                        <View style={[st.sectionHeader, { marginTop: 12 }]}>
+                          <Feather name="film" size={12} color="rgba(255,255,255,0.5)" />
+                          <Text style={[st.sectionTitle, { fontSize: 12, color: "rgba(255,255,255,0.5)" }]}>Filmes</Text>
+                        </View>
+                        <ContentGrid items={content.movies.slice(0, 9)} onPress={goToDetail} />
+                      </>
+                    )}
+                  </>
+                )}
+              </>
             )}
           </View>
         )}
@@ -634,16 +681,7 @@ export default function TvChannelScreen() {
                 <Text style={st.emptyText}>Nenhuma série encontrada</Text>
               </View>
             ) : (
-              <FlatList
-                data={content.shows}
-                keyExtractor={(item) => `show-${item.tmdbId}`}
-                numColumns={3}
-                scrollEnabled={false}
-                columnWrapperStyle={{ gap: 8, paddingHorizontal: 16, marginBottom: 8 }}
-                renderItem={({ item }) => (
-                  <ContentCard item={item} onPress={goToDetail} />
-                )}
-              />
+              <ContentGrid items={content.shows} onPress={goToDetail} />
             )}
           </View>
         )}
@@ -664,16 +702,7 @@ export default function TvChannelScreen() {
                 <Text style={st.emptyText}>Nenhum filme encontrado</Text>
               </View>
             ) : (
-              <FlatList
-                data={content.movies}
-                keyExtractor={(item) => `mov-${item.tmdbId}`}
-                numColumns={3}
-                scrollEnabled={false}
-                columnWrapperStyle={{ gap: 8, paddingHorizontal: 16, marginBottom: 8 }}
-                renderItem={({ item }) => (
-                  <ContentCard item={item} onPress={goToDetail} />
-                )}
-              />
+              <ContentGrid items={content.movies} onPress={goToDetail} />
             )}
           </View>
         )}
@@ -891,4 +920,9 @@ const st = StyleSheet.create({
   empty: { alignItems: "center", paddingVertical: 32, gap: 8 },
   emptyText: { fontSize: 14, color: "rgba(255,255,255,0.3)", fontWeight: "600" },
   emptySubText: { fontSize: 11, color: "rgba(255,255,255,0.2)", textAlign: "center", paddingHorizontal: 32 },
+  noSchedBanner: {
+    flexDirection: "row", alignItems: "flex-start", gap: 6,
+    borderWidth: 1, borderRadius: 10, padding: 10, marginHorizontal: 16, marginTop: 8, marginBottom: 4,
+  },
+  noSchedBannerText: { fontSize: 11, flex: 1, lineHeight: 16 },
 });

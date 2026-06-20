@@ -542,16 +542,45 @@ router.get("/tv/premieres", async (_req: any, res: any) => {
   });
 
   try {
+    // TV series: airing this week on BR
+    // Movies: only from streaming/cable providers in BR (NOT cinema upcoming)
+    //   Netflix=8, Amazon Prime=119, Disney+=337, HBO Max=384, Globoplay=307, Paramount+=531, Apple TV+=350
+    const BR_STREAMING = "8|119|337|384|307|531|350";
+
+    const today = new Date();
+    const in30 = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const fmt = (d: Date) => d.toISOString().slice(0, 10);
+
     const [tv, movies] = await Promise.allSettled([
-      tmdbFetch<any>("/tv/on_the_air", { watch_region: "BR", page: "1" }),
-      tmdbFetch<any>("/movie/upcoming", { region: "BR", page: "1" }),
+      tmdbFetch<any>("/discover/tv", {
+        watch_region: "BR",
+        with_watch_providers: BR_STREAMING,
+        sort_by: "first_air_date.desc",
+        "first_air_date.gte": fmt(today),
+        "first_air_date.lte": fmt(in30),
+        page: "1",
+      }),
+      // Streaming movies — exclude those without a streaming provider (cinema-only)
+      tmdbFetch<any>("/discover/movie", {
+        watch_region: "BR",
+        with_watch_providers: BR_STREAMING,
+        sort_by: "release_date.desc",
+        "release_date.gte": fmt(new Date(today.getTime() - 14 * 24 * 60 * 60 * 1000)),
+        "release_date.lte": fmt(in30),
+        page: "1",
+      }),
     ]);
+
+    // If discover returns few results, fall back to on_the_air for series
+    let seriesList: any[] = tv.status === "fulfilled" ? (tv.value.results ?? []) : [];
+    if (seriesList.length < 5) {
+      const fallback = await tmdbFetch<any>("/tv/on_the_air", { watch_region: "BR", page: "1" }).catch(() => null);
+      seriesList = [...seriesList, ...(fallback?.results ?? [])];
+    }
 
     const data = {
       ok: true,
-      series: tv.status === "fulfilled"
-        ? (tv.value.results ?? []).filter((r: any) => r.poster_path).slice(0, 15).map((r: any) => mapItem(r, "tv"))
-        : [],
+      series: seriesList.filter((r: any) => r.poster_path).slice(0, 15).map((r: any) => mapItem(r, "tv")),
       movies: movies.status === "fulfilled"
         ? (movies.value.results ?? []).filter((r: any) => r.poster_path).slice(0, 15).map((r: any) => mapItem(r, "movie"))
         : [],
