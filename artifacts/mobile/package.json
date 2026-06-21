@@ -10,7 +10,8 @@
     "serve": "PORT=18115 node server/serve.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "prebuild:android": "expo prebuild --clean --platform android --non-interactive && node scripts/ensure-build-config.js",
-    "ensure:buildconfig": "node scripts/ensure-build-config.js"
+    "ensure:buildconfig": "node scripts/ensure-build-config.js",
+    "release": "node scripts/release.js"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
