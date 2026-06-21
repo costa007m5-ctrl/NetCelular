@@ -95,10 +95,23 @@ export default function GdrivePlayer() {
   // Drive signed URLs (download.aspx?file=...&expiry=...&mac=...) support Range requests
   // natively and work directly from mobile — no server proxy needed (server IPs are blocked
   // by the Cloudflare Worker with error 1102).
-  const streamUrl = getStreamUrl({
-    ...currentItem,
-    id: "", driveId: "", mimeType: "", modifiedTime: "", kind: "drive#file",
-  } as any);
+  // Fallback: when the listing didn't include a signed link, construct a direct path URL.
+  const DRIVE_DOWNLOAD_BASE = "https://animezey16082023.animezey16082023.workers.dev";
+  const streamUrl = (() => {
+    const fromLink = getStreamUrl({
+      ...currentItem,
+      id: "", driveId: "", mimeType: "", modifiedTime: "", kind: "drive#file",
+    } as any);
+    if (fromLink) return fromLink;
+    const drive = params.drive;
+    const folderPath = params.folderPath;
+    if (drive && folderPath && currentItem.name) {
+      const fullPath = `${folderPath}/${currentItem.name}`;
+      const encoded = fullPath.split("/").map((s) => encodeURIComponent(s)).join("/");
+      return `${DRIVE_DOWNLOAD_BASE}/${drive}:/${encoded}`;
+    }
+    return "";
+  })();
 
   const ep = parseEpisodeInfo(currentItem.name);
   const videoRef = useRef<Video>(null);

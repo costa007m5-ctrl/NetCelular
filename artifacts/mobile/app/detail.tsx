@@ -2106,7 +2106,8 @@ export default function DetailScreen() {
   const goToDriveEpisode = (ep: TmdbEpisode) => {
     const driveItem = driveEpisodeMap[ep.episode_number];
     if (!driveItem) return;
-    const match = driveMatches.find((m) => m.isFolder)!;
+    const match = driveMatches.find((m) => m.isFolder);
+    if (!match) return;
 
     // Build playlist sorted by episode number
     const sorted = [...driveSeasonItems].sort((a, b) => {

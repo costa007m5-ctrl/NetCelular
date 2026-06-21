@@ -67,7 +67,7 @@ const SLEEP_PRESETS = [15, 30, 45, 60, 90] as const;
 
 interface RegistryItem {
   id: string; r2Key: string; teraboxUrl?: string; fileIndex?: number; fileName?: string;
-  driveUrl?: string; driveDirectUrl?: string;
+  driveUrl?: string; driveDirectUrl?: string; driveFilePath?: string; driveNum?: number;
   tmdbId: number; tmdbType: "movie" | "tv";
   title: string; label: string; season: number | null; episode: number | null;
   quality?: string;
@@ -643,7 +643,18 @@ export default function R2PlayerScreen() {
         }
       } else if (isEffectiveDrive) {
         // Drive: resolve client-side (bypasses server IP block by Cloudflare).
-        const driveId = effectiveDriveId!;
+        // When playing an episode with a season/episode override, prefer an exact per-episode
+        // Drive registry item over the series-level fallback item that was passed in.
+        let driveId = effectiveDriveId!;
+        if (episode != null && season != null) {
+          const exactEp = r2Items.find(
+            (i) =>
+              ((i as any).driveFilePath != null || !!i.driveUrl) &&
+              Number(i.season) === season &&
+              Number(i.episode) === episode
+          );
+          if (exactEp) driveId = exactEp.id;
+        }
         const data = await drivePlayDirect(driveId);
         const isHttps = data.url.startsWith("https://");
         if (Platform.OS !== "web" && isHttps) {
