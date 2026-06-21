@@ -24,6 +24,8 @@ import { CatalogProvider } from "@/lib/catalog-context";
 import { requestPermissionsAndSetup, scheduleNewContentNotification, saveNotificationToHistory, checkWatchlistNotifications, registerPushToken } from "@/lib/notifications";
 import { checkAndApplyUpdate, startPeriodicUpdateChecks } from "@/lib/app-updater";
 import { UpdateBanner } from "@/components/UpdateBanner";
+import { WhatsNewModal } from "@/components/WhatsNewModal";
+import { useWhatsNew } from "@/hooks/useWhatsNew";
 import { supabase } from "@/lib/supabase";
 import { initApiDomain } from "@/lib/api";
 import { startBackgroundPrefetch } from "@/lib/flix2-prefetch";
@@ -344,6 +346,7 @@ export default function RootLayout() {
   });
   const [fontTimeout, setFontTimeout] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
+  const { visible: whatsNewVisible, entry: whatsNewEntry, dismiss: dismissWhatsNew } = useWhatsNew();
 
   useEffect(() => {
     const timer = setTimeout(() => setFontTimeout(true), 4000);
@@ -409,6 +412,11 @@ export default function RootLayout() {
                       <RootNavigator />
                       {showSplash && <NetplaySplash onFinish={handleSplashFinish} />}
                       <UpdateBanner />
+                      <WhatsNewModal
+                        visible={whatsNewVisible}
+                        entry={whatsNewEntry}
+                        onClose={dismissWhatsNew}
+                      />
                     </View>
                   </KeyboardProvider>
                 </GestureHandlerRootView>
