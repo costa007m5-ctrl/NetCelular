@@ -350,6 +350,10 @@ export default function DetailScreen() {
   const [epMapperLoading, setEpMapperLoading] = useState(false);
   const [epMapperSaving, setEpMapperSaving] = useState(false);
   const [epMapperSaved, setEpMapperSaved] = useState(0);
+  const [epMapperSelectMode, setEpMapperSelectMode] = useState(false);
+  const [epMapperSelected, setEpMapperSelected] = useState<Set<number>>(new Set());
+  const [epMapperBulkSeason, setEpMapperBulkSeason] = useState("1");
+  const [epMapperBulkStartEp, setEpMapperBulkStartEp] = useState("1");
   const [epMapperClearing, setEpMapperClearing] = useState(false);
   const [epMapperCleared, setEpMapperCleared] = useState<number | null>(null);
 
@@ -3159,12 +3163,137 @@ export default function DetailScreen() {
                 <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11, marginTop: 1 }}>Afeta todos os usuários via banco de dados</Text>
               </View>
             </View>
-            {!epMapperSaving && (
-              <Pressable onPress={() => setShowEpMapper(false)} hitSlop={12}>
-                <Feather name="x" size={22} color="rgba(255,255,255,0.5)" />
-              </Pressable>
-            )}
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+              {!epMapperSaving && !epMapperLoading && epMapperFiles.length > 0 && (
+                <Pressable
+                  onPress={() => {
+                    setEpMapperSelectMode((v) => !v);
+                    setEpMapperSelected(new Set());
+                  }}
+                  hitSlop={8}
+                  style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: epMapperSelectMode ? "rgba(22,163,74,0.2)" : "rgba(255,255,255,0.07)", borderWidth: 1, borderColor: epMapperSelectMode ? "#16a34a" : "rgba(255,255,255,0.15)" }}
+                >
+                  <Text style={{ color: epMapperSelectMode ? "#16a34a" : "rgba(255,255,255,0.6)", fontWeight: "700", fontSize: 12 }}>
+                    {epMapperSelectMode ? "✓ Selecionando" : "Selecionar"}
+                  </Text>
+                </Pressable>
+              )}
+              {!epMapperSaving && (
+                <Pressable onPress={() => { setShowEpMapper(false); setEpMapperSelectMode(false); setEpMapperSelected(new Set()); }} hitSlop={12}>
+                  <Feather name="x" size={22} color="rgba(255,255,255,0.5)" />
+                </Pressable>
+              )}
+            </View>
           </View>
+
+          {/* Bulk action toolbar — only when in select mode */}
+          {epMapperSelectMode && !epMapperLoading && (
+            <View style={{ paddingHorizontal: 14, paddingVertical: 10, backgroundColor: "rgba(22,163,74,0.06)", borderBottomWidth: 1, borderBottomColor: "rgba(22,163,74,0.15)", gap: 10 }}>
+              {/* Select all / clear row */}
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Pressable
+                  onPress={() => {
+                    const visibleIndices = epMapperFiles.map((_, i) => i).filter((i) => !epMapperFiles[i].hidden);
+                    const allSelected = visibleIndices.every((i) => epMapperSelected.has(i));
+                    if (allSelected) {
+                      setEpMapperSelected(new Set());
+                    } else {
+                      setEpMapperSelected(new Set(visibleIndices));
+                    }
+                  }}
+                  style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: "rgba(22,163,74,0.1)", borderWidth: 1, borderColor: "rgba(22,163,74,0.25)" }}
+                >
+                  <Feather name="check-square" size={13} color="#16a34a" />
+                  <Text style={{ color: "#16a34a", fontSize: 12, fontWeight: "600" }}>Todos</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => setEpMapperSelected(new Set())}
+                  style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: "rgba(255,255,255,0.05)", borderWidth: 1, borderColor: "rgba(255,255,255,0.12)" }}
+                >
+                  <Feather name="square" size={13} color="rgba(255,255,255,0.45)" />
+                  <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 12, fontWeight: "600" }}>Limpar</Text>
+                </Pressable>
+                <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 12, marginLeft: 4 }}>
+                  {epMapperSelected.size} selecionado{epMapperSelected.size !== 1 ? "s" : ""}
+                </Text>
+              </View>
+
+              {/* Season + start-ep + Renumerar */}
+              {epMapperSelected.size > 0 && (
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <View style={{ alignItems: "center", gap: 3, flex: 1 }}>
+                    <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 10, fontWeight: "600" }}>TEMPORADA</Text>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+                      <Pressable onPress={() => setEpMapperBulkSeason((v) => String(Math.max(1, Number(v) - 1)))} style={{ width: 26, height: 26, borderRadius: 6, backgroundColor: "rgba(22,163,74,0.15)", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(22,163,74,0.3)" }}>
+                        <Feather name="minus" size={12} color="#16a34a" />
+                      </Pressable>
+                      <TextInput
+                        value={epMapperBulkSeason}
+                        onChangeText={(t) => setEpMapperBulkSeason(t.replace(/[^0-9]/g, "") || "1")}
+                        keyboardType="number-pad"
+                        style={{ color: "#fff", fontWeight: "800", fontSize: 16, minWidth: 28, textAlign: "center", backgroundColor: "rgba(255,255,255,0.06)", borderRadius: 6, paddingVertical: 3 }}
+                      />
+                      <Pressable onPress={() => setEpMapperBulkSeason((v) => String(Number(v) + 1))} style={{ width: 26, height: 26, borderRadius: 6, backgroundColor: "rgba(22,163,74,0.15)", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(22,163,74,0.3)" }}>
+                        <Feather name="plus" size={12} color="#16a34a" />
+                      </Pressable>
+                    </View>
+                  </View>
+                  <View style={{ alignItems: "center", gap: 3, flex: 1 }}>
+                    <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 10, fontWeight: "600" }}>EP INICIAL</Text>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+                      <Pressable onPress={() => setEpMapperBulkStartEp((v) => String(Math.max(1, Number(v) - 1)))} style={{ width: 26, height: 26, borderRadius: 6, backgroundColor: "rgba(22,163,74,0.15)", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(22,163,74,0.3)" }}>
+                        <Feather name="minus" size={12} color="#16a34a" />
+                      </Pressable>
+                      <TextInput
+                        value={epMapperBulkStartEp}
+                        onChangeText={(t) => setEpMapperBulkStartEp(t.replace(/[^0-9]/g, "") || "1")}
+                        keyboardType="number-pad"
+                        style={{ color: "#fff", fontWeight: "800", fontSize: 16, minWidth: 28, textAlign: "center", backgroundColor: "rgba(255,255,255,0.06)", borderRadius: 6, paddingVertical: 3 }}
+                      />
+                      <Pressable onPress={() => setEpMapperBulkStartEp((v) => String(Number(v) + 1))} style={{ width: 26, height: 26, borderRadius: 6, backgroundColor: "rgba(22,163,74,0.15)", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(22,163,74,0.3)" }}>
+                        <Feather name="plus" size={12} color="#16a34a" />
+                      </Pressable>
+                    </View>
+                  </View>
+                  <Pressable
+                    onPress={() => {
+                      const season = Math.max(1, Number(epMapperBulkSeason) || 1);
+                      const startEp = Math.max(1, Number(epMapperBulkStartEp) || 1);
+                      // Get selected indices in list order, excluding hidden
+                      const sortedSelected = [...epMapperSelected]
+                        .filter((i) => !epMapperFiles[i]?.hidden)
+                        .sort((a, b) => a - b);
+                      setEpMapperFiles((prev) => {
+                        const next = [...prev];
+                        sortedSelected.forEach((idx, offset) => {
+                          next[idx] = { ...next[idx], season, episode: startEp + offset };
+                        });
+                        // Re-run deduplication
+                        const seen = new Set<string>();
+                        return next.map((f) => {
+                          if (f.hidden) return f;
+                          const key = `${f.season}x${f.episode}`;
+                          if (seen.has(key)) return { ...f, hidden: true };
+                          seen.add(key);
+                          return f;
+                        });
+                      });
+                      setEpMapperSelected(new Set());
+                      setEpMapperSelectMode(false);
+                    }}
+                    style={({ pressed }) => ({
+                      flex: 1.4, paddingVertical: 10, borderRadius: 10, alignItems: "center", justifyContent: "center",
+                      backgroundColor: "#16a34a", gap: 4,
+                      opacity: pressed ? 0.8 : 1,
+                    })}
+                  >
+                    <Feather name="hash" size={13} color="#fff" />
+                    <Text style={{ color: "#fff", fontWeight: "800", fontSize: 11 }}>Renumerar</Text>
+                  </Pressable>
+                </View>
+              )}
+            </View>
+          )}
 
           {/* File list */}
           {epMapperLoading ? (
@@ -3199,20 +3328,39 @@ export default function DetailScreen() {
               renderItem={({ item, index }) => {
                 const isInvalid = !item.hidden && (item.episode <= 0 || item.season <= 0);
                 const isHidden = !!item.hidden;
+                const isSelected = epMapperSelected.has(index);
                 const cardBg = isHidden
                   ? "rgba(255,255,255,0.02)"
+                  : isSelected ? "rgba(22,163,74,0.08)"
                   : isInvalid ? "rgba(239,68,68,0.08)" : "rgba(255,255,255,0.05)";
                 const cardBorder = isHidden
                   ? "rgba(255,255,255,0.08)"
+                  : isSelected ? "#16a34a"
                   : isInvalid ? "rgba(239,68,68,0.45)" : "rgba(22,163,74,0.2)";
                 return (
+                <Pressable
+                  onPress={epMapperSelectMode && !isHidden ? () => {
+                    setEpMapperSelected((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(index)) next.delete(index); else next.add(index);
+                      return next;
+                    });
+                  } : undefined}
+                >
                 <View style={{ backgroundColor: cardBg, borderRadius: 10, padding: 12, borderWidth: 1, borderColor: cardBorder, gap: 8, opacity: isHidden ? 0.4 : 1 }}>
                   {/* Filename row + action buttons */}
                   <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 6 }}>
-                    {isInvalid && <Feather name="alert-triangle" size={13} color="#ef4444" style={{ marginTop: 1 }} />}
+                    {/* Checkbox in select mode */}
+                    {epMapperSelectMode && !isHidden && (
+                      <View style={{ width: 18, height: 18, borderRadius: 5, borderWidth: 2, borderColor: isSelected ? "#16a34a" : "rgba(255,255,255,0.25)", backgroundColor: isSelected ? "#16a34a" : "transparent", alignItems: "center", justifyContent: "center", marginTop: 0 }}>
+                        {isSelected && <Feather name="check" size={11} color="#fff" />}
+                      </View>
+                    )}
+                    {isInvalid && !epMapperSelectMode && <Feather name="alert-triangle" size={13} color="#ef4444" style={{ marginTop: 1 }} />}
                     {isHidden && <Feather name="eye-off" size={13} color="rgba(255,255,255,0.4)" style={{ marginTop: 1 }} />}
                     <Text style={{ color: isHidden ? "rgba(255,255,255,0.35)" : isInvalid ? "#fca5a5" : "rgba(255,255,255,0.75)", fontSize: 11, fontFamily: "monospace", flex: 1, textDecorationLine: isHidden ? "line-through" : "none" }} numberOfLines={2}>{item.name}</Text>
-                    {/* Hide toggle */}
+                    {/* Hide toggle — hidden in select mode */}
+                    {!epMapperSelectMode && (
                     <Pressable
                       onPress={() => setEpMapperFiles((prev) => prev.map((f, i) => i === index ? { ...f, hidden: !f.hidden } : f))}
                       hitSlop={8}
@@ -3220,7 +3368,9 @@ export default function DetailScreen() {
                     >
                       <Feather name={isHidden ? "eye" : "eye-off"} size={14} color={isHidden ? "rgba(255,255,255,0.5)" : "rgba(255,165,0,0.7)"} />
                     </Pressable>
-                    {/* Delete */}
+                    )}
+                    {/* Delete — hidden in select mode */}
+                    {!epMapperSelectMode && (
                     <Pressable
                       onPress={() => setEpMapperFiles((prev) => prev.filter((_, i) => i !== index))}
                       hitSlop={8}
@@ -3228,6 +3378,7 @@ export default function DetailScreen() {
                     >
                       <Feather name="trash-2" size={14} color="rgba(239,68,68,0.7)" />
                     </Pressable>
+                    )}
                   </View>
                   {isInvalid && (
                     <Text style={{ color: "#ef4444", fontSize: 10, fontWeight: "700", letterSpacing: 0.3 }}>
@@ -3288,6 +3439,7 @@ export default function DetailScreen() {
                   </View>
                   )}
                 </View>
+                </Pressable>
                 );
               }}
             />
