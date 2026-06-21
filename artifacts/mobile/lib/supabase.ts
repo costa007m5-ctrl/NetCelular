@@ -37,6 +37,13 @@ export type ContentOverride = {
   updated_at?: string;
 };
 
+export type ShortsCommentReaction = {
+  comment_id: string;
+  user_id: string;
+  emoji: string;
+  created_at?: string;
+};
+
 export type ShortsCommentRow = {
   id: string;
   post_id: string;
@@ -840,6 +847,39 @@ export const db = {
           .select("*", { count: "exact", head: true })
           .eq("user_id", userId);
         return count ?? 0;
+      },
+    },
+    reactions: {
+      getForComments: async (commentIds: string[]): Promise<ShortsCommentReaction[]> => {
+        if (!commentIds.length) return [];
+        const { data } = await supabase
+          .from("shorts_comment_reactions")
+          .select("*")
+          .in("comment_id", commentIds);
+        return (data ?? []) as ShortsCommentReaction[];
+      },
+      toggle: async (commentId: string, userId: string, emoji: string): Promise<{ added: boolean; error?: string }> => {
+        const { data: existing } = await supabase
+          .from("shorts_comment_reactions")
+          .select("comment_id")
+          .eq("comment_id", commentId)
+          .eq("user_id", userId)
+          .eq("emoji", emoji)
+          .maybeSingle();
+        if (existing) {
+          const { error } = await supabase
+            .from("shorts_comment_reactions")
+            .delete()
+            .eq("comment_id", commentId)
+            .eq("user_id", userId)
+            .eq("emoji", emoji);
+          return error ? { added: false, error: error.message } : { added: false };
+        } else {
+          const { error } = await supabase
+            .from("shorts_comment_reactions")
+            .insert({ comment_id: commentId, user_id: userId, emoji, created_at: new Date().toISOString() });
+          return error ? { added: false, error: error.message } : { added: true };
+        }
       },
     },
     follows: {

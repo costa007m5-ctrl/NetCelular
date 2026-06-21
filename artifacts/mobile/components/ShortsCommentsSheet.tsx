@@ -20,7 +20,7 @@ import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "@/lib/auth-context";
-import { db, type ShortsCommentRow, type WatchlistItem, type WatchProgress } from "@/lib/supabase";
+import { db, type ShortsCommentRow, type ShortsCommentReaction, type WatchlistItem, type WatchProgress } from "@/lib/supabase";
 import { sendPushViaServer } from "@/lib/notifications";
 
 const { height: H } = Dimensions.get("window");
@@ -29,6 +29,22 @@ const RED = "#e50914";
 const ACTIVE_PROFILE_KEY = "netplay_active_profile_v2";
 
 export type ShortComment = ShortsCommentRow;
+
+const REACTION_EMOJIS = ["❤️", "😂", "🔥"] as const;
+type ReactionEmoji = typeof REACTION_EMOJIS[number];
+type ReactionSummary = { emoji: ReactionEmoji; count: number; mine: boolean };
+type ReactionsMap = Map<string, ReactionSummary[]>;
+
+function buildReactionsMap(rows: ShortsCommentReaction[], commentIds: string[], userId?: string): ReactionsMap {
+  const map = new Map<string, ReactionSummary[]>();
+  for (const id of commentIds) {
+    const mine = new Set(rows.filter((r) => r.comment_id === id && r.user_id === userId).map((r) => r.emoji));
+    const counts: Record<string, number> = {};
+    for (const r of rows.filter((r) => r.comment_id === id)) counts[r.emoji] = (counts[r.emoji] ?? 0) + 1;
+    map.set(id, REACTION_EMOJIS.map((emoji) => ({ emoji, count: counts[emoji] ?? 0, mine: mine.has(emoji) })));
+  }
+  return map;
+}
 
 interface MentionCandidate {
   user_id: string;
@@ -302,17 +318,20 @@ function ProfilePanel({
 
 // ── Comment row ───────────────────────────────────────────────────────────────
 function CommentItem({
-  comment, currentUserId, followed, onDelete, onFollow, onAvatarPress,
+  comment, currentUserId, followed, reactions, onDelete, onFollow, onAvatarPress, onReact,
 }: {
   comment: ShortComment;
   currentUserId?: string;
   followed: boolean;
+  reactions: ReactionSummary[];
   onDelete: (id: string) => void;
   onFollow: (comment: ShortComment) => void;
   onAvatarPress: (comment: ShortComment) => void;
+  onReact: (commentId: string, emoji: string) => void;
 }) {
   const isOwn = comment.user_id === currentUserId;
   const parts = comment.content.split(/(@\S+)/g);
+  const hasAnyReaction = reactions.some((r) => r.count > 0);
 
   return (
     <View style={cs.row}>
@@ -320,24 +339,47 @@ function CommentItem({
         <AvatarBubble letter={comment.avatar_letter} uri={comment.avatar_url} />
       </Pressable>
 
-      <View style={cs.bubble}>
-        <View style={cs.bubbleHeader}>
-          <Pressable onPress={() => onAvatarPress(comment)}>
-            <Text style={cs.userName}>{comment.user_name}</Text>
-          </Pressable>
-          <Text style={cs.timeAgo}>{timeAgo(comment.created_at)}</Text>
+      <View style={{ flex: 1 }}>
+        <View style={cs.bubble}>
+          <View style={cs.bubbleHeader}>
+            <Pressable onPress={() => onAvatarPress(comment)}>
+              <Text style={cs.userName}>{comment.user_name}</Text>
+            </Pressable>
+            <Text style={cs.timeAgo}>{timeAgo(comment.created_at)}</Text>
+          </View>
+          <Text style={cs.content}>
+            {parts.map((part, i) =>
+              part.startsWith("@")
+                ? <Text key={i} style={cs.mention}>{part}</Text>
+                : <React.Fragment key={i}>{part}</React.Fragment>
+            )}
+          </Text>
         </View>
-        <Text style={cs.content}>
-          {parts.map((part, i) =>
-            part.startsWith("@")
-              ? <Text key={i} style={cs.mention}>{part}</Text>
-              : <React.Fragment key={i}>{part}</React.Fragment>
-          )}
-        </Text>
+
+        {/* Reaction bar */}
+        <View style={cs.reactionBar}>
+          {reactions.map((r) => (
+            <Pressable
+              key={r.emoji}
+              style={[cs.reactionBtn, r.mine && cs.reactionBtnActive]}
+              onPress={() => onReact(comment.id, r.emoji)}
+              hitSlop={6}
+            >
+              <Text style={cs.reactionEmoji}>{r.emoji}</Text>
+              {r.count > 0 && (
+                <Text style={[cs.reactionCount, r.mine && cs.reactionCountActive]}>
+                  {r.count}
+                </Text>
+              )}
+            </Pressable>
+          ))}
+          {/* Faint separator if any reaction is active */}
+          {hasAnyReaction && <View style={cs.reactionSep} />}
+        </View>
       </View>
 
       {isOwn ? (
-        <Pressable onPress={() => onDelete(comment.id)} hitSlop={8}>
+        <Pressable onPress={() => onDelete(comment.id)} hitSlop={8} style={{ marginTop: 10 }}>
           <Feather name="trash-2" size={14} color="rgba(255,255,255,0.35)" />
         </Pressable>
       ) : (
@@ -399,6 +441,7 @@ export default function ShortsCommentsSheet({ visible, onClose, postId, tmdbId, 
   const [internalVisible, setInternalVisible] = useState(false);
   const [followed, setFollowed] = useState<Set<string>>(new Set());
   const [profileComment, setProfileComment] = useState<ShortComment | null>(null);
+  const [reactions, setReactions] = useState<ReactionsMap>(new Map());
 
   // @mention
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
@@ -490,11 +533,37 @@ export default function ShortsCommentsSheet({ visible, onClose, postId, tmdbId, 
     try {
       const rows = await db.shorts.comments.get(postId);
       setComments(rows);
+      // Load reactions for all fetched comments
+      const ids = rows.map((r) => r.id);
+      if (ids.length) {
+        db.shorts.reactions.getForComments(ids)
+          .then((rxRows) => setReactions(buildReactionsMap(rxRows, ids, user?.id)))
+          .catch(() => {});
+      }
     } catch {
     } finally {
       setLoading(false);
     }
-  }, [postId]);
+  }, [postId, user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Reactions ────────────────────────────────────────────────────────────────
+  const handleReact = useCallback(async (commentId: string, emoji: string) => {
+    if (!user) return;
+    // Optimistic update
+    setReactions((prev) => {
+      const next = new Map(prev);
+      const cur = next.get(commentId) ?? REACTION_EMOJIS.map((e) => ({ emoji: e, count: 0, mine: false }));
+      next.set(commentId, cur.map((r) => {
+        if (r.emoji !== emoji) return r;
+        return r.mine
+          ? { ...r, count: Math.max(0, r.count - 1), mine: false }
+          : { ...r, count: r.count + 1, mine: true };
+      }));
+      return next;
+    });
+    // Persist to Supabase (fire-and-forget, optimistic is enough)
+    db.shorts.reactions.toggle(commentId, user.id, emoji).catch(() => {});
+  }, [user]);
 
   // ── Mention candidates ──────────────────────────────────────────────────────
   const mentionCandidates = useMemo<MentionCandidate[]>(() => {
@@ -689,9 +758,11 @@ export default function ShortsCommentsSheet({ visible, onClose, postId, tmdbId, 
                 comment={item}
                 currentUserId={user?.id}
                 followed={followed.has(item.user_id)}
+                reactions={reactions.get(item.id) ?? REACTION_EMOJIS.map((e) => ({ emoji: e, count: 0, mine: false }))}
                 onDelete={handleDelete}
                 onFollow={handleFollow}
                 onAvatarPress={(c) => setProfileComment(c)}
+                onReact={handleReact}
               />
             )}
             scrollEnabled
@@ -804,6 +875,32 @@ const cs = StyleSheet.create({
   followBtnActive: { borderColor: RED, backgroundColor: "rgba(229,9,20,0.12)" },
   followBtnText: { color: "rgba(255,255,255,0.75)", fontSize: 11, fontWeight: "600" },
   followBtnTextActive: { color: RED },
+  reactionBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 5,
+    paddingLeft: 4,
+  },
+  reactionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.10)",
+    backgroundColor: "rgba(255,255,255,0.04)",
+  },
+  reactionBtnActive: {
+    borderColor: "rgba(229,9,20,0.5)",
+    backgroundColor: "rgba(229,9,20,0.10)",
+  },
+  reactionEmoji: { fontSize: 14, lineHeight: 18 },
+  reactionCount: { fontSize: 11, color: "rgba(255,255,255,0.5)", fontWeight: "600" },
+  reactionCountActive: { color: RED },
+  reactionSep: { flex: 1 },
   mentionDropdown: {
     backgroundColor: "#1a1a1a",
     borderTopWidth: StyleSheet.hairlineWidth,
