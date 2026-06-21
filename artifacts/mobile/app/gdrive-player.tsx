@@ -18,7 +18,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
 import { Feather } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { parseEpisodeInfo, getStreamUrl, getProxiedStreamUrl } from "@/lib/gdrive-index";
+import { parseEpisodeInfo, getStreamUrl } from "@/lib/gdrive-index";
 
 const RED = "#e50914";
 const HIDE_DELAY = 4000;
@@ -92,10 +92,13 @@ export default function GdrivePlayer() {
     link: params.fileLink ?? "",
   };
 
-  const streamUrl = getProxiedStreamUrl(getStreamUrl({
+  // Drive signed URLs (download.aspx?file=...&expiry=...&mac=...) support Range requests
+  // natively and work directly from mobile — no server proxy needed (server IPs are blocked
+  // by the Cloudflare Worker with error 1102).
+  const streamUrl = getStreamUrl({
     ...currentItem,
     id: "", driveId: "", mimeType: "", modifiedTime: "", kind: "drive#file",
-  } as any));
+  } as any);
 
   const ep = parseEpisodeInfo(currentItem.name);
   const videoRef = useRef<Video>(null);
