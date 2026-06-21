@@ -28,7 +28,7 @@
     },
     "android": {
       "package": "com.netplay.app",
-      "versionCode": 12,
+      "versionCode": 13,
       "usesCleartextTraffic": true,
       "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
