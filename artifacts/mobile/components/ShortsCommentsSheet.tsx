@@ -4,7 +4,6 @@ import React, {
 import {
   Animated,
   Dimensions,
-  FlatList,
   Keyboard,
   Modal,
   Platform,
@@ -370,8 +369,9 @@ export default function ShortsCommentsSheet({ visible, onClose, postId, tmdbId, 
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const selectedMentions = useRef<Map<string, MentionCandidate>>(new Map());
 
-  const inputRef = useRef<TextInput>(null);
-  const listRef  = useRef<FlatList>(null);
+  const inputRef  = useRef<TextInput>(null);
+  const listRef   = useRef<ScrollView>(null);
+  const oldestFirst = useMemo(() => [...comments].reverse(), [comments]);
 
   // ── Keyboard listeners — move sheet up when keyboard opens ──────────────────
   useEffect(() => {
@@ -387,7 +387,7 @@ export default function ShortsCommentsSheet({ visible, onClose, postId, tmdbId, 
           Animated.timing(sheetBottom, { toValue: isOpen ? kbHeight : 0, duration: 200, useNativeDriver: false }),
           Animated.timing(sheetHeight, { toValue: targetHeight, duration: 200, useNativeDriver: false }),
         ]).start(() => {
-          if (isOpen) listRef.current?.scrollToOffset({ offset: 0, animated: false });
+          if (isOpen) listRef.current?.scrollToEnd({ animated: false });
         });
       };
       vv.addEventListener("resize", onResize);
@@ -408,7 +408,7 @@ export default function ShortsCommentsSheet({ visible, onClose, postId, tmdbId, 
         Animated.timing(sheetBottom, { toValue: kb, duration: dur, useNativeDriver: false }),
         Animated.timing(sheetHeight, { toValue: Math.max(240, SHEET_HEIGHT - kb), duration: dur, useNativeDriver: false }),
       ]).start(() => {
-        listRef.current?.scrollToOffset({ offset: 0, animated: false });
+        listRef.current?.scrollToEnd({ animated: false });
       });
     });
     const onHide = Keyboard.addListener(hideEvent, () => {
@@ -555,7 +555,7 @@ export default function ShortsCommentsSheet({ visible, onClose, postId, tmdbId, 
     setMentionQuery(null);
     setSending(true);
     inputRef.current?.blur();
-    listRef.current?.scrollToOffset({ offset: 0, animated: true });
+    listRef.current?.scrollToEnd({ animated: true });
 
     try {
       await db.shorts.comments.add(newComment);
@@ -655,17 +655,19 @@ export default function ShortsCommentsSheet({ visible, onClose, postId, tmdbId, 
             </Pressable>
           </View>
 
-          {/* Comment list — inverted so newest appears at bottom (chat style) */}
-          <FlatList
+          {/* Comment list — ScrollView with oldest-first order; scrollToEnd puts newest at bottom */}
+          <ScrollView
             ref={listRef}
-            data={comments}
-            keyExtractor={(c) => c.id}
-            inverted
+            style={[cs.list, Platform.OS === "web" ? ({ overflow: "scroll" } as any) : undefined]}
             contentContainerStyle={cs.listContent}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
-            ListEmptyComponent={
-              <View style={[cs.empty, { transform: [{ scaleY: -1 }] }]}>
+            onContentSizeChange={() =>
+              listRef.current?.scrollToEnd({ animated: false })
+            }
+          >
+            {oldestFirst.length === 0 ? (
+              <View style={cs.empty}>
                 {loading ? (
                   <Feather name="loader" size={24} color="rgba(255,255,255,0.3)" />
                 ) : (
@@ -675,22 +677,22 @@ export default function ShortsCommentsSheet({ visible, onClose, postId, tmdbId, 
                   </>
                 )}
               </View>
-            }
-            renderItem={({ item }) => (
-              <CommentItem
-                comment={item}
-                currentUserId={user?.id}
-                followed={followed.has(item.user_id)}
-                reactions={reactions.get(item.id) ?? REACTION_EMOJIS.map((e) => ({ emoji: e, count: 0, mine: false }))}
-                onDelete={handleDelete}
-                onFollow={handleFollow}
-                onAvatarPress={(c) => setProfileComment(c)}
-                onReact={handleReact}
-              />
+            ) : (
+              oldestFirst.map((item) => (
+                <CommentItem
+                  key={item.id}
+                  comment={item}
+                  currentUserId={user?.id}
+                  followed={followed.has(item.user_id)}
+                  reactions={reactions.get(item.id) ?? REACTION_EMOJIS.map((e) => ({ emoji: e, count: 0, mine: false }))}
+                  onDelete={handleDelete}
+                  onFollow={handleFollow}
+                  onAvatarPress={(c) => setProfileComment(c)}
+                  onReact={handleReact}
+                />
+              ))
             )}
-            scrollEnabled
-            style={[cs.list, Platform.OS === "web" ? ({ overflow: "scroll" } as any) : undefined]}
-          />
+          </ScrollView>
 
           {/* @mention dropdown — above the input */}
           {filteredMentions.length > 0 && (
