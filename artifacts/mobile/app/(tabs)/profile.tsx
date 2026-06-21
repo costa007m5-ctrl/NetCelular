@@ -866,7 +866,7 @@ export default function ProfileScreen() {
             {mostWatched && (
               <Pressable
                 onPress={() => navigateToDetail(mostWatched.tmdb_id, mostWatched.type, mostWatched.title)}
-                style={{ flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: colors.border + "20", borderRadius: 12, padding: 12 }}
+                style={{ flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: colors.border + "20", borderRadius: 12, padding: 12, marginBottom: 10 }}
               >
                 {mostWatched.poster_path ? (
                   <Image
@@ -892,6 +892,51 @@ export default function ProfileScreen() {
                 <Feather name="chevron-right" size={16} color={colors.border} />
               </Pressable>
             )}
+
+            {/* Genre breakdown */}
+            {learnedPrefs && learnedPrefs.genreScores.length > 0 && (() => {
+              const top = learnedPrefs.genreScores.slice(0, 6);
+              const maxScore = top[0].score;
+              const GENRE_COLORS = ["#e50914","#f59e0b","#0ea5e9","#a78bfa","#4ade80","#ec4899"];
+              return (
+                <View style={{ backgroundColor: colors.border + "18", borderRadius: 14, padding: 14, gap: 10 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 2 }}>
+                    <Feather name="pie-chart" size={13} color={colors.mutedForeground} />
+                    <Text style={{ color: colors.foreground, fontSize: 12, fontWeight: "700", letterSpacing: 0.4 }}>GÊNEROS FAVORITOS</Text>
+                    <Text style={{ color: colors.mutedForeground, fontSize: 11, marginLeft: "auto" }}>baseado no histórico</Text>
+                  </View>
+                  {top.map((g, i) => {
+                    const pct = maxScore > 0 ? (g.score / maxScore) * 100 : 0;
+                    const color = GENRE_COLORS[i % GENRE_COLORS.length];
+                    return (
+                      <View key={g.id} style={{ gap: 4 }}>
+                        <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+                          <Text style={{ color: colors.foreground, fontSize: 12, fontWeight: "600" }}>{g.name}</Text>
+                          <Text style={{ color: colors.mutedForeground, fontSize: 11 }}>
+                            {g.count} título{g.count !== 1 ? "s" : ""}
+                          </Text>
+                        </View>
+                        <View style={{ height: 6, backgroundColor: colors.border + "40", borderRadius: 3, overflow: "hidden" }}>
+                          <View
+                            style={{
+                              height: 6,
+                              width: `${Math.round(pct)}%` as any,
+                              backgroundColor: color,
+                              borderRadius: 3,
+                            }}
+                          />
+                        </View>
+                      </View>
+                    );
+                  })}
+                  {learnedPrefs.genreScores.length > 6 && (
+                    <Text style={{ color: colors.mutedForeground, fontSize: 11, textAlign: "center", marginTop: 2 }}>
+                      + {learnedPrefs.genreScores.length - 6} outros gêneros
+                    </Text>
+                  )}
+                </View>
+              );
+            })()}
           </View>
         )}
 
