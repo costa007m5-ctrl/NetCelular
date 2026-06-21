@@ -37,6 +37,27 @@ export type ContentOverride = {
   updated_at?: string;
 };
 
+export type ShortsCommentRow = {
+  id: string;
+  post_id: string;
+  tmdb_id: number;
+  user_id: string;
+  user_name: string;
+  avatar_letter: string;
+  avatar_url?: string | null;
+  content: string;
+  created_at: string;
+};
+
+export type ShortsFollow = {
+  follower_id: string;
+  followed_id: string;
+  followed_name: string;
+  followed_avatar_letter: string;
+  followed_avatar_url?: string | null;
+  created_at?: string;
+};
+
 export type DbUser = {
   id?: string;
   email: string;
@@ -786,6 +807,98 @@ export const db = {
 
     delete: async (userId: string): Promise<void> => {
       await supabase.from("user_ai_profile").delete().eq("user_id", userId);
+    },
+  },
+
+  shorts: {
+    comments: {
+      get: async (postId: string, limit = 80): Promise<ShortsCommentRow[]> => {
+        const { data } = await supabase
+          .from("shorts_comments")
+          .select("*")
+          .eq("post_id", postId)
+          .order("created_at", { ascending: false })
+          .limit(limit);
+        return (data ?? []) as ShortsCommentRow[];
+      },
+      add: async (comment: ShortsCommentRow): Promise<{ error?: string }> => {
+        const { error } = await supabase.from("shorts_comments").insert(comment);
+        return error ? { error: error.message } : {};
+      },
+      delete: async (id: string, userId: string): Promise<{ error?: string }> => {
+        const { error } = await supabase
+          .from("shorts_comments")
+          .delete()
+          .eq("id", id)
+          .eq("user_id", userId);
+        return error ? { error: error.message } : {};
+      },
+      countByUser: async (userId: string): Promise<number> => {
+        const { count } = await supabase
+          .from("shorts_comments")
+          .select("*", { count: "exact", head: true })
+          .eq("user_id", userId);
+        return count ?? 0;
+      },
+    },
+    follows: {
+      follow: async (
+        followerId: string, followedId: string,
+        followedName: string, followedAvatarLetter: string,
+        followedAvatarUrl?: string | null,
+      ): Promise<{ error?: string }> => {
+        const { error } = await supabase
+          .from("shorts_follows")
+          .upsert(
+            {
+              follower_id: followerId,
+              followed_id: followedId,
+              followed_name: followedName,
+              followed_avatar_letter: followedAvatarLetter,
+              followed_avatar_url: followedAvatarUrl ?? null,
+              created_at: new Date().toISOString(),
+            },
+            { onConflict: "follower_id,followed_id" }
+          );
+        return error ? { error: error.message } : {};
+      },
+      unfollow: async (followerId: string, followedId: string): Promise<{ error?: string }> => {
+        const { error } = await supabase
+          .from("shorts_follows")
+          .delete()
+          .eq("follower_id", followerId)
+          .eq("followed_id", followedId);
+        return error ? { error: error.message } : {};
+      },
+      getFollowing: async (followerId: string): Promise<ShortsFollow[]> => {
+        const { data } = await supabase
+          .from("shorts_follows")
+          .select("*")
+          .eq("follower_id", followerId)
+          .order("created_at", { ascending: false });
+        return (data ?? []) as ShortsFollow[];
+      },
+      getFollowingIds: async (followerId: string): Promise<Set<string>> => {
+        const { data } = await supabase
+          .from("shorts_follows")
+          .select("followed_id")
+          .eq("follower_id", followerId);
+        return new Set(((data ?? []) as { followed_id: string }[]).map((r) => r.followed_id));
+      },
+      followerCount: async (followedId: string): Promise<number> => {
+        const { count } = await supabase
+          .from("shorts_follows")
+          .select("*", { count: "exact", head: true })
+          .eq("followed_id", followedId);
+        return count ?? 0;
+      },
+      followingCount: async (followerId: string): Promise<number> => {
+        const { count } = await supabase
+          .from("shorts_follows")
+          .select("*", { count: "exact", head: true })
+          .eq("follower_id", followerId);
+        return count ?? 0;
+      },
     },
   },
 };

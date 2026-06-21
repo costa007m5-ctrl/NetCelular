@@ -12,7 +12,6 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  TouchableWithoutFeedback,
   View,
 } from "react-native";
 import { Image } from "expo-image";
@@ -21,7 +20,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getApiBase } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import { db } from "@/lib/supabase";
+import { db, type ShortsCommentRow } from "@/lib/supabase";
 import { sendPushViaServer } from "@/lib/notifications";
 
 const { height: H } = Dimensions.get("window");
@@ -29,17 +28,7 @@ const SHEET_HEIGHT = H * 0.72;
 const RED = "#e50914";
 const ACTIVE_PROFILE_KEY = "netplay_active_profile_v2";
 
-export interface ShortComment {
-  id: string;
-  post_id: string;
-  tmdb_id: number;
-  user_id: string;
-  user_name: string;
-  avatar_letter: string;
-  avatar_url?: string | null;
-  content: string;
-  created_at: string;
-}
+export type ShortComment = ShortsCommentRow;
 
 interface MentionCandidate {
   user_id: string;
@@ -206,7 +195,7 @@ function CommentItem({
   currentUserId?: string;
   followed: boolean;
   onDelete: (id: string) => void;
-  onFollow: (userId: string, userName: string) => void;
+  onFollow: (comment: ShortComment) => void;
   onAvatarPress: (comment: ShortComment) => void;
 }) {
   const isOwn = comment.user_id === currentUserId;
@@ -241,7 +230,7 @@ function CommentItem({
       ) : (
         <Pressable
           style={[cs.followBtn, followed && cs.followBtnActive]}
-          onPress={() => onFollow(comment.user_id, comment.user_name)}
+          onPress={() => onFollow(comment)}
         >
           <Text style={[cs.followBtnText, followed && cs.followBtnTextActive]}>
             {followed ? "Seguindo" : "Seguir"}
@@ -346,15 +335,20 @@ export default function ShortsCommentsSheet({ visible, onClose, postId, tmdbId, 
     }
   }, [visible]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Load follow state from Supabase on open ──────────────────────────────────
+  useEffect(() => {
+    if (!visible || !user) return;
+    db.shorts.follows.getFollowingIds(user.id)
+      .then((ids) => setFollowed(ids))
+      .catch(() => {});
+  }, [visible, user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Fetch ───────────────────────────────────────────────────────────────────
   const fetchComments = useCallback(async () => {
     setLoading(true);
     try {
-      const base = getApiBase();
-      const res = await fetch(`${base}/shorts/comments?postId=${encodeURIComponent(postId)}&limit=80`);
-      if (!res.ok) return;
-      const data = await res.json() as { ok: boolean; comments: ShortComment[] };
-      if (data.ok) setComments(data.comments);
+      const rows = await db.shorts.comments.get(postId);
+      setComments(rows);
     } catch {
     } finally {
       setLoading(false);
@@ -403,8 +397,8 @@ export default function ShortsCommentsSheet({ visible, onClose, postId, tmdbId, 
     const avatarUrl = activeAvatarUrl ?? (user.avatarUrl ?? null);
     const avatarLetter = activeAvatarLetter || user.avatarLetter;
 
-    const optimistic: ShortComment = {
-      id: `opt-${Date.now()}`,
+    const newComment: ShortComment = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       post_id: postId,
       tmdb_id: tmdbId,
       user_id: user.id,
@@ -416,7 +410,7 @@ export default function ShortsCommentsSheet({ visible, onClose, postId, tmdbId, 
     };
 
     const contentToSend = text.trim();
-    setComments((prev) => [optimistic, ...prev]);
+    setComments((prev) => [newComment, ...prev]);
     setText("");
     setMentionQuery(null);
     setSending(true);
@@ -424,23 +418,7 @@ export default function ShortsCommentsSheet({ visible, onClose, postId, tmdbId, 
     listRef.current?.scrollToOffset({ offset: 0, animated: true });
 
     try {
-      const base = getApiBase();
-      const res = await fetch(`${base}/shorts/comments`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          postId, tmdbId,
-          userId: user.id,
-          userName: user.name,
-          avatarLetter: avatarLetter,
-          avatarUrl: avatarUrl,
-          content: contentToSend,
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json() as { ok: boolean; comment: ShortComment };
-        if (data.ok) setComments((prev) => prev.map((c) => c.id === optimistic.id ? data.comment : c));
-      }
+      await db.shorts.comments.add(newComment);
 
       // Push for @mentions
       const mentionMatches = [...contentToSend.matchAll(/@([^\s@]+(?:\s[^\s@]+)*)/g)];
@@ -480,19 +458,26 @@ export default function ShortsCommentsSheet({ visible, onClose, postId, tmdbId, 
     if (!user) return;
     setComments((prev) => prev.filter((c) => c.id !== id));
     try {
-      const base = getApiBase();
-      await fetch(`${base}/shorts/comments/${id}?userId=${encodeURIComponent(user.id)}`, { method: "DELETE" });
+      await db.shorts.comments.delete(id, user.id);
     } catch {}
   }, [user]);
 
   // ── Follow ──────────────────────────────────────────────────────────────────
-  const handleFollow = useCallback((userId: string) => {
+  const handleFollow = useCallback((comment: ShortComment) => {
+    if (!user) return;
+    const uid = comment.user_id;
     setFollowed((prev) => {
       const next = new Set(prev);
-      next.has(userId) ? next.delete(userId) : next.add(userId);
+      if (next.has(uid)) {
+        next.delete(uid);
+        db.shorts.follows.unfollow(user.id, uid).catch(() => {});
+      } else {
+        next.add(uid);
+        db.shorts.follows.follow(user.id, uid, comment.user_name, comment.avatar_letter, comment.avatar_url).catch(() => {});
+      }
       return next;
     });
-  }, []);
+  }, [user]);
 
   if (!internalVisible) return null;
 
@@ -501,14 +486,17 @@ export default function ShortsCommentsSheet({ visible, onClose, postId, tmdbId, 
 
   return (
     <Modal transparent animationType="none" visible={internalVisible} onRequestClose={onClose} statusBarTranslucent>
-      <View style={{ flex: 1 }}>
-        {/* Backdrop */}
-        <TouchableWithoutFeedback onPress={onClose}>
-          <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.55)", opacity: backdropAnim }]} />
-        </TouchableWithoutFeedback>
+      {/* Backdrop — Pressable so it closes the sheet; pointerEvents="box-none" lets
+          scroll events on the sheet pass through on web */}
+      <Animated.View
+        style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.55)", opacity: backdropAnim }]}
+        pointerEvents="box-none"
+      >
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+      </Animated.View>
 
-        {/* Sheet — bottom animates up when keyboard opens */}
-        <Animated.View style={[cs.sheet, { bottom: sheetBottom, transform: [{ translateY: slideAnim }] }]}>
+      {/* Sheet — bottom animates up when keyboard opens */}
+      <Animated.View style={[cs.sheet, { bottom: sheetBottom, transform: [{ translateY: slideAnim }] }]}>
           {/* Handle */}
           <View style={cs.handleWrap} pointerEvents="box-none">
             <View style={cs.handle} />
@@ -554,10 +542,12 @@ export default function ShortsCommentsSheet({ visible, onClose, postId, tmdbId, 
                 currentUserId={user?.id}
                 followed={followed.has(item.user_id)}
                 onDelete={handleDelete}
-                onFollow={(uid) => handleFollow(uid)}
+                onFollow={handleFollow}
                 onAvatarPress={(c) => setProfileComment(c)}
               />
             )}
+            scrollEnabled
+            style={[cs.list, Platform.OS === "web" ? ({ overflow: "scroll" } as any) : undefined]}
           />
 
           {/* @mention dropdown — above the input */}
@@ -601,16 +591,15 @@ export default function ShortsCommentsSheet({ visible, onClose, postId, tmdbId, 
           </View>
         </Animated.View>
 
-        {/* Profile mini-panel — rendered inside Modal so it's above the sheet */}
-        {profileComment && (
-          <ProfilePanel
-            comment={profileComment}
-            followed={followed.has(profileComment.user_id)}
-            onFollow={() => handleFollow(profileComment.user_id)}
-            onClose={() => setProfileComment(null)}
-          />
-        )}
-      </View>
+      {/* Profile mini-panel — rendered above the sheet */}
+      {profileComment && (
+        <ProfilePanel
+          comment={profileComment}
+          followed={followed.has(profileComment.user_id)}
+          onFollow={() => handleFollow(profileComment)}
+          onClose={() => setProfileComment(null)}
+        />
+      )}
     </Modal>
   );
 }

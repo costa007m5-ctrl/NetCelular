@@ -25,7 +25,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useColors } from "@/hooks/useColors";
 import { useAuth } from "@/lib/auth-context";
-import { supabase, db, isSupabaseConfigured, type DbUserSettings } from "@/lib/supabase";
+import { supabase, db, isSupabaseConfigured, type DbUserSettings, type ShortsFollow } from "@/lib/supabase";
 import { useTheme } from "@/lib/theme-context";
 import {
   getSettings,
@@ -226,6 +226,8 @@ export default function ProfileScreen() {
   const [behaviorProfile, setBehaviorProfile] = useState<BehaviorProfile | null>(null);
 
   const [pickerConfig, setPickerConfig] = useState<{ key: keyof UserSettings; title: string; options: string[] } | null>(null);
+  const [following, setFollowing] = useState<ShortsFollow[]>([]);
+  const [showFollowingModal, setShowFollowingModal] = useState(false);
 
   const [editName, setEditName] = useState("");
   const [currentPw, setCurrentPw] = useState("");
@@ -257,6 +259,12 @@ export default function ProfileScreen() {
 
     const localSettings = await getSettings();
     setSettings(localSettings);
+
+    if (user?.id && isSupabaseConfigured) {
+      db.shorts.follows.getFollowing(user.id)
+        .then((list) => setFollowing(list))
+        .catch(() => {});
+    }
 
     if (user?.id && isSupabaseConfigured) {
       const [progress, watchlistData, dbSettings] = await Promise.all([
@@ -942,6 +950,14 @@ export default function ProfileScreen() {
 
         {/* ── COMUNIDADE ──────────────────────────────────── */}
         <Section title="COMUNIDADE">
+          {following.length > 0 && (
+            <Row
+              icon="user-check"
+              label="Seguindo"
+              value={`${following.length} pessoa${following.length !== 1 ? "s" : ""}`}
+              onPress={() => setShowFollowingModal(true)}
+            />
+          )}
           <Row icon="share-2" label="Compartilhar Perfil" onPress={handleShare} />
           <Row icon="film" label="Shorts Compartilhados" onPress={() => router.push("/shorts-shares")} />
           <Row icon="user-plus" label="Convidar Amigos" onPress={handleInvite} />
@@ -1324,6 +1340,55 @@ export default function ProfileScreen() {
             </Pressable>
           </View>
         )}
+      </ModalSheet>
+
+      {/* ── MODAL: SEGUINDO ──────────────────────────────── */}
+      <ModalSheet visible={showFollowingModal} onClose={() => setShowFollowingModal(false)} title={`Seguindo (${following.length})`}>
+        <ScrollView style={{ maxHeight: 440 }} showsVerticalScrollIndicator={false}>
+          {following.length === 0 ? (
+            <View style={{ alignItems: "center", paddingVertical: 40, gap: 10 }}>
+              <Feather name="users" size={32} color={colors.mutedForeground} />
+              <Text style={{ color: colors.mutedForeground, fontSize: 14 }}>Você ainda não segue ninguém</Text>
+            </View>
+          ) : (
+            following.map((f) => {
+              const letter = f.followed_avatar_letter;
+              const bubbleColor = ["#6d28d9","#0ea5e9","#f59e0b","#10b981",RED,"#ec4899"][letter.charCodeAt(0) % 6];
+              return (
+                <View
+                  key={f.followed_id}
+                  style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 12, gap: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border + "40" }}
+                >
+                  {f.followed_avatar_url ? (
+                    <Image source={{ uri: f.followed_avatar_url }} style={{ width: 42, height: 42, borderRadius: 21 }} contentFit="cover" />
+                  ) : (
+                    <View style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: bubbleColor, alignItems: "center", justifyContent: "center" }}>
+                      <Text style={{ color: "#fff", fontSize: 18, fontWeight: "700" }}>{letter.toUpperCase()}</Text>
+                    </View>
+                  )}
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: colors.foreground, fontSize: 15, fontWeight: "600" }}>{f.followed_name}</Text>
+                    {f.created_at && (
+                      <Text style={{ color: colors.mutedForeground, fontSize: 11, marginTop: 1 }}>
+                        Seguindo desde {new Date(f.created_at).toLocaleDateString("pt-BR", { month: "short", year: "numeric" })}
+                      </Text>
+                    )}
+                  </View>
+                  <Pressable
+                    onPress={async () => {
+                      if (!user) return;
+                      await db.shorts.follows.unfollow(user.id, f.followed_id).catch(() => {});
+                      setFollowing((prev) => prev.filter((x) => x.followed_id !== f.followed_id));
+                    }}
+                    style={{ paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, borderWidth: 1, borderColor: RED, backgroundColor: `${RED}18` }}
+                  >
+                    <Text style={{ color: RED, fontSize: 12, fontWeight: "700" }}>Deixar de seguir</Text>
+                  </Pressable>
+                </View>
+              );
+            })
+          )}
+        </ScrollView>
       </ModalSheet>
 
       {/* ── MODAL: SOBRE ────────────────────────────────── */}
