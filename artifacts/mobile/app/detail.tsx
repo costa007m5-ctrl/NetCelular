@@ -4120,8 +4120,13 @@ export default function DetailScreen() {
                             if (!srcSettings.drive) return undefined;
                             // 1. Exact per-episode Drive registry entry
                             if (driveEpForRow) return () => goToDrivePlayer(driveEpForRow, selectedSeason, ep.episode_number, anyFlixUrl);
-                            // 2. Drive folder scan episode map (gdrive-player with playlist)
-                            if (driveEpisodeMap[ep.episode_number]) return () => goToDriveEpisode(ep);
+                            // 2. Drive folder scan episode map — use same r2-player as main button,
+                            //    with season/episode override so it navigates to the right file.
+                            //    Falls back to gdrive-player only when no registry item exists at all.
+                            if (driveEpisodeMap[ep.episode_number]) {
+                              if (anyDriveItem) return () => goToDrivePlayer(anyDriveItem, selectedSeason, ep.episode_number, anyFlixUrl);
+                              return () => goToDriveEpisode(ep);
+                            }
                             // 3. Series-level Drive entry — player will navigate to episode via override
                             if (anyDriveItem) return () => goToDrivePlayer(anyDriveItem, selectedSeason, ep.episode_number, anyFlixUrl);
                             return undefined;
