@@ -1311,6 +1311,7 @@ function ShortVideoCard({
       <ShortsCommentsSheet
         visible={commentsOpen}
         onClose={() => setCommentsOpen(false)}
+        postId={item.id}
         tmdbId={item.tmdbId}
         title={item.title}
       />

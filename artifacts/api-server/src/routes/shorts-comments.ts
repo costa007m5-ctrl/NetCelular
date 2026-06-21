@@ -6,6 +6,7 @@ const router = Router();
 
 interface Comment {
   id: string;
+  post_id: string;
   tmdb_id: number;
   user_id: string;
   user_name: string;
@@ -15,41 +16,42 @@ interface Comment {
   created_at: string;
 }
 
-// In-memory fallback when D1 is not configured
-const memStore = new Map<number, Comment[]>();
+// In-memory fallback when D1 is not configured — keyed by post_id (unique per feed slot)
+const memStore = new Map<string, Comment[]>();
 
-function memGet(tmdbId: number): Comment[] {
-  return (memStore.get(tmdbId) ?? []).slice().sort(
+function memGet(postId: string): Comment[] {
+  return (memStore.get(postId) ?? []).slice().sort(
     (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
   );
 }
 
 function memAdd(c: Comment): void {
-  const list = memStore.get(c.tmdb_id) ?? [];
+  const list = memStore.get(c.post_id) ?? [];
   list.push(c);
-  memStore.set(c.tmdb_id, list);
+  memStore.set(c.post_id, list);
 }
 
 function memDelete(id: string, userId: string): boolean {
-  for (const [tmdbId, list] of memStore.entries()) {
+  for (const [postId, list] of memStore.entries()) {
     const idx = list.findIndex((c) => c.id === id && c.user_id === userId);
     if (idx !== -1) {
       list.splice(idx, 1);
-      memStore.set(tmdbId, list);
+      memStore.set(postId, list);
       return true;
     }
   }
   return false;
 }
 
-// ── Init D1 table (runs once at startup if D1 is configured) ──────────────────
+// ── Init D1 table ──────────────────────────────────────────────────────────────
 async function ensureTable(): Promise<void> {
   if (!isD1Configured()) return;
   try {
     await d1Run(`
       CREATE TABLE IF NOT EXISTS shorts_comments (
         id TEXT PRIMARY KEY,
-        tmdb_id INTEGER NOT NULL,
+        post_id TEXT NOT NULL,
+        tmdb_id INTEGER NOT NULL DEFAULT 0,
         user_id TEXT NOT NULL,
         user_name TEXT NOT NULL,
         avatar_letter TEXT NOT NULL DEFAULT 'U',
@@ -58,8 +60,9 @@ async function ensureTable(): Promise<void> {
         created_at TEXT NOT NULL
       )
     `);
-    await d1Run(`CREATE INDEX IF NOT EXISTS idx_shorts_comments_tmdb ON shorts_comments(tmdb_id)`);
-    // Migration: add avatar_url column if it doesn't exist
+    await d1Run(`CREATE INDEX IF NOT EXISTS idx_sc_post ON shorts_comments(post_id)`);
+    // Migrations for existing deployments
+    await d1Run(`ALTER TABLE shorts_comments ADD COLUMN IF NOT EXISTS post_id TEXT NOT NULL DEFAULT ''`).catch(() => {});
     await d1Run(`ALTER TABLE shorts_comments ADD COLUMN IF NOT EXISTS avatar_url TEXT`).catch(() => {});
   } catch (e) {
     logger.warn({ err: e }, "shorts-comments: could not ensure D1 table");
@@ -68,11 +71,11 @@ async function ensureTable(): Promise<void> {
 
 ensureTable().catch(() => {});
 
-// ── GET /shorts/comments?tmdbId=X&limit=50 ────────────────────────────────────
+// ── GET /shorts/comments?postId=movie-123-s0&limit=50 ─────────────────────────
 router.get("/shorts/comments", async (req, res) => {
-  const tmdbId = Number(req.query["tmdbId"]);
-  if (!tmdbId || isNaN(tmdbId)) {
-    res.status(400).json({ error: "tmdbId obrigatório" });
+  const postId = String(req.query["postId"] ?? "").trim();
+  if (!postId) {
+    res.status(400).json({ error: "postId obrigatório" });
     return;
   }
   const limit = Math.min(100, Math.max(1, Number(req.query["limit"]) || 50));
@@ -80,16 +83,16 @@ router.get("/shorts/comments", async (req, res) => {
   try {
     if (isD1Configured()) {
       const rows = await d1Query<Comment>(
-        `SELECT id, tmdb_id, user_id, user_name, avatar_letter, avatar_url, content, created_at
+        `SELECT id, post_id, tmdb_id, user_id, user_name, avatar_letter, avatar_url, content, created_at
          FROM shorts_comments
-         WHERE tmdb_id = ?
+         WHERE post_id = ?
          ORDER BY created_at DESC
          LIMIT ?`,
-        [tmdbId, limit]
+        [postId, limit]
       );
       res.json({ ok: true, comments: rows });
     } else {
-      res.json({ ok: true, comments: memGet(tmdbId).slice(0, limit) });
+      res.json({ ok: true, comments: memGet(postId).slice(0, limit) });
     }
   } catch (e: any) {
     logger.error({ err: e }, "shorts-comments GET error");
@@ -99,10 +102,10 @@ router.get("/shorts/comments", async (req, res) => {
 
 // ── POST /shorts/comments ─────────────────────────────────────────────────────
 router.post("/shorts/comments", async (req, res) => {
-  const { tmdbId, userId, userName, avatarLetter, avatarUrl, content } = req.body ?? {};
+  const { postId, tmdbId, userId, userName, avatarLetter, avatarUrl, content } = req.body ?? {};
 
-  if (!tmdbId || !userId || !content?.trim()) {
-    res.status(400).json({ error: "tmdbId, userId e content são obrigatórios" });
+  if (!postId || !userId || !content?.trim()) {
+    res.status(400).json({ error: "postId, userId e content são obrigatórios" });
     return;
   }
   if (content.trim().length > 500) {
@@ -112,7 +115,8 @@ router.post("/shorts/comments", async (req, res) => {
 
   const comment: Comment = {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    tmdb_id: Number(tmdbId),
+    post_id: String(postId),
+    tmdb_id: Number(tmdbId ?? 0),
     user_id: String(userId),
     user_name: String(userName ?? "Usuário").slice(0, 60),
     avatar_letter: String(avatarLetter ?? "U").slice(0, 1).toUpperCase(),
@@ -124,9 +128,9 @@ router.post("/shorts/comments", async (req, res) => {
   try {
     if (isD1Configured()) {
       await d1Run(
-        `INSERT INTO shorts_comments (id, tmdb_id, user_id, user_name, avatar_letter, avatar_url, content, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [comment.id, comment.tmdb_id, comment.user_id, comment.user_name, comment.avatar_letter, comment.avatar_url, comment.content, comment.created_at]
+        `INSERT INTO shorts_comments (id, post_id, tmdb_id, user_id, user_name, avatar_letter, avatar_url, content, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [comment.id, comment.post_id, comment.tmdb_id, comment.user_id, comment.user_name, comment.avatar_letter, comment.avatar_url, comment.content, comment.created_at]
       );
     } else {
       memAdd(comment);

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Animated,
@@ -19,6 +19,8 @@ import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getApiBase } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import { db } from "@/lib/supabase";
+import { sendPushViaServer } from "@/lib/notifications";
 
 const { height: H } = Dimensions.get("window");
 const SHEET_HEIGHT = H * 0.72;
@@ -26,6 +28,7 @@ const RED = "#e50914";
 
 export interface ShortComment {
   id: string;
+  post_id: string;
   tmdb_id: number;
   user_id: string;
   user_name: string;
@@ -35,9 +38,17 @@ export interface ShortComment {
   created_at: string;
 }
 
+interface MentionCandidate {
+  user_id: string;
+  user_name: string;
+  avatar_letter: string;
+  avatar_url?: string | null;
+}
+
 interface Props {
   visible: boolean;
   onClose: () => void;
+  postId: string;
   tmdbId: number;
   title: string;
 }
@@ -88,7 +99,7 @@ function AvatarBubble({
       </TouchableOpacity>
     );
   }
-  return inner;
+  return <>{inner}</>;
 }
 
 function CommentItem({
@@ -107,6 +118,10 @@ function CommentItem({
   onProfilePress: (comment: ShortComment) => void;
 }) {
   const isOwn = comment.user_id === currentUserId;
+
+  // Highlight @mentions in comment text
+  const parts = comment.content.split(/(@\S+)/g);
+
   return (
     <View style={cs.row}>
       <AvatarBubble
@@ -121,10 +136,17 @@ function CommentItem({
           </TouchableOpacity>
           <Text style={cs.timeAgo}>{timeAgo(comment.created_at)}</Text>
         </View>
-        <Text style={cs.content}>{comment.content}</Text>
+        <Text style={cs.content}>
+          {parts.map((part, i) =>
+            part.startsWith("@") ? (
+              <Text key={i} style={cs.mention}>{part}</Text>
+            ) : (
+              <React.Fragment key={i}>{part}</React.Fragment>
+            )
+          )}
+        </Text>
       </View>
 
-      {/* Follow / Delete actions */}
       {isOwn ? (
         <TouchableOpacity
           onPress={() => onDelete(comment.id)}
@@ -147,22 +169,40 @@ function CommentItem({
   );
 }
 
-export default function ShortsCommentsSheet({ visible, onClose, tmdbId, title }: Props) {
+// ── Mention dropdown row ───────────────────────────────────────────────────────
+function MentionRow({ candidate, onSelect }: { candidate: MentionCandidate; onSelect: (c: MentionCandidate) => void }) {
+  return (
+    <TouchableOpacity style={cs.mentionRow} onPress={() => onSelect(candidate)} activeOpacity={0.7}>
+      <AvatarBubble letter={candidate.avatar_letter} uri={candidate.avatar_url} size={28} />
+      <Text style={cs.mentionRowName}>{candidate.user_name}</Text>
+      <Feather name="at-sign" size={13} color="rgba(255,255,255,0.35)" />
+    </TouchableOpacity>
+  );
+}
+
+// ── Main component ─────────────────────────────────────────────────────────────
+export default function ShortsCommentsSheet({ visible, onClose, postId, tmdbId, title }: Props) {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const slideAnim = useRef(new Animated.Value(SHEET_HEIGHT)).current;
   const backdropAnim = useRef(new Animated.Value(0)).current;
+
   const [comments, setComments] = useState<ShortComment[]>([]);
   const [loading, setLoading] = useState(false);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [internalVisible, setInternalVisible] = useState(false);
-  // Set of user IDs the current user follows (local state only)
   const [followed, setFollowed] = useState<Set<string>>(new Set());
+
+  // @mention state
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  // Map of userName -> { user_id, avatar_letter, avatar_url } for recently selected mentions
+  const selectedMentions = useRef<Map<string, MentionCandidate>>(new Map());
+
   const inputRef = useRef<TextInput>(null);
   const listRef = useRef<FlatList>(null);
 
-  // Animate in/out
+  // ── Animate in/out ───────────────────────────────────────────────────────────
   useEffect(() => {
     if (visible) {
       setInternalVisible(true);
@@ -176,14 +216,17 @@ export default function ShortsCommentsSheet({ visible, onClose, tmdbId, title }:
         Animated.timing(slideAnim, { toValue: SHEET_HEIGHT, duration: 280, useNativeDriver: true }),
         Animated.timing(backdropAnim, { toValue: 0, duration: 240, useNativeDriver: true }),
       ]).start(() => setInternalVisible(false));
+      setMentionQuery(null);
+      setText("");
     }
   }, [visible]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Fetch comments ───────────────────────────────────────────────────────────
   const fetchComments = useCallback(async () => {
     setLoading(true);
     try {
       const base = getApiBase();
-      const res = await fetch(`${base}/shorts/comments?tmdbId=${tmdbId}&limit=80`);
+      const res = await fetch(`${base}/shorts/comments?postId=${encodeURIComponent(postId)}&limit=80`);
       if (!res.ok) return;
       const data = await res.json() as { ok: boolean; comments: ShortComment[] };
       if (data.ok) setComments(data.comments);
@@ -191,13 +234,66 @@ export default function ShortsCommentsSheet({ visible, onClose, tmdbId, title }:
     } finally {
       setLoading(false);
     }
-  }, [tmdbId]);
+  }, [postId]);
 
+  // ── Mention candidates — unique commenters excluding current user ─────────────
+  const mentionCandidates = useMemo<MentionCandidate[]>(() => {
+    const seen = new Set<string>();
+    const result: MentionCandidate[] = [];
+    for (const c of comments) {
+      if (c.user_id === user?.id) continue;
+      if (seen.has(c.user_id)) continue;
+      seen.add(c.user_id);
+      result.push({ user_id: c.user_id, user_name: c.user_name, avatar_letter: c.avatar_letter, avatar_url: c.avatar_url });
+    }
+    return result;
+  }, [comments, user?.id]);
+
+  // ── @mention detection while typing ─────────────────────────────────────────
+  const handleTextChange = useCallback((val: string) => {
+    setText(val);
+
+    // Find last @ in the text that hasn't been closed by a space
+    const atIdx = val.lastIndexOf("@");
+    if (atIdx === -1) {
+      setMentionQuery(null);
+      return;
+    }
+    const afterAt = val.slice(atIdx + 1);
+    // If there's a space after the @query, the mention is complete
+    if (afterAt.includes(" ") && afterAt.trim().length > 0) {
+      setMentionQuery(null);
+      return;
+    }
+    setMentionQuery(afterAt.toLowerCase());
+  }, []);
+
+  // Filtered mention dropdown list
+  const filteredMentions = useMemo(() => {
+    if (mentionQuery === null) return [];
+    return mentionCandidates.filter((c) =>
+      c.user_name.toLowerCase().startsWith(mentionQuery)
+    ).slice(0, 5);
+  }, [mentionCandidates, mentionQuery]);
+
+  // ── Insert mention into text ─────────────────────────────────────────────────
+  const handleSelectMention = useCallback((candidate: MentionCandidate) => {
+    const atIdx = text.lastIndexOf("@");
+    const before = text.slice(0, atIdx);
+    const mention = `@${candidate.user_name} `;
+    setText(before + mention);
+    selectedMentions.current.set(candidate.user_name, candidate);
+    setMentionQuery(null);
+    inputRef.current?.focus();
+  }, [text]);
+
+  // ── Send comment ─────────────────────────────────────────────────────────────
   const handleSend = useCallback(async () => {
     if (!text.trim() || sending || !user) return;
 
     const optimistic: ShortComment = {
       id: `opt-${Date.now()}`,
+      post_id: postId,
       tmdb_id: tmdbId,
       user_id: user.id,
       user_name: user.name,
@@ -207,11 +303,12 @@ export default function ShortsCommentsSheet({ visible, onClose, tmdbId, title }:
       created_at: new Date().toISOString(),
     };
 
+    const contentToSend = text.trim();
     setComments((prev) => [optimistic, ...prev]);
     setText("");
+    setMentionQuery(null);
     setSending(true);
     inputRef.current?.blur();
-    // Scroll to top to show the new comment
     listRef.current?.scrollToOffset({ offset: 0, animated: true });
 
     try {
@@ -220,12 +317,13 @@ export default function ShortsCommentsSheet({ visible, onClose, tmdbId, title }:
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          postId,
           tmdbId,
           userId: user.id,
           userName: user.name,
           avatarLetter: user.avatarLetter,
           avatarUrl: user.avatarUrl ?? null,
-          content: optimistic.content,
+          content: contentToSend,
         }),
       });
       if (res.ok) {
@@ -234,12 +332,43 @@ export default function ShortsCommentsSheet({ visible, onClose, tmdbId, title }:
           setComments((prev) => prev.map((c) => c.id === optimistic.id ? data.comment : c));
         }
       }
+
+      // ── Send push notifications for @mentions ────────────────────────────────
+      const mentionMatches = [...contentToSend.matchAll(/@([^\s@]+(?:\s[^\s@]+)*)/g)];
+      if (mentionMatches.length > 0) {
+        const mentionedIds = new Set<string>();
+        for (const match of mentionMatches) {
+          const name = match[1].trim();
+          const candidate =
+            selectedMentions.current.get(name) ??
+            mentionCandidates.find((c) => c.user_name.toLowerCase() === name.toLowerCase());
+          if (candidate && candidate.user_id !== user.id) {
+            mentionedIds.add(candidate.user_id);
+          }
+        }
+        if (mentionedIds.size > 0) {
+          try {
+            const tokens = await db.pushTokens.getForUsers([...mentionedIds]);
+            if (tokens.length > 0) {
+              await sendPushViaServer(
+                `${user.name} mencionou você`,
+                `"${contentToSend.slice(0, 80)}${contentToSend.length > 80 ? "…" : ""}"`,
+                { type: "shorts_mention", tmdbId, title },
+                undefined,
+                tokens
+              );
+            }
+          } catch {}
+        }
+      }
+      selectedMentions.current.clear();
     } catch {
     } finally {
       setSending(false);
     }
-  }, [text, sending, user, tmdbId]);
+  }, [text, sending, user, postId, tmdbId, title, mentionCandidates]);
 
+  // ── Delete ───────────────────────────────────────────────────────────────────
   const handleDelete = useCallback(async (id: string) => {
     if (!user) return;
     setComments((prev) => prev.filter((c) => c.id !== id));
@@ -249,14 +378,11 @@ export default function ShortsCommentsSheet({ visible, onClose, tmdbId, title }:
     } catch {}
   }, [user]);
 
-  const handleFollow = useCallback((userId: string, userName: string) => {
+  // ── Follow ───────────────────────────────────────────────────────────────────
+  const handleFollow = useCallback((userId: string, _userName: string) => {
     setFollowed((prev) => {
       const next = new Set(prev);
-      if (next.has(userId)) {
-        next.delete(userId);
-      } else {
-        next.add(userId);
-      }
+      next.has(userId) ? next.delete(userId) : next.add(userId);
       return next;
     });
   }, []);
@@ -292,9 +418,7 @@ export default function ShortsCommentsSheet({ visible, onClose, tmdbId, title }:
         </TouchableWithoutFeedback>
 
         {/* Sheet */}
-        <Animated.View
-          style={[cs.sheet, { transform: [{ translateY: slideAnim }] }]}
-        >
+        <Animated.View style={[cs.sheet, { transform: [{ translateY: slideAnim }] }]}>
           {/* Handle */}
           <View style={cs.handleWrap} pointerEvents="box-none">
             <View style={cs.handle} />
@@ -313,7 +437,7 @@ export default function ShortsCommentsSheet({ visible, onClose, tmdbId, title }:
             </TouchableOpacity>
           </View>
 
-          {/* Comment list — flex: 1 so it takes remaining space and never pushes input out */}
+          {/* Comment list */}
           <FlatList
             ref={listRef}
             data={comments}
@@ -346,11 +470,19 @@ export default function ShortsCommentsSheet({ visible, onClose, tmdbId, title }:
             )}
           />
 
-          {/* Input area — always stuck to the bottom, lifted by keyboard */}
+          {/* Input area — always fixed at bottom, lifted by keyboard */}
           <KeyboardAvoidingView
             behavior={Platform.OS === "ios" ? "padding" : "height"}
-            keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
           >
+            {/* @mention dropdown — rendered above the input */}
+            {filteredMentions.length > 0 && (
+              <View style={cs.mentionDropdown}>
+                {filteredMentions.map((c) => (
+                  <MentionRow key={c.user_id} candidate={c} onSelect={handleSelectMention} />
+                ))}
+              </View>
+            )}
+
             <View style={[cs.inputArea, { paddingBottom: Math.max(insets.bottom, 8) }]}>
               {user ? (
                 <>
@@ -358,10 +490,10 @@ export default function ShortsCommentsSheet({ visible, onClose, tmdbId, title }:
                   <TextInput
                     ref={inputRef}
                     style={cs.input}
-                    placeholder="Adicionar comentário..."
+                    placeholder="Comentar… use @ para mencionar"
                     placeholderTextColor="rgba(255,255,255,0.35)"
                     value={text}
-                    onChangeText={setText}
+                    onChangeText={handleTextChange}
                     multiline
                     maxLength={500}
                     returnKeyType="send"
@@ -483,6 +615,10 @@ const cs = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
   },
+  mention: {
+    color: "#60a5fa",
+    fontWeight: "600",
+  },
   followBtn: {
     paddingHorizontal: 10,
     paddingVertical: 5,
@@ -504,6 +640,27 @@ const cs = StyleSheet.create({
   followBtnTextActive: {
     color: RED,
   },
+  // @mention dropdown
+  mentionDropdown: {
+    backgroundColor: "#1a1a1a",
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: "rgba(255,255,255,0.1)",
+    paddingVertical: 4,
+  },
+  mentionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  mentionRowName: {
+    flex: 1,
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  // Input bar
   inputArea: {
     flexDirection: "row",
     alignItems: "center",
