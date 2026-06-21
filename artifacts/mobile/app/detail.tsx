@@ -458,18 +458,23 @@ export default function DetailScreen() {
           setSrcSettings({ ...DEFAULT_SRC, ...settingsRaw.value });
         }
 
-        // Dedup driveFilePath items by (season, episode) — keep LAST entry (most recently
-        // registered) to eliminate stale duplicates from earlier mapper runs.
-        // Other item types (flix2, r2Key) are kept as-is.
+        // Dedup driveFilePath items by (season, episode) — when multiple entries exist for
+        // the same S+E, prefer the one whose label matches the episode pattern (T1E01) over
+        // quality/series labels (Dublado 1080p, etc). Ties broken by keeping the last one.
         {
-          const drivePathSeen = new Map<string, number>(); // key → last index
+          const EP_LABEL_RE = /^T\d+E\d+/i;
+          const drivePathBest = new Map<string, { idx: number; epLabel: boolean }>();
           registryItems.forEach((item, idx) => {
             if (item.driveFilePath && !item.driveUrl) {
               const key = `s${item.season ?? "null"}e${item.episode ?? "null"}`;
-              drivePathSeen.set(key, idx);
+              const epLabel = EP_LABEL_RE.test(item.label ?? "");
+              const existing = drivePathBest.get(key);
+              if (!existing || epLabel || !existing.epLabel) {
+                drivePathBest.set(key, { idx, epLabel });
+              }
             }
           });
-          const keepIndices = new Set(drivePathSeen.values());
+          const keepIndices = new Set([...drivePathBest.values()].map((v) => v.idx));
           registryItems = registryItems.filter((item, idx) =>
             !(item.driveFilePath && !item.driveUrl) || keepIndices.has(idx)
           );
