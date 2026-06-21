@@ -791,6 +791,38 @@ function ShortVideoCard({
     onToggleMute();
   };
 
+  // ── Double-tap like (TikTok style) ───────────────────────────────────────
+  const lastTapRef = useRef<number>(0);
+  const singleTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const heartX = useRef(new Animated.Value(W / 2)).current;
+  const heartY = useRef(new Animated.Value(H / 2)).current;
+  const heartScale = useRef(new Animated.Value(0)).current;
+  const heartOpacity = useRef(new Animated.Value(0)).current;
+  const [heartVisible, setHeartVisible] = useState(false);
+
+  useEffect(() => {
+    return () => {
+      if (singleTapTimerRef.current) clearTimeout(singleTapTimerRef.current);
+    };
+  }, []);
+
+  const triggerHeartAnimation = useCallback((x: number, y: number) => {
+    heartX.setValue(x);
+    heartY.setValue(y);
+    heartScale.setValue(0);
+    heartOpacity.setValue(1);
+    setHeartVisible(true);
+    Animated.sequence([
+      Animated.spring(heartScale, { toValue: 1, useNativeDriver: true, tension: 90, friction: 5 }),
+      Animated.delay(450),
+      Animated.timing(heartOpacity, { toValue: 0, duration: 320, useNativeDriver: true }),
+    ]).start(() => {
+      setHeartVisible(false);
+      heartScale.setValue(0);
+      heartOpacity.setValue(0);
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Tap-to-pause / play ───────────────────────────────────────────────────
   const injectPlayPause = useCallback((shouldPause: boolean) => {
     if (IS_NATIVE && webviewRef.current) {
@@ -813,6 +845,32 @@ function ShortVideoCard({
     pauseIconOp.setValue(1);
     Animated.timing(pauseIconOp, { toValue: 0, duration: 600, delay: 350, useNativeDriver: true }).start();
   }, [paused, videoState, injectPlayPause, pauseIconOp]);
+
+  const handleCardPress = useCallback((evt: any) => {
+    const now = Date.now();
+    const DOUBLE_TAP_DELAY = 280;
+    const x = evt?.nativeEvent?.locationX ?? W / 2;
+    const y = evt?.nativeEvent?.locationY ?? H / 2;
+
+    if (now - lastTapRef.current < DOUBLE_TAP_DELAY) {
+      // Double tap — cancel pending single-tap and trigger like + heart
+      lastTapRef.current = 0;
+      if (singleTapTimerRef.current) {
+        clearTimeout(singleTapTimerRef.current);
+        singleTapTimerRef.current = null;
+      }
+      if (!item.liked) onLike(item.id);
+      triggerHeartAnimation(x, y);
+    } else {
+      lastTapRef.current = now;
+      // Delay single-tap to give double-tap a chance to cancel it
+      if (singleTapTimerRef.current) clearTimeout(singleTapTimerRef.current);
+      singleTapTimerRef.current = setTimeout(() => {
+        singleTapTimerRef.current = null;
+        togglePause();
+      }, DOUBLE_TAP_DELAY);
+    }
+  }, [item.liked, item.id, onLike, togglePause, triggerHeartAnimation]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-resume when card comes back into view (user scrolled away + back)
   useEffect(() => {
@@ -872,7 +930,7 @@ function ShortVideoCard({
     <TouchableOpacity
       style={{ width: W, height: H }}
       activeOpacity={1}
-      onPress={togglePause}
+      onPress={handleCardPress}
     >
 
       {/* ── Hidden resolver WebView (native only) — captures hubby.cx → fontedecanais redirect ── */}
@@ -1076,6 +1134,26 @@ function ShortVideoCard({
             </TouchableOpacity>
           </View>
         </View>
+      )}
+
+      {/* ── Double-tap heart overlay ── */}
+      {heartVisible && (
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            left: heartX,
+            top: heartY,
+            marginLeft: -50,
+            marginTop: -50,
+            transform: [{ scale: heartScale }],
+            opacity: heartOpacity,
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Text style={{ fontSize: 100, lineHeight: 110, textShadowColor: "rgba(0,0,0,0.4)", textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 8 }}>❤️</Text>
+        </Animated.View>
       )}
 
       {/* ── Right action column ── */}
