@@ -38,6 +38,30 @@ const DEFAULT_VIS: Visibility = {
   showConquistas: true,
 };
 
+type Achievement = {
+  id: string;
+  emoji: string;
+  title: string;
+  desc: string;
+  color: string;
+  check: (d: { watched: number; movies: number; tv: number; comments: number; wl: number; hours: number; profiles: number }) => boolean;
+};
+
+const ACHIEVEMENTS: Achievement[] = [
+  { id: "first_watch",    emoji: "🎬", title: "Primeira Sessão",    desc: "Assistiu ao primeiro conteúdo",      color: "#f59e0b", check: (d) => d.watched >= 1 },
+  { id: "cinephile",      emoji: "🎞️", title: "Cinéfilo",           desc: "Assistiu a 10 filmes",               color: "#a78bfa", check: (d) => d.movies >= 10 },
+  { id: "collector",      emoji: "🏆", title: "Colecionador",        desc: "Assistiu a 50 filmes",               color: "#fbbf24", check: (d) => d.movies >= 50 },
+  { id: "binger",         emoji: "📺", title: "Maratonista",         desc: "Assistiu a 5 séries",                color: "#34d399", check: (d) => d.tv >= 5 },
+  { id: "series_addict",  emoji: "🔥", title: "Viciado em Séries",   desc: "Assistiu a 20 séries",               color: "#f97316", check: (d) => d.tv >= 20 },
+  { id: "first_comment",  emoji: "💬", title: "Crítico",             desc: "Fez o primeiro comentário",          color: "#38bdf8", check: (d) => d.comments >= 1 },
+  { id: "influencer",     emoji: "🗣️", title: "Influencer",          desc: "10 comentários em Shorts",           color: "#818cf8", check: (d) => d.comments >= 10 },
+  { id: "organizer",      emoji: "📌", title: "Organizador",         desc: "5 títulos na Minha Lista",           color: "#fb7185", check: (d) => d.wl >= 5 },
+  { id: "night_owl",      emoji: "🌙", title: "Coruja",              desc: "100 horas assistidas",               color: "#6366f1", check: (d) => d.hours >= 100 },
+  { id: "family",         emoji: "👨‍👩‍👧", title: "Família Netplay",   desc: "Criou 2 perfis na conta",            color: "#22d3ee", check: (d) => d.profiles >= 2 },
+  { id: "devoted",        emoji: "💎", title: "Dedicado",            desc: "200 horas assistidas",               color: "#e879f9", check: (d) => d.hours >= 200 },
+  { id: "veteran",        emoji: "⭐", title: "Veterano",            desc: "Assistiu a 100 conteúdos",           color: "#facc15", check: (d) => d.watched >= 100 },
+];
+
 function timeAgo(iso: string | null | undefined): string {
   if (!iso) return "";
   return new Date(iso).toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
@@ -214,6 +238,21 @@ export default function UserProfileScreen() {
   const topWatched = useMemo(
     () => [...watchHistory].sort((a, b) => (b.progress ?? 0) - (a.progress ?? 0)).slice(0, 12),
     [watchHistory]
+  );
+
+  const achievementData = useMemo(() => ({
+    watched: watchedCount,
+    movies: movieCount,
+    tv: tvCount,
+    comments: commentCount,
+    wl: watchlist.length,
+    hours: totalHours,
+    profiles: profiles.length,
+  }), [watchedCount, movieCount, tvCount, commentCount, watchlist.length, totalHours, profiles.length]);
+
+  const unlockedAchievements = useMemo(
+    () => ACHIEVEMENTS.filter((a) => a.check(achievementData)),
+    [achievementData]
   );
 
   // ── Fetch ────────────────────────────────────────────────────────────────
@@ -533,6 +572,44 @@ export default function UserProfileScreen() {
               </View>
             )}
 
+            {/* ── CONQUISTAS ───────────────────────────────────────────────── */}
+            {(isOwnProfile ? visibility.showConquistas : unlockedAchievements.length > 0) && (
+              <View style={s.section}>
+                <SectionTitle
+                  icon="award"
+                  label="Conquistas"
+                  action={isOwnProfile ? `${unlockedAchievements.length}/${ACHIEVEMENTS.length}` : undefined}
+                />
+                <View style={s.achGrid}>
+                  {(isOwnProfile ? ACHIEVEMENTS : unlockedAchievements).map((ach) => {
+                    const unlocked = ach.check(achievementData);
+                    return (
+                      <View
+                        key={ach.id}
+                        style={[s.achCard, unlocked ? { borderColor: ach.color + "50" } : s.achCardLocked]}
+                      >
+                        <View style={[s.achIconWrap, { backgroundColor: unlocked ? ach.color + "22" : "rgba(255,255,255,0.04)" }]}>
+                          <Text style={[s.achEmoji, !unlocked && { opacity: 0.25 }]}>{ach.emoji}</Text>
+                          {!unlocked && (
+                            <View style={s.achLockOverlay}>
+                              <Feather name="lock" size={10} color="rgba(255,255,255,0.4)" />
+                            </View>
+                          )}
+                        </View>
+                        <Text style={[s.achTitle, !unlocked && { color: "rgba(255,255,255,0.25)" }]} numberOfLines={1}>
+                          {ach.title}
+                        </Text>
+                        <Text style={[s.achDesc, !unlocked && { color: "rgba(255,255,255,0.15)" }]} numberOfLines={2}>
+                          {ach.desc}
+                        </Text>
+                        {unlocked && <View style={[s.achUnlockedDot, { backgroundColor: ach.color }]} />}
+                      </View>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
+
             {/* ── EMPTY STATE (own profile, no content yet) ────────────────── */}
             {isOwnProfile && watchedCount === 0 && watchlist.length === 0 && (
               <View style={s.emptyWrap}>
@@ -742,6 +819,32 @@ const s = StyleSheet.create({
   profileCardName: { color: "rgba(255,255,255,0.7)", fontSize: 12, textAlign: "center" },
   kidsBadge: { backgroundColor: "#2563eb", borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
   kidsBadgeText: { color: "#fff", fontSize: 9, fontWeight: "700" },
+  // ── Conquistas ────────────────────────────────────────────────────────────
+  achGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  achCard: {
+    width: (W - 40 - 20) / 3,
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    alignItems: "center",
+    paddingVertical: 14,
+    paddingHorizontal: 8,
+    gap: 6,
+    position: "relative",
+    overflow: "hidden",
+  },
+  achCardLocked: { borderColor: "rgba(255,255,255,0.05)", opacity: 0.55 },
+  achIconWrap: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center", position: "relative" },
+  achEmoji: { fontSize: 24 },
+  achLockOverlay: {
+    position: "absolute", bottom: -2, right: -2,
+    backgroundColor: "rgba(20,20,20,0.9)", borderRadius: 8,
+    padding: 2,
+  },
+  achTitle: { color: "#fff", fontSize: 11, fontWeight: "700", textAlign: "center" },
+  achDesc: { color: "rgba(255,255,255,0.4)", fontSize: 10, textAlign: "center", lineHeight: 13 },
+  achUnlockedDot: { position: "absolute", top: 8, right: 8, width: 6, height: 6, borderRadius: 3 },
   // ── Timeline ──────────────────────────────────────────────────────────────
   timeline: { gap: 0 },
   timelineItem: { flexDirection: "row", gap: 14, minHeight: 56 },
