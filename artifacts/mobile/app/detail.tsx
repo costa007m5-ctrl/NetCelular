@@ -350,6 +350,8 @@ export default function DetailScreen() {
   const [epMapperLoading, setEpMapperLoading] = useState(false);
   const [epMapperSaving, setEpMapperSaving] = useState(false);
   const [epMapperSaved, setEpMapperSaved] = useState(0);
+  const [epMapperClearing, setEpMapperClearing] = useState(false);
+  const [epMapperCleared, setEpMapperCleared] = useState<number | null>(null);
 
   // Load R2 registry items + source settings + Flix 2.0 live lookup
   // ─── Fase 1 (rápida): registry + settings → mostra botões imediatamente
@@ -2231,6 +2233,31 @@ export default function DetailScreen() {
     }
   };
 
+  const clearEpMapping = async () => {
+    if (!tmdbId) return;
+    setEpMapperClearing(true);
+    setEpMapperCleared(null);
+    try {
+      const { r2Route } = await import("@/lib/r2-direct");
+      // Find all driveFilePath entries for this series in the current registry
+      const reg = await r2Route<{ version: number; items: RegistryItem[] }>("/registry");
+      const toDelete = (reg?.items ?? []).filter(
+        (i) => i.tmdbId === Number(tmdbId) && i.tmdbType === "tv" && i.driveFilePath != null
+      );
+      await Promise.all(
+        toDelete.map((i) =>
+          r2Route(`/registry/${i.id}`, { method: "DELETE" }).catch(() => {})
+        )
+      );
+      setEpMapperCleared(toDelete.length);
+      // Update local r2Items to reflect deletions
+      const deletedIds = new Set(toDelete.map((i) => i.id));
+      setR2Items((prev) => prev.filter((i) => !deletedIds.has(i.id)));
+    } finally {
+      setEpMapperClearing(false);
+    }
+  };
+
   const getEpisodeStatus = (ep: TmdbEpisode): { watched: boolean; current: boolean } => {
     if (!watchProgress || watchProgress.season === undefined || watchProgress.episode === undefined) {
       return { watched: false, current: false };
@@ -3202,6 +3229,7 @@ export default function DetailScreen() {
           {/* Save footer */}
           {!epMapperLoading && epMapperFiles.length > 0 && (
             <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: "rgba(22,163,74,0.2)", gap: 10 }}>
+              {/* Status messages */}
               {epMapperSaving && (
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                   <ActivityIndicator size="small" color="#16a34a" />
@@ -3210,11 +3238,46 @@ export default function DetailScreen() {
                   </Text>
                 </View>
               )}
+              {epMapperClearing && (
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <ActivityIndicator size="small" color="#f97316" />
+                  <Text style={{ color: "#f97316", fontSize: 12 }}>Removendo mapeamentos anteriores...</Text>
+                </View>
+              )}
+              {epMapperCleared !== null && !epMapperClearing && (
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(249,115,22,0.08)", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 }}>
+                  <Feather name="check-circle" size={13} color="#f97316" />
+                  <Text style={{ color: "#f97316", fontSize: 12 }}>
+                    {epMapperCleared === 0 ? "Nenhum mapeamento anterior encontrado." : `${epMapperCleared} entrada${epMapperCleared !== 1 ? "s" : ""} removida${epMapperCleared !== 1 ? "s" : ""} do R2.`}
+                  </Text>
+                </View>
+              )}
+
+              {/* Limpar button */}
+              <Pressable
+                onPress={clearEpMapping}
+                disabled={epMapperClearing || epMapperSaving}
+                style={({ pressed }) => ({
+                  flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+                  backgroundColor: "rgba(249,115,22,0.1)", borderRadius: 10,
+                  paddingVertical: 11, borderWidth: 1, borderColor: "rgba(249,115,22,0.35)",
+                  opacity: (epMapperClearing || epMapperSaving) ? 0.5 : pressed ? 0.7 : 1,
+                })}
+              >
+                {epMapperClearing
+                  ? <ActivityIndicator size="small" color="#f97316" />
+                  : <Feather name="trash-2" size={14} color="#f97316" />}
+                <Text style={{ color: "#f97316", fontWeight: "700", fontSize: 13 }}>
+                  Limpar Mapeamentos Anteriores do R2
+                </Text>
+              </Pressable>
+
+              {/* Salvar button */}
               <Pressable
                 onPress={saveEpMapping}
-                disabled={epMapperSaving}
+                disabled={epMapperSaving || epMapperClearing}
                 style={({ pressed }) => ({
-                  backgroundColor: epMapperSaving ? "#16a34a55" : "#16a34a",
+                  backgroundColor: (epMapperSaving || epMapperClearing) ? "#16a34a55" : "#16a34a",
                   borderRadius: 12, paddingVertical: 14,
                   alignItems: "center", justifyContent: "center",
                   flexDirection: "row", gap: 8,
