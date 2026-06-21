@@ -11,6 +11,7 @@ import adminRouter from "./admin";
 import tmdbRouter from "./tmdb";
 import teraboxRouter from "./terabox";
 import shortsRouter from "./shorts";
+import shortsCommentsRouter from "./shorts-comments";
 import tvmazeRouter from "./tvmaze";
 import geminiRouter from "./gemini";
 
@@ -28,6 +29,7 @@ router.use(castRouter);
 router.use(appLogsRouter);
 router.use(adminRouter);
 router.use(shortsRouter);
+router.use(shortsCommentsRouter);
 router.use(tvmazeRouter);
 router.use(geminiRouter);
 

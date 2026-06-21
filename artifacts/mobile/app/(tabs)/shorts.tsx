@@ -29,6 +29,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useColors } from "@/hooks/useColors";
 import { getApiBase } from "@/lib/api";
+import ShortsCommentsSheet from "@/components/ShortsCommentsSheet";
 import { getProxiedStreamUrl } from "@/lib/gdrive-index";
 import { ProfileAvatarButton } from "@/components/ProfileAvatarButton";
 import { recordShortsWatch } from "@/lib/shorts-history";
@@ -480,6 +481,7 @@ function ShortVideoCard({
   const [webViewBaseUrl, setWebViewBaseUrl] = useState("https://hubby.cx");
   const [shared, setShared] = useState(false); // brief "Copiado!" feedback
   const [boosted, setBoosted] = useState(false); // brief "Feed atualizado!" feedback
+  const [commentsOpen, setCommentsOpen] = useState(false);
   // videoReady: true once video emits canplay — triggers poster crossfade
   const [videoReady, setVideoReady] = useState(false);
   const webviewRef   = useRef<any>(null);
@@ -1182,6 +1184,11 @@ function ShortVideoCard({
           onPress={() => onSendFriend(item)}
         />
         <ActionBtn
+          icon="message-circle"
+          label="Comentar"
+          onPress={() => setCommentsOpen(true)}
+        />
+        <ActionBtn
           icon="info"
           label="Detalhes"
           onPress={() => onDetail(item)}
@@ -1299,6 +1306,14 @@ function ShortVideoCard({
           <Feather name={paused ? "pause" : "play"} size={34} color="#fff" />
         </View>
       </Animated.View>
+
+      {/* ── Comments bottom sheet ── */}
+      <ShortsCommentsSheet
+        visible={commentsOpen}
+        onClose={() => setCommentsOpen(false)}
+        tmdbId={item.tmdbId}
+        title={item.title}
+      />
 
     </TouchableOpacity>
   );
