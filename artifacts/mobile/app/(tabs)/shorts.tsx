@@ -1072,35 +1072,6 @@ function ShortVideoCard({
         pointerEvents="none"
       />
 
-      {/* ── Live viewer badge — positioned above the bottom info section ─────── */}
-      {viewerCount !== null && (
-        <Animated.View
-          pointerEvents="none"
-          style={{
-            position: "absolute",
-            bottom: bottomPad + 260,
-            left: 18,
-            opacity: viewerCountOp,
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 6,
-            backgroundColor: "rgba(0,0,0,0.62)",
-            borderRadius: 24,
-            paddingHorizontal: 11,
-            paddingVertical: 6,
-            borderWidth: StyleSheet.hairlineWidth,
-            borderColor: "rgba(255,255,255,0.2)",
-          }}
-        >
-          <PulsingDot />
-          <Text style={{ color: "#fff", fontSize: 12, fontWeight: "700", letterSpacing: 0.3 }}>
-            {viewerCount > 999
-              ? `${(viewerCount / 1000).toFixed(1)}k`
-              : String(viewerCount)}{" "}
-            assistindo
-          </Text>
-        </Animated.View>
-      )}
 
       {/* ── Bottom gradient ── */}
       <LinearGradient
@@ -1216,13 +1187,38 @@ function ShortVideoCard({
         style={[s.info, { bottom: bottomPad + 92, opacity: infoOp, transform: [{ translateY: infoY }] }]}
         pointerEvents="box-none"
       >
-        {/* AI Scene badge */}
-        <Animated.View style={[s.aiBadge, { transform: [{ scale: aiBadgeScale }] }]}>
-          <LinearGradient colors={["#6d28d9", "#a855f7"]} style={s.aiBadgeInner} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
-            <Feather name="zap" size={10} color="#fff" />
-            <Text style={s.aiBadgeText}>IA • {item.sceneLabel}</Text>
-          </LinearGradient>
-        </Animated.View>
+        {/* AI Scene badge + live viewer count — same row */}
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <Animated.View style={[s.aiBadge, { transform: [{ scale: aiBadgeScale }] }]}>
+            <LinearGradient colors={["#6d28d9", "#a855f7"]} style={s.aiBadgeInner} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
+              <Feather name="zap" size={10} color="#fff" />
+              <Text style={s.aiBadgeText}>IA • {item.sceneLabel}</Text>
+            </LinearGradient>
+          </Animated.View>
+
+          {viewerCount !== null && (
+            <Animated.View
+              pointerEvents="none"
+              style={{
+                opacity: viewerCountOp,
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 5,
+                backgroundColor: "rgba(0,0,0,0.55)",
+                borderRadius: 24,
+                paddingHorizontal: 9,
+                paddingVertical: 4,
+                borderWidth: StyleSheet.hairlineWidth,
+                borderColor: "rgba(255,255,255,0.18)",
+              }}
+            >
+              <PulsingDot />
+              <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700", letterSpacing: 0.2 }}>
+                {viewerCount > 999 ? `${(viewerCount / 1000).toFixed(1)}k` : String(viewerCount)} assistindo
+              </Text>
+            </Animated.View>
+          )}
+        </View>
 
         {/* Logo or title */}
         {logoUrl && !logoErr ? (
