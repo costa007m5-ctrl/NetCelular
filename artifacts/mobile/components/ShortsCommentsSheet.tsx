@@ -376,9 +376,29 @@ export default function ShortsCommentsSheet({ visible, onClose, postId, tmdbId, 
 
   // ── Keyboard listeners — move sheet up when keyboard opens ──────────────────
   useEffect(() => {
+    if (Platform.OS === "web") {
+      // Web (Android Chrome): Keyboard API doesn't fire — use visualViewport instead
+      const vv = typeof window !== "undefined" ? (window as any).visualViewport : null;
+      if (!vv) return;
+      const onResize = () => {
+        const kbHeight = Math.max(0, window.innerHeight - vv.height - (vv.offsetTop ?? 0));
+        Animated.timing(sheetBottom, {
+          toValue: kbHeight > 80 ? kbHeight : 0,
+          duration: 200,
+          useNativeDriver: false,
+        }).start();
+      };
+      vv.addEventListener("resize", onResize);
+      vv.addEventListener("scroll", onResize);
+      return () => {
+        vv.removeEventListener("resize", onResize);
+        vv.removeEventListener("scroll", onResize);
+      };
+    }
+
+    // Native iOS / Android
     const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
     const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
-
     const onShow = Keyboard.addListener(showEvent, (e) => {
       Animated.timing(sheetBottom, {
         toValue: e.endCoordinates.height,
@@ -393,7 +413,6 @@ export default function ShortsCommentsSheet({ visible, onClose, postId, tmdbId, 
         useNativeDriver: false,
       }).start();
     });
-
     return () => { onShow.remove(); onHide.remove(); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
