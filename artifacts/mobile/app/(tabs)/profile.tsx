@@ -56,6 +56,7 @@ import { getBehaviorProfile, clearBehaviorData, syncBehaviorToSupabase, type Beh
 const { width: SW } = Dimensions.get("window");
 const ACTIVE_PROFILE_KEY = "netplay_active_profile_v2";
 const BANNER_KEY = "netplay_profile_banner";
+const VISIBILITY_KEY = "netplay_profile_visibility_v1";
 const RED = "#e50914";
 
 const SETTING_TO_DB: Partial<Record<keyof UserSettings, keyof DbUserSettings>> = {
@@ -228,6 +229,12 @@ export default function ProfileScreen() {
   const [pickerConfig, setPickerConfig] = useState<{ key: keyof UserSettings; title: string; options: string[] } | null>(null);
   const [following, setFollowing] = useState<ShortsFollow[]>([]);
   const [showFollowingModal, setShowFollowingModal] = useState(false);
+  const [profileVisibility, setProfileVisibility] = useState({
+    showEstatisticas: true,
+    showMaisAssistidos: true,
+    showMinhaLista: true,
+    showConquistas: true,
+  });
 
   const [editName, setEditName] = useState("");
   const [currentPw, setCurrentPw] = useState("");
@@ -245,6 +252,11 @@ export default function ProfileScreen() {
     try {
       const banner = await AsyncStorage.getItem(BANNER_KEY);
       if (banner) setProfileBanner(banner);
+    } catch {}
+
+    try {
+      const vis = await AsyncStorage.getItem(VISIBILITY_KEY);
+      if (vis) setProfileVisibility((prev) => ({ ...prev, ...JSON.parse(vis) }));
     } catch {}
 
     if (user?.id && isSupabaseConfigured) {
@@ -594,7 +606,19 @@ export default function ProfileScreen() {
 
   const openUrl = (url: string) => Linking.openURL(url).catch(() => {});
 
+  const saveVisibility = async (next: typeof profileVisibility) => {
+    setProfileVisibility(next);
+    try { await AsyncStorage.setItem(VISIBILITY_KEY, JSON.stringify(next)); } catch {}
+  };
+
   const totalHours = Math.round((watchedCount * 92) / 60);
+  const movieCount = watchHistory.filter((h) => h.type === "movie").length;
+  const tvCount = watchHistory.filter((h) => h.type === "tv").length;
+  const topWatched = [...watchHistory]
+    .sort((a, b) => (b.progress ?? 0) - (a.progress ?? 0))
+    .slice(0, 12);
+  const mostWatched = topWatched[0] ?? null;
+  const avgPerWeek = watchedCount > 0 ? Math.max(1, Math.round(watchedCount / 4)) : 0;
   const isPremium = user?.role === "admin" || true;
   const avatarUrl = activeProfile?.avatarUrl;
   const displayName = activeProfile?.name ?? user?.name ?? "Usuário";
@@ -696,7 +720,7 @@ export default function ProfileScreen() {
         </View>
 
         {/* ── CONQUISTAS (Badges de Desafio Semanal) ────────── */}
-        {earnedBadges.length > 0 && (
+        {earnedBadges.length > 0 && profileVisibility.showConquistas && (
           <View style={{ marginHorizontal: 16, marginBottom: 16 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 }}>
               <View style={{ width: 26, height: 26, borderRadius: 8, backgroundColor: "rgba(251,191,36,0.15)", alignItems: "center", justifyContent: "center" }}>
@@ -734,7 +758,7 @@ export default function ProfileScreen() {
         )}
 
         {/* ── MINHA LISTA ──────────────────────────────────── */}
-        {watchlist.length > 0 && (
+        {watchlist.length > 0 && profileVisibility.showMinhaLista && (
           <View style={s.listSection}>
             <View style={s.listHeader}>
               <View style={s.listIconWrap}>
@@ -790,7 +814,7 @@ export default function ProfileScreen() {
           </View>
         )}
 
-        {watchlist.length === 0 && (
+        {watchlist.length === 0 && profileVisibility.showMinhaLista && (
           <View style={[s.listSection, { paddingBottom: 8 }]}>
             <View style={s.listHeader}>
               <View style={s.listIconWrap}>
@@ -802,6 +826,124 @@ export default function ProfileScreen() {
               <Feather name="plus-circle" size={22} color="rgba(255,255,255,0.15)" />
               <Text style={s.listEmptyTxt}>Adicione filmes e séries à sua lista</Text>
             </View>
+          </View>
+        )}
+
+        {/* ── ESTATÍSTICAS DE CONSUMO ──────────────────────── */}
+        {profileVisibility.showEstatisticas && watchedCount > 0 && (
+          <View style={[s.listSection, { paddingHorizontal: 16, paddingBottom: 16 }]}>
+            <View style={s.listHeader}>
+              <View style={[s.listIconWrap, { backgroundColor: "#0ea5e922" }]}>
+                <Feather name="bar-chart-2" size={14} color="#0ea5e9" />
+              </View>
+              <Text style={[s.listTitle, { color: colors.foreground }]}>Estatísticas</Text>
+            </View>
+
+            {/* Main stats grid */}
+            <View style={{ flexDirection: "row", gap: 10, marginBottom: 10 }}>
+              {[
+                { icon: "film", label: "Filmes", val: movieCount, color: "#f59e0b" },
+                { icon: "tv", label: "Séries", val: tvCount, color: "#a78bfa" },
+                { icon: "clock", label: `${totalHours}h`, label2: "assistidas", color: "#0ea5e9" },
+                { icon: "trending-up", label: `~${avgPerWeek}/sem`, label2: "média", color: "#4ade80" },
+              ].map((s2) => (
+                <View
+                  key={s2.label}
+                  style={{
+                    flex: 1, borderRadius: 12, backgroundColor: s2.color + "12",
+                    borderWidth: StyleSheet.hairlineWidth, borderColor: s2.color + "35",
+                    alignItems: "center", paddingVertical: 12, gap: 4,
+                  }}
+                >
+                  <Feather name={s2.icon as any} size={16} color={s2.color} />
+                  <Text style={{ color: colors.foreground, fontSize: 13, fontWeight: "800" }}>{s2.label}</Text>
+                  {s2.label2 && <Text style={{ color: colors.mutedForeground, fontSize: 10 }}>{s2.label2}</Text>}
+                </View>
+              ))}
+            </View>
+
+            {/* Most watched item highlight */}
+            {mostWatched && (
+              <Pressable
+                onPress={() => navigateToDetail(mostWatched.tmdb_id, mostWatched.type, mostWatched.title)}
+                style={{ flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: colors.border + "20", borderRadius: 12, padding: 12 }}
+              >
+                {mostWatched.poster_path ? (
+                  <Image
+                    source={{ uri: mostWatched.poster_path.startsWith("http") ? mostWatched.poster_path : `${TMDB_IMG}/w92${mostWatched.poster_path}` }}
+                    style={{ width: 44, height: 64, borderRadius: 8 }}
+                    contentFit="cover"
+                  />
+                ) : (
+                  <View style={{ width: 44, height: 64, borderRadius: 8, backgroundColor: colors.border + "40", alignItems: "center", justifyContent: "center" }}>
+                    <Feather name="film" size={18} color={colors.border} />
+                  </View>
+                )}
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.mutedForeground, fontSize: 11, marginBottom: 2 }}>🏆 Mais assistido</Text>
+                  <Text style={{ color: colors.foreground, fontWeight: "700", fontSize: 14 }} numberOfLines={2}>{mostWatched.title}</Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 }}>
+                    <View style={[s.listBar, { backgroundColor: colors.border + "40", flex: 1 }]}>
+                      <View style={[s.listFill, { width: `${Math.round((mostWatched.progress ?? 0) * 100)}%` as any, backgroundColor: "#0ea5e9" }]} />
+                    </View>
+                    <Text style={{ color: colors.mutedForeground, fontSize: 11 }}>{Math.round((mostWatched.progress ?? 0) * 100)}%</Text>
+                  </View>
+                </View>
+                <Feather name="chevron-right" size={16} color={colors.border} />
+              </Pressable>
+            )}
+          </View>
+        )}
+
+        {/* ── MAIS ASSISTIDOS ──────────────────────────────── */}
+        {profileVisibility.showMaisAssistidos && topWatched.length > 0 && (
+          <View style={s.listSection}>
+            <View style={s.listHeader}>
+              <View style={[s.listIconWrap, { backgroundColor: `${RED}22` }]}>
+                <Feather name="play-circle" size={14} color={RED} />
+              </View>
+              <Text style={[s.listTitle, { color: colors.foreground }]}>Mais Assistidos</Text>
+              <Pressable onPress={() => setShowHistoryModal(true)}>
+                <Text style={{ color: RED, fontSize: 12, fontWeight: "600" }}>Ver todos</Text>
+              </Pressable>
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.listScroll}>
+              {topWatched.map((item) => {
+                const imgUri = item.poster_path
+                  ? item.poster_path.startsWith("http") ? item.poster_path : `${TMDB_IMG}/w185${item.poster_path}`
+                  : null;
+                const pct = Math.round((item.progress ?? 0) * 100);
+                return (
+                  <Pressable
+                    key={`${item.tmdb_id}-${item.type}`}
+                    onPress={() => navigateToDetail(item.tmdb_id, item.type, item.title)}
+                    style={s.listCard}
+                  >
+                    <View style={s.listCardInner}>
+                      {imgUri ? (
+                        <Image source={{ uri: imgUri }} style={StyleSheet.absoluteFill} contentFit="cover" />
+                      ) : (
+                        <View style={[StyleSheet.absoluteFill, { backgroundColor: "#1a1a1a", alignItems: "center", justifyContent: "center" }]}>
+                          <Feather name="film" size={20} color="rgba(255,255,255,0.2)" />
+                        </View>
+                      )}
+                      <LinearGradient
+                        colors={["transparent", "rgba(0,0,0,0.9)"]}
+                        locations={[0.45, 1]}
+                        style={StyleSheet.absoluteFill}
+                      />
+                      <View style={s.listCardBottom}>
+                        <Text style={s.listCardTitle} numberOfLines={2}>{item.title}</Text>
+                        <View style={{ height: 3, backgroundColor: "rgba(255,255,255,0.2)", borderRadius: 2, marginTop: 4 }}>
+                          <View style={{ width: `${pct}%` as any, height: 3, backgroundColor: RED, borderRadius: 2 }} />
+                        </View>
+                        <Text style={{ color: "rgba(255,255,255,0.55)", fontSize: 9, marginTop: 2 }}>{pct}% assistido</Text>
+                      </View>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
           </View>
         )}
 
@@ -924,6 +1066,43 @@ export default function ProfileScreen() {
           <Row
             icon="trash-2" label="Limpar Histórico" danger
             onPress={handleClearHistory}
+            last
+          />
+        </Section>
+
+        {/* ── VISIBILIDADE DO PERFIL ───────────────────────── */}
+        <Section title="VISIBILIDADE DO PERFIL">
+          <Row
+            icon="eye"
+            label="Estatísticas"
+            value={profileVisibility.showEstatisticas ? "Visível" : "Oculto"}
+            toggle
+            toggleValue={profileVisibility.showEstatisticas}
+            onToggle={(v) => saveVisibility({ ...profileVisibility, showEstatisticas: v })}
+          />
+          <Row
+            icon="play-circle"
+            label="Mais Assistidos"
+            value={profileVisibility.showMaisAssistidos ? "Visível" : "Oculto"}
+            toggle
+            toggleValue={profileVisibility.showMaisAssistidos}
+            onToggle={(v) => saveVisibility({ ...profileVisibility, showMaisAssistidos: v })}
+          />
+          <Row
+            icon="bookmark"
+            label="Minha Lista"
+            value={profileVisibility.showMinhaLista ? "Visível" : "Oculto"}
+            toggle
+            toggleValue={profileVisibility.showMinhaLista}
+            onToggle={(v) => saveVisibility({ ...profileVisibility, showMinhaLista: v })}
+          />
+          <Row
+            icon="award"
+            label="Conquistas"
+            value={profileVisibility.showConquistas ? "Visível" : "Oculto"}
+            toggle
+            toggleValue={profileVisibility.showConquistas}
+            onToggle={(v) => saveVisibility({ ...profileVisibility, showConquistas: v })}
             last
           />
         </Section>
