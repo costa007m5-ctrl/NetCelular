@@ -3678,10 +3678,12 @@ export default function DetailScreen() {
                       const driveEpForRow = r2Items.find(
                         (i) => isDriveItem(i) && Number(i.season) === selectedSeason && Number(i.episode) === ep.episode_number
                       );
-                      // Fallback: series-level item (no per-episode registry entries) — still
-                      // lets the player navigate to the correct episode via override params
-                      const anyFlixItem  = flixEpForRow  ?? r2Items.find((i) => isFlixItem(i));
-                      const anyDriveItem = driveEpForRow ?? r2Items.find((i) => isDriveItem(i));
+                      // Fallback: only use series-level items (season=null, episode=null).
+                      // Do NOT fall back to per-episode items from other seasons — that would
+                      // incorrectly show the Flix button on every season even when only one
+                      // season has Flix2 entries (e.g. Tintin: 26 eps in S1 only, S2/S3 empty).
+                      const anyFlixItem  = flixEpForRow  ?? r2Items.find((i) => isFlixItem(i)  && i.season == null && i.episode == null);
+                      const anyDriveItem = driveEpForRow ?? r2Items.find((i) => isDriveItem(i) && i.season == null && i.episode == null);
                       const anyFlixUrl   = anyFlixItem?.flix2Url;
 
                       return (
