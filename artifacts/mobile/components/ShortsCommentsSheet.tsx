@@ -280,6 +280,7 @@ export default function ShortsCommentsSheet({ visible, onClose, postId, tmdbId, 
   const [comments, setComments] = useState<ShortComment[]>([]);
   const [loading, setLoading]   = useState(false);
   const [text, setText]         = useState("");
+  const textRef                 = useRef("");   // tracks live value without re-render lag
   const [sending, setSending]   = useState(false);
   const [internalVisible, setInternalVisible] = useState(false);
   const [followed, setFollowed] = useState<Set<string>>(new Set());
@@ -330,7 +331,8 @@ export default function ShortsCommentsSheet({ visible, onClose, postId, tmdbId, 
         Animated.timing(backdropAnim, { toValue: 0, duration: 240, useNativeDriver: false }),
       ]).start(() => setInternalVisible(false));
       setMentionQuery(null);
-      setText("");
+      setText(""); textRef.current = "";
+      inputRef.current?.clear();
       sheetBottom.setValue(0);
     }
   }, [visible]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -369,13 +371,14 @@ export default function ShortsCommentsSheet({ visible, onClose, postId, tmdbId, 
 
   // ── @mention detection ──────────────────────────────────────────────────────
   const handleTextChange = useCallback((val: string) => {
+    textRef.current = val;
     setText(val);
     const atIdx = val.lastIndexOf("@");
     if (atIdx === -1) { setMentionQuery(null); return; }
     const afterAt = val.slice(atIdx + 1);
     if (afterAt.includes(" ") && afterAt.trim().length > 0) { setMentionQuery(null); return; }
     setMentionQuery(afterAt.toLowerCase());
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const filteredMentions = useMemo(() => {
     if (mentionQuery === null) return [];
@@ -383,16 +386,21 @@ export default function ShortsCommentsSheet({ visible, onClose, postId, tmdbId, 
   }, [mentionCandidates, mentionQuery]);
 
   const handleSelectMention = useCallback((candidate: MentionCandidate) => {
-    const atIdx = text.lastIndexOf("@");
-    setText(text.slice(0, atIdx) + `@${candidate.user_name} `);
+    const cur = textRef.current;
+    const atIdx = cur.lastIndexOf("@");
+    const next = cur.slice(0, atIdx) + `@${candidate.user_name} `;
+    textRef.current = next;
+    setText(next);
+    inputRef.current?.setNativeProps({ text: next });
     selectedMentions.current.set(candidate.user_name, candidate);
     setMentionQuery(null);
     inputRef.current?.focus();
-  }, [text]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Send ────────────────────────────────────────────────────────────────────
   const handleSend = useCallback(async () => {
-    if (!text.trim() || sending || !user) return;
+    const currentText = textRef.current;
+    if (!currentText.trim() || sending || !user) return;
 
     const avatarUrl = activeAvatarUrl ?? (user.avatarUrl ?? null);
     const avatarLetter = activeAvatarLetter || user.avatarLetter;
@@ -405,13 +413,15 @@ export default function ShortsCommentsSheet({ visible, onClose, postId, tmdbId, 
       user_name: user.name,
       avatar_letter: avatarLetter,
       avatar_url: avatarUrl,
-      content: text.trim(),
+      content: currentText.trim(),
       created_at: new Date().toISOString(),
     };
 
-    const contentToSend = text.trim();
+    const contentToSend = currentText.trim();
     setComments((prev) => [newComment, ...prev]);
+    textRef.current = "";
     setText("");
+    inputRef.current?.clear();
     setMentionQuery(null);
     setSending(true);
     inputRef.current?.blur();
@@ -569,7 +579,6 @@ export default function ShortsCommentsSheet({ visible, onClose, postId, tmdbId, 
                   style={cs.input}
                   placeholder="Comentar… use @ para mencionar"
                   placeholderTextColor="rgba(255,255,255,0.35)"
-                  value={text}
                   onChangeText={handleTextChange}
                   multiline
                   maxLength={500}
