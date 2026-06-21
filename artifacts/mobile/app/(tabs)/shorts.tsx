@@ -146,7 +146,7 @@ function pickInterestingEpisode(episodes: RawEpisode[]): RawEpisode | null {
 // ── Resolve series episodes directly from client (when server is blocked) ─────
 async function resolveSeriesEpisodeDirect(directUrl: string, streamBase: string): Promise<string> {
   const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 15000);
+  const t = setTimeout(() => ctrl.abort(), 8000);
   try {
     const res = await fetch(directUrl, { signal: ctrl.signal });
     clearTimeout(t);
@@ -179,7 +179,7 @@ async function resolveSeriesEpisodeDirect(directUrl: string, streamBase: string)
 // ── Resolve series → episode stream URL ───────────────────────────────────────
 async function resolveSeriesEpisode(seriesId: string, base: string): Promise<string> {
   const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 12000);
+  const t = setTimeout(() => ctrl.abort(), 8000);
   try {
     const res = await fetch(`${base}/r2/flix2/series-episodes?seriesId=${seriesId}`, { signal: ctrl.signal });
     clearTimeout(t);
@@ -311,8 +311,9 @@ video{object-fit:cover;display:block}
 <script>
 (function(){
   var v = document.getElementById('v');
-  var START = ${startTimeSeconds};
+  var HINT = ${startTimeSeconds};
   var CLIP  = ${clipDurationSeconds};
+  var START = HINT;
   var rn    = window.ReactNativeWebView;
 
   function send(obj) {
@@ -320,13 +321,21 @@ video{object-fit:cover;display:block}
   }
 
   v.addEventListener('loadedmetadata', function() {
+    // Guard: if the hinted start time exceeds the video duration
+    // (can happen when TMDB runtime differs from actual episode length),
+    // fall back to 60% of the real duration so the clip always plays.
+    if (v.duration > 0 && HINT >= v.duration) {
+      START = Math.max(0, v.duration * 0.6);
+    } else {
+      START = HINT;
+    }
     v.currentTime = START;
     v.play().catch(function(){});
     send({ type: 'ready', duration: v.duration });
   });
 
   v.addEventListener('timeupdate', function() {
-    if (v.currentTime >= START + CLIP) {
+    if (CLIP > 0 && v.currentTime >= START + CLIP) {
       v.currentTime = START;
     }
     send({ type: 'progress', position: v.currentTime, duration: v.duration });
@@ -1028,6 +1037,28 @@ function ShortVideoCard({
       {videoState === "resolving" && (
         <View style={s.spinnerWrap} pointerEvents="none">
           <Feather name="loader" size={28} color="rgba(255,255,255,0.6)" />
+        </View>
+      )}
+
+      {/* ── Error overlay — video couldn't be loaded (series episode failed, etc.) ── */}
+      {videoState === "error" && (
+        <View style={s.errorOverlay} pointerEvents="box-none">
+          <View style={s.errorCard}>
+            <Feather name="wifi-off" size={20} color="rgba(255,255,255,0.6)" />
+            <Text style={s.errorText}>Vídeo indisponível</Text>
+            <TouchableOpacity
+              style={s.retryBtn}
+              onPress={() => {
+                setFinalUrl(null);
+                setVideoReady(false);
+                posterOpacity.setValue(1);
+                bufferAnim.setValue(0);
+                setVideoState("idle");
+              }}
+            >
+              <Text style={s.retryText}>↺ Tentar novamente</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       )}
 
@@ -2409,6 +2440,30 @@ const s = StyleSheet.create({
   spinnerWrap: {
     position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
     alignItems: "center", justifyContent: "center",
+  },
+
+  // Error overlay
+  errorOverlay: {
+    position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
+    alignItems: "center", justifyContent: "center",
+  },
+  errorCard: {
+    alignItems: "center", gap: 8,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    borderRadius: 16, paddingHorizontal: 24, paddingVertical: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(255,255,255,0.15)",
+  },
+  errorText: {
+    color: "rgba(255,255,255,0.7)", fontSize: 13, fontWeight: "600",
+  },
+  retryBtn: {
+    marginTop: 4, paddingHorizontal: 20, paddingVertical: 8,
+    borderRadius: 20, backgroundColor: "rgba(255,255,255,0.13)",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.25)",
+  },
+  retryText: {
+    color: "#fff", fontSize: 12, fontWeight: "700", letterSpacing: 0.3,
   },
 
   // Right actions
