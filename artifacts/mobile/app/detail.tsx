@@ -824,7 +824,12 @@ export default function DetailScreen() {
     searchDriveByTitle(titleStr).then(setDriveMatches).catch(() => {});
   }, [params.title]);
 
-  // Load drive episodes for the selected season whenever the series match or season changes
+  // Load drive episodes for the selected season whenever the series match or season changes.
+  // Supports two folder layouts:
+  //   a) Season subfolders: "Temporada 1/", "S2/" etc. — handled by getDriveSeasonEpisodes.
+  //   b) Flat sequential folder: all episodes numbered 1-N in one folder, split across seasons.
+  //      Detected when fetched items have no season info (parseEpisodeInfo returns season=undefined).
+  //      In this case we divide by the total number of seasons (from TMDB) and slice by offset.
   useEffect(() => {
     if (type !== "tv") return;
     const match = driveMatches.find((m) => m.isFolder);
@@ -833,14 +838,52 @@ export default function DetailScreen() {
       setDriveSeasonItems([]);
       return;
     }
+    const numSeas = seasons.filter((s) => s.season_number > 0).length;
+
     getDriveSeasonEpisodes(match.drive, match.path, selectedSeason)
-      .then((items) => {
-        setDriveSeasonItems(items);
+      .then(async (items) => {
+        // Detect flat-folder mode: items have no season tag OR season > 1 is empty
+        const hasNoSeasonTag = items.some((v) => parseEpisodeInfo(v.name).season === undefined);
+        const isFlatFolder =
+          (hasNoSeasonTag && numSeas > 1) ||
+          (items.length === 0 && selectedSeason > 1 && numSeas > 1);
+
+        let seasonItems = items;
+        let episodeOffset = 0;
+
+        if (isFlatFolder) {
+          // For flat folders, season 1 call returns ALL items → use that as the full list.
+          const allItems =
+            selectedSeason === 1
+              ? items
+              : await getDriveSeasonEpisodes(match.drive, match.path, 1);
+
+          const allSorted = allItems
+            .map((v) => ({ item: v, ep: parseEpisodeInfo(v.name).episode ?? 0 }))
+            .filter((x) => x.ep > 0)
+            .sort((a, b) => a.ep - b.ep);
+
+          if (allSorted.length > 0 && numSeas > 0) {
+            const perSeason = Math.ceil(allSorted.length / numSeas);
+            const start = (selectedSeason - 1) * perSeason;
+            const end = Math.min(start + perSeason, allSorted.length);
+            seasonItems = allSorted.slice(start, end).map((x) => x.item);
+            episodeOffset = start; // sequential ep# minus this = within-season ep#
+          }
+        }
+
+        setDriveSeasonItems(seasonItems);
         const map: Record<number, DriveItem> = {};
-        for (const item of items) {
+        for (let idx = 0; idx < seasonItems.length; idx++) {
+          const item = seasonItems[idx];
           const info = parseEpisodeInfo(item.name);
           if (info.episode !== undefined) {
-            map[info.episode] = item;
+            // Flat folder: remap from global sequential ep# to within-season ep#
+            const epNum = episodeOffset > 0 ? info.episode - episodeOffset : info.episode;
+            if (epNum > 0) map[epNum] = item;
+          } else {
+            // No ep info in filename → use position within season (1-based)
+            map[idx + 1] = item;
           }
         }
         setDriveEpisodeMap(map);
@@ -849,7 +892,7 @@ export default function DetailScreen() {
         setDriveEpisodeMap({});
         setDriveSeasonItems([]);
       });
-  }, [type, driveMatches, selectedSeason]);
+  }, [type, driveMatches, selectedSeason, seasons]);
 
   useEffect(() => {
     if (!userId || !tmdbId || !isSupabaseConfigured) return;
