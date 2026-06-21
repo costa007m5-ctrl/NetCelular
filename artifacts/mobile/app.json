@@ -3,7 +3,7 @@
     "name": "NETPLAY",
     "slug": "netplay",
     "owner": "grupo-streaming-br",
-    "version": "1.1.0",
+    "version": "1.1.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "netplay",
@@ -28,7 +28,7 @@
     },
     "android": {
       "package": "com.netplay.app",
-      "versionCode": 10,
+      "versionCode": 11,
       "usesCleartextTraffic": true,
       "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
