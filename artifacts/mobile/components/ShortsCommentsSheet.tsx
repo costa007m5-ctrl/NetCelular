@@ -19,6 +19,7 @@ import { Image } from "expo-image";
 import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useRouter } from "expo-router";
 import { useAuth } from "@/lib/auth-context";
 import { db, type ShortsCommentRow, type ShortsCommentReaction, type WatchlistItem, type WatchProgress } from "@/lib/supabase";
 import { sendPushViaServer } from "@/lib/notifications";
@@ -117,17 +118,27 @@ interface UserProfile {
   };
 }
 
+// ── timeout helper ────────────────────────────────────────────────────────────
+function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ]);
+}
+
 // ── Mini profile bottom panel (replaces Alert for web compat) ─────────────────
 function ProfilePanel({
   comment,
   followed,
   onFollow,
   onClose,
+  onViewFull,
 }: {
   comment: ShortComment | null;
   followed: boolean;
   onFollow: () => void;
   onClose: () => void;
+  onViewFull: (comment: ShortComment) => void;
 }) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(false);
@@ -139,44 +150,26 @@ function ProfilePanel({
     setLoadingProfile(true);
     setProfile(null);
 
-    // Fetch directly from Supabase client (no server-side key required)
-    const DEFAULT_VIS = { showEstatisticas: true, showMaisAssistidos: true, showMinhaLista: true, showConquistas: true };
-    Promise.all([
-      db.users.getById(comment.user_id).catch(() => null),
-      db.progress.getAll(comment.user_id).catch(() => [] as WatchProgress[]),
-      db.watchlist.getAll(comment.user_id).catch(() => [] as WatchlistItem[]),
-      db.userSettings.get(comment.user_id).catch(() => null),
-    ]).then(([userRow, progressData, watchlistData, settings]) => {
-      const visibility = (() => {
-        try {
-          const raw = settings?.profile_visibility;
-          return raw ? { ...DEFAULT_VIS, ...JSON.parse(raw) } : DEFAULT_VIS;
-        } catch { return DEFAULT_VIS; }
-      })();
-
-      const totalHours = Math.round((progressData.length * 92) / 60);
-      const topWatched = progressData.slice(0, 6).map((p) => ({
-        tmdb_id: p.tmdb_id,
-        type: p.type,
-        title: p.title ?? "",
-        poster_path: p.poster_path ?? "",
-        progress: p.progress ?? 0,
-      }));
-
-      setProfile({
-        name: userRow?.name ?? comment.user_name,
-        avatar_letter: userRow?.avatar_letter ?? comment.avatar_letter ?? "U",
-        avatar_url: userRow?.avatar_url ?? comment.avatar_url ?? null,
-        member_since: userRow?.created_at ?? null,
-        comment_count: 0,
-        watched_count: progressData.length,
-        total_hours: totalHours,
-        watchlist_count: watchlistData.length,
-        top_genre: null,
-        top_watched: topWatched,
-        visibility,
-      });
-    }).catch(() => {}).finally(() => setLoadingProfile(false));
+    // Only fetch user row — cross-user tables (progress/watchlist/settings)
+    // require service-role key; the mini panel just shows the essentials.
+    withTimeout(db.users.getById(comment.user_id), 5000, null)
+      .then((userRow) => {
+        setProfile({
+          name: userRow?.name ?? comment.user_name,
+          avatar_letter: userRow?.avatar_letter ?? comment.avatar_letter ?? "U",
+          avatar_url: userRow?.avatar_url ?? comment.avatar_url ?? null,
+          member_since: userRow?.created_at ?? null,
+          comment_count: 0,
+          watched_count: 0,
+          total_hours: 0,
+          watchlist_count: 0,
+          top_genre: null,
+          top_watched: [],
+          visibility: { showEstatisticas: true, showMaisAssistidos: true, showMinhaLista: true, showConquistas: true },
+        });
+      })
+      .catch(() => {})
+      .finally(() => setLoadingProfile(false));
   }, [comment?.user_id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!comment) return null;
@@ -184,7 +177,7 @@ function ProfilePanel({
   const displayName   = profile?.name ?? comment.user_name;
   const displayAvatar = profile?.avatar_url ?? comment.avatar_url;
   const displayLetter = profile?.avatar_letter ?? comment.avatar_letter;
-  const vis           = profile?.visibility ?? { showEstatisticas: true, showMaisAssistidos: true, showMinhaLista: true, showConquistas: true };
+  const vis           = { showEstatisticas: true, showMaisAssistidos: true, showMinhaLista: true, showConquistas: true };
 
   function formatMemberSince(iso: string | null): string {
     if (!iso) return "Membro NETPLAY";
@@ -202,12 +195,11 @@ function ProfilePanel({
     <View style={pp.backdrop}>
       <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
       <Animated.View style={[pp.card, { transform: [{ translateY: slideAnim }] }]}>
-        {/* Handle */}
         <View style={{ alignItems: "center", paddingTop: 10, paddingBottom: 4 }}>
           <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.2)" }} />
         </View>
 
-        <ScrollView showsVerticalScrollIndicator={false} bounces={false} contentContainerStyle={{ gap: 14, paddingBottom: 20 }}>
+        <View style={{ gap: 14, paddingBottom: 20, paddingHorizontal: 4 }}>
 
           {/* ── Avatar + name ────────────────────────────────────────── */}
           <View style={pp.row}>
@@ -225,92 +217,22 @@ function ProfilePanel({
             </Pressable>
           </View>
 
-          {/* ── Stats ────────────────────────────────────────────────── */}
-          {!loadingProfile && profile && vis.showEstatisticas && (
-            <View style={pp.statsRow}>
-              {profile.watched_count > 0 && (
-                <>
-                  <View style={pp.statItem}>
-                    <Text style={pp.statValue}>{fmtNum(profile.watched_count)}</Text>
-                    <Text style={pp.statLabel}>Assistidos</Text>
-                  </View>
-                  <View style={pp.statDivider} />
-                </>
-              )}
-              {profile.total_hours > 0 && (
-                <>
-                  <View style={pp.statItem}>
-                    <Text style={pp.statValue}>{profile.total_hours}h</Text>
-                    <Text style={pp.statLabel}>Horas</Text>
-                  </View>
-                  <View style={pp.statDivider} />
-                </>
-              )}
-              <View style={pp.statItem}>
-                <Text style={pp.statValue}>{fmtNum(profile.comment_count)}</Text>
-                <Text style={pp.statLabel}>Comentários</Text>
-              </View>
-              {profile.top_genre && (
-                <>
-                  <View style={pp.statDivider} />
-                  <View style={pp.statItem}>
-                    <Text style={[pp.statValue, { fontSize: 13 }]} numberOfLines={1}>{profile.top_genre}</Text>
-                    <Text style={pp.statLabel}>Gênero fav.</Text>
-                  </View>
-                </>
-              )}
-            </View>
-          )}
-
-          {/* ── Minha Lista ──────────────────────────────────────────── */}
-          {!loadingProfile && profile && vis.showMinhaLista && profile.watchlist_count > 0 && (
-            <View style={pp.listRow}>
-              <Feather name="bookmark" size={15} color={RED} />
-              <Text style={pp.listText}>
-                <Text style={{ color: "#fff", fontWeight: "700" }}>{profile.watchlist_count}</Text>
-                {" título"}{profile.watchlist_count !== 1 ? "s" : ""} na lista
-              </Text>
-            </View>
-          )}
-
-          {/* ── Mais assistidos ──────────────────────────────────────── */}
-          {!loadingProfile && profile && vis.showMaisAssistidos && profile.top_watched.length > 0 && (
-            <View>
-              <Text style={pp.sectionTitle}>Mais assistidos</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }} contentContainerStyle={{ gap: 8, paddingRight: 4 }}>
-                {profile.top_watched.map((item) => (
-                  <View key={`${item.tmdb_id}-${item.type}`} style={pp.posterWrap}>
-                    {item.poster_path ? (
-                      <Image
-                        source={{ uri: `${TMDB_IMG}${item.poster_path}` }}
-                        style={pp.poster}
-                        contentFit="cover"
-                      />
-                    ) : (
-                      <View style={[pp.poster, { backgroundColor: "#2a2a2a", alignItems: "center", justifyContent: "center" }]}>
-                        <Feather name="film" size={18} color="rgba(255,255,255,0.3)" />
-                      </View>
-                    )}
-                    <Text style={pp.posterTitle} numberOfLines={1}>{item.title}</Text>
-                  </View>
-                ))}
-              </ScrollView>
-            </View>
-          )}
-
-          {/* Loading skeleton */}
-          {loadingProfile && (
-            <View style={[pp.statsRow, { justifyContent: "center" }]}>
-              <Text style={pp.statLabel}>Carregando perfil…</Text>
-            </View>
-          )}
+          {/* ── Ver mais ─────────────────────────────────────────────── */}
+          <Pressable
+            style={pp.viewMoreBtn}
+            onPress={() => { onClose(); onViewFull(comment); }}
+          >
+            <Feather name="user" size={15} color="#fff" />
+            <Text style={pp.viewMoreText}>Ver perfil completo</Text>
+            <Feather name="chevron-right" size={15} color="rgba(255,255,255,0.5)" />
+          </Pressable>
 
           {/* ── Close ────────────────────────────────────────────────── */}
           <Pressable style={pp.closeRow} onPress={onClose}>
             <Text style={pp.closeText}>Fechar</Text>
           </Pressable>
 
-        </ScrollView>
+        </View>
       </Animated.View>
     </View>
   );
@@ -442,6 +364,7 @@ export default function ShortsCommentsSheet({ visible, onClose, postId, tmdbId, 
   const [followed, setFollowed] = useState<Set<string>>(new Set());
   const [profileComment, setProfileComment] = useState<ShortComment | null>(null);
   const [reactions, setReactions] = useState<ReactionsMap>(new Map());
+  const router = useRouter();
 
   // @mention
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
@@ -816,6 +739,18 @@ export default function ShortsCommentsSheet({ visible, onClose, postId, tmdbId, 
           followed={followed.has(profileComment.user_id)}
           onFollow={() => handleFollow(profileComment)}
           onClose={() => setProfileComment(null)}
+          onViewFull={(c) => {
+            setProfileComment(null);
+            router.push({
+              pathname: "/user-profile",
+              params: {
+                userId: c.user_id,
+                userName: c.user_name,
+                avatarLetter: c.avatar_letter ?? "U",
+                avatarUrl: c.avatar_url ?? "",
+              },
+            });
+          }}
         />
       )}
     </Modal>
@@ -989,4 +924,14 @@ const pp = StyleSheet.create({
   posterTitle: { color: "rgba(255,255,255,0.5)", fontSize: 10, textAlign: "center" },
   closeRow: { alignItems: "center", paddingVertical: 4 },
   closeText: { color: "rgba(255,255,255,0.5)", fontSize: 14 },
+  viewMoreBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+  },
+  viewMoreText: { flex: 1, color: "#fff", fontSize: 14, fontWeight: "600" },
 });
