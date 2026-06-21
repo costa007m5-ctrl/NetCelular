@@ -457,6 +457,24 @@ export default function DetailScreen() {
         if (settingsRaw.status === "fulfilled") {
           setSrcSettings({ ...DEFAULT_SRC, ...settingsRaw.value });
         }
+
+        // Dedup driveFilePath items by (season, episode) — keep LAST entry (most recently
+        // registered) to eliminate stale duplicates from earlier mapper runs.
+        // Other item types (flix2, r2Key) are kept as-is.
+        {
+          const drivePathSeen = new Map<string, number>(); // key → last index
+          registryItems.forEach((item, idx) => {
+            if (item.driveFilePath && !item.driveUrl) {
+              const key = `s${item.season ?? "null"}e${item.episode ?? "null"}`;
+              drivePathSeen.set(key, idx);
+            }
+          });
+          const keepIndices = new Set(drivePathSeen.values());
+          registryItems = registryItems.filter((item, idx) =>
+            !(item.driveFilePath && !item.driveUrl) || keepIndices.has(idx)
+          );
+        }
+
         setR2Items(registryItems);
         setR2Loading(false);  // fase 1 concluída — UI já pode mostrar botões
 
@@ -3992,13 +4010,26 @@ export default function DetailScreen() {
                   {/* ── ADMIN: links de vídeo ─────────────────────────────── */}
                   {isAdmin && (() => {
                     const links: { id: string; label: string; source: string; url: string; color: string }[] = [];
+                    // Dedup driveFilePath items by (season, episode) in display — keeps only
+                    // the last entry per S+E so admin sees one clean entry per episode.
+                    const drivePathSeenDisplay = new Set<string>();
+                    const dedupedR2Items = [...r2Items].reverse(); // reverse so last-added is first checked
+                    const visibleDrivePaths = new Set<string>(
+                      dedupedR2Items
+                        .filter((i) => i.driveFilePath && !i.driveUrl)
+                        .reduce<string[]>((acc, i) => {
+                          const key = `s${i.season ?? "null"}e${i.episode ?? "null"}`;
+                          if (!drivePathSeenDisplay.has(key)) { drivePathSeenDisplay.add(key); acc.push(i.id); }
+                          return acc;
+                        }, [])
+                    );
                     for (const item of r2Items) {
                       const base = item.label || item.title || "Item";
                       if (item.flix2Url) links.push({ id: `${item.id}-flix2`, label: base, source: "Flix 2.0", url: item.flix2Url, color: "#8b5cf6" });
                       if (item.driveUrl) links.push({ id: `${item.id}-drive`, label: base, source: "Drive", url: item.driveUrl, color: "#16a34a" });
                       if (item.driveDirectUrl && item.driveDirectUrl !== item.driveUrl)
                         links.push({ id: `${item.id}-direct`, label: base, source: "Drive Direto", url: item.driveDirectUrl, color: "#0ea5e9" });
-                      if (item.driveFilePath && !item.driveUrl)
+                      if (item.driveFilePath && !item.driveUrl && visibleDrivePaths.has(item.id))
                         links.push({ id: `${item.id}-path`, label: base, source: "Drive Pasta", url: item.driveFilePath, color: "#16a34a" });
                       if (item.teraboxUrl) links.push({ id: `${item.id}-tera`, label: base, source: "TeraBox", url: item.teraboxUrl, color: "#f97316" });
                     }
