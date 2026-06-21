@@ -64,8 +64,9 @@ function timeAgo(iso: string): string {
 const BUBBLE_COLORS = ["#6d28d9", "#0ea5e9", "#f59e0b", "#10b981", "#e50914", "#ec4899"];
 
 // ── Avatar bubble ─────────────────────────────────────────────────────────────
-function AvatarBubble({ letter, uri, size = 36 }: { letter: string; uri?: string | null; size?: number }) {
-  const color = BUBBLE_COLORS[letter.charCodeAt(0) % BUBBLE_COLORS.length];
+function AvatarBubble({ letter, uri, size = 36 }: { letter?: string | null; uri?: string | null; size?: number }) {
+  const safeLetter = (letter && letter.length > 0) ? letter : "U";
+  const color = BUBBLE_COLORS[safeLetter.charCodeAt(0) % BUBBLE_COLORS.length];
   if (uri) {
     return (
       <Image
@@ -77,7 +78,7 @@ function AvatarBubble({ letter, uri, size = 36 }: { letter: string; uri?: string
   }
   return (
     <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: color, alignItems: "center", justifyContent: "center" }}>
-      <Text style={{ color: "#fff", fontSize: size * 0.44, fontWeight: "700" }}>{letter.toUpperCase()}</Text>
+      <Text style={{ color: "#fff", fontSize: size * 0.44, fontWeight: "700" }}>{safeLetter.toUpperCase()}</Text>
     </View>
   );
 }
@@ -386,7 +387,11 @@ export default function ShortsCommentsSheet({ visible, onClose, postId, tmdbId, 
           toValue: kbHeight > 80 ? kbHeight : 0,
           duration: 200,
           useNativeDriver: false,
-        }).start();
+        }).start(() => {
+          if (kbHeight > 80) {
+            listRef.current?.scrollToOffset({ offset: 0, animated: true });
+          }
+        });
       };
       vv.addEventListener("resize", onResize);
       vv.addEventListener("scroll", onResize);
@@ -404,7 +409,9 @@ export default function ShortsCommentsSheet({ visible, onClose, postId, tmdbId, 
         toValue: e.endCoordinates.height,
         duration: Platform.OS === "ios" ? (e.duration || 250) : 250,
         useNativeDriver: false,
-      }).start();
+      }).start(() => {
+        listRef.current?.scrollToOffset({ offset: 0, animated: true });
+      });
     });
     const onHide = Keyboard.addListener(hideEvent, () => {
       Animated.timing(sheetBottom, {
