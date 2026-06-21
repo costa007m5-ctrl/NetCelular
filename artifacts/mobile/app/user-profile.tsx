@@ -19,6 +19,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "@/lib/auth-context";
 import { db, supabase, type DbProfile, type WatchProgress, type WatchlistItem, type ShortsCommentRow } from "@/lib/supabase";
+import { r2Base } from "@/lib/r2-direct";
 
 const RED = "#e50914";
 const TMDB_IMG = "https://image.tmdb.org/t/p/w185";
@@ -216,6 +217,8 @@ export default function UserProfileScreen() {
   } | null>(null);
   const [profiles, setProfiles] = useState<DbProfile[]>([]);
   const [commentCount, setCommentCount] = useState(0);
+  const [followerCount, setFollowerCount] = useState(0);
+  const [followingCount, setFollowingCount] = useState(0);
   const [followed, setFollowed] = useState(false);
   const [applying, setApplying] = useState<string | null>(null);
 
@@ -260,23 +263,20 @@ export default function UserProfileScreen() {
     if (!userId) return;
     setLoading(true);
     try {
-      const [userRow, profilesData, commentsCount, recentCmts] = await Promise.all([
+      // Comments are stored in Cloudflare D1 (not Supabase) — query via API server.
+      const base = r2Base();
+      const commentsByUserPromise: Promise<{ count: number; comments: ShortsCommentRow[] }> = base
+        ? fetch(`${base}/api/shorts/comments/by-user/${encodeURIComponent(userId)}?limit=20`)
+            .then((r) => r.ok ? r.json() : { count: 0, comments: [] })
+            .catch(() => ({ count: 0, comments: [] }))
+        : Promise.resolve({ count: 0, comments: [] });
+
+      const [userRow, profilesData, commentData, follCount, follingCount] = await Promise.all([
         db.users.getById(userId).catch(() => null),
         db.profiles.getAll(userId).catch(() => [] as DbProfile[]),
-        supabase
-          .from("shorts_comments")
-          .select("*", { count: "exact", head: true })
-          .eq("user_id", userId)
-          .then(({ count }) => count ?? 0)
-          .catch(() => 0),
-        supabase
-          .from("shorts_comments")
-          .select("id, post_id, tmdb_id, user_id, user_name, content, created_at")
-          .eq("user_id", userId)
-          .order("created_at", { ascending: false })
-          .limit(20)
-          .then(({ data }) => (data ?? []) as ShortsCommentRow[])
-          .catch(() => [] as ShortsCommentRow[]),
+        commentsByUserPromise,
+        db.shorts.follows.followerCount(userId).catch(() => 0),
+        db.shorts.follows.followingCount(userId).catch(() => 0),
       ]);
 
       setUserData({
@@ -287,8 +287,10 @@ export default function UserProfileScreen() {
         created_at: userRow?.created_at ?? null,
       });
       setProfiles(profilesData);
-      setCommentCount(commentsCount as number);
-      setRecentComments(recentCmts);
+      setCommentCount(commentData.count);
+      setRecentComments(commentData.comments);
+      setFollowerCount(follCount);
+      setFollowingCount(follingCount);
 
       if (user?.id) {
         supabase
@@ -444,15 +446,20 @@ export default function UserProfileScreen() {
               </View>
               <View style={s.statDivider} />
               <View style={s.statItem}>
-                <Text style={s.statValue}>{watchedCount || profiles.length}</Text>
-                <Text style={s.statLabel}>{isOwnProfile ? "Assistidos" : "Perfis"}</Text>
+                <Text style={s.statValue}>{followerCount}</Text>
+                <Text style={s.statLabel}>Seguidores</Text>
+              </View>
+              <View style={s.statDivider} />
+              <View style={s.statItem}>
+                <Text style={s.statValue}>{followingCount}</Text>
+                <Text style={s.statLabel}>Seguindo</Text>
               </View>
               {isOwnProfile && (
                 <>
                   <View style={s.statDivider} />
                   <View style={s.statItem}>
-                    <Text style={s.statValue}>{watchlist.length}</Text>
-                    <Text style={s.statLabel}>Na lista</Text>
+                    <Text style={s.statValue}>{watchedCount}</Text>
+                    <Text style={s.statLabel}>Assistidos</Text>
                   </View>
                 </>
               )}

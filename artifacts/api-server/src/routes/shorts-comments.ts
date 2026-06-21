@@ -104,6 +104,46 @@ router.get("/shorts/comments", async (req, res) => {
   }
 });
 
+// ── GET /shorts/comments/by-user/:userId ─────────────────────────────────────
+router.get("/shorts/comments/by-user/:userId", async (req, res) => {
+  const { userId } = req.params;
+  if (!userId) {
+    res.status(400).json({ error: "userId obrigatório" });
+    return;
+  }
+  const limit = Math.min(50, Math.max(1, Number(req.query["limit"]) || 20));
+  try {
+    let comments: Comment[] = [];
+    let count = 0;
+    if (isD1Configured()) {
+      const rows = await d1Query<Comment>(
+        `SELECT id, post_id, tmdb_id, user_id, user_name, avatar_letter, avatar_url, content, created_at
+         FROM shorts_comments
+         WHERE user_id = ?
+         ORDER BY created_at DESC
+         LIMIT ?`,
+        [userId, limit]
+      );
+      comments = rows ?? [];
+      const cnt = await d1Query<{ cnt: number }>(
+        `SELECT COUNT(*) as cnt FROM shorts_comments WHERE user_id = ?`, [userId]
+      );
+      count = cnt?.[0]?.cnt ?? 0;
+    } else {
+      let all: Comment[] = [];
+      for (const [, list] of (global as any).__memStore ?? []) {
+        all = all.concat((list as Comment[]).filter((c: any) => c.user_id === userId));
+      }
+      count = all.length;
+      comments = all.sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, limit);
+    }
+    res.json({ ok: true, count, comments });
+  } catch (e: any) {
+    logger.error({ err: e }, "shorts-comments by-user GET error");
+    res.status(500).json({ error: "Erro ao buscar comentários do usuário" });
+  }
+});
+
 // ── POST /shorts/comments ─────────────────────────────────────────────────────
 router.post("/shorts/comments", async (req, res) => {
   const { postId, tmdbId, userId, userName, avatarLetter, avatarUrl, content } = req.body ?? {};
