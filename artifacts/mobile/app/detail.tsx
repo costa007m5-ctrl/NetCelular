@@ -535,7 +535,12 @@ export default function DetailScreen() {
           if (fi?.synopsis && !cancelled) setFlix2Synopsis(fi.synopsis);
           const flixItems: RegistryItem[] = [];
 
-          if (fi?.stream_url) {
+          // Only accept a movie-style stream_url for content whose own type is movie.
+          // TV-series pages must go through the episodes path — if the lookup matched a
+          // VOD item (fi.stream_url set + fi.type === "filme"/"movie") for a TV detail
+          // page, that match is wrong content (e.g. same-name film vs animated series).
+          const fiIsMovie = (fi?.type ?? "").toLowerCase() === "filme" || (fi?.type ?? "").toLowerCase() === "movie";
+          if (fi?.stream_url && (type === "movie" || !fiIsMovie)) {
             flixItems.push({
               id: `flix2-auto-${tmdbId}`, r2Key: "", flix2Url: fi.stream_url,
               tmdbId, tmdbType: type, title: fi.title ?? "", label: fi.title ?? "",
@@ -658,7 +663,8 @@ export default function DetailScreen() {
 
         // Build the corrected items list
         const flixItems: RegistryItem[] = [];
-        if (fi?.stream_url) {
+        const fiIsMovieYC = (fi?.type ?? "").toLowerCase() === "filme" || (fi?.type ?? "").toLowerCase() === "movie";
+        if (fi?.stream_url && (type === "movie" || !fiIsMovieYC)) {
           flixItems.push({
             id: `flix2-auto-${tmdbId}`, r2Key: "", flix2Url: fi.stream_url,
             tmdbId, tmdbType: type, title: fi.title ?? "", label: fi.title ?? "",
@@ -724,6 +730,62 @@ export default function DetailScreen() {
     };
     scanFolder();
   }, [r2Items, selectedSeason, type]);
+
+  // ── Resolve Xtream "get_series_info" placeholder URLs ─────────────────────
+  // When an admin registers a series using a player_api.php?action=get_series_info&series_id=X
+  // URL as flix2Url, the player would receive an API query URL instead of a stream URL.
+  // Detect these, extract the series_id, fetch real per-episode stream URLs, and replace
+  // the placeholder items with actual per-episode RegistryItems.
+  useEffect(() => {
+    if (type !== "tv") return;
+    const placeholders = r2Items.filter(
+      (i) => i.flix2Url && i.flix2Url.includes("action=get_series_info") && i.episode == null
+    );
+    if (placeholders.length === 0) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const { r2Route } = await import("@/lib/r2-direct");
+        for (const placeholder of placeholders) {
+          if (cancelled) break;
+          // Extract series_id from the URL
+          const urlObj = new URL(placeholder.flix2Url!);
+          const seriesId = urlObj.searchParams.get("series_id");
+          if (!seriesId) continue;
+
+          const epData = await r2Route<{
+            found: boolean;
+            episodes: Array<{ season: number; episode: number; stream_url: string }>;
+          }>(`/flix2/series-episodes?seriesId=${seriesId}`).catch(() => ({ found: false, episodes: [] }));
+
+          if (!epData.found || epData.episodes.length === 0) continue;
+          const newItems: RegistryItem[] = epData.episodes
+            .filter((ep) => !!ep.stream_url)
+            .map((ep) => ({
+              id: `flix2-resolved-${placeholder.id}-s${ep.season}e${ep.episode}`,
+              r2Key: "",
+              flix2Url: ep.stream_url,
+              tmdbId: placeholder.tmdbId,
+              tmdbType: placeholder.tmdbType,
+              title: placeholder.title,
+              label: `T${String(ep.season).padStart(2, "0")} E${String(ep.episode).padStart(2, "0")} · Flix 2.0`,
+              season: ep.season,
+              episode: ep.episode,
+            }));
+
+          if (!cancelled && newItems.length > 0) {
+            setR2Items((prev) => [
+              ...prev.filter((i) => i.id !== placeholder.id),
+              ...newItems,
+            ]);
+          }
+        }
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [r2Items.map((i) => i.id).join(","), type]);
 
   // Extend seasons list when Flix2 loads episodes for seasons beyond what TMDB reported.
   // e.g. TMDB says 2 seasons but Flix2 has T13 episodes → add T3…T13 tabs automatically.
@@ -3607,12 +3669,18 @@ export default function DetailScreen() {
                           ? r2Items.find((i) => !isFlixItem(i) && !isDriveItem(i) && i.season == null && i.episode == null)
                           : undefined);
 
+                      // Per-episode flix/drive match (exact registry entry for this episode)
                       const flixEpForRow = r2Items.find(
                         (i) => isFlixItem(i) && Number(i.season) === selectedSeason && Number(i.episode) === ep.episode_number
                       );
                       const driveEpForRow = r2Items.find(
                         (i) => isDriveItem(i) && Number(i.season) === selectedSeason && Number(i.episode) === ep.episode_number
                       );
+                      // Fallback: series-level item (no per-episode registry entries) — still
+                      // lets the player navigate to the correct episode via override params
+                      const anyFlixItem  = flixEpForRow  ?? r2Items.find((i) => isFlixItem(i));
+                      const anyDriveItem = driveEpForRow ?? r2Items.find((i) => isDriveItem(i));
+                      const anyFlixUrl   = anyFlixItem?.flix2Url;
 
                       return (
                         <EpisodeRow
@@ -3625,15 +3693,18 @@ export default function DetailScreen() {
                           onPress={undefined}
                           onR2Press={srcSettings.r2 && r2Ep && !isDriveItem(r2Ep) && !isFlixItem(r2Ep) ? () => goToR2Player(r2Ep, selectedSeason, ep.episode_number) : undefined}
                           onFlixPress={(() => {
-                            if (!srcSettings.flix2) return undefined;
-                            if (!flixEpForRow) return undefined;
-                            return () => goToFlix2Player(flixEpForRow, selectedSeason, ep.episode_number);
+                            if (!srcSettings.flix2 || !anyFlixItem) return undefined;
+                            return () => goToFlix2Player(anyFlixItem, selectedSeason, ep.episode_number);
                           })()}
                           onDrivePress={(() => {
                             if (!srcSettings.drive) return undefined;
-                            if (!driveEpForRow) return undefined;
-                            const flix2Url = flixEpForRow?.flix2Url;
-                            return () => goToDrivePlayer(driveEpForRow, selectedSeason, ep.episode_number, flix2Url);
+                            // 1. Exact per-episode Drive registry entry
+                            if (driveEpForRow) return () => goToDrivePlayer(driveEpForRow, selectedSeason, ep.episode_number, anyFlixUrl);
+                            // 2. Drive folder scan episode map (gdrive-player with playlist)
+                            if (driveEpisodeMap[ep.episode_number]) return () => goToDriveEpisode(ep);
+                            // 3. Series-level Drive entry — player will navigate to episode via override
+                            if (anyDriveItem) return () => goToDrivePlayer(anyDriveItem, selectedSeason, ep.episode_number, anyFlixUrl);
+                            return undefined;
                           })()}
                         />
                       );
