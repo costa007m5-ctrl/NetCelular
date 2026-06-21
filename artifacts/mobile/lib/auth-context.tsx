@@ -9,6 +9,7 @@ export interface AuthUser {
   name: string;
   role: "user" | "admin";
   avatarLetter: string;
+  avatarUrl?: string;
 }
 
 interface AuthContextValue {
@@ -55,6 +56,7 @@ async function buildAuthUser(supabaseUserId: string, email: string): Promise<Aut
       name: profile.name,
       role: profile.role,
       avatarLetter: profile.avatar_letter,
+      avatarUrl: (profile as any).avatar_url ?? undefined,
     };
   } catch {
     return null;

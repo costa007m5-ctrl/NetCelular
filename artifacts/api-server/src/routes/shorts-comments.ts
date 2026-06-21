@@ -10,6 +10,7 @@ interface Comment {
   user_id: string;
   user_name: string;
   avatar_letter: string;
+  avatar_url: string | null;
   content: string;
   created_at: string;
 }
@@ -52,11 +53,14 @@ async function ensureTable(): Promise<void> {
         user_id TEXT NOT NULL,
         user_name TEXT NOT NULL,
         avatar_letter TEXT NOT NULL DEFAULT 'U',
+        avatar_url TEXT,
         content TEXT NOT NULL,
         created_at TEXT NOT NULL
       )
     `);
     await d1Run(`CREATE INDEX IF NOT EXISTS idx_shorts_comments_tmdb ON shorts_comments(tmdb_id)`);
+    // Migration: add avatar_url column if it doesn't exist
+    await d1Run(`ALTER TABLE shorts_comments ADD COLUMN IF NOT EXISTS avatar_url TEXT`).catch(() => {});
   } catch (e) {
     logger.warn({ err: e }, "shorts-comments: could not ensure D1 table");
   }
@@ -64,7 +68,7 @@ async function ensureTable(): Promise<void> {
 
 ensureTable().catch(() => {});
 
-// ── GET /shorts/comments?tmdbId=X&limit=50&before=<iso> ───────────────────────
+// ── GET /shorts/comments?tmdbId=X&limit=50 ────────────────────────────────────
 router.get("/shorts/comments", async (req, res) => {
   const tmdbId = Number(req.query["tmdbId"]);
   if (!tmdbId || isNaN(tmdbId)) {
@@ -76,7 +80,7 @@ router.get("/shorts/comments", async (req, res) => {
   try {
     if (isD1Configured()) {
       const rows = await d1Query<Comment>(
-        `SELECT id, tmdb_id, user_id, user_name, avatar_letter, content, created_at
+        `SELECT id, tmdb_id, user_id, user_name, avatar_letter, avatar_url, content, created_at
          FROM shorts_comments
          WHERE tmdb_id = ?
          ORDER BY created_at DESC
@@ -95,7 +99,7 @@ router.get("/shorts/comments", async (req, res) => {
 
 // ── POST /shorts/comments ─────────────────────────────────────────────────────
 router.post("/shorts/comments", async (req, res) => {
-  const { tmdbId, userId, userName, avatarLetter, content } = req.body ?? {};
+  const { tmdbId, userId, userName, avatarLetter, avatarUrl, content } = req.body ?? {};
 
   if (!tmdbId || !userId || !content?.trim()) {
     res.status(400).json({ error: "tmdbId, userId e content são obrigatórios" });
@@ -112,6 +116,7 @@ router.post("/shorts/comments", async (req, res) => {
     user_id: String(userId),
     user_name: String(userName ?? "Usuário").slice(0, 60),
     avatar_letter: String(avatarLetter ?? "U").slice(0, 1).toUpperCase(),
+    avatar_url: typeof avatarUrl === "string" && avatarUrl.startsWith("http") ? avatarUrl : null,
     content: content.trim(),
     created_at: new Date().toISOString(),
   };
@@ -119,9 +124,9 @@ router.post("/shorts/comments", async (req, res) => {
   try {
     if (isD1Configured()) {
       await d1Run(
-        `INSERT INTO shorts_comments (id, tmdb_id, user_id, user_name, avatar_letter, content, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [comment.id, comment.tmdb_id, comment.user_id, comment.user_name, comment.avatar_letter, comment.content, comment.created_at]
+        `INSERT INTO shorts_comments (id, tmdb_id, user_id, user_name, avatar_letter, avatar_url, content, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [comment.id, comment.tmdb_id, comment.user_id, comment.user_name, comment.avatar_letter, comment.avatar_url, comment.content, comment.created_at]
       );
     } else {
       memAdd(comment);

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
+  Alert,
   Animated,
   Dimensions,
   FlatList,
@@ -13,6 +14,7 @@ import {
   TouchableWithoutFeedback,
   View,
 } from "react-native";
+import { Image } from "expo-image";
 import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getApiBase } from "@/lib/api";
@@ -28,6 +30,7 @@ export interface ShortComment {
   user_id: string;
   user_name: string;
   avatar_letter: string;
+  avatar_url?: string | null;
   content: string;
   created_at: string;
 }
@@ -52,41 +55,92 @@ function timeAgo(iso: string): string {
   return new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
 }
 
-function AvatarBubble({ letter, size = 36 }: { letter: string; size?: number }) {
-  const colors = ["#6d28d9", "#0ea5e9", "#f59e0b", "#10b981", "#e50914", "#ec4899"];
-  const idx = letter.charCodeAt(0) % colors.length;
-  return (
-    <View style={{
-      width: size, height: size, borderRadius: size / 2,
-      backgroundColor: colors[idx],
-      alignItems: "center", justifyContent: "center",
-    }}>
+const BUBBLE_COLORS = ["#6d28d9", "#0ea5e9", "#f59e0b", "#10b981", "#e50914", "#ec4899"];
+
+function AvatarBubble({
+  letter,
+  uri,
+  size = 36,
+  onPress,
+}: {
+  letter: string;
+  uri?: string | null;
+  size?: number;
+  onPress?: () => void;
+}) {
+  const color = BUBBLE_COLORS[letter.charCodeAt(0) % BUBBLE_COLORS.length];
+  const inner = uri ? (
+    <Image
+      source={{ uri }}
+      style={{ width: size, height: size, borderRadius: size / 2 }}
+      contentFit="cover"
+    />
+  ) : (
+    <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: color, alignItems: "center", justifyContent: "center" }}>
       <Text style={{ color: "#fff", fontSize: size * 0.44, fontWeight: "700" }}>{letter.toUpperCase()}</Text>
     </View>
   );
+
+  if (onPress) {
+    return (
+      <TouchableOpacity onPress={onPress} activeOpacity={0.8} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+        {inner}
+      </TouchableOpacity>
+    );
+  }
+  return inner;
 }
 
 function CommentItem({
-  comment, currentUserId, onDelete,
+  comment,
+  currentUserId,
+  followed,
+  onDelete,
+  onFollow,
+  onProfilePress,
 }: {
   comment: ShortComment;
   currentUserId?: string;
+  followed: boolean;
   onDelete: (id: string) => void;
+  onFollow: (userId: string, userName: string) => void;
+  onProfilePress: (comment: ShortComment) => void;
 }) {
   const isOwn = comment.user_id === currentUserId;
   return (
     <View style={cs.row}>
-      <AvatarBubble letter={comment.avatar_letter} />
+      <AvatarBubble
+        letter={comment.avatar_letter}
+        uri={comment.avatar_url}
+        onPress={() => onProfilePress(comment)}
+      />
       <View style={cs.bubble}>
         <View style={cs.bubbleHeader}>
-          <Text style={cs.userName}>{comment.user_name}</Text>
+          <TouchableOpacity onPress={() => onProfilePress(comment)} activeOpacity={0.75}>
+            <Text style={cs.userName}>{comment.user_name}</Text>
+          </TouchableOpacity>
           <Text style={cs.timeAgo}>{timeAgo(comment.created_at)}</Text>
         </View>
         <Text style={cs.content}>{comment.content}</Text>
       </View>
-      {isOwn && (
-        <TouchableOpacity onPress={() => onDelete(comment.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+
+      {/* Follow / Delete actions */}
+      {isOwn ? (
+        <TouchableOpacity
+          onPress={() => onDelete(comment.id)}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
           <Feather name="trash-2" size={14} color="rgba(255,255,255,0.35)" />
+        </TouchableOpacity>
+      ) : (
+        <TouchableOpacity
+          style={[cs.followBtn, followed && cs.followBtnActive]}
+          onPress={() => onFollow(comment.user_id, comment.user_name)}
+          activeOpacity={0.75}
+        >
+          <Text style={[cs.followBtnText, followed && cs.followBtnTextActive]}>
+            {followed ? "Seguindo" : "Seguir"}
+          </Text>
         </TouchableOpacity>
       )}
     </View>
@@ -103,7 +157,10 @@ export default function ShortsCommentsSheet({ visible, onClose, tmdbId, title }:
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [internalVisible, setInternalVisible] = useState(false);
+  // Set of user IDs the current user follows (local state only)
+  const [followed, setFollowed] = useState<Set<string>>(new Set());
   const inputRef = useRef<TextInput>(null);
+  const listRef = useRef<FlatList>(null);
 
   // Animate in/out
   useEffect(() => {
@@ -137,8 +194,7 @@ export default function ShortsCommentsSheet({ visible, onClose, tmdbId, title }:
   }, [tmdbId]);
 
   const handleSend = useCallback(async () => {
-    if (!text.trim() || sending) return;
-    if (!user) return;
+    if (!text.trim() || sending || !user) return;
 
     const optimistic: ShortComment = {
       id: `opt-${Date.now()}`,
@@ -146,6 +202,7 @@ export default function ShortsCommentsSheet({ visible, onClose, tmdbId, title }:
       user_id: user.id,
       user_name: user.name,
       avatar_letter: user.avatarLetter,
+      avatar_url: user.avatarUrl ?? null,
       content: text.trim(),
       created_at: new Date().toISOString(),
     };
@@ -154,6 +211,8 @@ export default function ShortsCommentsSheet({ visible, onClose, tmdbId, title }:
     setText("");
     setSending(true);
     inputRef.current?.blur();
+    // Scroll to top to show the new comment
+    listRef.current?.scrollToOffset({ offset: 0, animated: true });
 
     try {
       const base = getApiBase();
@@ -165,6 +224,7 @@ export default function ShortsCommentsSheet({ visible, onClose, tmdbId, title }:
           userId: user.id,
           userName: user.name,
           avatarLetter: user.avatarLetter,
+          avatarUrl: user.avatarUrl ?? null,
           content: optimistic.content,
         }),
       });
@@ -189,15 +249,43 @@ export default function ShortsCommentsSheet({ visible, onClose, tmdbId, title }:
     } catch {}
   }, [user]);
 
+  const handleFollow = useCallback((userId: string, userName: string) => {
+    setFollowed((prev) => {
+      const next = new Set(prev);
+      if (next.has(userId)) {
+        next.delete(userId);
+      } else {
+        next.add(userId);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleProfilePress = useCallback((comment: ShortComment) => {
+    Alert.alert(
+      comment.user_name,
+      `Perfil de ${comment.user_name}`,
+      [
+        {
+          text: followed.has(comment.user_id) ? "Deixar de seguir" : "Seguir",
+          onPress: () => handleFollow(comment.user_id, comment.user_name),
+        },
+        { text: "Fechar", style: "cancel" },
+      ]
+    );
+  }, [followed, handleFollow]);
+
   if (!internalVisible) return null;
 
   return (
-    <Modal transparent animationType="none" visible={internalVisible} onRequestClose={onClose} statusBarTranslucent>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={0}
-      >
+    <Modal
+      transparent
+      animationType="none"
+      visible={internalVisible}
+      onRequestClose={onClose}
+      statusBarTranslucent
+    >
+      <View style={{ flex: 1 }}>
         {/* Backdrop */}
         <TouchableWithoutFeedback onPress={onClose}>
           <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.55)", opacity: backdropAnim }]} />
@@ -205,11 +293,7 @@ export default function ShortsCommentsSheet({ visible, onClose, tmdbId, title }:
 
         {/* Sheet */}
         <Animated.View
-          style={[
-            cs.sheet,
-            { height: SHEET_HEIGHT, paddingBottom: insets.bottom + 8 },
-            { transform: [{ translateY: slideAnim }] },
-          ]}
+          style={[cs.sheet, { transform: [{ translateY: slideAnim }] }]}
         >
           {/* Handle */}
           <View style={cs.handleWrap} pointerEvents="box-none">
@@ -229,12 +313,15 @@ export default function ShortsCommentsSheet({ visible, onClose, tmdbId, title }:
             </TouchableOpacity>
           </View>
 
-          {/* Comment list */}
+          {/* Comment list — flex: 1 so it takes remaining space and never pushes input out */}
           <FlatList
+            ref={listRef}
             data={comments}
             keyExtractor={(c) => c.id}
+            style={cs.list}
             contentContainerStyle={cs.listContent}
             showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
             ListEmptyComponent={
               <View style={cs.empty}>
                 {loading ? (
@@ -248,42 +335,54 @@ export default function ShortsCommentsSheet({ visible, onClose, tmdbId, title }:
               </View>
             }
             renderItem={({ item }) => (
-              <CommentItem comment={item} currentUserId={user?.id} onDelete={handleDelete} />
+              <CommentItem
+                comment={item}
+                currentUserId={user?.id}
+                followed={followed.has(item.user_id)}
+                onDelete={handleDelete}
+                onFollow={handleFollow}
+                onProfilePress={handleProfilePress}
+              />
             )}
           />
 
-          {/* Input area */}
-          <View style={cs.inputArea}>
-            {user ? (
-              <>
-                <AvatarBubble letter={user.avatarLetter} size={34} />
-                <TextInput
-                  ref={inputRef}
-                  style={cs.input}
-                  placeholder="Adicionar comentário..."
-                  placeholderTextColor="rgba(255,255,255,0.35)"
-                  value={text}
-                  onChangeText={setText}
-                  multiline
-                  maxLength={500}
-                  returnKeyType="send"
-                  onSubmitEditing={handleSend}
-                  blurOnSubmit
-                />
-                <TouchableOpacity
-                  onPress={handleSend}
-                  disabled={!text.trim() || sending}
-                  style={[cs.sendBtn, (!text.trim() || sending) && { opacity: 0.4 }]}
-                >
-                  <Feather name="send" size={20} color={RED} />
-                </TouchableOpacity>
-              </>
-            ) : (
-              <Text style={cs.loginHint}>Faça login para comentar</Text>
-            )}
-          </View>
+          {/* Input area — always stuck to the bottom, lifted by keyboard */}
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
+            keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
+          >
+            <View style={[cs.inputArea, { paddingBottom: Math.max(insets.bottom, 8) }]}>
+              {user ? (
+                <>
+                  <AvatarBubble letter={user.avatarLetter} uri={user.avatarUrl} size={34} />
+                  <TextInput
+                    ref={inputRef}
+                    style={cs.input}
+                    placeholder="Adicionar comentário..."
+                    placeholderTextColor="rgba(255,255,255,0.35)"
+                    value={text}
+                    onChangeText={setText}
+                    multiline
+                    maxLength={500}
+                    returnKeyType="send"
+                    onSubmitEditing={handleSend}
+                    blurOnSubmit
+                  />
+                  <TouchableOpacity
+                    onPress={handleSend}
+                    disabled={!text.trim() || sending}
+                    style={[cs.sendBtn, (!text.trim() || sending) && { opacity: 0.4 }]}
+                  >
+                    <Feather name="send" size={20} color={RED} />
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <Text style={cs.loginHint}>Faça login para comentar</Text>
+              )}
+            </View>
+          </KeyboardAvoidingView>
         </Animated.View>
-      </KeyboardAvoidingView>
+      </View>
     </Modal>
   );
 }
@@ -294,10 +393,11 @@ const cs = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
+    height: SHEET_HEIGHT,
     backgroundColor: "#111",
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    overflow: "hidden",
+    flexDirection: "column",
   },
   handleWrap: {
     alignItems: "center",
@@ -328,6 +428,9 @@ const cs = StyleSheet.create({
     color: "rgba(255,255,255,0.4)",
     fontSize: 12,
     marginTop: 1,
+  },
+  list: {
+    flex: 1,
   },
   listContent: {
     paddingHorizontal: 16,
@@ -380,15 +483,36 @@ const cs = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
   },
+  followBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.3)",
+    alignSelf: "flex-start",
+    marginTop: 2,
+  },
+  followBtnActive: {
+    borderColor: RED,
+    backgroundColor: "rgba(229,9,20,0.12)",
+  },
+  followBtnText: {
+    color: "rgba(255,255,255,0.75)",
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  followBtnTextActive: {
+    color: RED,
+  },
   inputArea: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
     paddingHorizontal: 14,
     paddingTop: 10,
-    paddingBottom: 6,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "#111",
   },
   input: {
     flex: 1,
