@@ -18,7 +18,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "@/lib/auth-context";
-import { db, supabase, type DbProfile, type WatchProgress, type WatchlistItem } from "@/lib/supabase";
+import { db, supabase, type DbProfile, type WatchProgress, type WatchlistItem, type ShortsCommentRow } from "@/lib/supabase";
 
 const RED = "#e50914";
 const TMDB_IMG = "https://image.tmdb.org/t/p/w185";
@@ -41,6 +41,20 @@ const DEFAULT_VIS: Visibility = {
 function timeAgo(iso: string | null | undefined): string {
   if (!iso) return "";
   return new Date(iso).toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+}
+
+function timeAgoShort(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "agora";
+  if (m < 60) return `${m}min`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `${d}d`;
+  const w = Math.floor(d / 7);
+  if (w < 5) return `${w}sem`;
+  return new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
 }
 
 function fmtHours(h: number) {
@@ -187,6 +201,10 @@ export default function UserProfileScreen() {
   const [visibility, setVisibility] = useState<Visibility>(DEFAULT_VIS);
   const [showPrivacy, setShowPrivacy] = useState(false);
 
+  // Activity history (comments) — visible for everyone
+  const [recentComments, setRecentComments] = useState<ShortsCommentRow[]>([]);
+  const [showAllComments, setShowAllComments] = useState(false);
+
   // ── Computed stats (own profile) ─────────────────────────────────────────
   const watchedCount = watchHistory.length;
   const movieCount = watchHistory.filter((h) => h.type === "movie").length;
@@ -203,7 +221,7 @@ export default function UserProfileScreen() {
     if (!userId) return;
     setLoading(true);
     try {
-      const [userRow, profilesData, commentsCount] = await Promise.all([
+      const [userRow, profilesData, commentsCount, recentCmts] = await Promise.all([
         db.users.getById(userId).catch(() => null),
         db.profiles.getAll(userId).catch(() => [] as DbProfile[]),
         supabase
@@ -212,6 +230,14 @@ export default function UserProfileScreen() {
           .eq("user_id", userId)
           .then(({ count }) => count ?? 0)
           .catch(() => 0),
+        supabase
+          .from("shorts_comments")
+          .select("id, post_id, tmdb_id, user_id, user_name, content, created_at")
+          .eq("user_id", userId)
+          .order("created_at", { ascending: false })
+          .limit(20)
+          .then(({ data }) => (data ?? []) as ShortsCommentRow[])
+          .catch(() => [] as ShortsCommentRow[]),
       ]);
 
       setUserData({
@@ -223,6 +249,7 @@ export default function UserProfileScreen() {
       });
       setProfiles(profilesData);
       setCommentCount(commentsCount as number);
+      setRecentComments(recentCmts);
 
       if (user?.id) {
         supabase
@@ -515,6 +542,43 @@ export default function UserProfileScreen() {
               </View>
             )}
 
+            {/* ── ATIVIDADE RECENTE (comments timeline) ───────────────────── */}
+            {recentComments.length > 0 && (
+              <View style={s.section}>
+                <SectionTitle
+                  icon="message-circle"
+                  label="Atividade Recente"
+                  action={recentComments.length > 5 ? (showAllComments ? "Ver menos" : `Ver todos (${recentComments.length})`) : undefined}
+                  onAction={() => setShowAllComments((v) => !v)}
+                />
+                <View style={s.timeline}>
+                  {(showAllComments ? recentComments : recentComments.slice(0, 5)).map((c, i) => {
+                    const isLast = i === (showAllComments ? recentComments.length - 1 : Math.min(4, recentComments.length - 1));
+                    return (
+                      <View key={c.id} style={s.timelineItem}>
+                        {/* Vertical line */}
+                        <View style={s.timelineLeft}>
+                          <View style={s.timelineDot} />
+                          {!isLast && <View style={s.timelineLine} />}
+                        </View>
+                        {/* Content */}
+                        <View style={s.timelineContent}>
+                          <View style={s.timelineHeader}>
+                            <View style={s.timelineBadge}>
+                              <Feather name="zap" size={9} color={RED} />
+                              <Text style={s.timelineBadgeText}>Shorts</Text>
+                            </View>
+                            <Text style={s.timelineTime}>{timeAgoShort(c.created_at)}</Text>
+                          </View>
+                          <Text style={s.timelineText} numberOfLines={3}>{c.content}</Text>
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
+
             {/* ── BANNER (outros usuários) ─────────────────────────────────── */}
             {banner && user && !isOwnProfile && (
               <View style={s.section}>
@@ -678,4 +742,20 @@ const s = StyleSheet.create({
   profileCardName: { color: "rgba(255,255,255,0.7)", fontSize: 12, textAlign: "center" },
   kidsBadge: { backgroundColor: "#2563eb", borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
   kidsBadgeText: { color: "#fff", fontSize: 9, fontWeight: "700" },
+  // ── Timeline ──────────────────────────────────────────────────────────────
+  timeline: { gap: 0 },
+  timelineItem: { flexDirection: "row", gap: 14, minHeight: 56 },
+  timelineLeft: { alignItems: "center", width: 14 },
+  timelineDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: RED, marginTop: 4, borderWidth: 2, borderColor: `${RED}50` },
+  timelineLine: { flex: 1, width: 2, backgroundColor: "rgba(255,255,255,0.07)", marginVertical: 4 },
+  timelineContent: { flex: 1, paddingBottom: 18 },
+  timelineHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 },
+  timelineBadge: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    backgroundColor: `${RED}20`, borderRadius: 20,
+    paddingHorizontal: 8, paddingVertical: 3,
+  },
+  timelineBadgeText: { color: RED, fontSize: 10, fontWeight: "700" },
+  timelineTime: { color: "rgba(255,255,255,0.35)", fontSize: 11 },
+  timelineText: { color: "rgba(255,255,255,0.8)", fontSize: 14, lineHeight: 20 },
 });
