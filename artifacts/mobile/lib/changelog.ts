@@ -10,6 +10,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "1.1.2",
+    date: "Junho 2026",
+    highlights: [
+      {
+        icon: "🛠️",
+        title: "Melhorias gerais",
+        description: "Correções e melhorias de performance.",
+      },
+    ],
+  },
+  {
     version: "1.1.1",
     date: "Junho 2026",
     highlights: [
