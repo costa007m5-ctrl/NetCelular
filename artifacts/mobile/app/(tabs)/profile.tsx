@@ -52,6 +52,7 @@ import {
   type ManualPreferences,
 } from "@/lib/smart-preferences";
 import { getBehaviorProfile, clearBehaviorData, syncBehaviorToSupabase, type BehaviorProfile } from "@/lib/ai-behavior-tracker";
+import { loadStreakData, nextMilestone, STREAK_MILESTONES, type StreakData } from "@/lib/streak";
 
 const { width: SW } = Dimensions.get("window");
 const ACTIVE_PROFILE_KEY = "netplay_active_profile_v2";
@@ -235,6 +236,7 @@ export default function ProfileScreen() {
     showMinhaLista: true,
     showConquistas: true,
   });
+  const [streakData, setStreakData] = useState<StreakData | null>(null);
 
   const [editName, setEditName] = useState("");
   const [currentPw, setCurrentPw] = useState("");
@@ -288,6 +290,7 @@ export default function ProfileScreen() {
       setListCount(watchlistData.length);
       setWatchHistory(progress.slice(0, 20));
       setWatchlist(watchlistData);
+      loadStreakData(progress.map((p) => p.updated_at)).then(setStreakData).catch(() => {});
 
       if (dbSettings) {
         const merged: Partial<UserSettings> = {};
@@ -838,6 +841,66 @@ export default function ProfileScreen() {
               </View>
               <Text style={[s.listTitle, { color: colors.foreground }]}>Estatísticas</Text>
             </View>
+
+            {/* Streak card */}
+            {streakData && streakData.currentStreak > 0 && (() => {
+              const streak = streakData.currentStreak;
+              const longest = streakData.longestStreak;
+              const next = nextMilestone(streak);
+              const daysToNext = next ? next.days - streak : 0;
+              const achieved = STREAK_MILESTONES.filter((m) => longest >= m.days);
+              const streakColor = streak >= 30 ? "#fbbf24" : streak >= 7 ? "#f97316" : RED;
+              return (
+                <View style={{ backgroundColor: streakColor + "12", borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: streakColor + "35", padding: 14, marginBottom: 10 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                    {/* Fire counter */}
+                    <View style={{ alignItems: "center", minWidth: 70 }}>
+                      <Text style={{ fontSize: 36 }}>🔥</Text>
+                      <Text style={{ color: streakColor, fontSize: 28, fontWeight: "900", lineHeight: 32 }}>{streak}</Text>
+                      <Text style={{ color: colors.mutedForeground, fontSize: 11, marginTop: 1 }}>dias seguidos</Text>
+                    </View>
+                    <View style={{ width: StyleSheet.hairlineWidth, height: 70, backgroundColor: streakColor + "40" }} />
+                    {/* Right side info */}
+                    <View style={{ flex: 1, gap: 4 }}>
+                      <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+                        <Text style={{ color: colors.foreground, fontSize: 12, fontWeight: "700" }}>Recorde pessoal</Text>
+                        <Text style={{ color: streakColor, fontSize: 12, fontWeight: "800" }}>{longest} dias 🏅</Text>
+                      </View>
+                      <Text style={{ color: colors.mutedForeground, fontSize: 11 }}>
+                        {streakData.totalDays} dia{streakData.totalDays !== 1 ? "s" : ""} no total assistindo
+                      </Text>
+                      {next && (
+                        <View style={{ gap: 3, marginTop: 2 }}>
+                          <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+                            <Text style={{ color: colors.mutedForeground, fontSize: 10 }}>
+                              Próximo: {next.emoji} {next.title}
+                            </Text>
+                            <Text style={{ color: colors.mutedForeground, fontSize: 10 }}>{daysToNext}d</Text>
+                          </View>
+                          <View style={{ height: 4, backgroundColor: colors.border + "40", borderRadius: 2 }}>
+                            <View style={{ height: 4, width: `${Math.round((streak / next.days) * 100)}%` as any, backgroundColor: streakColor, borderRadius: 2 }} />
+                          </View>
+                        </View>
+                      )}
+                    </View>
+                  </View>
+                  {/* Achieved milestones */}
+                  {achieved.length > 0 && (
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 12, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: streakColor + "30" }}>
+                      {achieved.map((m) => (
+                        <View
+                          key={m.days}
+                          style={{ flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: streakColor + "18", borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5 }}
+                        >
+                          <Text style={{ fontSize: 13 }}>{m.emoji}</Text>
+                          <Text style={{ color: colors.foreground, fontSize: 11, fontWeight: "700" }}>{m.title}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                </View>
+              );
+            })()}
 
             {/* Main stats grid */}
             <View style={{ flexDirection: "row", gap: 10, marginBottom: 10 }}>
