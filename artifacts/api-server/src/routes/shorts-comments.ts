@@ -2,6 +2,10 @@ import { Router } from "express";
 import { d1Query, d1Run, isD1Configured } from "../lib/d1.js";
 import { logger } from "../lib/logger.js";
 
+const SUPABASE_URL =
+  process.env["SUPABASE_URL"] ?? "https://pjzfsbdcjyhcoptbrlhh.supabase.co";
+const SUPABASE_KEY = process.env["SUPABASE_SERVICE_ROLE_KEY"] ?? process.env["SUPABASE_ANON_KEY"] ?? "";
+
 const router = Router();
 
 interface Comment {
@@ -172,6 +176,61 @@ router.delete("/shorts/comments/:id", async (req, res) => {
   } catch (e: any) {
     logger.error({ err: e }, "shorts-comments DELETE error");
     res.status(500).json({ error: "Erro ao remover comentário" });
+  }
+});
+
+// ── GET /shorts/user-profile/:userId ─────────────────────────────────────────
+router.get("/shorts/user-profile/:userId", async (req, res) => {
+  const { userId } = req.params;
+  if (!userId) {
+    res.status(400).json({ error: "userId obrigatório" });
+    return;
+  }
+
+  try {
+    // Fetch user from Supabase
+    let userRow: { name?: string; avatar_letter?: string; avatar_url?: string | null; created_at?: string } | null = null;
+    if (SUPABASE_KEY) {
+      const sbRes = await fetch(
+        `${SUPABASE_URL}/rest/v1/users?id=eq.${encodeURIComponent(userId)}&select=name,avatar_letter,avatar_url,created_at&limit=1`,
+        { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
+      );
+      if (sbRes.ok) {
+        const rows = await sbRes.json() as typeof userRow[];
+        userRow = rows?.[0] ?? null;
+      }
+    }
+
+    // Count comments by this user
+    let commentCount = 0;
+    if (isD1Configured()) {
+      const rows = await d1Query<{ cnt: number }>(
+        `SELECT COUNT(*) as cnt FROM shorts_comments WHERE user_id = ?`,
+        [userId]
+      );
+      commentCount = rows?.[0]?.cnt ?? 0;
+    } else {
+      // count from memStore
+      let cnt = 0;
+      for (const [, list] of (global as any).__memStore ?? []) {
+        cnt += (list as Comment[]).filter((c) => c.user_id === userId).length;
+      }
+      commentCount = cnt;
+    }
+
+    res.json({
+      ok: true,
+      profile: {
+        name: userRow?.name ?? null,
+        avatar_letter: userRow?.avatar_letter ?? null,
+        avatar_url: userRow?.avatar_url ?? null,
+        member_since: userRow?.created_at ?? null,
+        comment_count: commentCount,
+      },
+    });
+  } catch (e: any) {
+    logger.error({ err: e }, "shorts user-profile GET error");
+    res.status(500).json({ error: "Erro ao buscar perfil" });
   }
 });
 

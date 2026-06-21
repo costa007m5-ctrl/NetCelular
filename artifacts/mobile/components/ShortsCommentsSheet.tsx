@@ -92,6 +92,14 @@ function AvatarBubble({ letter, uri, size = 36 }: { letter: string; uri?: string
   );
 }
 
+interface UserProfile {
+  name: string | null;
+  avatar_letter: string | null;
+  avatar_url: string | null;
+  member_since: string | null;
+  comment_count: number;
+}
+
 // ── Mini profile bottom panel (replaces Alert for web compat) ─────────────────
 function ProfilePanel({
   comment,
@@ -104,30 +112,88 @@ function ProfilePanel({
   onFollow: () => void;
   onClose: () => void;
 }) {
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [loadingProfile, setLoadingProfile] = useState(false);
+  const slideAnim = useRef(new Animated.Value(220)).current;
+
+  useEffect(() => {
+    if (!comment) return;
+    // Slide in
+    Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, tension: 70, friction: 12 }).start();
+    // Fetch real profile data
+    setLoadingProfile(true);
+    fetch(`${getApiBase()}/shorts/user-profile/${encodeURIComponent(comment.user_id)}`)
+      .then((r) => r.json())
+      .then((data: { ok: boolean; profile: UserProfile }) => {
+        if (data.ok) setProfile(data.profile);
+      })
+      .catch(() => {})
+      .finally(() => setLoadingProfile(false));
+  }, [comment?.user_id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (!comment) return null;
+
+  const displayName = profile?.name ?? comment.user_name;
+  const displayAvatar = profile?.avatar_url ?? comment.avatar_url;
+  const displayLetter = profile?.avatar_letter ?? comment.avatar_letter;
+
+  function formatMemberSince(iso: string | null): string {
+    if (!iso) return "Membro NETPLAY";
+    const d = new Date(iso);
+    return `Membro desde ${d.toLocaleDateString("pt-BR", { month: "long", year: "numeric" })}`;
+  }
+
   return (
     <View style={pp.backdrop}>
       <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-      <View style={pp.card}>
+      <Animated.View style={[pp.card, { transform: [{ translateY: slideAnim }] }]}>
+        {/* Handle bar */}
+        <View style={{ alignItems: "center", paddingTop: 10, paddingBottom: 6 }}>
+          <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.2)" }} />
+        </View>
+
+        {/* Avatar + name row */}
         <View style={pp.row}>
-          <AvatarBubble letter={comment.avatar_letter} uri={comment.avatar_url} size={48} />
+          <AvatarBubble letter={displayLetter} uri={displayAvatar} size={56} />
           <View style={{ flex: 1 }}>
-            <Text style={pp.name}>{comment.user_name}</Text>
-            <Text style={pp.sub}>Ver perfil</Text>
+            <Text style={pp.name}>{displayName}</Text>
+            <Text style={pp.sub}>
+              {loadingProfile ? "Carregando…" : formatMemberSince(profile?.member_since ?? null)}
+            </Text>
           </View>
           <Pressable
             style={[pp.followBtn, followed && pp.followBtnActive]}
-            onPress={() => { onFollow(); }}
+            onPress={onFollow}
           >
             <Text style={[pp.followBtnText, followed && pp.followBtnTextActive]}>
               {followed ? "Seguindo" : "Seguir"}
             </Text>
           </Pressable>
         </View>
+
+        {/* Stats row */}
+        {!loadingProfile && profile && (
+          <View style={pp.statsRow}>
+            <View style={pp.statItem}>
+              <Text style={pp.statValue}>
+                {profile.comment_count > 999
+                  ? `${(profile.comment_count / 1000).toFixed(1)}k`
+                  : String(profile.comment_count)}
+              </Text>
+              <Text style={pp.statLabel}>Comentários</Text>
+            </View>
+            <View style={pp.statDivider} />
+            <View style={pp.statItem}>
+              <Text style={pp.statValue}>NETPLAY</Text>
+              <Text style={pp.statLabel}>Membro</Text>
+            </View>
+          </View>
+        )}
+
         <Pressable style={pp.closeRow} onPress={onClose}>
           <Text style={pp.closeText}>Fechar</Text>
         </Pressable>
-      </View>
+      </Animated.View>
     </View>
   );
 }
@@ -663,6 +729,18 @@ const pp = StyleSheet.create({
   followBtnActive: { borderColor: RED, backgroundColor: "rgba(229,9,20,0.12)" },
   followBtnText: { color: "#fff", fontSize: 13, fontWeight: "600" },
   followBtnTextActive: { color: RED },
+  statsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+  },
+  statItem: { flex: 1, alignItems: "center", gap: 2 },
+  statValue: { color: "#fff", fontSize: 18, fontWeight: "700" },
+  statLabel: { color: "rgba(255,255,255,0.4)", fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5 },
+  statDivider: { width: 1, height: 32, backgroundColor: "rgba(255,255,255,0.12)" },
   closeRow: { alignItems: "center", paddingVertical: 8 },
   closeText: { color: "rgba(255,255,255,0.5)", fontSize: 14 },
 });
