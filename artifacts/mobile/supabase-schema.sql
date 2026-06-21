@@ -358,5 +358,89 @@ CREATE POLICY "anon_all_user_ai_profile"
 
 
 -- ────────────────────────────────────────────────────────────
+-- SHORTS — Comentários, Reações e Seguidores
+-- ────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS public.shorts_comments (
+  id              TEXT        PRIMARY KEY,
+  post_id         TEXT        NOT NULL,
+  tmdb_id         INTEGER     NOT NULL DEFAULT 0,
+  user_id         UUID        NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  user_name       TEXT        NOT NULL,
+  avatar_letter   TEXT        NOT NULL DEFAULT 'U',
+  avatar_url      TEXT,
+  content         TEXT        NOT NULL,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_shorts_comments_post   ON public.shorts_comments(post_id);
+CREATE INDEX IF NOT EXISTS idx_shorts_comments_user   ON public.shorts_comments(user_id);
+CREATE INDEX IF NOT EXISTS idx_shorts_comments_time   ON public.shorts_comments(created_at DESC);
+
+ALTER TABLE public.shorts_comments ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "auth_all_shorts_comments" ON public.shorts_comments;
+CREATE POLICY "auth_all_shorts_comments"
+  ON public.shorts_comments FOR ALL TO authenticated
+  USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "anon_read_shorts_comments" ON public.shorts_comments;
+CREATE POLICY "anon_read_shorts_comments"
+  ON public.shorts_comments FOR SELECT TO anon
+  USING (true);
+
+
+CREATE TABLE IF NOT EXISTS public.shorts_comment_reactions (
+  id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  comment_id  TEXT        NOT NULL REFERENCES public.shorts_comments(id) ON DELETE CASCADE,
+  user_id     UUID        NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  emoji       TEXT        NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT shorts_reactions_unique UNIQUE (comment_id, user_id, emoji)
+);
+
+CREATE INDEX IF NOT EXISTS idx_shorts_reactions_comment ON public.shorts_comment_reactions(comment_id);
+
+ALTER TABLE public.shorts_comment_reactions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "auth_all_shorts_reactions" ON public.shorts_comment_reactions;
+CREATE POLICY "auth_all_shorts_reactions"
+  ON public.shorts_comment_reactions FOR ALL TO authenticated
+  USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "anon_read_shorts_reactions" ON public.shorts_comment_reactions;
+CREATE POLICY "anon_read_shorts_reactions"
+  ON public.shorts_comment_reactions FOR SELECT TO anon
+  USING (true);
+
+
+CREATE TABLE IF NOT EXISTS public.shorts_follows (
+  id                    UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  follower_id           UUID        NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  followed_id           UUID        NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  followed_name         TEXT        NOT NULL DEFAULT '',
+  followed_avatar_letter TEXT       NOT NULL DEFAULT 'U',
+  followed_avatar_url   TEXT,
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT shorts_follows_unique UNIQUE (follower_id, followed_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_shorts_follows_follower ON public.shorts_follows(follower_id);
+CREATE INDEX IF NOT EXISTS idx_shorts_follows_followed ON public.shorts_follows(followed_id);
+
+ALTER TABLE public.shorts_follows ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "auth_all_shorts_follows" ON public.shorts_follows;
+CREATE POLICY "auth_all_shorts_follows"
+  ON public.shorts_follows FOR ALL TO authenticated
+  USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "anon_read_shorts_follows" ON public.shorts_follows;
+CREATE POLICY "anon_read_shorts_follows"
+  ON public.shorts_follows FOR SELECT TO anon
+  USING (true);
+
+
+-- ────────────────────────────────────────────────────────────
 -- FIM — todas as tabelas e permissoes prontas
 -- ────────────────────────────────────────────────────────────

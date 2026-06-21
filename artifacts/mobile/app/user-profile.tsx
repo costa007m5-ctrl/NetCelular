@@ -19,7 +19,6 @@ import { LinearGradient } from "expo-linear-gradient";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "@/lib/auth-context";
 import { db, supabase, type DbProfile, type WatchProgress, type WatchlistItem, type ShortsCommentRow } from "@/lib/supabase";
-import { r2Base } from "@/lib/r2-direct";
 
 const RED = "#e50914";
 const TMDB_IMG = "https://image.tmdb.org/t/p/w185";
@@ -263,18 +262,12 @@ export default function UserProfileScreen() {
     if (!userId) return;
     setLoading(true);
     try {
-      // Comments are stored in Cloudflare D1 (not Supabase) — query via API server.
-      const base = r2Base();
-      const commentsByUserPromise: Promise<{ count: number; comments: ShortsCommentRow[] }> = base
-        ? fetch(`${base}/api/shorts/comments/by-user/${encodeURIComponent(userId)}?limit=20`)
-            .then((r) => r.ok ? r.json() : { count: 0, comments: [] })
-            .catch(() => ({ count: 0, comments: [] }))
-        : Promise.resolve({ count: 0, comments: [] });
-
-      const [userRow, profilesData, commentData, follCount, follingCount] = await Promise.all([
+      // Comments and follows are stored in Supabase — read directly (no D1/API server needed).
+      const [userRow, profilesData, commentCount, recentComments, follCount, follingCount] = await Promise.all([
         db.users.getById(userId).catch(() => null),
         db.profiles.getAll(userId).catch(() => [] as DbProfile[]),
-        commentsByUserPromise,
+        db.shorts.comments.countByUser(userId).catch(() => 0),
+        Promise.resolve([] as ShortsCommentRow[]),
         db.shorts.follows.followerCount(userId).catch(() => 0),
         db.shorts.follows.followingCount(userId).catch(() => 0),
       ]);
@@ -287,19 +280,18 @@ export default function UserProfileScreen() {
         created_at: userRow?.created_at ?? null,
       });
       setProfiles(profilesData);
-      setCommentCount(commentData.count);
-      setRecentComments(commentData.comments);
+      setCommentCount(commentCount);
+      setRecentComments(recentComments);
       setFollowerCount(follCount);
       setFollowingCount(follingCount);
 
       if (user?.id) {
-        supabase
+        void supabase
           .from("shorts_follows")
           .select("follower_id", { count: "exact", head: true })
           .eq("follower_id", user.id)
           .eq("followed_id", userId)
-          .then(({ count }) => setFollowed((count ?? 0) > 0))
-          .catch(() => {});
+          .then(({ count }) => setFollowed((count ?? 0) > 0), () => {});
       }
 
       // For own profile: load watch history, watchlist, visibility prefs
