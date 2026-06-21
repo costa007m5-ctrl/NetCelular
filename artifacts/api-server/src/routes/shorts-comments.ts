@@ -179,6 +179,15 @@ router.delete("/shorts/comments/:id", async (req, res) => {
   }
 });
 
+// ── TMDB genre id → Portuguese name ──────────────────────────────────────────
+const GENRE_PT: Record<number, string> = {
+  28: "Ação", 12: "Aventura", 16: "Animação", 35: "Comédia", 80: "Crime",
+  99: "Documentário", 18: "Drama", 10751: "Família", 14: "Fantasia",
+  36: "História", 27: "Terror", 10402: "Música", 9648: "Mistério",
+  10749: "Romance", 878: "Ficção Científica", 53: "Suspense",
+  10752: "Guerra", 37: "Western",
+};
+
 // ── GET /shorts/user-profile/:userId ─────────────────────────────────────────
 router.get("/shorts/user-profile/:userId", async (req, res) => {
   const { userId } = req.params;
@@ -187,35 +196,90 @@ router.get("/shorts/user-profile/:userId", async (req, res) => {
     return;
   }
 
+  const sbHeaders = SUPABASE_KEY
+    ? { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` }
+    : null;
+
   try {
-    // Fetch user from Supabase
+    // ── 1. User row ────────────────────────────────────────────────────────
     let userRow: { name?: string; avatar_letter?: string; avatar_url?: string | null; created_at?: string } | null = null;
-    if (SUPABASE_KEY) {
-      const sbRes = await fetch(
+    if (sbHeaders) {
+      const r = await fetch(
         `${SUPABASE_URL}/rest/v1/users?id=eq.${encodeURIComponent(userId)}&select=name,avatar_letter,avatar_url,created_at&limit=1`,
-        { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
+        { headers: sbHeaders }
       );
-      if (sbRes.ok) {
-        const rows = await sbRes.json() as typeof userRow[];
-        userRow = rows?.[0] ?? null;
-      }
+      if (r.ok) { const rows = await r.json() as typeof userRow[]; userRow = rows?.[0] ?? null; }
     }
 
-    // Count comments by this user
+    // ── 2. Comment count ───────────────────────────────────────────────────
     let commentCount = 0;
     if (isD1Configured()) {
       const rows = await d1Query<{ cnt: number }>(
-        `SELECT COUNT(*) as cnt FROM shorts_comments WHERE user_id = ?`,
-        [userId]
+        `SELECT COUNT(*) as cnt FROM shorts_comments WHERE user_id = ?`, [userId]
       );
       commentCount = rows?.[0]?.cnt ?? 0;
     } else {
-      // count from memStore
       let cnt = 0;
       for (const [, list] of (global as any).__memStore ?? []) {
-        cnt += (list as Comment[]).filter((c) => c.user_id === userId).length;
+        cnt += (list as Comment[]).filter((c: any) => c.user_id === userId).length;
       }
       commentCount = cnt;
+    }
+
+    // ── 3. Watch progress (top 6 by updated_at) ───────────────────────────
+    type WatchRow = { tmdb_id: number; type: string; title: string; poster_path: string; progress: number };
+    let topWatched: WatchRow[] = [];
+    let watchedCount = 0;
+    if (sbHeaders) {
+      const r = await fetch(
+        `${SUPABASE_URL}/rest/v1/watch_progress?user_id=eq.${encodeURIComponent(userId)}&select=tmdb_id,type,title,poster_path,progress&order=updated_at.desc&limit=20`,
+        { headers: sbHeaders }
+      );
+      if (r.ok) {
+        const rows = (await r.json()) as WatchRow[];
+        watchedCount = rows.length;
+        topWatched = rows.slice(0, 6);
+      }
+    }
+    const totalHours = Math.round((watchedCount * 92) / 60);
+
+    // ── 4. AI profile (top genre) ──────────────────────────────────────────
+    let topGenre: string | null = null;
+    if (sbHeaders) {
+      const r = await fetch(
+        `${SUPABASE_URL}/rest/v1/user_ai_profile?user_id=eq.${encodeURIComponent(userId)}&select=top_genres&limit=1`,
+        { headers: sbHeaders }
+      );
+      if (r.ok) {
+        const rows = (await r.json()) as Array<{ top_genres?: number[] }>;
+        const g = rows?.[0]?.top_genres?.[0];
+        if (g) topGenre = GENRE_PT[g] ?? null;
+      }
+    }
+
+    // ── 5. Watchlist count ─────────────────────────────────────────────────
+    let watchlistCount = 0;
+    if (sbHeaders) {
+      const r = await fetch(
+        `${SUPABASE_URL}/rest/v1/watchlist?user_id=eq.${encodeURIComponent(userId)}&select=tmdb_id&limit=1000`,
+        { headers: sbHeaders }
+      );
+      if (r.ok) { const rows = (await r.json()) as any[]; watchlistCount = rows.length; }
+    }
+
+    // ── 6. Visibility preferences ──────────────────────────────────────────
+    const defaultVisibility = { showEstatisticas: true, showMaisAssistidos: true, showMinhaLista: true, showConquistas: true };
+    let visibility = defaultVisibility;
+    if (sbHeaders) {
+      const r = await fetch(
+        `${SUPABASE_URL}/rest/v1/user_settings?user_id=eq.${encodeURIComponent(userId)}&select=profile_visibility&limit=1`,
+        { headers: sbHeaders }
+      );
+      if (r.ok) {
+        const rows = (await r.json()) as Array<{ profile_visibility?: string | null }>;
+        const raw = rows?.[0]?.profile_visibility;
+        if (raw) { try { visibility = { ...defaultVisibility, ...JSON.parse(raw) }; } catch {} }
+      }
     }
 
     res.json({
@@ -226,6 +290,12 @@ router.get("/shorts/user-profile/:userId", async (req, res) => {
         avatar_url: userRow?.avatar_url ?? null,
         member_since: userRow?.created_at ?? null,
         comment_count: commentCount,
+        watched_count: watchedCount,
+        total_hours: totalHours,
+        watchlist_count: watchlistCount,
+        top_genre: topGenre,
+        top_watched: topWatched,
+        visibility,
       },
     });
   } catch (e: any) {

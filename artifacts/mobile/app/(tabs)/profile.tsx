@@ -612,6 +612,9 @@ export default function ProfileScreen() {
   const saveVisibility = async (next: typeof profileVisibility) => {
     setProfileVisibility(next);
     try { await AsyncStorage.setItem(VISIBILITY_KEY, JSON.stringify(next)); } catch {}
+    if (user?.id) {
+      db.userSettings.upsert(user.id, { profile_visibility: JSON.stringify(next) }).catch(() => {});
+    }
   };
 
   const totalHours = Math.round((watchedCount * 92) / 60);

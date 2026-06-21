@@ -9,6 +9,7 @@ import {
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -87,6 +88,17 @@ interface UserProfile {
   avatar_url: string | null;
   member_since: string | null;
   comment_count: number;
+  watched_count: number;
+  total_hours: number;
+  watchlist_count: number;
+  top_genre: string | null;
+  top_watched: Array<{ tmdb_id: number; type: string; title: string; poster_path: string }>;
+  visibility: {
+    showEstatisticas: boolean;
+    showMaisAssistidos: boolean;
+    showMinhaLista: boolean;
+    showConquistas: boolean;
+  };
 }
 
 // ── Mini profile bottom panel (replaces Alert for web compat) ─────────────────
@@ -103,14 +115,13 @@ function ProfilePanel({
 }) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(false);
-  const slideAnim = useRef(new Animated.Value(220)).current;
+  const slideAnim = useRef(new Animated.Value(400)).current;
 
   useEffect(() => {
     if (!comment) return;
-    // Slide in
     Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, tension: 70, friction: 12 }).start();
-    // Fetch real profile data
     setLoadingProfile(true);
+    setProfile(null);
     fetch(`${getApiBase()}/shorts/user-profile/${encodeURIComponent(comment.user_id)}`)
       .then((r) => r.json())
       .then((data: { ok: boolean; profile: UserProfile }) => {
@@ -122,9 +133,10 @@ function ProfilePanel({
 
   if (!comment) return null;
 
-  const displayName = profile?.name ?? comment.user_name;
+  const displayName   = profile?.name ?? comment.user_name;
   const displayAvatar = profile?.avatar_url ?? comment.avatar_url;
   const displayLetter = profile?.avatar_letter ?? comment.avatar_letter;
+  const vis           = profile?.visibility ?? { showEstatisticas: true, showMaisAssistidos: true, showMinhaLista: true, showConquistas: true };
 
   function formatMemberSince(iso: string | null): string {
     if (!iso) return "Membro NETPLAY";
@@ -132,56 +144,125 @@ function ProfilePanel({
     return `Membro desde ${d.toLocaleDateString("pt-BR", { month: "long", year: "numeric" })}`;
   }
 
+  function fmtNum(n: number): string {
+    return n > 999 ? `${(n / 1000).toFixed(1)}k` : String(n);
+  }
+
+  const TMDB_IMG = "https://image.tmdb.org/t/p/w185";
+
   return (
     <View style={pp.backdrop}>
       <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
       <Animated.View style={[pp.card, { transform: [{ translateY: slideAnim }] }]}>
-        {/* Handle bar */}
-        <View style={{ alignItems: "center", paddingTop: 10, paddingBottom: 6 }}>
+        {/* Handle */}
+        <View style={{ alignItems: "center", paddingTop: 10, paddingBottom: 4 }}>
           <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.2)" }} />
         </View>
 
-        {/* Avatar + name row */}
-        <View style={pp.row}>
-          <AvatarBubble letter={displayLetter} uri={displayAvatar} size={56} />
-          <View style={{ flex: 1 }}>
-            <Text style={pp.name}>{displayName}</Text>
-            <Text style={pp.sub}>
-              {loadingProfile ? "Carregando…" : formatMemberSince(profile?.member_since ?? null)}
-            </Text>
-          </View>
-          <Pressable
-            style={[pp.followBtn, followed && pp.followBtnActive]}
-            onPress={onFollow}
-          >
-            <Text style={[pp.followBtnText, followed && pp.followBtnTextActive]}>
-              {followed ? "Seguindo" : "Seguir"}
-            </Text>
-          </Pressable>
-        </View>
+        <ScrollView showsVerticalScrollIndicator={false} bounces={false} contentContainerStyle={{ gap: 14, paddingBottom: 20 }}>
 
-        {/* Stats row */}
-        {!loadingProfile && profile && (
-          <View style={pp.statsRow}>
-            <View style={pp.statItem}>
-              <Text style={pp.statValue}>
-                {profile.comment_count > 999
-                  ? `${(profile.comment_count / 1000).toFixed(1)}k`
-                  : String(profile.comment_count)}
+          {/* ── Avatar + name ────────────────────────────────────────── */}
+          <View style={pp.row}>
+            <AvatarBubble letter={displayLetter} uri={displayAvatar} size={56} />
+            <View style={{ flex: 1 }}>
+              <Text style={pp.name}>{displayName}</Text>
+              <Text style={pp.sub}>
+                {loadingProfile ? "Carregando…" : formatMemberSince(profile?.member_since ?? null)}
               </Text>
-              <Text style={pp.statLabel}>Comentários</Text>
             </View>
-            <View style={pp.statDivider} />
-            <View style={pp.statItem}>
-              <Text style={pp.statValue}>NETPLAY</Text>
-              <Text style={pp.statLabel}>Membro</Text>
-            </View>
+            <Pressable style={[pp.followBtn, followed && pp.followBtnActive]} onPress={onFollow}>
+              <Text style={[pp.followBtnText, followed && pp.followBtnTextActive]}>
+                {followed ? "Seguindo" : "Seguir"}
+              </Text>
+            </Pressable>
           </View>
-        )}
 
-        <Pressable style={pp.closeRow} onPress={onClose}>
-          <Text style={pp.closeText}>Fechar</Text>
-        </Pressable>
+          {/* ── Stats ────────────────────────────────────────────────── */}
+          {!loadingProfile && profile && vis.showEstatisticas && (
+            <View style={pp.statsRow}>
+              {profile.watched_count > 0 && (
+                <>
+                  <View style={pp.statItem}>
+                    <Text style={pp.statValue}>{fmtNum(profile.watched_count)}</Text>
+                    <Text style={pp.statLabel}>Assistidos</Text>
+                  </View>
+                  <View style={pp.statDivider} />
+                </>
+              )}
+              {profile.total_hours > 0 && (
+                <>
+                  <View style={pp.statItem}>
+                    <Text style={pp.statValue}>{profile.total_hours}h</Text>
+                    <Text style={pp.statLabel}>Horas</Text>
+                  </View>
+                  <View style={pp.statDivider} />
+                </>
+              )}
+              <View style={pp.statItem}>
+                <Text style={pp.statValue}>{fmtNum(profile.comment_count)}</Text>
+                <Text style={pp.statLabel}>Comentários</Text>
+              </View>
+              {profile.top_genre && (
+                <>
+                  <View style={pp.statDivider} />
+                  <View style={pp.statItem}>
+                    <Text style={[pp.statValue, { fontSize: 13 }]} numberOfLines={1}>{profile.top_genre}</Text>
+                    <Text style={pp.statLabel}>Gênero fav.</Text>
+                  </View>
+                </>
+              )}
+            </View>
+          )}
+
+          {/* ── Minha Lista ──────────────────────────────────────────── */}
+          {!loadingProfile && profile && vis.showMinhaLista && profile.watchlist_count > 0 && (
+            <View style={pp.listRow}>
+              <Feather name="bookmark" size={15} color={RED} />
+              <Text style={pp.listText}>
+                <Text style={{ color: "#fff", fontWeight: "700" }}>{profile.watchlist_count}</Text>
+                {" título"}{profile.watchlist_count !== 1 ? "s" : ""} na lista
+              </Text>
+            </View>
+          )}
+
+          {/* ── Mais assistidos ──────────────────────────────────────── */}
+          {!loadingProfile && profile && vis.showMaisAssistidos && profile.top_watched.length > 0 && (
+            <View>
+              <Text style={pp.sectionTitle}>Mais assistidos</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }} contentContainerStyle={{ gap: 8, paddingRight: 4 }}>
+                {profile.top_watched.map((item) => (
+                  <View key={`${item.tmdb_id}-${item.type}`} style={pp.posterWrap}>
+                    {item.poster_path ? (
+                      <Image
+                        source={{ uri: `${TMDB_IMG}${item.poster_path}` }}
+                        style={pp.poster}
+                        contentFit="cover"
+                      />
+                    ) : (
+                      <View style={[pp.poster, { backgroundColor: "#2a2a2a", alignItems: "center", justifyContent: "center" }]}>
+                        <Feather name="film" size={18} color="rgba(255,255,255,0.3)" />
+                      </View>
+                    )}
+                    <Text style={pp.posterTitle} numberOfLines={1}>{item.title}</Text>
+                  </View>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+
+          {/* Loading skeleton */}
+          {loadingProfile && (
+            <View style={[pp.statsRow, { justifyContent: "center" }]}>
+              <Text style={pp.statLabel}>Carregando perfil…</Text>
+            </View>
+          )}
+
+          {/* ── Close ────────────────────────────────────────────────── */}
+          <Pressable style={pp.closeRow} onPress={onClose}>
+            <Text style={pp.closeText}>Fechar</Text>
+          </Pressable>
+
+        </ScrollView>
       </Animated.View>
     </View>
   );
@@ -710,9 +791,8 @@ const pp = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 32,
-    gap: 16,
+    paddingTop: 4,
+    maxHeight: "85%",
   },
   row: { flexDirection: "row", alignItems: "center", gap: 14 },
   name: { color: "#fff", fontSize: 16, fontWeight: "700" },
@@ -733,12 +813,26 @@ const pp = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.05)",
     borderRadius: 14,
     paddingVertical: 14,
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
   },
   statItem: { flex: 1, alignItems: "center", gap: 2 },
-  statValue: { color: "#fff", fontSize: 18, fontWeight: "700" },
-  statLabel: { color: "rgba(255,255,255,0.4)", fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5 },
+  statValue: { color: "#fff", fontSize: 16, fontWeight: "700" },
+  statLabel: { color: "rgba(255,255,255,0.4)", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5 },
   statDivider: { width: 1, height: 32, backgroundColor: "rgba(255,255,255,0.12)" },
-  closeRow: { alignItems: "center", paddingVertical: 8 },
+  sectionTitle: { color: "rgba(255,255,255,0.5)", fontSize: 11, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.8 },
+  listRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "rgba(229,9,20,0.08)",
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+  },
+  listText: { color: "rgba(255,255,255,0.6)", fontSize: 13 },
+  posterWrap: { width: 76, alignItems: "center", gap: 4 },
+  poster: { width: 76, height: 108, borderRadius: 8 },
+  posterTitle: { color: "rgba(255,255,255,0.5)", fontSize: 10, textAlign: "center" },
+  closeRow: { alignItems: "center", paddingVertical: 4 },
   closeText: { color: "rgba(255,255,255,0.5)", fontSize: 14 },
 });

@@ -88,6 +88,7 @@ export type DbUserSettings = {
   smart_download?: boolean;
   download_quality?: string;
   theme?: string;
+  profile_visibility?: string;
   updated_at?: string;
 };
 
