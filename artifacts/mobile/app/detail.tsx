@@ -346,7 +346,7 @@ export default function DetailScreen() {
   const [exclusiveLoading, setExclusiveLoading] = useState(false);
   // ── Episode Mapper (admin: flat-folder Drive → R2 per-episode entries) ──
   const [showEpMapper, setShowEpMapper] = useState(false);
-  const [epMapperFiles, setEpMapperFiles] = useState<{ name: string; link: string; season: number; episode: number }[]>([]);
+  const [epMapperFiles, setEpMapperFiles] = useState<{ name: string; relPath: string; link: string; season: number; episode: number }[]>([]);
   const [epMapperLoading, setEpMapperLoading] = useState(false);
   const [epMapperSaving, setEpMapperSaving] = useState(false);
   const [epMapperSaved, setEpMapperSaved] = useState(0);
@@ -2139,18 +2139,38 @@ export default function DetailScreen() {
     setEpMapperLoading(true);
     setEpMapperFiles([]);
     try {
-      // Use listFolderAll directly from the device — server-side proxy is blocked by
-      // Cloudflare (error 1102) when requests come from a server IP.
-      const allItems = await listFolderAll(folderMatch.drive, folderMatch.path);
-      const allFiles: DriveItem[] = allItems.filter(isVideo);
-      allFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+      // Recursively collect all video files from the folder and its subfolders.
+      // This fixes cases where episodes live inside a subfolder (e.g. "Até o 39/")
+      // instead of directly in the series root folder.
+      type FileWithRel = { item: DriveItem; relPath: string };
+      async function collectAllVideos(drive: 0 | 1, path: string, relPrefix: string): Promise<FileWithRel[]> {
+        const items = await listFolderAll(drive, path);
+        const results: FileWithRel[] = [];
+        const subfolderPromises: Promise<FileWithRel[]>[] = [];
+        for (const item of items) {
+          const rel = relPrefix ? `${relPrefix}/${item.name}` : item.name;
+          if (isVideo(item)) {
+            results.push({ item, relPath: rel });
+          } else if (item.mimeType === "application/vnd.google-apps.folder") {
+            // Recurse into subfolders (season folders, grouped folders, etc.)
+            subfolderPromises.push(collectAllVideos(drive, `${path}/${item.name}`, rel));
+          }
+        }
+        const nested = await Promise.all(subfolderPromises);
+        for (const group of nested) results.push(...group);
+        return results;
+      }
+
+      const allWithRel = await collectAllVideos(folderMatch.drive, folderMatch.path, "");
+      allWithRel.sort((a, b) => a.relPath.localeCompare(b.relPath, undefined, { numeric: true }));
+      const allFiles = allWithRel;
 
       // Compute TMDB-based season offsets for flat-folder remapping
       const tmdbCounts = seasons.filter((s) => s.season_number > 0).sort((a, b) => a.season_number - b.season_number);
       const allHaveCounts = tmdbCounts.length > 0 && tmdbCounts.every((s) => (s.episode_count ?? 0) > 0);
       const numSeas = tmdbCounts.length || 1;
 
-      const mapped = allFiles.map((item, idx) => {
+      const mapped = allFiles.map(({ item, relPath }, idx) => {
         const info = parseEpisodeInfo(item.name);
         let season = info.season ?? 1;
         let episode = info.episode ?? (idx + 1);
@@ -2175,7 +2195,7 @@ export default function DetailScreen() {
             episode = globalEp - (season - 1) * perSeason;
           }
         }
-        return { name: item.name, link: item.link ?? "", season, episode };
+        return { name: item.name, relPath, link: item.link ?? "", season, episode };
       });
       setEpMapperFiles(mapped);
     } finally {
@@ -2192,7 +2212,7 @@ export default function DetailScreen() {
       const { r2Route } = await import("@/lib/r2-direct");
       let saved = 0;
       for (const file of epMapperFiles) {
-        const filePath = `${folderMatch.path}/${file.name}`;
+        const filePath = `${folderMatch.path}/${file.relPath}`;
         await r2Route("/drive/register", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
