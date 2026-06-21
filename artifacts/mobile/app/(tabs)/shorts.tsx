@@ -766,6 +766,10 @@ function ShortVideoCard({
     }
   }, [isVisible]);
 
+  // mutedRef: always-current value — avoids stale closure in onMessage callback
+  const mutedRef = useRef(muted);
+  useEffect(() => { mutedRef.current = muted; }, [muted]);
+
   const injectMute = (m: boolean) => {
     if (!webviewRef.current) return;
     const cmd = m ? { type: "mute" } : { type: "unmute" };
@@ -773,9 +777,14 @@ function ShortVideoCard({
     webviewRef.current.injectJavaScript?.(js);
   };
 
-  // Sync global mute prop → WebView whenever it changes while video is playing
+  // Sync global mute prop → WebView whenever it changes while video is playing.
+  // setTimeout(0) ensures the injection runs after React flushes the render cycle,
+  // avoiding the race where videoState flips to "playing" before the WebView has
+  // finished loading the srcdoc HTML and registering its message handlers.
   useEffect(() => {
-    if (videoState === "playing") injectMute(muted);
+    if (videoState === "playing") {
+      setTimeout(() => injectMute(muted), 80);
+    }
   }, [muted, videoState]);
 
   const toggleMute = () => {
@@ -933,7 +942,15 @@ function ShortVideoCard({
             try {
               const msg = JSON.parse(e.nativeEvent.data);
               if (msg.type === "error") setVideoState("error");
-              if (msg.type === "canplay") setVideoReady(true);
+              if (msg.type === "canplay") {
+                setVideoReady(true);
+                // Apply global mute state now that the WebView JS is fully ready.
+                // HTML always starts muted=true — only need to act when user unmuted.
+                // Small delay ensures the WebView message handler is registered.
+                if (!mutedRef.current) {
+                  setTimeout(() => injectMute(false), 50);
+                }
+              }
               if (msg.type === "buffer" && typeof msg.pct === "number") {
                 Animated.timing(bufferAnim, {
                   toValue: msg.pct, duration: 200, useNativeDriver: false,
@@ -995,29 +1012,28 @@ function ShortVideoCard({
         pointerEvents="none"
       />
 
-      {/* ── Live viewer badge ─────────────────────────────────────────────────── */}
+      {/* ── Live viewer badge — positioned above the bottom info section ─────── */}
       {viewerCount !== null && (
         <Animated.View
           pointerEvents="none"
           style={{
             position: "absolute",
-            top: topPad + 10,
-            left: 14,
+            bottom: bottomPad + 260,
+            left: 18,
             opacity: viewerCountOp,
             flexDirection: "row",
             alignItems: "center",
-            gap: 5,
-            backgroundColor: "rgba(0,0,0,0.55)",
-            borderRadius: 20,
-            paddingHorizontal: 9,
-            paddingVertical: 5,
+            gap: 6,
+            backgroundColor: "rgba(0,0,0,0.62)",
+            borderRadius: 24,
+            paddingHorizontal: 11,
+            paddingVertical: 6,
             borderWidth: StyleSheet.hairlineWidth,
-            borderColor: "rgba(255,255,255,0.15)",
+            borderColor: "rgba(255,255,255,0.2)",
           }}
         >
-          {/* Pulsing red dot */}
           <PulsingDot />
-          <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700", letterSpacing: 0.2 }}>
+          <Text style={{ color: "#fff", fontSize: 12, fontWeight: "700", letterSpacing: 0.3 }}>
             {viewerCount > 999
               ? `${(viewerCount / 1000).toFixed(1)}k`
               : String(viewerCount)}{" "}
