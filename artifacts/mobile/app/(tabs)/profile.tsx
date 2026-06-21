@@ -20,7 +20,7 @@ import { Image } from "expo-image";
 import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
 import { Feather } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useColors } from "@/hooks/useColors";
@@ -320,6 +320,13 @@ export default function ProfileScreen() {
   }, [user?.id]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // Re-fetch whenever the tab comes back into focus (e.g. after navigating away and back)
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [loadData])
+  );
 
   useEffect(() => {
     getMergedPreferences().then((p) => {

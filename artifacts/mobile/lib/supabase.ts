@@ -10,9 +10,24 @@ const key = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? SUPABASE_ANON_KEY;
 
 export const isSupabaseConfigured = Boolean(url && key);
 
+const webLocalStorage =
+  typeof window !== "undefined" && typeof window.localStorage !== "undefined"
+    ? {
+        getItem: (key: string) => Promise.resolve(window.localStorage.getItem(key)),
+        setItem: (key: string, value: string) => {
+          window.localStorage.setItem(key, value);
+          return Promise.resolve();
+        },
+        removeItem: (key: string) => {
+          window.localStorage.removeItem(key);
+          return Promise.resolve();
+        },
+      }
+    : undefined;
+
 export const supabase = createClient(url, key, {
   auth: {
-    storage: Platform.OS !== "web" ? AsyncStorage : undefined,
+    storage: Platform.OS !== "web" ? AsyncStorage : webLocalStorage,
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,

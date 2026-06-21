@@ -219,7 +219,7 @@ function ProfilePanel({
           {/* ── Ver mais ─────────────────────────────────────────────── */}
           <Pressable
             style={pp.viewMoreBtn}
-            onPress={() => { onClose(); onViewFull(comment); }}
+            onPress={() => { onViewFull(comment); }}
           >
             <Feather name="user" size={15} color="#fff" />
             <Text style={pp.viewMoreText}>Ver perfil completo</Text>
@@ -743,15 +743,18 @@ export default function ShortsCommentsSheet({ visible, onClose, postId, tmdbId, 
           onClose={() => setProfileComment(null)}
           onViewFull={(c) => {
             setProfileComment(null);
-            router.push({
-              pathname: "/user-profile",
-              params: {
-                userId: c.user_id,
-                userName: c.user_name,
-                avatarLetter: c.avatar_letter ?? "U",
-                avatarUrl: c.avatar_url ?? "",
-              },
-            });
+            onClose();
+            setTimeout(() => {
+              router.push({
+                pathname: "/user-profile",
+                params: {
+                  userId: c.user_id,
+                  userName: c.user_name,
+                  avatarLetter: c.avatar_letter ?? "U",
+                  avatarUrl: c.avatar_url ?? "",
+                },
+              });
+            }, 320);
           }}
         />
       )}
