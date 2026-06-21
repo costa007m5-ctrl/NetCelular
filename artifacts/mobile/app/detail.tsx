@@ -346,7 +346,7 @@ export default function DetailScreen() {
   const [exclusiveLoading, setExclusiveLoading] = useState(false);
   // ── Episode Mapper (admin: flat-folder Drive → R2 per-episode entries) ──
   const [showEpMapper, setShowEpMapper] = useState(false);
-  const [epMapperFiles, setEpMapperFiles] = useState<{ name: string; relPath: string; link: string; season: number; episode: number }[]>([]);
+  const [epMapperFiles, setEpMapperFiles] = useState<{ name: string; relPath: string; link: string; season: number; episode: number; hidden?: boolean }[]>([]);
   const [epMapperLoading, setEpMapperLoading] = useState(false);
   const [epMapperSaving, setEpMapperSaving] = useState(false);
   const [epMapperSaved, setEpMapperSaved] = useState(0);
@@ -2197,7 +2197,15 @@ export default function DetailScreen() {
         }
         return { name: item.name, relPath, link: item.link ?? "", season, episode };
       });
-      setEpMapperFiles(mapped);
+      // Deduplicate: mark later items with the same S+E as hidden automatically
+      const seenSeasonEp = new Set<string>();
+      const deduped = mapped.map((f) => {
+        const key = `${f.season}x${f.episode}`;
+        if (seenSeasonEp.has(key)) return { ...f, hidden: true };
+        seenSeasonEp.add(key);
+        return f;
+      });
+      setEpMapperFiles(deduped);
     } finally {
       setEpMapperLoading(false);
     }
@@ -2208,10 +2216,11 @@ export default function DetailScreen() {
     if (!folderMatch || !tmdbId) return;
     setEpMapperSaving(true);
     setEpMapperSaved(0);
+    const visibleFiles = epMapperFiles.filter((f) => !f.hidden);
     try {
       const { r2Route } = await import("@/lib/r2-direct");
       let saved = 0;
-      for (const file of epMapperFiles) {
+      for (const file of visibleFiles) {
         const filePath = `${folderMatch.path}/${file.relPath}`;
         await r2Route("/drive/register", {
           method: "POST",
@@ -3170,27 +3179,68 @@ export default function DetailScreen() {
               style={{ flex: 1 }}
               contentContainerStyle={{ padding: 14, gap: 8 }}
               ListHeaderComponent={
-                epMapperFiles.length > 0 ? (
-                  <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 11, marginBottom: 4 }}>
-                    {epMapperFiles.length} arquivo{epMapperFiles.length !== 1 ? "s" : ""} encontrado{epMapperFiles.length !== 1 ? "s" : ""}. Ajuste T e Ep conforme necessário.
-                  </Text>
-                ) : null
+                epMapperFiles.length > 0 ? (() => {
+                  const visibleCount = epMapperFiles.filter((f) => !f.hidden).length;
+                  const hiddenCount = epMapperFiles.length - visibleCount;
+                  return (
+                    <View style={{ marginBottom: 6, gap: 2 }}>
+                      <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 11 }}>
+                        {epMapperFiles.length} arquivo{epMapperFiles.length !== 1 ? "s" : ""} encontrado{epMapperFiles.length !== 1 ? "s" : ""}. Ajuste T e Ep conforme necessário.
+                      </Text>
+                      {hiddenCount > 0 && (
+                        <Text style={{ color: "rgba(249,115,22,0.7)", fontSize: 11 }}>
+                          {hiddenCount} oculto{hiddenCount !== 1 ? "s" : ""} (duplicata{hiddenCount !== 1 ? "s" : ""}) — não {hiddenCount !== 1 ? "serão salvos" : "será salvo"}.
+                        </Text>
+                      )}
+                    </View>
+                  );
+                })() : null
               }
               renderItem={({ item, index }) => {
-                const isInvalid = item.episode <= 0 || item.season <= 0;
+                const isInvalid = !item.hidden && (item.episode <= 0 || item.season <= 0);
+                const isHidden = !!item.hidden;
+                const cardBg = isHidden
+                  ? "rgba(255,255,255,0.02)"
+                  : isInvalid ? "rgba(239,68,68,0.08)" : "rgba(255,255,255,0.05)";
+                const cardBorder = isHidden
+                  ? "rgba(255,255,255,0.08)"
+                  : isInvalid ? "rgba(239,68,68,0.45)" : "rgba(22,163,74,0.2)";
                 return (
-                <View style={{ backgroundColor: isInvalid ? "rgba(239,68,68,0.08)" : "rgba(255,255,255,0.05)", borderRadius: 10, padding: 12, borderWidth: 1, borderColor: isInvalid ? "rgba(239,68,68,0.45)" : "rgba(22,163,74,0.2)", gap: 8 }}>
-                  {/* Filename + invalid warning */}
+                <View style={{ backgroundColor: cardBg, borderRadius: 10, padding: 12, borderWidth: 1, borderColor: cardBorder, gap: 8, opacity: isHidden ? 0.4 : 1 }}>
+                  {/* Filename row + action buttons */}
                   <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 6 }}>
                     {isInvalid && <Feather name="alert-triangle" size={13} color="#ef4444" style={{ marginTop: 1 }} />}
-                    <Text style={{ color: isInvalid ? "#fca5a5" : "rgba(255,255,255,0.75)", fontSize: 11, fontFamily: "monospace", flex: 1 }} numberOfLines={2}>{item.name}</Text>
+                    {isHidden && <Feather name="eye-off" size={13} color="rgba(255,255,255,0.4)" style={{ marginTop: 1 }} />}
+                    <Text style={{ color: isHidden ? "rgba(255,255,255,0.35)" : isInvalid ? "#fca5a5" : "rgba(255,255,255,0.75)", fontSize: 11, fontFamily: "monospace", flex: 1, textDecorationLine: isHidden ? "line-through" : "none" }} numberOfLines={2}>{item.name}</Text>
+                    {/* Hide toggle */}
+                    <Pressable
+                      onPress={() => setEpMapperFiles((prev) => prev.map((f, i) => i === index ? { ...f, hidden: !f.hidden } : f))}
+                      hitSlop={8}
+                      style={{ padding: 4, borderRadius: 6, backgroundColor: isHidden ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.05)", marginLeft: 2 }}
+                    >
+                      <Feather name={isHidden ? "eye" : "eye-off"} size={14} color={isHidden ? "rgba(255,255,255,0.5)" : "rgba(255,165,0,0.7)"} />
+                    </Pressable>
+                    {/* Delete */}
+                    <Pressable
+                      onPress={() => setEpMapperFiles((prev) => prev.filter((_, i) => i !== index))}
+                      hitSlop={8}
+                      style={{ padding: 4, borderRadius: 6, backgroundColor: "rgba(239,68,68,0.08)", marginLeft: 2 }}
+                    >
+                      <Feather name="trash-2" size={14} color="rgba(239,68,68,0.7)" />
+                    </Pressable>
                   </View>
                   {isInvalid && (
                     <Text style={{ color: "#ef4444", fontSize: 10, fontWeight: "700", letterSpacing: 0.3 }}>
                       ⚠ Ep ou temporada inválida — ajuste antes de salvar
                     </Text>
                   )}
-                  {/* Season + Episode row */}
+                  {isHidden && (
+                    <Text style={{ color: "rgba(255,165,0,0.5)", fontSize: 10, fontWeight: "600" }}>
+                      OCULTO — não será salvo no R2
+                    </Text>
+                  )}
+                  {/* Season + Episode row (disabled when hidden) */}
+                  {!isHidden && (
                   <View style={{ flexDirection: "row", gap: 10, alignItems: "center" }}>
                     {/* Season */}
                     <View style={{ flex: 1 }}>
@@ -3236,6 +3286,7 @@ export default function DetailScreen() {
                       <Text style={{ color: isInvalid ? "#ef4444" : "#16a34a", fontWeight: "800", fontSize: 13 }}>E{String(item.episode).padStart(2, "0")}</Text>
                     </View>
                   </View>
+                  )}
                 </View>
                 );
               }}
@@ -3243,14 +3294,16 @@ export default function DetailScreen() {
           )}
 
           {/* Save footer */}
-          {!epMapperLoading && epMapperFiles.length > 0 && (
+          {!epMapperLoading && epMapperFiles.length > 0 && (() => {
+            const epMapperVisible = epMapperFiles.filter((f) => !f.hidden);
+            return (
             <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: "rgba(22,163,74,0.2)", gap: 10 }}>
               {/* Status messages */}
               {epMapperSaving && (
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                   <ActivityIndicator size="small" color="#16a34a" />
                   <Text style={{ color: "#16a34a", fontSize: 12 }}>
-                    Salvando {epMapperSaved}/{epMapperFiles.length} no R2...
+                    Salvando {epMapperSaved}/{epMapperVisible.length} no R2...
                   </Text>
                 </View>
               )}
@@ -3304,11 +3357,12 @@ export default function DetailScreen() {
                   ? <ActivityIndicator size="small" color="#fff" />
                   : <Feather name="save" size={16} color="#fff" />}
                 <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14 }}>
-                  {epMapperSaving ? "Salvando..." : `Salvar ${epMapperFiles.length} episódios no R2`}
+                  {epMapperSaving ? "Salvando..." : `Salvar ${epMapperVisible.length} episódio${epMapperVisible.length !== 1 ? "s" : ""} no R2`}
                 </Text>
               </Pressable>
             </View>
-          )}
+            );
+          })()}
         </View>
       </Modal>
 
