@@ -37,7 +37,7 @@ import { addCatalogWatch, removeCatalogWatch, isWatchingCatalog } from "@/lib/ca
 import type { ContentOverride, WatchProgress, ContentReport } from "@/lib/supabase";
 import type { ContentItem } from "@/constants/content";
 import { searchDriveByTitle, getDriveSeasonEpisodes, DriveMatch } from "@/lib/gdrive-search";
-import { DriveItem, parseEpisodeInfo } from "@/lib/gdrive-index";
+import { DriveItem, parseEpisodeInfo, listFolderAll, isVideo } from "@/lib/gdrive-index";
 
 interface RegistryItem {
   id: string; r2Key: string; teraboxUrl?: string; flix2Url?: string;
@@ -2139,26 +2139,10 @@ export default function DetailScreen() {
     setEpMapperLoading(true);
     setEpMapperFiles([]);
     try {
-      const { getApiBase: getBase } = await import("@/lib/api");
-      const base = getBase();
-      let allFiles: DriveItem[] = [];
-      let token = "";
-      for (let page = 0; page < 20; page++) {
-        const res = await fetch(`${base}/api/drive/folder`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ drive: folderMatch.drive, path: folderMatch.path, pageToken: token }),
-        });
-        if (!res.ok) break;
-        const data = await res.json();
-        const files: DriveItem[] = (data.data?.files ?? []).filter((f: any) => {
-          const ext = (f.fileExtension ?? "").toLowerCase();
-          return f.mimeType?.startsWith("video/") || ["mkv","mp4","avi","mov","webm","m4v","ts"].includes(ext);
-        });
-        allFiles.push(...files);
-        token = data.nextPageToken ?? "";
-        if (!token) break;
-      }
+      // Use listFolderAll directly from the device — server-side proxy is blocked by
+      // Cloudflare (error 1102) when requests come from a server IP.
+      const allItems = await listFolderAll(folderMatch.drive, folderMatch.path);
+      const allFiles: DriveItem[] = allItems.filter(isVideo);
       allFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
 
       // Compute TMDB-based season offsets for flat-folder remapping
