@@ -3678,12 +3678,25 @@ export default function DetailScreen() {
                       const driveEpForRow = r2Items.find(
                         (i) => isDriveItem(i) && Number(i.season) === selectedSeason && Number(i.episode) === ep.episode_number
                       );
-                      // Fallback: only use series-level items (season=null, episode=null).
-                      // Do NOT fall back to per-episode items from other seasons — that would
-                      // incorrectly show the Flix button on every season even when only one
-                      // season has Flix2 entries (e.g. Tintin: 26 eps in S1 only, S2/S3 empty).
-                      const anyFlixItem  = flixEpForRow  ?? r2Items.find((i) => isFlixItem(i)  && i.season == null && i.episode == null);
-                      const anyDriveItem = driveEpForRow ?? r2Items.find((i) => isDriveItem(i) && i.season == null && i.episode == null);
+                      // Fallback resolution:
+                      // Flix: prefer exact episode match → series-level item (season=null, episode=null).
+                      //   On a TV page, skip items whose flix2Url is a movie path (/movie/ or
+                      //   get_vod_info) — these are movie-level items wrongly associated with a
+                      //   series (e.g. a Tintin movie item registered on the Tintin TV series).
+                      //   Do NOT fall back to per-episode items from other seasons.
+                      const isFlixMovieUrl = (url: string) =>
+                        url.includes("/movie/") || url.includes("get_vod_info");
+                      const anyFlixItem = flixEpForRow ?? r2Items.find(
+                        (i) => isFlixItem(i) && i.season == null && i.episode == null &&
+                               (type !== "tv" || !isFlixMovieUrl(i.flix2Url ?? ""))
+                      );
+                      // Drive: prefer exact episode match → season-level drive item for current
+                      //   season → series-level drive item. Do NOT fall back to drive items from
+                      //   other seasons (that was causing Drive button to vanish when I restricted
+                      //   the fallback too hard in a previous fix).
+                      const anyDriveItem = driveEpForRow
+                        ?? r2Items.find((i) => isDriveItem(i) && Number(i.season) === selectedSeason && i.episode == null)
+                        ?? r2Items.find((i) => isDriveItem(i) && i.season == null && i.episode == null);
                       const anyFlixUrl   = anyFlixItem?.flix2Url;
 
                       return (
