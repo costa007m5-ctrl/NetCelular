@@ -52,6 +52,8 @@ import { getCacheItemCount } from "@/lib/catalog-cache";
 import { preloadImages, clearPreloadQueue } from "@/lib/image-preloader";
 import { computeRecommendations } from "@/lib/recommendations";
 import { bulkGetStarRatings, setStarRating } from "@/lib/star-ratings";
+import { trackOpen, trackTab, getBehaviorProfile } from "@/lib/ai-behavior-tracker";
+import { geminiPersonalizeHome } from "@/lib/gemini-client";
 import { api, tmdbItemToContent } from "@/lib/api";
 import { getFranchise, type Franchise } from "@/constants/franchises";
 
@@ -1663,7 +1665,7 @@ const CATEGORY_GENRE_CONFIG: Record<string, GenreConfig[]> = {
     { genreId: 16, genreIds: "16,18",    label: "Animação Dramática",     color: "#7c3aed", type: "movie" },
     { genreId: 16,                       label: "Mais Populares",         color: "#f97316", type: "movie" },
     { genreId: 16, genreIds: "16,10749", label: "Histórias de Amor",      color: "#ec4899", type: "movie" },
-    { genreId: 16, type: "tv",           label: "Séries Animadas",        color: "#34d399", type: "tv" },
+    { genreId: 16,                        label: "Séries Animadas",        color: "#34d399", type: "tv" as const },
   ],
   top: [],
 };
@@ -2276,6 +2278,9 @@ export default function HomeScreen() {
   const [activeProfile, setActiveProfile] = useState<any>(null);
   const [cacheTs, setCacheTs]             = useState<number | null>(null);
   const [recommendations, setRecommendations] = useState<ContentItem[]>([]);
+  const [aiRowItems, setAiRowItems]           = useState<ContentItem[]>([]);
+  const [aiRowLabel, setAiRowLabel]           = useState("Para Você");
+  const [aiRowSubtitle, setAiRowSubtitle]     = useState("Escolhido pela IA");
 
   // ── below-fold extra data ──────────────────────────────────────────────────
   const [nowPlayingItems, setNowPlayingItems] = useState<ContentItem[]>([]);
@@ -2748,14 +2753,44 @@ export default function HomeScreen() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  // ── Recomendações personalizadas ──────────────────────────────────────────
+  // ── Recomendações personalizadas + IA Gemini ──────────────────────────────
   // Roda em background depois que o catálogo carrega; não bloqueia a UI.
   useEffect(() => {
     const allContent = [...movies, ...series, ...animes];
     if (allContent.length === 0) return;
     const userId = user?.id ?? "";
+
     computeRecommendations(allContent, userId, 100)
-      .then(setRecommendations)
+      .then((recs) => {
+        setRecommendations(recs);
+
+        // Enviar as top recomendações para a IA Gemini personalizar
+        if (recs.length < 4) return;
+        getBehaviorProfile().then((profile) => {
+          const candidates = recs.slice(0, 30).map((item) => ({
+            id: item.id,
+            title: item.title,
+            genreIds: (item as any).genreIds ?? [],
+            type: item.type === "movie" ? "movie" : "tv",
+            year: item.year ?? 2024,
+            rating: item.rating ?? 0,
+          }));
+          return geminiPersonalizeHome({ ...profile, candidates });
+        }).then((result) => {
+          if (!result || !result.rankedIds.length) return;
+          const idMap = new Map(recs.map((r) => [r.id, r]));
+          const ordered: ContentItem[] = [];
+          for (const id of result.rankedIds) {
+            const found = idMap.get(id);
+            if (found) ordered.push(found);
+          }
+          if (ordered.length >= 4) {
+            setAiRowItems(ordered.slice(0, 8));
+            setAiRowLabel(result.rowLabel || "Para Você");
+            setAiRowSubtitle(result.rowSubtitle || "Escolhido pela IA");
+          }
+        }).catch(() => {});
+      })
       .catch(() => {});
   }, [movies, series, animes, user?.id]);
 
@@ -2790,6 +2825,12 @@ export default function HomeScreen() {
 
   // ── navigation ────────────────────────────────────────────────────────────
   const goTo = useCallback((item: ContentItem) => {
+    trackOpen(
+      item.tmdbId ?? 0,
+      item.title,
+      item.mediaType ?? (item.type === "movie" ? "movie" : "tv"),
+      (item as any).genreIds ?? [],
+    ).catch(() => {});
     router.push({
       pathname: "/detail",
       params: {
@@ -2989,14 +3030,23 @@ export default function HomeScreen() {
                 </AnimatedSection>
               )}
 
-              {/* ── 6.5 RECOMENDADOS PARA VOCÊ ───────────────────────────────── */}
-              {recommendations.length > 0 && (
+              {/* ── 6.5 IA GEMINI — PARA VOCÊ ────────────────────────────────── */}
+              {(aiRowItems.length > 0 || recommendations.length > 0) && (
                 <AnimatedSection anim={s[5]}>
                   <View style={styles.section}>
-                    <SectionHeader title="Recomendados para Você" icon="zap"
-                      accentColor={PURPLE}
-                      onSeeAll={() => openModal("Recomendados para Você", recommendations, PURPLE)} />
-                    <PosterRow items={recommendations.slice(0, 4)} onPress={goTo} />
+                    <SectionHeader
+                      title={aiRowItems.length > 0 ? aiRowLabel : "Recomendados para Você"}
+                      icon="cpu"
+                      badge="IA ✦"
+                      accentColor={INDIGO}
+                      subtitle={aiRowItems.length > 0 ? aiRowSubtitle : "Baseado no seu histórico"}
+                      onSeeAll={() => openModal(
+                        aiRowItems.length > 0 ? aiRowLabel : "Recomendados para Você",
+                        aiRowItems.length > 0 ? aiRowItems : recommendations,
+                        INDIGO,
+                      )}
+                    />
+                    <PosterRow items={aiRowItems.length > 0 ? aiRowItems : recommendations.slice(0, 4)} onPress={goTo} />
                   </View>
                 </AnimatedSection>
               )}

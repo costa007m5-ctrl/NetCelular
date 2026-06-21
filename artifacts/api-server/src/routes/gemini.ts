@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { smartSearch, personalizeContent, generateSearchSuggestions, isGeminiAvailable } from "../lib/gemini";
+import { smartSearch, personalizeContent, generateSearchSuggestions, personalizeHomeFeed, isGeminiAvailable } from "../lib/gemini";
 import { rateLimitByIp } from "../middleware/auth";
 
 const router = Router();
@@ -65,6 +65,49 @@ router.post("/gemini/personalize", geminiLimit, async (req, res) => {
     res.json(result);
   } catch (err: any) {
     res.status(500).json({ error: err.message, rankedIds: body.candidates.map(c => c.id), reasoning: "Erro ao personalizar" });
+  }
+});
+
+router.post("/gemini/personalize-home", geminiLimit, async (req, res) => {
+  const body = req.body as {
+    topGenres?: number[];
+    topTitles?: string[];
+    recentSearches?: string[];
+    prefersMovies?: boolean;
+    prefersSeries?: boolean;
+    prefersAnime?: boolean;
+    likedIds?: number[];
+    dislikedIds?: number[];
+    watchedIds?: number[];
+    candidates?: Array<{ id: string; title: string; genreIds: number[]; type: string; year: number; rating: number }>;
+  };
+
+  if (!Array.isArray(body.candidates) || body.candidates.length === 0) {
+    res.status(400).json({ error: "candidates required" });
+    return;
+  }
+
+  if (!isGeminiAvailable()) {
+    res.json({ rankedIds: body.candidates.map(c => c.id), rowLabel: "Para Você", rowSubtitle: "Baseado no seu gosto" });
+    return;
+  }
+
+  try {
+    const result = await personalizeHomeFeed({
+      topGenres: body.topGenres ?? [],
+      topTitles: body.topTitles ?? [],
+      recentSearches: body.recentSearches ?? [],
+      prefersMovies: body.prefersMovies ?? true,
+      prefersSeries: body.prefersSeries ?? false,
+      prefersAnime: body.prefersAnime ?? false,
+      likedIds: body.likedIds ?? [],
+      dislikedIds: body.dislikedIds ?? [],
+      watchedIds: body.watchedIds ?? [],
+      candidates: body.candidates.slice(0, 40),
+    });
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message, rankedIds: body.candidates.map(c => c.id), rowLabel: "Para Você", rowSubtitle: "Baseado no seu gosto" });
   }
 });
 

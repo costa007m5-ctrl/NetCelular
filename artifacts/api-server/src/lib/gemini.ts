@@ -142,6 +142,88 @@ Respond ONLY with valid JSON, no markdown:
   }
 }
 
+export interface HomeFeedInput {
+  topGenres: number[];
+  topTitles: string[];
+  recentSearches: string[];
+  prefersMovies: boolean;
+  prefersSeries: boolean;
+  prefersAnime: boolean;
+  likedIds: number[];
+  dislikedIds: number[];
+  watchedIds: number[];
+  candidates: Array<{ id: string; title: string; genreIds: number[]; type: string; year: number; rating: number }>;
+}
+
+export interface HomeFeedResult {
+  rankedIds: string[];
+  rowLabel: string;
+  rowSubtitle: string;
+}
+
+const GENRE_MAP: Record<number, string> = {
+  28: "Ação", 12: "Aventura", 16: "Animação", 35: "Comédia", 80: "Crime",
+  99: "Documentário", 18: "Drama", 10751: "Família", 14: "Fantasia",
+  36: "História", 27: "Terror", 10402: "Música", 9648: "Mistério",
+  10749: "Romance", 878: "Ficção Científica", 53: "Thriller",
+  10752: "Guerra", 37: "Faroeste",
+};
+
+export async function personalizeHomeFeed(input: HomeFeedInput): Promise<HomeFeedResult> {
+  const fallback: HomeFeedResult = {
+    rankedIds: input.candidates.map(c => c.id),
+    rowLabel: "Para Você",
+    rowSubtitle: "Baseado no seu histórico",
+  };
+
+  if (input.candidates.length === 0) return fallback;
+
+  const genreNames = input.topGenres.slice(0, 5).map(id => GENRE_MAP[id] ?? `Gênero ${id}`);
+  const contentPref = input.prefersAnime ? "animes" : input.prefersSeries ? "séries" : "filmes";
+
+  const prompt = `You are a personalization engine for NETPLAY, a Brazilian streaming app.
+
+User profile:
+- Favorite genres (TMDB IDs → names): ${genreNames.join(", ") || "unknown"}
+- Content preference: ${contentPref}
+- Recently watched titles: ${input.topTitles.slice(0, 8).join(", ") || "none"}
+- Recent searches: ${input.recentSearches.slice(0, 5).join(", ") || "none"}
+- Already watched IDs (exclude these): ${input.watchedIds.slice(0, 20).join(", ") || "none"}
+
+Candidates to rank (JSON):
+${JSON.stringify(input.candidates.slice(0, 35).map(c => ({ id: c.id, title: c.title, genres: c.genreIds.map(g => GENRE_MAP[g] ?? g), type: c.type, year: c.year, rating: c.rating })))}
+
+Tasks:
+1. Rank the candidates from best to worst match for this user.
+2. Generate a short row label (2-4 words in Portuguese, e.g. "Porque você ama Terror").
+3. Generate a subtitle (max 40 chars in Portuguese, e.g. "Escolhido com base no seu gosto").
+
+Rules:
+- Exclude IDs in "Already watched IDs"
+- Prioritize genre alignment and high ratings
+- Row label should feel personal and specific, not generic
+
+Respond ONLY with valid JSON, no markdown:
+{
+  "rankedIds": ["<id1>", "<id2>", ...],
+  "rowLabel": "<short personal label>",
+  "rowSubtitle": "<subtitle>"
+}`;
+
+  try {
+    const raw = await callGemini(prompt);
+    const cleaned = raw.replace(/```json|```/g, "").trim();
+    const parsed = JSON.parse(cleaned) as HomeFeedResult;
+    return {
+      rankedIds: Array.isArray(parsed.rankedIds) ? parsed.rankedIds : fallback.rankedIds,
+      rowLabel: parsed.rowLabel || fallback.rowLabel,
+      rowSubtitle: parsed.rowSubtitle || fallback.rowSubtitle,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
 export async function generateSearchSuggestions(userHistory: string[], favoriteGenres: string[]): Promise<string[]> {
   if (!isGeminiAvailable()) return [];
 

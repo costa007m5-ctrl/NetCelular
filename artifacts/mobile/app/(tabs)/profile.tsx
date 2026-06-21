@@ -51,6 +51,7 @@ import {
   type LearnedPreferences,
   type ManualPreferences,
 } from "@/lib/smart-preferences";
+import { getBehaviorProfile, clearBehaviorData, type BehaviorProfile } from "@/lib/ai-behavior-tracker";
 
 const { width: SW } = Dimensions.get("window");
 const ACTIVE_PROFILE_KEY = "netplay_active_profile_v2";
@@ -222,6 +223,7 @@ export default function ProfileScreen() {
   const [editDecades, setEditDecades] = useState<string[]>([]);
   const [savingPrefs, setSavingPrefs] = useState(false);
   const [analyzingHistory, setAnalyzingHistory] = useState(false);
+  const [behaviorProfile, setBehaviorProfile] = useState<BehaviorProfile | null>(null);
 
   const [pickerConfig, setPickerConfig] = useState<{ key: keyof UserSettings; title: string; options: string[] } | null>(null);
 
@@ -303,6 +305,9 @@ export default function ProfileScreen() {
     getLearnedPreferences().then((l) => {
       if (l) setLearnedPrefs(l);
     });
+    getBehaviorProfile().then((bp) => {
+      if (bp.totalEvents > 0) setBehaviorProfile(bp);
+    }).catch(() => {});
     import("@/lib/shorts-challenge").then(({ getEarnedBadges }) => {
       getEarnedBadges().then((b) => { if (b.length) setEarnedBadges(b); }).catch(() => {});
     }).catch(() => {});
@@ -1432,6 +1437,67 @@ export default function ProfileScreen() {
               </Text>
             </View>
             <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+
+              {/* ── GEMINI AI STATUS ──────────────────────────────────────────── */}
+              {behaviorProfile && (
+                <View style={[s.prefsSection, { marginBottom: 0 }]}>
+                  <View style={[s.learnedCard, { backgroundColor: "#1a0a2e", borderColor: "#6366f144" }]}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                      <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: "#6366f133", alignItems: "center", justifyContent: "center" }}>
+                        <Feather name="cpu" size={14} color="#818cf8" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: "#a5b4fc", fontSize: 12, fontWeight: "800", letterSpacing: 0.8 }}>GEMINI AI — APRENDENDO</Text>
+                        <Text style={{ color: "#6366f1", fontSize: 11, marginTop: 1 }}>{behaviorProfile.totalEvents} interação{behaviorProfile.totalEvents !== 1 ? "ões" : ""} registrada{behaviorProfile.totalEvents !== 1 ? "s" : ""}</Text>
+                      </View>
+                      <View style={{ backgroundColor: "#6366f122", borderWidth: 1, borderColor: "#6366f144", borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 }}>
+                        <Text style={{ color: "#818cf8", fontSize: 10, fontWeight: "800" }}>IA ✦</Text>
+                      </View>
+                    </View>
+                    <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+                      {behaviorProfile.prefersMovies && (
+                        <View style={{ backgroundColor: "#6366f118", borderWidth: 1, borderColor: "#6366f133", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
+                          <Text style={{ color: "#a5b4fc", fontSize: 11 }}>🎬 Prefere Filmes</Text>
+                        </View>
+                      )}
+                      {behaviorProfile.prefersSeries && (
+                        <View style={{ backgroundColor: "#6366f118", borderWidth: 1, borderColor: "#6366f133", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
+                          <Text style={{ color: "#a5b4fc", fontSize: 11 }}>📺 Prefere Séries</Text>
+                        </View>
+                      )}
+                      {behaviorProfile.prefersAnime && (
+                        <View style={{ backgroundColor: "#6366f118", borderWidth: 1, borderColor: "#6366f133", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
+                          <Text style={{ color: "#a5b4fc", fontSize: 11 }}>⛩️ Prefere Anime</Text>
+                        </View>
+                      )}
+                      {behaviorProfile.likedIds.length > 0 && (
+                        <View style={{ backgroundColor: "#6366f118", borderWidth: 1, borderColor: "#6366f133", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
+                          <Text style={{ color: "#a5b4fc", fontSize: 11 }}>❤️ {behaviorProfile.likedIds.length} curtido{behaviorProfile.likedIds.length !== 1 ? "s" : ""}</Text>
+                        </View>
+                      )}
+                      {behaviorProfile.recentSearches.length > 0 && (
+                        <View style={{ backgroundColor: "#6366f118", borderWidth: 1, borderColor: "#6366f133", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 }}>
+                          <Text style={{ color: "#a5b4fc", fontSize: 11 }}>🔍 {behaviorProfile.recentSearches.length} busca{behaviorProfile.recentSearches.length !== 1 ? "s" : ""}</Text>
+                        </View>
+                      )}
+                    </View>
+                    {behaviorProfile.topTitles.length > 0 && (
+                      <Text style={{ color: "#6366f1", fontSize: 11, marginTop: 8, fontStyle: "italic" }} numberOfLines={2}>
+                        "{behaviorProfile.topTitles.slice(-3).join('", "')}"
+                      </Text>
+                    )}
+                    <TouchableOpacity
+                      style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 10, opacity: 0.7 }}
+                      onPress={() => {
+                        clearBehaviorData().then(() => setBehaviorProfile(null));
+                      }}
+                    >
+                      <Feather name="trash-2" size={12} color="#ef4444" />
+                      <Text style={{ color: "#ef4444", fontSize: 11 }}>Limpar dados da IA</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
 
               {/* O QUE O APP APRENDEU */}
               <View style={s.prefsSection}>

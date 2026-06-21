@@ -32,6 +32,15 @@ import { ProfileAvatarButton } from "@/components/ProfileAvatarButton";
 import { r2Route } from "@/lib/r2-direct";
 import { api, TMDB_IMG, tmdbItemToContent, type TmdbItem } from "@/lib/api";
 import type { ContentItem } from "@/constants/content";
+import { getMergedPreferences } from "@/lib/smart-preferences";
+import { getBehaviorProfile, trackOpen } from "@/lib/ai-behavior-tracker";
+
+const _GENRE_NAMES: Record<number, string> = {
+  28: "Ação", 12: "Aventura", 16: "Animação", 35: "Comédia", 80: "Crime",
+  99: "Documentário", 18: "Drama", 10751: "Família", 14: "Fantasia",
+  27: "Terror", 9648: "Mistério", 10749: "Romance", 878: "Ficção Científica",
+  53: "Thriller", 10752: "Guerra",
+};
 
 const { width: W, height: H } = Dimensions.get("window");
 
@@ -1561,6 +1570,8 @@ export default function NovidadesScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [data, setData] = useState<AllData | null>(null);
+  const [paraVoce, setParaVoce] = useState<ContentItem[]>([]);
+  const [paraVoceLabel, setParaVoceLabel] = useState("Lançamentos para Você");
   const [modal, setModal] = useState<{ visible: boolean; title: string; items: ContentItem[]; accent: string }>({
     visible: false, title: "", items: [], accent: RED,
   });
@@ -1570,6 +1581,7 @@ export default function NovidadesScreen() {
   const closeModal = () => setModal((m) => ({ ...m, visible: false }));
 
   const goTo = useCallback((item: ContentItem) => {
+    trackOpen(item.tmdbId ?? 0, item.title, item.mediaType ?? (item.type === "movie" ? "movie" : "tv"), []).catch(() => {});
     router.push({
       pathname: "/detail",
       params: {
@@ -1590,6 +1602,46 @@ export default function NovidadesScreen() {
   useEffect(() => {
     load().finally(() => setLoading(false));
   }, [load]);
+
+  // ── IA: Lançamentos para Você — filtrar por gêneros preferidos ───────────
+  useEffect(() => {
+    if (!data) return;
+    Promise.all([getMergedPreferences(), getBehaviorProfile()]).then(([prefs, profile]) => {
+      const preferredGenres = new Set<number>([
+        ...(prefs?.genres ?? []),
+        ...(profile.topGenres ?? []),
+      ]);
+      if (preferredGenres.size === 0) return;
+
+      const allNew: ContentItem[] = [
+        ...(data.whatsNew?.movies ?? []).map(wn2Content),
+        ...(data.whatsNew?.series ?? []).map(wn2Content),
+        ...(data.trending ?? []).map(tmdbItemToContent),
+        ...(data.trendingMovies ?? []).map(tmdbItemToContent),
+      ];
+
+      // Remove duplicates by tmdbId
+      const seen = new Set<number>();
+      const unique = allNew.filter(item => {
+        if (!item.tmdbId || seen.has(item.tmdbId)) return false;
+        seen.add(item.tmdbId);
+        return true;
+      });
+
+      // Score by genre overlap + rating
+      const scored = unique.map(item => {
+        const gids = ((item as any).genreIds ?? []) as number[];
+        const overlap = gids.filter(g => preferredGenres.has(g)).length;
+        return { item, score: overlap * 2 + (item.rating ?? 0) / 5 };
+      }).filter(x => x.score > 0).sort((a, b) => b.score - a.score);
+
+      if (scored.length >= 4) {
+        setParaVoce(scored.slice(0, 10).map(x => x.item));
+        const topGenreName = profile.topGenres.length > 0 ? _GENRE_NAMES[profile.topGenres[0]] : null;
+        setParaVoceLabel(topGenreName ? `Lançamentos de ${topGenreName}` : "Lançamentos para Você");
+      }
+    }).catch(() => {});
+  }, [data]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -1923,6 +1975,26 @@ export default function NovidadesScreen() {
         {/* ── STATS STRIP ──────────────────────────────────────────────── */}
         <View style={{ height: 16 }} />
         {loading ? null : <StatsStrip movies={weekMovies} series={weekSeries} animes={weekAnimes} />}
+
+        {/* ── IA GEMINI — LANÇAMENTOS PARA VOCÊ ────────────────────────── */}
+        {paraVoce.length >= 4 && (
+          <View style={root.section}>
+            <SectionHeader
+              title={paraVoceLabel}
+              icon="cpu"
+              badge="IA ✦"
+              accentColor="#6366f1"
+              subtitle="Escolhido pela IA com base no seu gosto"
+              onSeeAll={paraVoce.length > 6 ? () => openModal(paraVoceLabel, paraVoce, "#6366f1") : undefined}
+            />
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 4 }}>
+              {paraVoce.slice(0, 8).map((item, i) => (
+                <PosterCard key={`pv_${item.id}_${i}`} item={item} onPress={() => goTo(item)} isNew />
+              ))}
+            </ScrollView>
+          </View>
+        )}
 
         {/* ── RECÉM ADICIONADOS NA PLATAFORMA ──────────────────────────── */}
         <View style={root.section}>

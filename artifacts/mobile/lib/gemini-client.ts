@@ -80,6 +80,44 @@ export async function geminiPersonalize(input: {
   }
 }
 
+export interface HomeFeedInput {
+  topGenres: number[];
+  topTitles: string[];
+  recentSearches: string[];
+  prefersMovies: boolean;
+  prefersSeries: boolean;
+  prefersAnime: boolean;
+  likedIds: number[];
+  dislikedIds: number[];
+  watchedIds: number[];
+  candidates: Array<{ id: string; title: string; genreIds: number[]; type: string; year: number; rating: number }>;
+}
+
+export interface HomeFeedResult {
+  rankedIds: string[];
+  rowLabel: string;
+  rowSubtitle: string;
+}
+
+export async function geminiPersonalizeHome(input: HomeFeedInput): Promise<HomeFeedResult> {
+  const fallback: HomeFeedResult = { rankedIds: input.candidates.map(c => c.id), rowLabel: "Para Você", rowSubtitle: "Baseado no seu gosto" };
+  try {
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 10000);
+    const res = await fetch(`${apiBase()}/api/gemini/personalize-home`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+      signal: ctrl.signal,
+    });
+    clearTimeout(tid);
+    if (!res.ok) return fallback;
+    return await res.json() as HomeFeedResult;
+  } catch {
+    return fallback;
+  }
+}
+
 export async function geminiSuggestions(userHistory: string[], favoriteGenres: string[]): Promise<string[]> {
   try {
     const ctrl = new AbortController();

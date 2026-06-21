@@ -1,3 +1,4 @@
+- [AI Personalization Architecture](ai-personalization-arch.md) — Gemini cross-tab system: behavior tracker (AsyncStorage), home AI row with dynamic label, novidades genre filter, profile AI card.
 - [TeraBox xAPIverse integration](terabox-xapiverse.md) — normalizeTeraboxUrl must target 1024tera.com (not www.terabox.com); use fast_stream_url HLS first (stream_url returns verify_v2 error); never HEAD-check tokens.
 - [Detail screen navigation](detail-nav.md) — all screens navigate to /detail (not /player) with params {type, id, title}; player is only opened from detail screen.
 - [Auth guard placement](auth-guard.md) — auth guard is in (tabs)/_layout.tsx (not root layout); uses Redirect from expo-router to /login when user is null.
