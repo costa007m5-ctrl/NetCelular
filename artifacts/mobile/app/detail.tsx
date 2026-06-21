@@ -557,9 +557,11 @@ export default function DetailScreen() {
                 season: ep.season, episode: ep.episode,
               });
             }
-          } else if ((fi?.id ?? fi?.series_id) && (type === "tv" || resolvedType === "tv" || fi?.type === "serie" || fi?.type === "series")) {
+          } else if ((fi?.id ?? fi?.series_id) && !fiIsMovie && (type === "tv" || resolvedType === "tv" || fi?.type === "serie" || fi?.type === "series")) {
             // fi.id is set when the item was mapped by mapXtreamSeries;
             // fi.series_id is set when it's a raw Xtream catalog item (lookup returns raw items).
+            // Guard: !fiIsMovie prevents using a movie's ID as a series ID (e.g. "Tintin" movie
+            // matched for the animated series page → episode fetch would return wrong content).
             const seriesIdForEp = fi?.id ?? fi?.series_id;
             try {
               const epData = await r2Route<{
@@ -670,7 +672,7 @@ export default function DetailScreen() {
             tmdbId, tmdbType: type, title: fi.title ?? "", label: fi.title ?? "",
             season: null, episode: null,
           });
-        } else if ((fi?.id ?? fi?.series_id) && (type === "tv" || fi?.type === "serie" || fi?.type === "series")) {
+        } else if ((fi?.id ?? fi?.series_id) && !fiIsMovieYC && (type === "tv" || fi?.type === "serie" || fi?.type === "series")) {
           const seriesIdForEp = fi?.id ?? fi?.series_id;
           const epData = await r2Route<{
             found: boolean;

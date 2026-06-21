@@ -1055,11 +1055,11 @@ export default function R2PlayerScreen() {
   // ── Keep screen awake while playing ─────────────────────────────────────
   useEffect(() => {
     if (isPlaying && phase === "ready") {
-      activateKeepAwake?.();
+      try { activateKeepAwake?.(); } catch {}
     } else {
-      deactivateKeepAwake?.();
+      try { deactivateKeepAwake?.(); } catch {}
     }
-    return () => { deactivateKeepAwake?.(); };
+    return () => { try { deactivateKeepAwake?.(); } catch {} };
   }, [isPlaying, phase]);
 
   // ── Controls auto-hide trigger ────────────────────────────────────────────

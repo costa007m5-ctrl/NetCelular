@@ -453,15 +453,27 @@ export default function Flix2PlayerScreen() {
 
       if (Platform.OS === "web") {
         // Web: browser não pode setar Referer/Origin em requests de mídia → proxy
-        const proxiedUrl = getProxiedStreamUrl(rawFlix2Url);
-        if (!proxiedUrl || proxiedUrl === rawFlix2Url) {
-          throw new Error("Servidor de proxy não disponível. Verifique a conexão.");
+        // nixplay.lat bloqueia IPs de datacenter (Replit) → usar CF Worker que tem IP diferente
+        let webUrl: string;
+        if (isNixplayDirect(rawFlix2Url)) {
+          // nixplay.lat redirects to fontedecanais which blocks datacenter IPs (Replit).
+          // CF Worker has a different outbound IP → use it to resolve and proxy.
+          webUrl = `${CF_WORKER_URL}/?url=${encodeURIComponent(rawFlix2Url)}`;
+          appLog.info("player.flix2", "Reprodução via CF Worker (web + nixplay)", {
+            proxyUrl: webUrl.slice(0, 80),
+          });
+        } else {
+          // hubby.cx direct URLs, fontedecanais, cineveo → server proxy handles CORS + Range.
+          webUrl = getProxiedStreamUrl(rawFlix2Url);
+          if (!webUrl || webUrl === rawFlix2Url) {
+            throw new Error("Servidor de proxy não disponível. Verifique a conexão.");
+          }
+          appLog.info("player.flix2", "Reprodução via proxy (web)", {
+            proxyUrl: webUrl.slice(0, 80),
+          });
         }
-        appLog.info("player.flix2", "Reprodução via proxy (web)", {
-          proxyUrl: proxiedUrl.slice(0, 80),
-        });
         setResolvedCdnType("flix2");
-        setVideoUrl(proxiedUrl);
+        setVideoUrl(webUrl);
       } else {
         // Nativo (Android/iOS): WebViewVideoPlayer para todos os CDNs.
         //
