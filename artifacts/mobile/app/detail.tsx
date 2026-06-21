@@ -4,6 +4,7 @@ import {
   Alert,
   Clipboard,
   Dimensions,
+  FlatList,
   Image,
   KeyboardAvoidingView,
   Linking,
@@ -343,6 +344,12 @@ export default function DetailScreen() {
   const [fixingIds, setFixingIds] = useState(false);
   const [fixDone, setFixDone] = useState<number | null>(null);
   const [exclusiveLoading, setExclusiveLoading] = useState(false);
+  // ── Episode Mapper (admin: flat-folder Drive → R2 per-episode entries) ──
+  const [showEpMapper, setShowEpMapper] = useState(false);
+  const [epMapperFiles, setEpMapperFiles] = useState<{ name: string; link: string; season: number; episode: number }[]>([]);
+  const [epMapperLoading, setEpMapperLoading] = useState(false);
+  const [epMapperSaving, setEpMapperSaving] = useState(false);
+  const [epMapperSaved, setEpMapperSaved] = useState(0);
 
   // Load R2 registry items + source settings + Flix 2.0 live lookup
   // ─── Fase 1 (rápida): registry + settings → mostra botões imediatamente
@@ -2121,6 +2128,109 @@ export default function DetailScreen() {
     });
   };
 
+  // ── Admin: abrir mapper de episódios para pasta flat do Drive ──────────
+  const openEpMapper = async () => {
+    const folderMatch = driveMatches.find((m) => m.isFolder);
+    if (!folderMatch) return;
+    setShowEpMapper(true);
+    setEpMapperLoading(true);
+    setEpMapperFiles([]);
+    try {
+      const { getApiBase: getBase } = await import("@/lib/api");
+      const base = getBase();
+      let allFiles: DriveItem[] = [];
+      let token = "";
+      for (let page = 0; page < 20; page++) {
+        const res = await fetch(`${base}/api/drive/folder`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ drive: folderMatch.drive, path: folderMatch.path, pageToken: token }),
+        });
+        if (!res.ok) break;
+        const data = await res.json();
+        const files: DriveItem[] = (data.data?.files ?? []).filter((f: any) => {
+          const ext = (f.fileExtension ?? "").toLowerCase();
+          return f.mimeType?.startsWith("video/") || ["mkv","mp4","avi","mov","webm","m4v","ts"].includes(ext);
+        });
+        allFiles.push(...files);
+        token = data.nextPageToken ?? "";
+        if (!token) break;
+      }
+      allFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+
+      // Compute TMDB-based season offsets for flat-folder remapping
+      const tmdbCounts = seasons.filter((s) => s.season_number > 0).sort((a, b) => a.season_number - b.season_number);
+      const allHaveCounts = tmdbCounts.length > 0 && tmdbCounts.every((s) => (s.episode_count ?? 0) > 0);
+      const numSeas = tmdbCounts.length || 1;
+
+      const mapped = allFiles.map((item, idx) => {
+        const info = parseEpisodeInfo(item.name);
+        let season = info.season ?? 1;
+        let episode = info.episode ?? (idx + 1);
+
+        // Flat folder: no season in filename → remap by TMDB counts or equal split
+        if (info.season === undefined && numSeas > 1) {
+          const globalEp = episode;
+          if (allHaveCounts) {
+            let offset = 0;
+            for (const s of tmdbCounts) {
+              const cnt = s.episode_count ?? 0;
+              if (globalEp <= offset + cnt) {
+                season = s.season_number;
+                episode = globalEp - offset;
+                break;
+              }
+              offset += cnt;
+            }
+          } else {
+            const perSeason = Math.ceil(allFiles.length / numSeas);
+            season = Math.min(numSeas, Math.ceil(globalEp / perSeason));
+            episode = globalEp - (season - 1) * perSeason;
+          }
+        }
+        return { name: item.name, link: item.link ?? "", season, episode };
+      });
+      setEpMapperFiles(mapped);
+    } finally {
+      setEpMapperLoading(false);
+    }
+  };
+
+  const saveEpMapping = async () => {
+    const folderMatch = driveMatches.find((m) => m.isFolder);
+    if (!folderMatch || !tmdbId) return;
+    setEpMapperSaving(true);
+    setEpMapperSaved(0);
+    try {
+      const { r2Route } = await import("@/lib/r2-direct");
+      let saved = 0;
+      for (const file of epMapperFiles) {
+        const filePath = `${folderMatch.path}/${file.name}`;
+        await r2Route("/drive/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            driveNum: folderMatch.drive,
+            driveFilePath: filePath,
+            tmdbId: Number(tmdbId),
+            tmdbType: "tv",
+            title: (details as any)?.title ?? (details as any)?.name ?? title ?? "",
+            label: `T${file.season}E${String(file.episode).padStart(2, "0")}`,
+            season: file.season,
+            episode: file.episode,
+          }),
+        }).catch(() => {});
+        saved++;
+        setEpMapperSaved(saved);
+      }
+      // Reload registry after saving
+      setShowEpMapper(false);
+      setR2Items([]);
+    } finally {
+      setEpMapperSaving(false);
+    }
+  };
+
   const getEpisodeStatus = (ep: TmdbEpisode): { watched: boolean; current: boolean } => {
     if (!watchProgress || watchProgress.season === undefined || watchProgress.episode === undefined) {
       return { watched: false, current: false };
@@ -2991,6 +3101,138 @@ export default function DetailScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
+      {/* ── Episode Mapper Modal ──────────────────────────────────── */}
+      <Modal
+        visible={showEpMapper}
+        transparent
+        animationType="slide"
+        onRequestClose={() => !epMapperSaving && setShowEpMapper(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.88)" }}>
+          {/* Header */}
+          <View style={{ paddingTop: 56, paddingHorizontal: 18, paddingBottom: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: "#16a34a33" }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+              <Feather name="git-branch" size={16} color="#16a34a" />
+              <View>
+                <Text style={{ color: "#16a34a", fontWeight: "700", fontSize: 15 }}>MAPEAR EPISÓDIOS → R2</Text>
+                <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11, marginTop: 1 }}>Afeta todos os usuários via banco de dados</Text>
+              </View>
+            </View>
+            {!epMapperSaving && (
+              <Pressable onPress={() => setShowEpMapper(false)} hitSlop={12}>
+                <Feather name="x" size={22} color="rgba(255,255,255,0.5)" />
+              </Pressable>
+            )}
+          </View>
+
+          {/* File list */}
+          {epMapperLoading ? (
+            <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 12 }}>
+              <ActivityIndicator size="large" color="#16a34a" />
+              <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 13 }}>Carregando arquivos da pasta...</Text>
+            </View>
+          ) : (
+            <FlatList
+              data={epMapperFiles}
+              keyExtractor={(_, i) => String(i)}
+              style={{ flex: 1 }}
+              contentContainerStyle={{ padding: 14, gap: 8 }}
+              ListHeaderComponent={
+                epMapperFiles.length > 0 ? (
+                  <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 11, marginBottom: 4 }}>
+                    {epMapperFiles.length} arquivo{epMapperFiles.length !== 1 ? "s" : ""} encontrado{epMapperFiles.length !== 1 ? "s" : ""}. Ajuste T e Ep conforme necessário.
+                  </Text>
+                ) : null
+              }
+              renderItem={({ item, index }) => (
+                <View style={{ backgroundColor: "rgba(255,255,255,0.05)", borderRadius: 10, padding: 12, borderWidth: 1, borderColor: "rgba(22,163,74,0.2)", gap: 8 }}>
+                  {/* Filename */}
+                  <Text style={{ color: "rgba(255,255,255,0.75)", fontSize: 11, fontFamily: "monospace" }} numberOfLines={2}>{item.name}</Text>
+                  {/* Season + Episode row */}
+                  <View style={{ flexDirection: "row", gap: 10, alignItems: "center" }}>
+                    {/* Season */}
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 10, marginBottom: 4, fontWeight: "600" }}>TEMPORADA</Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                        <Pressable
+                          onPress={() => setEpMapperFiles((prev) => prev.map((f, i) => i === index ? { ...f, season: Math.max(1, f.season - 1) } : f))}
+                          style={{ width: 28, height: 28, borderRadius: 7, backgroundColor: "rgba(22,163,74,0.15)", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(22,163,74,0.3)" }}
+                        >
+                          <Feather name="minus" size={13} color="#16a34a" />
+                        </Pressable>
+                        <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15, minWidth: 24, textAlign: "center" }}>{item.season}</Text>
+                        <Pressable
+                          onPress={() => setEpMapperFiles((prev) => prev.map((f, i) => i === index ? { ...f, season: f.season + 1 } : f))}
+                          style={{ width: 28, height: 28, borderRadius: 7, backgroundColor: "rgba(22,163,74,0.15)", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(22,163,74,0.3)" }}
+                        >
+                          <Feather name="plus" size={13} color="#16a34a" />
+                        </Pressable>
+                      </View>
+                    </View>
+                    {/* Episode */}
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 10, marginBottom: 4, fontWeight: "600" }}>EPISÓDIO</Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                        <Pressable
+                          onPress={() => setEpMapperFiles((prev) => prev.map((f, i) => i === index ? { ...f, episode: Math.max(1, f.episode - 1) } : f))}
+                          style={{ width: 28, height: 28, borderRadius: 7, backgroundColor: "rgba(22,163,74,0.15)", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(22,163,74,0.3)" }}
+                        >
+                          <Feather name="minus" size={13} color="#16a34a" />
+                        </Pressable>
+                        <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15, minWidth: 24, textAlign: "center" }}>{item.episode}</Text>
+                        <Pressable
+                          onPress={() => setEpMapperFiles((prev) => prev.map((f, i) => i === index ? { ...f, episode: f.episode + 1 } : f))}
+                          style={{ width: 28, height: 28, borderRadius: 7, backgroundColor: "rgba(22,163,74,0.15)", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(22,163,74,0.3)" }}
+                        >
+                          <Feather name="plus" size={13} color="#16a34a" />
+                        </Pressable>
+                      </View>
+                    </View>
+                    {/* Badge */}
+                    <View style={{ backgroundColor: "rgba(22,163,74,0.12)", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, borderWidth: 1, borderColor: "rgba(22,163,74,0.3)", alignItems: "center" }}>
+                      <Text style={{ color: "#16a34a", fontWeight: "800", fontSize: 13 }}>T{item.season}</Text>
+                      <Text style={{ color: "#16a34a", fontWeight: "800", fontSize: 13 }}>E{String(item.episode).padStart(2, "0")}</Text>
+                    </View>
+                  </View>
+                </View>
+              )}
+            />
+          )}
+
+          {/* Save footer */}
+          {!epMapperLoading && epMapperFiles.length > 0 && (
+            <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: "rgba(22,163,74,0.2)", gap: 10 }}>
+              {epMapperSaving && (
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <ActivityIndicator size="small" color="#16a34a" />
+                  <Text style={{ color: "#16a34a", fontSize: 12 }}>
+                    Salvando {epMapperSaved}/{epMapperFiles.length} no R2...
+                  </Text>
+                </View>
+              )}
+              <Pressable
+                onPress={saveEpMapping}
+                disabled={epMapperSaving}
+                style={({ pressed }) => ({
+                  backgroundColor: epMapperSaving ? "#16a34a55" : "#16a34a",
+                  borderRadius: 12, paddingVertical: 14,
+                  alignItems: "center", justifyContent: "center",
+                  flexDirection: "row", gap: 8,
+                  opacity: pressed ? 0.8 : 1,
+                })}
+              >
+                {epMapperSaving
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <Feather name="save" size={16} color="#fff" />}
+                <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14 }}>
+                  {epMapperSaving ? "Salvando..." : `Salvar ${epMapperFiles.length} episódios no R2`}
+                </Text>
+              </Pressable>
+            </View>
+          )}
+        </View>
+      </Modal>
+
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
         {/* Backdrop */}
         <View style={{ height: BACKDROP_H + topPad }}>
@@ -3557,6 +3799,18 @@ export default function DetailScreen() {
                       </View>
                     );
                   })()}
+
+                  {/* ── ADMIN: Mapear Episódios Drive (pasta flat → R2 por episódio) ─── */}
+                  {isAdmin && type === "tv" && driveMatches.some((m) => m.isFolder) && (
+                    <Pressable
+                      onPress={openEpMapper}
+                      style={{ flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#16a34a18", borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, borderWidth: 1, borderColor: "#16a34a44", marginBottom: 12 }}
+                    >
+                      <Feather name="git-branch" size={14} color="#16a34a" />
+                      <Text style={{ color: "#16a34a", fontWeight: "700", fontSize: 12, letterSpacing: 0.4 }}>MAPEAR EPISÓDIOS → R2</Text>
+                      <Text style={{ color: "#16a34a88", fontSize: 11, marginLeft: "auto" }}>Salva para todos os usuários</Text>
+                    </Pressable>
+                  )}
 
                   {/* ── ADMIN: Exclusivo NETPLAY toggle ─────────────────── */}
                   {isAdmin && r2Items.length > 0 && (() => {
