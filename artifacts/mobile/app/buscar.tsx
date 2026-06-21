@@ -29,6 +29,7 @@ import { r2Base } from "@/lib/r2-direct";
 import { useR2Catalog } from "@/lib/r2-catalog-hook";
 import { getCached } from "@/lib/catalog-cache";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { geminiSmartSearch, geminiSuggestions, checkGeminiAvailable } from "@/lib/gemini-client";
 
 const HISTORY_KEY = "buscar_history_v1";
 const MAX_HISTORY  = 8;
@@ -385,13 +386,16 @@ export default function BuscarScreen() {
 
   const { r2All } = useR2Catalog();
 
-  const [query,        setQuery]        = useState(params.q ?? "");
-  const [results,      setResults]      = useState<ContentItem[]>([]);
-  const [loading,      setLoading]      = useState(false);
-  const [flix2Titles,  setFlix2Titles]  = useState<Set<string>>(new Set());
-  const [flix2Raw,     setFlix2Raw]     = useState<Flix2RawItem[]>([]);
-  const [flix2Loading, setFlix2Loading] = useState(false);
-  const [searchHistory, setSearchHistory] = useState<string[]>([]);
+  const [query,           setQuery]           = useState(params.q ?? "");
+  const [results,         setResults]         = useState<ContentItem[]>([]);
+  const [loading,         setLoading]         = useState(false);
+  const [flix2Titles,     setFlix2Titles]     = useState<Set<string>>(new Set());
+  const [flix2Raw,        setFlix2Raw]        = useState<Flix2RawItem[]>([]);
+  const [flix2Loading,    setFlix2Loading]    = useState(false);
+  const [searchHistory,   setSearchHistory]   = useState<string[]>([]);
+  const [geminiSuggs,     setGeminiSuggs]     = useState<string[]>([]);
+  const [geminiCorrection, setGeminiCorrection] = useState<string | null>(null);
+  const [geminiEnabled,   setGeminiEnabled]   = useState(false);
 
   // Animations
   const barFade  = useRef(new Animated.Value(0)).current;
@@ -402,6 +406,7 @@ export default function BuscarScreen() {
     loadHistory().then(setSearchHistory);
     Animated.timing(barFade, { toValue: 1, duration: 500, useNativeDriver: true }).start();
     setTimeout(() => inputRef.current?.focus(), 350);
+    checkGeminiAvailable().then(setGeminiEnabled);
   }, []);
 
   // ── Search logic ────────────────────────────────────────────────────────────
@@ -411,6 +416,7 @@ export default function BuscarScreen() {
       setResults([]);
       setFlix2Titles(new Set());
       setFlix2Raw([]);
+      setGeminiCorrection(null);
       // fade in idle, fade out results
       Animated.parallel([
         Animated.timing(idleFade, { toValue: 1, duration: 250, useNativeDriver: true }),
@@ -424,6 +430,7 @@ export default function BuscarScreen() {
 
     setLoading(true);
     setFlix2Loading(true);
+    setGeminiCorrection(null);
 
     let cancelled = false;
     let cacheHit  = false;
@@ -438,17 +445,41 @@ export default function BuscarScreen() {
       }
     });
 
-    const expandedQ = expandQuery(q);
-    const searchQ   = expandedQ !== q ? expandedQ : q;
+    // Gemini smart search runs in parallel with cache search
+    const geminiPromise = geminiEnabled
+      ? geminiSmartSearch(q)
+      : Promise.resolve(null);
+
+    const localExpandedQ = expandQuery(q);
 
     const timer = setTimeout(async () => {
       await cacheSearch;
       if (cancelled) return;
 
+      // Use Gemini expansion if available, otherwise fall back to local keyword map
+      const geminiResult = await geminiPromise;
+      if (cancelled) return;
+
+      let searchQ = localExpandedQ !== q ? localExpandedQ : q;
+      let englishQ = q;
+
+      if (geminiResult) {
+        englishQ = geminiResult.englishQuery || q;
+        if (geminiResult.corrected && geminiResult.expandedQuery !== q) {
+          setGeminiCorrection(geminiResult.expandedQuery);
+        }
+        // Use Gemini suggestions as quick chips
+        if (geminiResult.suggestions?.length > 0) {
+          setGeminiSuggs(geminiResult.suggestions);
+        }
+      }
+
+      const queryVariants = new Set([q, searchQ, englishQ].filter(Boolean));
+
       const tasks: Promise<any>[] = [
-        tfetch("/search/multi", { query: searchQ, include_adult: "false", page: "1" }),
-        ...(searchQ !== q
-          ? [tfetch("/search/multi", { query: q, include_adult: "false", page: "1" })]
+        tfetch("/search/multi", { query: englishQ, include_adult: "false", page: "1" }),
+        ...(queryVariants.size > 1 && searchQ !== englishQ
+          ? [tfetch("/search/multi", { query: searchQ, include_adult: "false", page: "1" })]
           : []),
       ];
       if (!cacheHit) tasks.push(flix2Search(q));
@@ -472,10 +503,8 @@ export default function BuscarScreen() {
       // Re-rank by fuzzy score (keeps TMDB relevance for top results, surfaces fuzzy matches)
       const scoredMerged = merged.map(item => ({ item, score: fuzzyScore(item.title, q) }));
       scoredMerged.sort((a, b) => {
-        // Treat score 0 as a "no keyword match" but still include TMDB results
-        // (TMDB is already relevant by definition; just boost fuzzy matches)
         const diff = b.score - a.score;
-        if (Math.abs(diff) < 5) return 0; // stable for similar scores
+        if (Math.abs(diff) < 5) return 0;
         return diff;
       });
       setResults(scoredMerged.map(x => x.item));
@@ -501,7 +530,7 @@ export default function BuscarScreen() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [query]);
+  }, [query, geminiEnabled]);
 
   const goTo = useCallback((item: ContentItem) => {
     router.push({
@@ -617,6 +646,33 @@ export default function BuscarScreen() {
             </Pressable>
           )}
         </View>
+
+        {/* Gemini correction banner */}
+        {geminiCorrection && isSearching && (
+          <Pressable
+            style={s.geminiCorrection}
+            onPress={() => { setQuery(geminiCorrection); setGeminiCorrection(null); }}
+          >
+            <Feather name="zap" size={11} color="#a78bfa" />
+            <Text style={s.geminiCorrectionText}>
+              Você quis dizer:{" "}
+              <Text style={{ color: "#a78bfa", fontWeight: "700" }}>{geminiCorrection}</Text>
+              {"  "}→
+            </Text>
+          </Pressable>
+        )}
+
+        {/* Gemini suggestions chips (shown in results) */}
+        {isSearching && geminiSuggs.length > 0 && (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.geminiSuggsRow} contentContainerStyle={{ gap: 6, paddingHorizontal: 2 }}>
+            {geminiSuggs.map((s2) => (
+              <Pressable key={s2} style={s.geminiSuggChip} onPress={() => setQuery(s2)}>
+                <Feather name="zap" size={9} color="#a78bfa" />
+                <Text style={s.geminiSuggChipText}>{s2}</Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        )}
 
         {/* Fuzzy hint */}
         {isSearching && !loading && totalCount === 0 && !flix2Loading && (
@@ -837,6 +893,11 @@ const s = StyleSheet.create({
   searchInput:  { flex: 1, fontSize: 15, color: "#fff", fontWeight: "500", padding: 0 },
   clearBtn:     { width: 26, height: 26, borderRadius: 13, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.14)" },
   fuzzyHint:    { color: "rgba(255,255,255,0.2)", fontSize: 11, fontWeight: "500", paddingHorizontal: 4, marginTop: 6 },
+  geminiCorrection: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 6, paddingHorizontal: 4, paddingVertical: 4 },
+  geminiCorrectionText: { color: "rgba(255,255,255,0.55)", fontSize: 12, fontWeight: "500" },
+  geminiSuggsRow: { marginTop: 6, marginHorizontal: 4 },
+  geminiSuggChip: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(167,139,250,0.12)", borderColor: "rgba(167,139,250,0.3)", borderWidth: 1, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
+  geminiSuggChipText: { color: "#a78bfa", fontSize: 11, fontWeight: "600" },
 
   /* count bar */
   countBar: {

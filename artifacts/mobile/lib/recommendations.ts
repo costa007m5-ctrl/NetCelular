@@ -1,5 +1,7 @@
 import type { ContentItem } from "@/constants/content";
 import { supabase, db, isSupabaseConfigured } from "@/lib/supabase";
+import { geminiPersonalize, checkGeminiAvailable } from "@/lib/gemini-client";
+import { getLearnedPreferences, GENRE_NAMES } from "@/lib/smart-preferences";
 
 export interface RecommendationSignals {
   watchedIds: Set<number>;
@@ -123,7 +125,7 @@ export async function computeRecommendations(
 ): Promise<ContentItem[]> {
   const signals = await fetchSignals(userId);
 
-  const scored = allContent
+  const localScored = allContent
     .filter((item) => {
       const tmdbId = item.tmdbId ?? 0;
       if (tmdbId > 0 && signals.watchedIds.has(tmdbId)) return false;
@@ -134,5 +136,64 @@ export async function computeRecommendations(
     .filter(({ score }) => score > -10)
     .sort((a, b) => b.score - a.score);
 
-  return scored.slice(0, limit).map(({ item }) => item);
+  const candidates = localScored.slice(0, Math.min(40, localScored.length));
+
+  // Try Gemini personalization if available
+  try {
+    const geminiAvailable = await checkGeminiAvailable();
+    if (geminiAvailable && userId && candidates.length > 0) {
+      const learned = await getLearnedPreferences();
+      const favoriteGenres = learned
+        ? learned.genreScores.slice(0, 5).map((g) => g.name)
+        : [];
+
+      // Collect titles from user signals for Gemini context
+      const likedTitles: string[] = [];
+      const dislikedTitles: string[] = [];
+      const watchedTitles: string[] = [];
+
+      for (const item of allContent) {
+        const id = item.tmdbId ?? 0;
+        if (id > 0 && signals.likedIds.has(id)) likedTitles.push(item.title);
+        else if (id > 0 && signals.dislikedIds.has(id)) dislikedTitles.push(item.title);
+        else if (id > 0 && signals.watchedIds.has(id)) watchedTitles.push(item.title);
+      }
+
+      const geminiCandidates = candidates.map(({ item }) => ({
+        id: String(item.tmdbId ?? item.id),
+        title: item.title,
+        genres: (item.genres ?? []).map((g) => GENRE_NAMES[g as number] ?? String(g)),
+        type: item.type ?? "movie",
+        year: item.year ?? 2020,
+        rating: item.rating ?? 0,
+      }));
+
+      const result = await geminiPersonalize({
+        likedTitles: likedTitles.slice(0, 10),
+        dislikedTitles: dislikedTitles.slice(0, 5),
+        watchedTitles: watchedTitles.slice(0, 10),
+        favoriteGenres,
+        prefersMovies: signals.prefersMovies,
+        prefersSeries: signals.prefersSeries,
+        candidates: geminiCandidates,
+      });
+
+      if (result.rankedIds.length > 0) {
+        const idToItem = new Map(candidates.map(({ item }) => [String(item.tmdbId ?? item.id), item]));
+        const ranked = result.rankedIds
+          .map((id) => idToItem.get(id))
+          .filter((item): item is ContentItem => !!item);
+        // Fill any missing items at the end
+        const rankedSet = new Set(result.rankedIds);
+        const remaining = candidates
+          .filter(({ item }) => !rankedSet.has(String(item.tmdbId ?? item.id)))
+          .map(({ item }) => item);
+        return [...ranked, ...remaining].slice(0, limit);
+      }
+    }
+  } catch {
+    // Fall through to local scoring
+  }
+
+  return candidates.slice(0, limit).map(({ item }) => item);
 }

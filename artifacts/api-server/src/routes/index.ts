@@ -12,6 +12,7 @@ import tmdbRouter from "./tmdb";
 import teraboxRouter from "./terabox";
 import shortsRouter from "./shorts";
 import tvmazeRouter from "./tvmaze";
+import geminiRouter from "./gemini";
 
 const router: IRouter = Router();
 
@@ -28,5 +29,6 @@ router.use(appLogsRouter);
 router.use(adminRouter);
 router.use(shortsRouter);
 router.use(tvmazeRouter);
+router.use(geminiRouter);
 
 export default router;
