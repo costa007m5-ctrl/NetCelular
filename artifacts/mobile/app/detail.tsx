@@ -3399,6 +3399,8 @@ export default function DetailScreen() {
                       if (item.driveUrl) links.push({ id: `${item.id}-drive`, label: base, source: "Drive", url: item.driveUrl, color: "#16a34a" });
                       if (item.driveDirectUrl && item.driveDirectUrl !== item.driveUrl)
                         links.push({ id: `${item.id}-direct`, label: base, source: "Drive Direto", url: item.driveDirectUrl, color: "#0ea5e9" });
+                      if (item.driveFilePath && !item.driveUrl)
+                        links.push({ id: `${item.id}-path`, label: base, source: "Drive Pasta", url: item.driveFilePath, color: "#16a34a" });
                       if (item.teraboxUrl) links.push({ id: `${item.id}-tera`, label: base, source: "TeraBox", url: item.teraboxUrl, color: "#f97316" });
                     }
                     const isLoading = r2Loading || flix2Loading;
