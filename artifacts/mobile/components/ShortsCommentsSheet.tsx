@@ -19,9 +19,8 @@ import { Image } from "expo-image";
 import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { getApiBase } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import { db, type ShortsCommentRow } from "@/lib/supabase";
+import { db, type ShortsCommentRow, type WatchlistItem, type WatchProgress } from "@/lib/supabase";
 import { sendPushViaServer } from "@/lib/notifications";
 
 const { height: H } = Dimensions.get("window");
@@ -123,13 +122,45 @@ function ProfilePanel({
     Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, tension: 70, friction: 12 }).start();
     setLoadingProfile(true);
     setProfile(null);
-    fetch(`${getApiBase()}/shorts/user-profile/${encodeURIComponent(comment.user_id)}`)
-      .then((r) => r.json())
-      .then((data: { ok: boolean; profile: UserProfile }) => {
-        if (data.ok) setProfile(data.profile);
-      })
-      .catch(() => {})
-      .finally(() => setLoadingProfile(false));
+
+    // Fetch directly from Supabase client (no server-side key required)
+    const DEFAULT_VIS = { showEstatisticas: true, showMaisAssistidos: true, showMinhaLista: true, showConquistas: true };
+    Promise.all([
+      db.users.getById(comment.user_id).catch(() => null),
+      db.progress.getAll(comment.user_id).catch(() => [] as WatchProgress[]),
+      db.watchlist.getAll(comment.user_id).catch(() => [] as WatchlistItem[]),
+      db.userSettings.get(comment.user_id).catch(() => null),
+    ]).then(([userRow, progressData, watchlistData, settings]) => {
+      const visibility = (() => {
+        try {
+          const raw = settings?.profile_visibility;
+          return raw ? { ...DEFAULT_VIS, ...JSON.parse(raw) } : DEFAULT_VIS;
+        } catch { return DEFAULT_VIS; }
+      })();
+
+      const totalHours = Math.round((progressData.length * 92) / 60);
+      const topWatched = progressData.slice(0, 6).map((p) => ({
+        tmdb_id: p.tmdb_id,
+        type: p.type,
+        title: p.title ?? "",
+        poster_path: p.poster_path ?? "",
+        progress: p.progress ?? 0,
+      }));
+
+      setProfile({
+        name: userRow?.name ?? comment.user_name,
+        avatar_letter: userRow?.avatar_letter ?? comment.avatar_letter ?? "U",
+        avatar_url: userRow?.avatar_url ?? comment.avatar_url ?? null,
+        member_since: userRow?.created_at ?? null,
+        comment_count: 0,
+        watched_count: progressData.length,
+        total_hours: totalHours,
+        watchlist_count: watchlistData.length,
+        top_genre: null,
+        top_watched: topWatched,
+        visibility,
+      });
+    }).catch(() => {}).finally(() => setLoadingProfile(false));
   }, [comment?.user_id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!comment) return null;
@@ -355,9 +386,10 @@ export default function ShortsCommentsSheet({ visible, onClose, postId, tmdbId, 
   }, [user]);
 
   // Animations — useNativeDriver:false so we can animate `bottom` for keyboard
-  const slideAnim   = useRef(new Animated.Value(SHEET_HEIGHT)).current;
+  const slideAnim    = useRef(new Animated.Value(SHEET_HEIGHT)).current;
   const backdropAnim = useRef(new Animated.Value(0)).current;
   const sheetBottom  = useRef(new Animated.Value(0)).current;
+  const sheetHeight  = useRef(new Animated.Value(SHEET_HEIGHT)).current;
 
   const [comments, setComments] = useState<ShortComment[]>([]);
   const [loading, setLoading]   = useState(false);
@@ -383,14 +415,13 @@ export default function ShortsCommentsSheet({ visible, onClose, postId, tmdbId, 
       if (!vv) return;
       const onResize = () => {
         const kbHeight = Math.max(0, window.innerHeight - vv.height - (vv.offsetTop ?? 0));
-        Animated.timing(sheetBottom, {
-          toValue: kbHeight > 80 ? kbHeight : 0,
-          duration: 200,
-          useNativeDriver: false,
-        }).start(() => {
-          if (kbHeight > 80) {
-            listRef.current?.scrollToOffset({ offset: 0, animated: true });
-          }
+        const isOpen = kbHeight > 80;
+        const targetHeight = isOpen ? Math.max(240, SHEET_HEIGHT - kbHeight) : SHEET_HEIGHT;
+        Animated.parallel([
+          Animated.timing(sheetBottom, { toValue: isOpen ? kbHeight : 0, duration: 200, useNativeDriver: false }),
+          Animated.timing(sheetHeight, { toValue: targetHeight, duration: 200, useNativeDriver: false }),
+        ]).start(() => {
+          if (isOpen) listRef.current?.scrollToOffset({ offset: 0, animated: true });
         });
       };
       vv.addEventListener("resize", onResize);
@@ -405,20 +436,20 @@ export default function ShortsCommentsSheet({ visible, onClose, postId, tmdbId, 
     const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
     const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
     const onShow = Keyboard.addListener(showEvent, (e) => {
-      Animated.timing(sheetBottom, {
-        toValue: e.endCoordinates.height,
-        duration: Platform.OS === "ios" ? (e.duration || 250) : 250,
-        useNativeDriver: false,
-      }).start(() => {
+      const kb = e.endCoordinates.height;
+      const dur = Platform.OS === "ios" ? (e.duration || 250) : 250;
+      Animated.parallel([
+        Animated.timing(sheetBottom, { toValue: kb, duration: dur, useNativeDriver: false }),
+        Animated.timing(sheetHeight, { toValue: Math.max(240, SHEET_HEIGHT - kb), duration: dur, useNativeDriver: false }),
+      ]).start(() => {
         listRef.current?.scrollToOffset({ offset: 0, animated: true });
       });
     });
     const onHide = Keyboard.addListener(hideEvent, () => {
-      Animated.timing(sheetBottom, {
-        toValue: 0,
-        duration: 200,
-        useNativeDriver: false,
-      }).start();
+      Animated.parallel([
+        Animated.timing(sheetBottom, { toValue: 0, duration: 200, useNativeDriver: false }),
+        Animated.timing(sheetHeight, { toValue: SHEET_HEIGHT, duration: 200, useNativeDriver: false }),
+      ]).start();
     });
     return () => { onShow.remove(); onHide.remove(); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -612,8 +643,8 @@ export default function ShortsCommentsSheet({ visible, onClose, postId, tmdbId, 
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
       </Animated.View>
 
-      {/* Sheet — bottom animates up when keyboard opens */}
-      <Animated.View style={[cs.sheet, { bottom: sheetBottom, transform: [{ translateY: slideAnim }] }]}>
+      {/* Sheet — bottom & height animate when keyboard opens */}
+      <Animated.View style={[cs.sheet, { bottom: sheetBottom, height: sheetHeight, transform: [{ translateY: slideAnim }] }]}>
           {/* Handle */}
           <View style={cs.handleWrap} pointerEvents="box-none">
             <View style={cs.handle} />
@@ -726,11 +757,11 @@ const cs = StyleSheet.create({
     position: "absolute",
     left: 0,
     right: 0,
-    height: SHEET_HEIGHT,
     backgroundColor: "#111",
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     flexDirection: "column",
+    overflow: "hidden",
   },
   handleWrap: { alignItems: "center", paddingTop: 10, paddingBottom: 4 },
   handle: { width: 38, height: 4, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.22)" },
