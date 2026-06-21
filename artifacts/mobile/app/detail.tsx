@@ -864,11 +864,32 @@ export default function DetailScreen() {
             .sort((a, b) => a.ep - b.ep);
 
           if (allSorted.length > 0 && numSeas > 0) {
-            const perSeason = Math.ceil(allSorted.length / numSeas);
-            const start = (selectedSeason - 1) * perSeason;
-            const end = Math.min(start + perSeason, allSorted.length);
+            // Prefer real TMDB episode_count per season (now populated from API).
+            // Cumulative offset = sum of episode_count for all seasons before this one.
+            const tmdbCounts = seasons
+              .filter((s) => s.season_number > 0)
+              .sort((a, b) => a.season_number - b.season_number);
+            const allHaveCounts = tmdbCounts.length > 0 && tmdbCounts.every((s) => (s.episode_count ?? 0) > 0);
+
+            let start: number;
+            let end: number;
+
+            if (allHaveCounts) {
+              // Precise offset: sum of episode_count for seasons before selectedSeason
+              start = tmdbCounts
+                .filter((s) => s.season_number < selectedSeason)
+                .reduce((sum, s) => sum + (s.episode_count ?? 0), 0);
+              const thisCount = tmdbCounts.find((s) => s.season_number === selectedSeason)?.episode_count ?? 0;
+              end = Math.min(start + thisCount, allSorted.length);
+            } else {
+              // Fallback: equal split when TMDB counts aren't available
+              const perSeason = Math.ceil(allSorted.length / numSeas);
+              start = (selectedSeason - 1) * perSeason;
+              end = Math.min(start + perSeason, allSorted.length);
+            }
+
             seasonItems = allSorted.slice(start, end).map((x) => x.item);
-            episodeOffset = start; // sequential ep# minus this = within-season ep#
+            episodeOffset = start; // sequential ep# minus offset = within-season ep#
           }
         }
 
@@ -990,15 +1011,19 @@ export default function DetailScreen() {
             // Build seasons list for TV shows
             if (hitType === "tv") {
               const numSeasons = (det as any).number_of_seasons ?? 1;
-              setSeasons(Array.from({ length: numSeasons }, (_, i) => ({
-                id: i + 1,
-                season_number: i + 1,
-                name: `Temporada ${i + 1}`,
-                overview: "",
-                episode_count: 0,
-                poster_path: null,
-                air_date: "",
-              })));
+              const tmdbSeasons: any[] = (det as any).seasons ?? [];
+              setSeasons(Array.from({ length: numSeasons }, (_, i) => {
+                const tmdbS = tmdbSeasons.find((s: any) => s.season_number === i + 1);
+                return {
+                  id: i + 1,
+                  season_number: i + 1,
+                  name: tmdbS?.name ?? `Temporada ${i + 1}`,
+                  overview: tmdbS?.overview ?? "",
+                  episode_count: tmdbS?.episode_count ?? 0,
+                  poster_path: tmdbS?.poster_path ?? null,
+                  air_date: tmdbS?.air_date ?? "",
+                };
+              }));
             }
             // Also grab logo + trailer with found id
             fetch(
@@ -1133,15 +1158,19 @@ export default function DetailScreen() {
           setSimilar(sim.map(tmdbItemToContent));
           setProviders(prov?.flatrate ?? []);
           const numSeasons = (det as any).number_of_seasons ?? 1;
-          const seasonList: TmdbSeason[] = Array.from({ length: numSeasons }, (_, i) => ({
-            id: i + 1,
-            season_number: i + 1,
-            name: `Temporada ${i + 1}`,
-            overview: "",
-            episode_count: 0,
-            poster_path: null,
-            air_date: "",
-          }));
+          const tmdbSeasons: any[] = (det as any).seasons ?? [];
+          const seasonList: TmdbSeason[] = Array.from({ length: numSeasons }, (_, i) => {
+            const tmdbS = tmdbSeasons.find((s: any) => s.season_number === i + 1);
+            return {
+              id: i + 1,
+              season_number: i + 1,
+              name: tmdbS?.name ?? `Temporada ${i + 1}`,
+              overview: tmdbS?.overview ?? "",
+              episode_count: tmdbS?.episode_count ?? 0,
+              poster_path: tmdbS?.poster_path ?? null,
+              air_date: tmdbS?.air_date ?? "",
+            };
+          });
           setSeasons(seasonList);
         }
         await imagesPromise;
