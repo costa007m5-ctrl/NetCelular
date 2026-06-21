@@ -1064,13 +1064,31 @@ export default function R2PlayerScreen() {
   }, [phase]);
 
   // ── Keep screen awake while playing ─────────────────────────────────────
+  const keepAwakeActive = useRef(false);
   useEffect(() => {
     if (isPlaying && phase === "ready") {
-      try { activateKeepAwake?.(); } catch {}
-    } else {
-      try { deactivateKeepAwake?.(); } catch {}
+      try {
+        const r = activateKeepAwake?.();
+        // expo-keep-awake may return a Promise — suppress async rejection
+        if (r && typeof (r as any).catch === "function") (r as any).catch(() => {});
+        keepAwakeActive.current = true;
+      } catch {}
+    } else if (keepAwakeActive.current) {
+      try {
+        const r = deactivateKeepAwake?.();
+        if (r && typeof (r as any).catch === "function") (r as any).catch(() => {});
+        keepAwakeActive.current = false;
+      } catch {}
     }
-    return () => { try { deactivateKeepAwake?.(); } catch {} };
+    return () => {
+      if (keepAwakeActive.current) {
+        try {
+          const r = deactivateKeepAwake?.();
+          if (r && typeof (r as any).catch === "function") (r as any).catch(() => {});
+          keepAwakeActive.current = false;
+        } catch {}
+      }
+    };
   }, [isPlaying, phase]);
 
   // ── Controls auto-hide trigger ────────────────────────────────────────────
