@@ -3171,10 +3171,20 @@ export default function DetailScreen() {
                   </Text>
                 ) : null
               }
-              renderItem={({ item, index }) => (
-                <View style={{ backgroundColor: "rgba(255,255,255,0.05)", borderRadius: 10, padding: 12, borderWidth: 1, borderColor: "rgba(22,163,74,0.2)", gap: 8 }}>
-                  {/* Filename */}
-                  <Text style={{ color: "rgba(255,255,255,0.75)", fontSize: 11, fontFamily: "monospace" }} numberOfLines={2}>{item.name}</Text>
+              renderItem={({ item, index }) => {
+                const isInvalid = item.episode <= 0 || item.season <= 0;
+                return (
+                <View style={{ backgroundColor: isInvalid ? "rgba(239,68,68,0.08)" : "rgba(255,255,255,0.05)", borderRadius: 10, padding: 12, borderWidth: 1, borderColor: isInvalid ? "rgba(239,68,68,0.45)" : "rgba(22,163,74,0.2)", gap: 8 }}>
+                  {/* Filename + invalid warning */}
+                  <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 6 }}>
+                    {isInvalid && <Feather name="alert-triangle" size={13} color="#ef4444" style={{ marginTop: 1 }} />}
+                    <Text style={{ color: isInvalid ? "#fca5a5" : "rgba(255,255,255,0.75)", fontSize: 11, fontFamily: "monospace", flex: 1 }} numberOfLines={2}>{item.name}</Text>
+                  </View>
+                  {isInvalid && (
+                    <Text style={{ color: "#ef4444", fontSize: 10, fontWeight: "700", letterSpacing: 0.3 }}>
+                      ⚠ Ep ou temporada inválida — ajuste antes de salvar
+                    </Text>
+                  )}
                   {/* Season + Episode row */}
                   <View style={{ flexDirection: "row", gap: 10, alignItems: "center" }}>
                     {/* Season */}
@@ -3216,13 +3226,14 @@ export default function DetailScreen() {
                       </View>
                     </View>
                     {/* Badge */}
-                    <View style={{ backgroundColor: "rgba(22,163,74,0.12)", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, borderWidth: 1, borderColor: "rgba(22,163,74,0.3)", alignItems: "center" }}>
-                      <Text style={{ color: "#16a34a", fontWeight: "800", fontSize: 13 }}>T{item.season}</Text>
-                      <Text style={{ color: "#16a34a", fontWeight: "800", fontSize: 13 }}>E{String(item.episode).padStart(2, "0")}</Text>
+                    <View style={{ backgroundColor: isInvalid ? "rgba(239,68,68,0.12)" : "rgba(22,163,74,0.12)", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, borderWidth: 1, borderColor: isInvalid ? "rgba(239,68,68,0.35)" : "rgba(22,163,74,0.3)", alignItems: "center" }}>
+                      <Text style={{ color: isInvalid ? "#ef4444" : "#16a34a", fontWeight: "800", fontSize: 13 }}>T{item.season}</Text>
+                      <Text style={{ color: isInvalid ? "#ef4444" : "#16a34a", fontWeight: "800", fontSize: 13 }}>E{String(item.episode).padStart(2, "0")}</Text>
                     </View>
                   </View>
                 </View>
-              )}
+                );
+              }}
             />
           )}
 
