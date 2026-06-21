@@ -65,6 +65,15 @@ async function main() {
   console.log(red("╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝     ╚══════╝╚═╝  ╚═╝   ╚═╝   "));
   console.log(bold("\n          🚀 Script de Publicação de Atualização\n"));
 
+  // ── Verifica EXPO_TOKEN ──────────────────────────────────────────────────────
+  if (!process.env.EXPO_TOKEN) {
+    console.log(red("\n  ✗ EXPO_TOKEN não encontrado."));
+    console.log(dim("  Adicione seu token em: Replit → Secrets → EXPO_TOKEN"));
+    console.log(dim("  Gere o token em: expo.dev → Account Settings → Access Tokens"));
+    process.exit(1);
+  }
+  console.log(green("  ✓ EXPO_TOKEN encontrado — login automático ativo\n"));
+
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
   // ── Lê versão atual ──────────────────────────────────────────────────────────
@@ -75,10 +84,13 @@ async function main() {
 
   step(1, "Versão");
   console.log(dim(`  Versão atual: ${currentVer}`));
-  const newVersion = (await ask(rl, `  Nova versão ${gray(`[Enter = ${suggestedVer}]`)}: `)).trim() || suggestedVer;
+  // strip invisible/non-printable chars that mobile keyboards sometimes inject
+  const rawVersion = (await ask(rl, `  Nova versão ${gray(`[Enter = ${suggestedVer}]`)}: `));
+  const newVersion = rawVersion.replace(/[^\d.]/g, "").trim() || suggestedVer;
+  console.log(dim(`  Usando versão: ${newVersion}`));
 
   if (!/^\d+\.\d+\.\d+$/.test(newVersion)) {
-    console.log(red("\n  ✗ Versão inválida. Use o formato: 1.2.3"));
+    console.log(red(`\n  ✗ Versão inválida: "${newVersion}". Use o formato: 1.2.3`));
     rl.close(); process.exit(1);
   }
 
@@ -168,7 +180,11 @@ async function main() {
   try {
     execSync(
       `eas update --channel production --message "v${newVersion}: ${highlights.map((h) => h.title).join(", ")}" --non-interactive`,
-      { cwd: ROOT, stdio: "inherit" },
+      {
+        cwd: ROOT,
+        stdio: "inherit",
+        env: { ...process.env, EXPO_TOKEN: process.env.EXPO_TOKEN },
+      },
     );
   } catch {
     console.log(red("\n  ✗ Erro no EAS Update."));
