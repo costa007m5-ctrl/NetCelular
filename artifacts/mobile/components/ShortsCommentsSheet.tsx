@@ -449,7 +449,6 @@ export default function ShortsCommentsSheet({ visible, onClose, postId, tmdbId, 
 
   const inputRef = useRef<TextInput>(null);
   const listRef  = useRef<FlatList>(null);
-  const reversedComments = useMemo(() => [...comments].reverse(), [comments]);
 
   // ── Keyboard listeners — move sheet up when keyboard opens ──────────────────
   useEffect(() => {
@@ -465,7 +464,7 @@ export default function ShortsCommentsSheet({ visible, onClose, postId, tmdbId, 
           Animated.timing(sheetBottom, { toValue: isOpen ? kbHeight : 0, duration: 200, useNativeDriver: false }),
           Animated.timing(sheetHeight, { toValue: targetHeight, duration: 200, useNativeDriver: false }),
         ]).start(() => {
-          if (isOpen) listRef.current?.scrollToEnd({ animated: false });
+          if (isOpen) listRef.current?.scrollToOffset({ offset: 0, animated: false });
         });
       };
       vv.addEventListener("resize", onResize);
@@ -486,7 +485,7 @@ export default function ShortsCommentsSheet({ visible, onClose, postId, tmdbId, 
         Animated.timing(sheetBottom, { toValue: kb, duration: dur, useNativeDriver: false }),
         Animated.timing(sheetHeight, { toValue: Math.max(240, SHEET_HEIGHT - kb), duration: dur, useNativeDriver: false }),
       ]).start(() => {
-        listRef.current?.scrollToEnd({ animated: false });
+        listRef.current?.scrollToOffset({ offset: 0, animated: false });
       });
     });
     const onHide = Keyboard.addListener(hideEvent, () => {
@@ -633,7 +632,7 @@ export default function ShortsCommentsSheet({ visible, onClose, postId, tmdbId, 
     setMentionQuery(null);
     setSending(true);
     inputRef.current?.blur();
-    listRef.current?.scrollToEnd({ animated: true });
+    listRef.current?.scrollToOffset({ offset: 0, animated: true });
 
     try {
       await db.shorts.comments.add(newComment);
@@ -733,16 +732,17 @@ export default function ShortsCommentsSheet({ visible, onClose, postId, tmdbId, 
             </Pressable>
           </View>
 
-          {/* Comment list — oldest on top, newest at bottom (chat style) */}
+          {/* Comment list — inverted so newest appears at bottom (chat style) */}
           <FlatList
             ref={listRef}
-            data={reversedComments}
+            data={comments}
             keyExtractor={(c) => c.id}
+            inverted
             contentContainerStyle={cs.listContent}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
             ListEmptyComponent={
-              <View style={cs.empty}>
+              <View style={[cs.empty, { transform: [{ scaleY: -1 }] }]}>
                 {loading ? (
                   <Feather name="loader" size={24} color="rgba(255,255,255,0.3)" />
                 ) : (
@@ -847,7 +847,7 @@ const cs = StyleSheet.create({
   headerTitle: { color: "#fff", fontSize: 16, fontWeight: "700", letterSpacing: 0.2 },
   headerCount: { color: "rgba(255,255,255,0.4)", fontSize: 12, marginTop: 1 },
   list: { flex: 1 },
-  listContent: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 12, flexGrow: 1, justifyContent: "flex-end" },
+  listContent: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 12 },
   empty: { alignItems: "center", justifyContent: "center", paddingTop: 60, gap: 12 },
   emptyText: { color: "rgba(255,255,255,0.3)", fontSize: 14, textAlign: "center", lineHeight: 22 },
   row: { flexDirection: "row", alignItems: "flex-start", gap: 10, marginBottom: 16 },
