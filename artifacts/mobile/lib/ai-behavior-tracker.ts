@@ -1,7 +1,10 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { db } from "@/lib/supabase";
 
 const TRACKER_KEY = "netplay_ai_behavior_v1";
 const MAX_EVENTS  = 200;
+const SYNC_DEBOUNCE_MS = 8000;
+const SYNC_EVERY_N_EVENTS = 10;
 
 export type BehaviorEvent =
   | { type: "open";   tmdbId: number; title: string; contentType: string; genres: number[]; ts: number }
@@ -26,6 +29,13 @@ export interface BehaviorProfile {
 
 let _events: BehaviorEvent[] = [];
 let _loaded = false;
+let _userId: string | null = null;
+let _syncTimer: ReturnType<typeof setTimeout> | null = null;
+let _eventsSinceLastSync = 0;
+
+export function setBehaviorUserId(userId: string | null): void {
+  _userId = userId;
+}
 
 async function ensureLoaded(): Promise<void> {
   if (_loaded) return;
@@ -44,12 +54,25 @@ async function persist(): Promise<void> {
   } catch {}
 }
 
+function scheduleSyncToSupabase(): void {
+  if (!_userId) return;
+  _eventsSinceLastSync++;
+  if (_eventsSinceLastSync < SYNC_EVERY_N_EVENTS) return;
+
+  if (_syncTimer) clearTimeout(_syncTimer);
+  _syncTimer = setTimeout(() => {
+    _syncTimer = null;
+    syncBehaviorToSupabase(_userId!).catch(() => {});
+  }, SYNC_DEBOUNCE_MS);
+}
+
 function addEvent(event: BehaviorEvent): void {
   _events.push(event);
   if (_events.length > MAX_EVENTS * 1.2) {
     _events = _events.slice(-MAX_EVENTS);
   }
   persist();
+  scheduleSyncToSupabase();
 }
 
 export async function trackOpen(tmdbId: number, title: string, contentType: string, genres: number[] = []): Promise<void> {
@@ -157,7 +180,68 @@ export async function getBehaviorProfile(): Promise<BehaviorProfile> {
   };
 }
 
-export async function clearBehaviorData(): Promise<void> {
+export async function syncBehaviorToSupabase(userId: string): Promise<void> {
+  try {
+    const profile = await getBehaviorProfile();
+    await db.aiProfile.upsert(userId, {
+      top_genres:      profile.topGenres,
+      top_titles:      profile.topTitles,
+      recent_searches: profile.recentSearches,
+      prefers_movies:  profile.prefersMovies,
+      prefers_series:  profile.prefersSeries,
+      prefers_anime:   profile.prefersAnime,
+      liked_ids:       profile.likedIds,
+      disliked_ids:    profile.dislikedIds,
+      watched_ids:     profile.watchedIds,
+      tab_frequency:   profile.tabFrequency,
+      total_events:    profile.totalEvents,
+    });
+    _eventsSinceLastSync = 0;
+  } catch {}
+}
+
+export async function loadBehaviorFromSupabase(userId: string): Promise<void> {
+  try {
+    await ensureLoaded();
+    if (_events.length >= 20) return;
+
+    const remote = await db.aiProfile.get(userId);
+    if (!remote || remote.total_events === 0) return;
+
+    const now = Date.now();
+    const syntheticEvents: BehaviorEvent[] = [];
+
+    for (const title of remote.top_titles) {
+      syntheticEvents.push({ type: "open", tmdbId: 0, title, contentType: remote.prefers_anime ? "anime" : remote.prefers_series ? "tv" : "movie", genres: remote.top_genres.slice(0, 3), ts: now - 1000 });
+    }
+    for (const id of remote.liked_ids) {
+      syntheticEvents.push({ type: "like", tmdbId: id, liked: true, ts: now - 2000 });
+    }
+    for (const id of remote.disliked_ids) {
+      syntheticEvents.push({ type: "like", tmdbId: id, liked: false, ts: now - 2000 });
+    }
+    for (const id of remote.watched_ids) {
+      syntheticEvents.push({ type: "watch", tmdbId: id, progress: 0.5, ts: now - 3000 });
+    }
+    for (const q of remote.recent_searches) {
+      syntheticEvents.push({ type: "search", query: q, ts: now - 4000 });
+    }
+
+    const existingIds = new Set(_events.map((e) => `${e.type}-${(e as any).tmdbId ?? (e as any).query ?? (e as any).tab}`));
+    const newEvents = syntheticEvents.filter((e) => !existingIds.has(`${e.type}-${(e as any).tmdbId ?? (e as any).query ?? (e as any).tab}`));
+
+    if (newEvents.length > 0) {
+      _events = [...newEvents, ..._events].slice(-MAX_EVENTS);
+      await persist();
+    }
+  } catch {}
+}
+
+export async function clearBehaviorData(userId?: string): Promise<void> {
   _events = [];
+  _eventsSinceLastSync = 0;
   try { await AsyncStorage.removeItem(TRACKER_KEY); } catch {}
+  if (userId) {
+    try { await db.aiProfile.delete(userId); } catch {}
+  }
 }

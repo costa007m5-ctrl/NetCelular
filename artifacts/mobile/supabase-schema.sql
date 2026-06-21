@@ -325,5 +325,38 @@ CREATE POLICY "auth_write_content_overrides"
 
 
 -- ────────────────────────────────────────────────────────────
+-- PERFIL DE IA (Gemini behavior profile por usuário)
+-- ────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS public.user_ai_profile (
+  user_id         UUID        PRIMARY KEY REFERENCES public.users(id) ON DELETE CASCADE,
+  top_genres      INTEGER[]   NOT NULL DEFAULT '{}',
+  top_titles      TEXT[]      NOT NULL DEFAULT '{}',
+  recent_searches TEXT[]      NOT NULL DEFAULT '{}',
+  prefers_movies  BOOLEAN     NOT NULL DEFAULT true,
+  prefers_series  BOOLEAN     NOT NULL DEFAULT false,
+  prefers_anime   BOOLEAN     NOT NULL DEFAULT false,
+  liked_ids       INTEGER[]   NOT NULL DEFAULT '{}',
+  disliked_ids    INTEGER[]   NOT NULL DEFAULT '{}',
+  watched_ids     INTEGER[]   NOT NULL DEFAULT '{}',
+  tab_frequency   JSONB       NOT NULL DEFAULT '{}',
+  total_events    INTEGER     NOT NULL DEFAULT 0,
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE public.user_ai_profile ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "auth_all_user_ai_profile" ON public.user_ai_profile;
+CREATE POLICY "auth_all_user_ai_profile"
+  ON public.user_ai_profile FOR ALL TO authenticated
+  USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "anon_all_user_ai_profile" ON public.user_ai_profile;
+CREATE POLICY "anon_all_user_ai_profile"
+  ON public.user_ai_profile FOR ALL TO anon
+  USING (true) WITH CHECK (true);
+
+
+-- ────────────────────────────────────────────────────────────
 -- FIM — todas as tabelas e permissoes prontas
 -- ────────────────────────────────────────────────────────────

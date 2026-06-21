@@ -103,6 +103,22 @@ export type RatingItem = {
   liked: boolean;
 };
 
+export type DbAiProfile = {
+  user_id: string;
+  top_genres: number[];
+  top_titles: string[];
+  recent_searches: string[];
+  prefers_movies: boolean;
+  prefers_series: boolean;
+  prefers_anime: boolean;
+  liked_ids: number[];
+  disliked_ids: number[];
+  watched_ids: number[];
+  tab_frequency: Record<string, number>;
+  total_events: number;
+  updated_at?: string;
+};
+
 export type ContentRequest = {
   id?: string;
   user_id: string;
@@ -741,6 +757,35 @@ export const db = {
         .eq("user_id", userId)
         .gt("last_heartbeat", staleThreshold);
       return count ?? 0;
+    },
+  },
+
+  aiProfile: {
+    get: async (userId: string): Promise<DbAiProfile | null> => {
+      const { data } = await supabase
+        .from("user_ai_profile")
+        .select("*")
+        .eq("user_id", userId)
+        .maybeSingle();
+      return data as DbAiProfile | null;
+    },
+
+    upsert: async (userId: string, profile: Omit<DbAiProfile, "user_id" | "updated_at">): Promise<{ error?: string }> => {
+      const { error } = await supabase
+        .from("user_ai_profile")
+        .upsert(
+          {
+            user_id: userId,
+            ...profile,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "user_id" }
+        );
+      return error ? { error: error.message } : {};
+    },
+
+    delete: async (userId: string): Promise<void> => {
+      await supabase.from("user_ai_profile").delete().eq("user_id", userId);
     },
   },
 };

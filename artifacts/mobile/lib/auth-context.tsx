@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { supabase, db } from "@/lib/supabase";
 import { registerPushToken, requestPermissionsAndSetup } from "@/lib/notifications";
+import { setBehaviorUserId, loadBehaviorFromSupabase, syncBehaviorToSupabase } from "@/lib/ai-behavior-tracker";
 
 export interface AuthUser {
   id: string;
@@ -70,6 +71,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const u = await buildAuthUser(session.user.id, session.user.email ?? "");
         setUserState(u);
         if (u) {
+          setBehaviorUserId(u.id);
+          loadBehaviorFromSupabase(u.id).catch(() => {});
           requestPermissionsAndSetup()
             .then((granted) => { if (granted) registerPushToken(u.id).catch(() => {}); })
             .catch(() => {});
@@ -83,11 +86,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const u = await buildAuthUser(session.user.id, session.user.email ?? "");
         setUserState(u);
         if (u) {
+          setBehaviorUserId(u.id);
+          loadBehaviorFromSupabase(u.id).catch(() => {});
           requestPermissionsAndSetup()
             .then((granted) => { if (granted) registerPushToken(u.id).catch(() => {}); })
             .catch(() => {});
         }
       } else {
+        setBehaviorUserId(null);
         setUserState(null);
       }
       setLoading(false);

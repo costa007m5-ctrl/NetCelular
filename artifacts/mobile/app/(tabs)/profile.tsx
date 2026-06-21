@@ -51,7 +51,7 @@ import {
   type LearnedPreferences,
   type ManualPreferences,
 } from "@/lib/smart-preferences";
-import { getBehaviorProfile, clearBehaviorData, type BehaviorProfile } from "@/lib/ai-behavior-tracker";
+import { getBehaviorProfile, clearBehaviorData, syncBehaviorToSupabase, type BehaviorProfile } from "@/lib/ai-behavior-tracker";
 
 const { width: SW } = Dimensions.get("window");
 const ACTIVE_PROFILE_KEY = "netplay_active_profile_v2";
@@ -1489,7 +1489,7 @@ export default function ProfileScreen() {
                     <TouchableOpacity
                       style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 10, opacity: 0.7 }}
                       onPress={() => {
-                        clearBehaviorData().then(() => setBehaviorProfile(null));
+                        clearBehaviorData(user?.id).then(() => setBehaviorProfile(null));
                       }}
                     >
                       <Feather name="trash-2" size={12} color="#ef4444" />
