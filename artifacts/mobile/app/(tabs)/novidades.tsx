@@ -106,9 +106,9 @@ let WebViewEp: any = null;
 try { WebViewEp = require("react-native-webview").WebView; } catch {}
 const IS_NATIVE_EP = Platform.OS !== "web";
 
-function buildEpPreviewHtml(uri: string, muted: boolean): string {
+function buildEpPreviewHtml(uri: string): string {
   const escaped = uri.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-  return `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no"/><style>*{margin:0;padding:0;background:#000}html,body,video{width:100%;height:100%;overflow:hidden}video{object-fit:cover;display:block}</style></head><body><video id="v" playsinline webkit-playsinline autoplay ${muted ? "muted" : ""} preload="auto"></video><script>(function(){var v=document.getElementById('v');var rn=window.ReactNativeWebView;function send(t,d){try{rn.postMessage(JSON.stringify(Object.assign({type:t},d||{})))}catch(e){}}v.addEventListener('loadedmetadata',function(){send('ready',{duration:v.duration*1000});v.play().catch(function(){})});v.addEventListener('canplay',function(){if(v.paused)v.play().catch(function(){})});v.addEventListener('error',function(){send('error',{code:v.error?v.error.code:-1})});window.addEventListener('message',function(e){var d=e.data;if(typeof d==='string'){if(d.indexOf('seek:')==0){v.currentTime=parseFloat(d.slice(5));v.play().catch(function(){})}else if(d==='mute'){v.muted=true}else if(d==='unmute'){v.muted=false}}});v.src='${escaped}';})()</script></body></html>`;
+  return `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no"/><style>*{margin:0;padding:0;background:#000}html,body,video{width:100%;height:100%;overflow:hidden}video{object-fit:cover;display:block}</style></head><body><video id="v" playsinline webkit-playsinline preload="auto"></video><script>(function(){var v=document.getElementById('v');var rn=window.ReactNativeWebView;v.muted=true;function send(t,d){try{rn.postMessage(JSON.stringify(Object.assign({type:t},d||{})))}catch(e){}}v.addEventListener('loadedmetadata',function(){send('ready',{duration:v.duration*1000});});v.addEventListener('canplay',function(){v.play().catch(function(){});});v.addEventListener('error',function(){send('error',{code:v.error?v.error.code:-1});});function handleCmd(e){try{var d=JSON.parse(typeof e==='string'?e:(e.data||'{}'));if(d.type==='mute'){v.muted=true;}else if(d.type==='unmute'){v.muted=false;v.play().catch(function(){});}}catch(ex){}}window.addEventListener('message',handleCmd);document.addEventListener('message',handleCmd);v.src='${escaped}';v.load();v.play().catch(function(){});})()</script></body></html>`;
 }
 
 interface AllData {
@@ -1588,34 +1588,55 @@ function NovidadesVerticalCard({
   const [imgErr, setImgErr]         = useState(false);
   const [logoErr, setLogoErr]       = useState(false);
   const [streamUrl, setStreamUrl]   = useState<string | null>(null);
-  const [epStillUrl, setEpStillUrl] = useState<string | null>(null);
+  const [epCount, setEpCount]       = useState<number | null>(null);
+  const [stillUrls, setStillUrls]   = useState<string[]>([]);
+  const [stillIdx, setStillIdx]     = useState(0);
   const [muted, setMuted]           = useState(true);
-  const webVideoRef = useRef<any>(null);
+  const nativeWebViewRef = useRef<any>(null);
+  const webVideoRef      = useRef<any>(null);
 
   // All metadata comes from the batch-pre-fetched enrich prop — instant, no delay
   const logoUrl    = (!logoErr && enrich?.logoUrl)    ? enrich.logoUrl    : null;
   const backdropUrl = enrich?.backdropUrl || item.backdropPath || item.posterPath || null;
   const overview   = enrich?.overview || item.description || null;
 
+  // Cycle through episode stills every 4s
+  const epStillUrl = stillUrls[stillIdx] ?? null;
+  useEffect(() => {
+    if (stillUrls.length < 2) return;
+    const t = setInterval(() => setStillIdx(i => (i + 1) % stillUrls.length), 4000);
+    return () => clearInterval(t);
+  }, [stillUrls]);
+
   // For video preview: episode still (series) takes priority over backdrop
-  const backdropShown = !imgErr ? (epStillUrl || backdropUrl) : null;
+  const backdropShown   = !imgErr ? (epStillUrl || backdropUrl) : null;
   const canPlayVideo    = IS_NATIVE_EP && !!streamUrl && WebViewEp !== null;
   const canPlayVideoWeb = !IS_NATIVE_EP && !!streamUrl;
 
-  // Sync muted state to web <video> element imperatively
-  useEffect(() => {
-    if (webVideoRef.current) webVideoRef.current.muted = muted;
-  }, [muted]);
+  // Toggle muted without reloading the video
+  const handleMuteToggle = useCallback(() => {
+    setMuted(m => {
+      const next = !m;
+      if (IS_NATIVE_EP) {
+        nativeWebViewRef.current?.injectJavaScript(
+          `(function(){var v=document.getElementById('v');if(v)v.muted=${next};})();true;`
+        );
+      } else if (webVideoRef.current) {
+        webVideoRef.current.muted = next;
+        if (!next) webVideoRef.current.play?.().catch(() => {});
+      }
+      return next;
+    });
+  }, []);
 
-  // Lazy-fetch stream URL (flix2) + episode still (TMDB) for video preview
+  // Lazy-fetch stream URL (flix2) + episode stills (TMDB) for video preview
   useEffect(() => {
     const tmdbId = item.tmdbId;
     if (!tmdbId || tmdbId <= 0) return;
-    const isMovie  = (item.mediaType ?? item.type) === "movie";
+    const isMovie   = (item.mediaType ?? item.type) === "movie";
     const flix2Type = isMovie ? "movie" : "serie";
     let cancelled = false;
 
-    // 1.5s delay so the card settles before firing flix2 requests
     const tid = setTimeout(async () => {
       try {
         const fi = await r2Route<{
@@ -1630,21 +1651,32 @@ function NovidadesVerticalCard({
           const sorted = [...fi.episodes].sort((a, b) =>
             b.season !== a.season ? b.season - a.season : b.episode - a.episode,
           );
+          if (!cancelled) setEpCount(fi.episodes.length);
           const latest = sorted[0];
           if (latest?.stream_url && !cancelled) setStreamUrl(latest.stream_url);
 
-          // Fetch last episode still from TMDB for the backdrop
-          if (latest && !cancelled) {
-            try {
-              const seasonData = await api.tmdb.tvSeason(tmdbId, latest.season) as any;
-              const ep = (seasonData?.episodes ?? []).find(
-                (e: any) => e.episode_number === latest.episode,
-              );
-              if (ep?.still_path && !cancelled) {
-                setEpStillUrl(TMDB_IMG(ep.still_path, "w780") ?? null);
-              }
-            } catch {}
-          }
+          // Fetch stills from up to 3 different episodes (latest + spread across list)
+          const picks = Array.from(new Set([
+            0,
+            Math.floor(sorted.length * 0.33),
+            Math.floor(sorted.length * 0.66),
+          ])).map(i => sorted[i]).filter(Boolean);
+
+          const stills: string[] = [];
+          await Promise.all(
+            picks.map(async (ep) => {
+              try {
+                const sd = await api.tmdb.tvSeason(tmdbId, ep.season) as any;
+                const epData = (sd?.episodes ?? []).find(
+                  (e: any) => e.episode_number === ep.episode,
+                );
+                if (epData?.still_path && !cancelled) {
+                  stills.push(TMDB_IMG(epData.still_path, "w780") ?? "");
+                }
+              } catch {}
+            })
+          );
+          if (!cancelled && stills.length > 0) setStillUrls(stills.filter(Boolean));
         }
       } catch {}
     }, 1500);
@@ -1674,13 +1706,15 @@ function NovidadesVerticalCard({
       <View style={nvc.imgWrap}>
         {canPlayVideo ? (
           <WebViewEp
+            ref={nativeWebViewRef}
             style={StyleSheet.absoluteFill}
-            source={{ html: buildEpPreviewHtml(streamUrl!, muted) }}
+            source={{ html: buildEpPreviewHtml(streamUrl!) }}
             scrollEnabled={false}
             allowsInlineMediaPlayback
             mediaPlaybackRequiresUserAction={false}
             javaScriptEnabled
             originWhiteList={["*"]}
+            mixedContentMode="always"
           />
         ) : canPlayVideoWeb ? (
           <>
@@ -1732,7 +1766,7 @@ function NovidadesVerticalCard({
         {/* Mute/Unmute button — only visible while video is playing */}
         <TouchableOpacity
           style={nvc.muteBtn}
-          onPress={() => setMuted(m => !m)}
+          onPress={handleMuteToggle}
           activeOpacity={0.8}
         >
           <Feather
@@ -1791,6 +1825,15 @@ function NovidadesVerticalCard({
               <Text style={nvc.metaRating}>{item.rating.toFixed(1)}</Text>
             </View>
             {!!(item.genres?.[0]) && <Text style={nvc.metaGenre}>{item.genres[0]}</Text>}
+            {/* New episode count badge — only for series */}
+            {epCount != null && item.type !== "movie" && (
+              <View style={nvc.epCountBadge}>
+                <Feather name="play-circle" size={9} color={GREEN} />
+                <Text style={nvc.epCountTxt}>
+                  {epCount === 1 ? "1 ep" : `${epCount} eps`}
+                </Text>
+              </View>
+            )}
           </View>
         )}
         {!!overview && (
@@ -1883,6 +1926,15 @@ const nvc = StyleSheet.create({
   },
   btnTxt: { fontSize: 15, fontWeight: "800", color: "#fff" },
   divider: { height: 8, backgroundColor: "rgba(255,255,255,0.035)" },
+  epCountBadge: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    backgroundColor: `${GREEN}22`, borderRadius: 10,
+    borderWidth: 1, borderColor: `${GREEN}55`,
+    paddingHorizontal: 7, paddingVertical: 2,
+  },
+  epCountTxt: {
+    fontSize: 10, fontWeight: "800", color: GREEN, letterSpacing: 0.3,
+  },
 });
 
 const pillsNf = StyleSheet.create({
