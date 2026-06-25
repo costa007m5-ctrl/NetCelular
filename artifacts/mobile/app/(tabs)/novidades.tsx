@@ -1559,6 +1559,159 @@ const vm = StyleSheet.create({
   searchInput: { flex: 1, fontSize: 13, color: "rgba(255,255,255,0.5)", padding: 0 },
 });
 
+
+// ─── Netflix-style Vertical Card ──────────────────────────────────────────────
+function NovidadesVerticalCard({
+  item,
+  releaseDate,
+  type,
+  onPress,
+}: {
+  item: ContentItem;
+  releaseDate?: string;
+  type: "upcoming" | "trending";
+  onPress: () => void;
+}) {
+  const [imgErr, setImgErr] = useState(false);
+  const imgUri = item.backdropPath || item.posterPath;
+
+  const days = useMemo(() => {
+    if (!releaseDate) return null;
+    return Math.ceil((new Date(releaseDate).getTime() - Date.now()) / 86400000);
+  }, [releaseDate]);
+
+  const dateLabel = useMemo(() => {
+    if (!releaseDate) return null;
+    try {
+      return new Date(releaseDate).toLocaleDateString("pt-BR", {
+        day: "numeric", month: "long",
+      }).toUpperCase();
+    } catch { return releaseDate; }
+  }, [releaseDate]);
+
+  return (
+    <View style={nvc.wrap}>
+      {/* ── 16:9 Backdrop ── */}
+      <View style={nvc.imgWrap}>
+        {!imgErr && imgUri ? (
+          <Image
+            source={{ uri: imgUri }}
+            style={StyleSheet.absoluteFill}
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            onError={() => setImgErr(true)}
+          />
+        ) : (
+          <LinearGradient colors={["#1a0814", "#0e060c"]} style={StyleSheet.absoluteFill} />
+        )}
+        <LinearGradient
+          colors={["transparent", "rgba(0,0,0,0.9)"]}
+          locations={[0.35, 1]}
+          style={StyleSheet.absoluteFill}
+        />
+        <View style={nvc.muteBtn}>
+          <Feather name="volume-x" size={15} color="rgba(255,255,255,0.8)" />
+        </View>
+        {days != null && days > 0 && days <= 30 && (
+          <View style={nvc.daysWrap}>
+            <Text style={nvc.daysTxt}>{days === 1 ? "AMANHÃ" : `EM ${days} DIAS`}</Text>
+          </View>
+        )}
+      </View>
+
+      {/* ── Info Section ── */}
+      <View style={nvc.info}>
+        {!!dateLabel && <Text style={nvc.dateLabel}>{dateLabel}</Text>}
+        <Text style={nvc.title} numberOfLines={2}>{item.title}</Text>
+        {item.rating > 0 && (
+          <View style={nvc.metaRow}>
+            {item.year > 0 && <Text style={nvc.metaYear}>{item.year}</Text>}
+            <View style={nvc.metaStar}>
+              <Feather name="star" size={10} color={AMBER} />
+              <Text style={nvc.metaRating}>{item.rating.toFixed(1)}</Text>
+            </View>
+            {!!(item.genres?.[0]) && <Text style={nvc.metaGenre}>{item.genres[0]}</Text>}
+          </View>
+        )}
+        {!!item.description && (
+          <Text style={nvc.desc} numberOfLines={3}>{item.description}</Text>
+        )}
+        <TouchableOpacity
+          style={type === "upcoming" ? nvc.btnOutline : nvc.btnFill}
+          onPress={onPress}
+          activeOpacity={0.82}
+        >
+          <Feather name={type === "upcoming" ? "bell" : "play"} size={15} color="#fff" />
+          <Text style={nvc.btnTxt}>{type === "upcoming" ? "Receber aviso" : "Assistir"}</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={nvc.divider} />
+    </View>
+  );
+}
+
+const nvc = StyleSheet.create({
+  wrap: { width: "100%", backgroundColor: "#050508" },
+  imgWrap: { width: "100%", aspectRatio: 16 / 9, backgroundColor: "#111", overflow: "hidden" },
+  muteBtn: {
+    position: "absolute", top: 10, right: 10,
+    width: 34, height: 34, borderRadius: 17,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.28)",
+    alignItems: "center", justifyContent: "center",
+  },
+  daysWrap: {
+    position: "absolute", bottom: 10, left: 14,
+    backgroundColor: `${RED}e0`, borderRadius: 5,
+    paddingHorizontal: 10, paddingVertical: 4,
+  },
+  daysTxt: { fontSize: 11, fontWeight: "900", color: "#fff", letterSpacing: 0.8 },
+  info: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 20 },
+  dateLabel: { fontSize: 11, fontWeight: "700", color: RED, letterSpacing: 1.2, marginBottom: 5 },
+  title: { fontSize: 22, fontWeight: "900", color: "#fff", lineHeight: 28, marginBottom: 6 },
+  metaRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 },
+  metaYear: { fontSize: 12, color: "rgba(255,255,255,0.4)", fontWeight: "600" },
+  metaStar: { flexDirection: "row", alignItems: "center", gap: 3 },
+  metaRating: { fontSize: 12, fontWeight: "700", color: AMBER },
+  metaGenre: { fontSize: 11, color: "rgba(255,255,255,0.35)", fontStyle: "italic" },
+  desc: { fontSize: 14, color: "rgba(255,255,255,0.58)", lineHeight: 20, marginBottom: 16 },
+  btnFill: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    backgroundColor: RED, paddingVertical: 12, paddingHorizontal: 22,
+    borderRadius: 6, alignSelf: "flex-start",
+  },
+  btnOutline: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    backgroundColor: "rgba(255,255,255,0.10)",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.3)",
+    paddingVertical: 12, paddingHorizontal: 22,
+    borderRadius: 6, alignSelf: "flex-start",
+  },
+  btnTxt: { fontSize: 15, fontWeight: "800", color: "#fff" },
+  divider: { height: 8, backgroundColor: "rgba(255,255,255,0.035)" },
+});
+
+const pillsNf = StyleSheet.create({
+  bar: {
+    position: "absolute", left: 0, right: 0, zIndex: 90,
+    backgroundColor: "rgba(5,5,8,0.92)",
+    borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.07)",
+  },
+  row: { flexDirection: "row", paddingHorizontal: 14, paddingVertical: 10, gap: 8 },
+  pill: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    paddingHorizontal: 14, paddingVertical: 7,
+    borderRadius: 20, borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.25)",
+    backgroundColor: "rgba(255,255,255,0.05)",
+  },
+  pillActive: { backgroundColor: "#fff", borderColor: "#fff" },
+  emoji: { fontSize: 14 },
+  label: { fontSize: 13, fontWeight: "700", color: "rgba(255,255,255,0.75)" },
+  labelActive: { color: "#000" },
+});
+
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function NovidadesScreen() {
   const colors = useColors();
@@ -1576,7 +1729,7 @@ export default function NovidadesScreen() {
     visible: false, title: "", items: [], accent: RED,
   });
 
-  const [activeTab, setActiveTab] = useState<"todos" | "filmes" | "series" | "doramas" | "animes">("todos");
+  const [activeTab, setActiveTab] = useState<"embreve" | "assistindo">("embreve");
   const [doramas, setDoramas] = useState<ContentItem[]>([]);
 
   const openModal = (title: string, items: ContentItem[], accent = RED) =>
@@ -1964,397 +2117,104 @@ export default function NovidadesScreen() {
         </View>
       </View>
 
-      {/* ═══ SCROLL ══════════════════════════════════════════════════════════ */}
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh}
-            tintColor={RED} colors={[RED]} progressViewOffset={topPad + 52} />
-        }
-        contentContainerStyle={{ paddingBottom: 160 }}
-      >
-        {/* ── HERO BANNER ──────────────────────────────────────────────── */}
-        {loading ? (
-          <View style={{ marginBottom: 0 }}>
-            <SkeletonHero />
-            <View style={{ height: topPad + 60 }} />
-          </View>
-        ) : (
-          <HeroRotatingBanner items={heroBannerItems} onPress={goTo} topPad={topPad} />
-        )}
-
-        {/* ── STATS STRIP ──────────────────────────────────────────────── */}
-        <View style={{ height: 16 }} />
-        {loading ? null : <StatsStrip movies={weekMovies} series={weekSeries} animes={weekAnimes} />}
-
-        {/* ── CATEGORY PILLS ────────────────────────────────────────────── */}
+      {/* ═══ PILLS ═══════════════════════════════════════════════════════════ */}
+      <View style={[pillsNf.bar, { top: topPad + 52 }]}>
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 14, gap: 8, flexDirection: "row" }}
-          style={{ marginBottom: 4 }}
+          contentContainerStyle={pillsNf.row}
         >
-          {([
-            { id: "todos",   label: "Todos",    emoji: "🎬" },
-            { id: "filmes",  label: "Filmes",   emoji: "🎥" },
-            { id: "series",  label: "Séries",   emoji: "📺" },
-            { id: "doramas", label: "Doramas",  emoji: "🌸" },
-            { id: "animes",  label: "Animes",   emoji: "⚡" },
-          ] as { id: typeof activeTab; label: string; emoji: string }[]).map((tab) => (
+          {(
+            [
+              { id: "embreve" as const, emoji: "🍿", label: "Em breve" },
+              { id: "assistindo" as const, emoji: "🔥", label: "Todo mundo está assistindo" },
+            ] as const
+          ).map(tab => (
             <TouchableOpacity
               key={tab.id}
               onPress={() => setActiveTab(tab.id)}
               activeOpacity={0.75}
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 5,
-                paddingHorizontal: 16,
-                paddingVertical: 8,
-                borderRadius: 20,
-                backgroundColor: activeTab === tab.id ? "#fff" : "rgba(255,255,255,0.10)",
-                borderWidth: 1,
-                borderColor: activeTab === tab.id ? "#fff" : "rgba(255,255,255,0.14)",
-                marginRight: 4,
-              }}
+              style={[pillsNf.pill, activeTab === tab.id && pillsNf.pillActive]}
             >
-              <Text style={{ fontSize: 13 }}>{tab.emoji}</Text>
-              <Text style={{
-                fontSize: 13,
-                fontWeight: "700",
-                color: activeTab === tab.id ? "#000" : "rgba(255,255,255,0.72)",
-                fontFamily: "Inter_700Bold",
-              }}>
+              <Text style={pillsNf.emoji}>{tab.emoji}</Text>
+              <Text style={[pillsNf.label, activeTab === tab.id && pillsNf.labelActive]}>
                 {tab.label}
               </Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
+      </View>
 
-        {/* ── IA GEMINI — LANÇAMENTOS PARA VOCÊ ────────────────────────── */}
-        {paraVoce.length >= 4 && (
-          <View style={root.section}>
-            <SectionHeader
-              title={paraVoceLabel}
-              icon="cpu"
-              badge="IA ✦"
-              accentColor="#6366f1"
-              subtitle="Escolhido pela IA com base no seu gosto"
-              onSeeAll={paraVoce.length > 6 ? () => openModal(paraVoceLabel, paraVoce, "#6366f1") : undefined}
+      {/* ═══ CONTENT ═════════════════════════════════════════════════════════ */}
+      {loading ? (
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingTop: topPad + 100 }}>
+          <ActivityIndicator size="large" color={RED} />
+        </View>
+      ) : activeTab === "embreve" ? (
+        <FlatList
+          data={upcomingItems}
+          keyExtractor={(_, i) => `up_${i}`}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingTop: topPad + 96, paddingBottom: 160 }}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={RED}
+              colors={[RED]}
+              progressViewOffset={topPad + 96}
             />
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 4 }}>
-              {paraVoce.slice(0, 8).map((item, i) => (
-                <PosterCard key={`pv_${item.id}_${i}`} item={item} onPress={() => goTo(item)} isNew />
-              ))}
-            </ScrollView>
-          </View>
-        )}
-
-        {/* ── RECÉM ADICIONADOS NA PLATAFORMA ──────────────────────────── */}
-        <View style={root.section}>
-          <SectionHeader title="Recém Adicionados" icon="plus-circle" badge={recentlyAdded.length}
-            accentColor={GREEN} subtitle="Últimas adições à plataforma"
-            onSeeAll={recentlyAdded.length > 6 ? () => openModal("Recém Adicionados", recentlyAdded, GREEN) : undefined} />
-          {loading ? <SkeletonRow count={4} width={118} height={172} /> : (
-            recentlyAdded.length > 0 ? (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 4 }}>
-                {recentlyAdded.slice(0, 6).map((item, i) => (
-                  <PosterCard key={`ra_${item.id}_${i}`} item={item}
-                    onPress={() => goTo(item)} isNew />
-                ))}
-              </ScrollView>
-            ) : (
-              <Text style={root.emptyText}>Em breve por aqui</Text>
-            )
+          }
+          renderItem={({ item: { item, releaseDate } }) => (
+            <NovidadesVerticalCard
+              item={item}
+              releaseDate={releaseDate}
+              type="upcoming"
+              onPress={() => goTo(item)}
+            />
           )}
-        </View>
-
-        {/* ── NOVOS EPISÓDIOS ───────────────────────────────────────────── */}
-        {(activeTab === "todos" || activeTab === "series") && (
-          <View style={root.section}>
-            <SectionHeader title="Novos Episódios" icon="play-circle" badge={epGroups.length}
-              accentColor={TEAL} subtitle="Assista direto ou explore a temporada"
-              onSeeAll={epGroups.length > 0 ? () => setShowEpsModal(true) : undefined} />
-            {(loading || epLoading) ? <SkeletonRow count={3} width={240} height={135} /> : (
-              epGroups.length > 0 ? (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 4 }}>
-                  {epGroups.slice(0, 6).map((g, i) => (
-                    <EpisodeCard
-                      key={`epg_${g.seriesId}_${i}`}
-                      group={g}
-                      onPress={handleEpCardPress}
-                      onSynopsis={handleEpSynopsis}
-                    />
-                  ))}
-                </ScrollView>
-              ) : (
-                <Text style={root.emptyText}>Em breve por aqui</Text>
-              )
-            )}
-          </View>
-        )}
-
-        {/* ── FILMES DA SEMANA ─────────────────────────────────────────── */}
-        {(activeTab === "todos" || activeTab === "filmes") && (
-          <View style={root.section}>
-            <SectionHeader title="Filmes da Semana" icon="film" badge={newMovies.length}
-              accentColor={RED} subtitle="Adicionados nos últimos 30 dias"
-              onSeeAll={newMovies.length > 6 ? () => openModal("Filmes da Semana", newMovies, RED) : undefined} />
-            {loading ? <SkeletonRow count={4} width={118} height={172} /> : (
-              newMovies.length > 0 ? (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 4 }}>
-                  {newMovies.slice(0, 6).map((item, i) => (
-                    <PosterCard key={`nm_${item.id}_${i}`} item={item}
-                      onPress={() => goTo(item)} isNew />
-                  ))}
-                </ScrollView>
-              ) : (
-                <Text style={root.emptyText}>Em breve por aqui</Text>
-              )
-            )}
-          </View>
-        )}
-
-        {/* ── 🔥 TOP 10 EM ALTA AGORA ──────────────────────────────────── */}
-        {(top10Loading || top10.length > 0) && (
-          <View style={root.section}>
-            <SectionHeader
-              title="Top 10 Agora"
-              icon="bar-chart-2"
-              badge={top10.length}
-              accentColor="#e50914"
-              subtitle="Os mais quentes do momento no Shorts"
+          ListEmptyComponent={
+            <View style={{ alignItems: "center", paddingTop: 80 }}>
+              <Feather name="calendar" size={40} color="rgba(255,255,255,0.12)" />
+              <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 14, marginTop: 12 }}>
+                Nenhum lançamento em breve
+              </Text>
+            </View>
+          }
+        />
+      ) : (
+        <FlatList
+          data={[...heroBannerItems, ...newMovies.slice(0, 6), ...newSeries.slice(0, 6)].filter(
+            (item, idx, arr) =>
+              arr.findIndex(x => (x.tmdbId ?? 0) === (item.tmdbId ?? 0) && (x.tmdbId ?? 0) > 0) === idx ||
+              (item.tmdbId ?? 0) === 0
+          )}
+          keyExtractor={(item, i) => `tr_${item.id}_${i}`}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingTop: topPad + 96, paddingBottom: 160 }}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={RED}
+              colors={[RED]}
+              progressViewOffset={topPad + 96}
             />
-            {top10Loading ? (
-              <SkeletonRow count={4} width={100} height={148} />
-            ) : (
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 4 }}>
-                {top10.map((item, i) => {
-                  const rankColor = i === 0 ? "#ffd700" : i === 1 ? "#c0c0c0" : i === 2 ? "#cd7f32" : "rgba(255,255,255,0.45)";
-                  return (
-                    <TouchableOpacity
-                      key={`top10_${item.tmdbId}_${item.type}`}
-                      activeOpacity={0.78}
-                      onPress={() =>
-                        router.push({
-                          pathname: "/detail",
-                          params: {
-                            type: item.type,
-                            id: String(item.tmdbId),
-                            title: item.title,
-                            poster: item.poster ?? "",
-                          },
-                        })
-                      }
-                      style={top10st.card}>
-                      {/* Poster */}
-                      <View style={top10st.posterWrap}>
-                        {item.poster ? (
-                          <Image
-                            source={{ uri: item.poster }}
-                            style={top10st.poster}
-                            contentFit="cover"
-                          />
-                        ) : (
-                          <LinearGradient colors={["#1a1a2e", "#16213e"]} style={top10st.poster} />
-                        )}
-                        {/* Type badge */}
-                        <View style={[top10st.typeBadge, { backgroundColor: item.type === "movie" ? "rgba(229,9,20,0.88)" : "rgba(59,130,246,0.88)" }]}>
-                          <Text style={top10st.typeBadgeText}>{item.type === "movie" ? "FILME" : "SÉRIE"}</Text>
-                        </View>
-                      </View>
-                      {/* Rank number */}
-                      <View style={top10st.rankRow}>
-                        <Text style={[top10st.rank, { color: rankColor }]}>#{i + 1}</Text>
-                        <Text style={top10st.genre} numberOfLines={1}>{item.genre}</Text>
-                      </View>
-                      <Text style={top10st.title} numberOfLines={2}>{item.title}</Text>
-                      <View style={top10st.ratingRow}>
-                        <Feather name="star" size={10} color="#ffd700" />
-                        <Text style={top10st.rating}>{item.rating.toFixed(1)}</Text>
-                        <Text style={top10st.year}>{item.year}</Text>
-                      </View>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-            )}
-          </View>
-        )}
-
-        {/* ── EM ALTA ESTA SEMANA (FILMES) ─────────────────────────────── */}
-        {(activeTab === "todos" || activeTab === "filmes") && (
-          <View style={root.section}>
-            <SectionHeader title="Em Alta Esta Semana" icon="trending-up" badge={trendingMovieItems.length}
-              accentColor={AMBER} subtitle="Filmes mais assistidos no mundo"
-              onSeeAll={trendingMovieItems.length > 6 ? () => openModal("Em Alta — Filmes", trendingMovieItems, AMBER) : undefined} />
-            {loading ? <SkeletonRow count={4} width={118} height={172} /> : (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 4 }}>
-                {trendingMovieItems.slice(0, 6).map((item, i) => (
-                  <PosterCard key={`tf_${item.id}_${i}`} item={item}
-                    onPress={() => goTo(item)} badge={i < 3 ? `#${i + 1}` : undefined} badgeColor={AMBER} />
-                ))}
-              </ScrollView>
-            )}
-          </View>
-        )}
-
-        {/* ── EM CARTAZ AGORA ──────────────────────────────────────────── */}
-        {(activeTab === "todos" || activeTab === "filmes") && (
-          <View style={root.section}>
-            <SectionHeader title="Em Cartaz Agora" icon="film" badge={nowPlayingItems.length}
-              accentColor={ORANGE} subtitle="Nos cinemas esta semana"
-              onSeeAll={nowPlayingItems.length > 6 ? () => openModal("Em Cartaz Agora", nowPlayingItems, ORANGE) : undefined} />
-            {loading ? <SkeletonRow count={3} width={220} height={130} /> : (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 4 }}>
-                {nowPlayingItems.slice(0, 6).map((item, i) => (
-                  <LandscapeCard key={`np_${item.id}_${i}`} item={item} onPress={() => goTo(item)} />
-                ))}
-              </ScrollView>
-            )}
-          </View>
-        )}
-
-        {/* ── SÉRIES DA SEMANA ─────────────────────────────────────────── */}
-        {(activeTab === "todos" || activeTab === "series") && (
-          <View style={root.section}>
-            <SectionHeader title="Séries da Semana" icon="tv" badge={newSeries.length}
-              accentColor={BLUE} subtitle="Novas séries adicionadas"
-              onSeeAll={newSeries.length > 6 ? () => openModal("Séries da Semana", newSeries, BLUE) : undefined} />
-            {loading ? <SkeletonRow count={4} width={118} height={172} /> : (
-              newSeries.length > 0 ? (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 4 }}>
-                  {newSeries.slice(0, 6).map((item, i) => (
-                    <PosterCard key={`ns_${item.id}_${i}`} item={item}
-                      onPress={() => goTo(item)} badge="NOVA" badgeColor={BLUE} />
-                  ))}
-                </ScrollView>
-              ) : (
-                <Text style={root.emptyText}>Em breve por aqui</Text>
-              )
-            )}
-          </View>
-        )}
-
-        {/* ── EXCLUSIVE BANNER ─────────────────────────────────────────── */}
-        {activeTab === "todos" && <ExclusiveBanner onPress={() => router.push("/exclusive")} />}
-
-        {/* ── ESTREANDO HOJE ───────────────────────────────────────────── */}
-        {!loading && airingTodayItems.length > 0 && (activeTab === "todos" || activeTab === "series") && (
-          <BreakingBanner items={airingTodayItems.slice(0, 6)} onPress={goTo} />
-        )}
-
-        {/* ── SÉRIES NO AR ─────────────────────────────────────────────── */}
-        {(activeTab === "todos" || activeTab === "series") && (
-          <View style={root.section}>
-            <SectionHeader title="Séries no Ar" icon="radio" badge={onTheAirItems.length}
-              accentColor={PURPLE} subtitle="Temporadas em andamento"
-              onSeeAll={onTheAirItems.length > 6 ? () => openModal("Séries no Ar", onTheAirItems, PURPLE) : undefined} />
-            {loading ? <SkeletonRow count={3} width={150} height={218} /> : (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 4 }}>
-                {onTheAirItems.slice(0, 6).map((item, i) => (
-                  <TvOnAirCard key={`oa_${item.id}_${i}`} item={item} onPress={() => goTo(item)} />
-                ))}
-              </ScrollView>
-            )}
-          </View>
-        )}
-
-        {/* ── EM ALTA — SÉRIES ─────────────────────────────────────────── */}
-        {(activeTab === "todos" || activeTab === "series") && (
-          <View style={root.section}>
-            <SectionHeader title="Séries em Alta" icon="award" badge={trendingTvItems.length}
-              accentColor={PINK} subtitle="As mais comentadas da semana"
-              onSeeAll={trendingTvItems.length > 6 ? () => openModal("Séries em Alta", trendingTvItems, PINK) : undefined} />
-            {loading ? <SkeletonRow count={4} width={118} height={172} /> : (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 4 }}>
-                {trendingTvItems.slice(0, 6).map((item, i) => (
-                  <PosterCard key={`tv_${item.id}_${i}`} item={item}
-                    onPress={() => goTo(item)} badge={i < 3 ? `#${i + 1}` : undefined} badgeColor={PINK} />
-                ))}
-              </ScrollView>
-            )}
-          </View>
-        )}
-
-        {/* ── CHEGANDO EM BREVE ────────────────────────────────────────── */}
-        {(activeTab === "todos" || activeTab === "filmes") && (
-          <View style={root.section}>
-            <SectionHeader title="Chegando em Breve" icon="calendar" badge={upcomingItems.length}
-              accentColor={AMBER} subtitle="Prepare sua lista com antecedência"
-              onSeeAll={upcomingItems.length > 6 ? () => openModal("Chegando em Breve", upcomingItems.map(u => u.item), AMBER) : undefined} />
-            {loading ? <SkeletonRow count={4} width={120} height={172} /> : (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 4 }}>
-                {upcomingItems.slice(0, 6).map(({ item, releaseDate }, i) => (
-                  <UpcomingCard key={`up_${item.id}_${i}`} item={item}
-                    releaseDate={releaseDate} onPress={() => goTo(item)} />
-                ))}
-              </ScrollView>
-            )}
-          </View>
-        )}
-
-        {/* ── DORAMAS ──────────────────────────────────────────────────── */}
-        {(activeTab === "todos" || activeTab === "doramas") && (
-          <View style={root.section}>
-            <SectionHeader title="Doramas" icon="heart" badge={doramas.length || undefined}
-              accentColor={PINK} subtitle="K-dramas e séries asiáticas em alta"
-              onSeeAll={doramas.length > 6 ? () => openModal("Doramas", doramas, PINK) : undefined} />
-            {loading ? <SkeletonRow count={4} width={118} height={172} /> : (
-              doramas.length > 0 ? (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 4 }}>
-                  {doramas.slice(0, 8).map((item, i) => (
-                    <PosterCard key={`dr_${item.id}_${i}`} item={item}
-                      onPress={() => goTo(item)} badge="🌸" badgeColor={PINK} />
-                  ))}
-                </ScrollView>
-              ) : (
-                <Text style={root.emptyText}>Carregando doramas…</Text>
-              )
-            )}
-          </View>
-        )}
-
-        {/* ── ANIMES DA SEMANA ─────────────────────────────────────────── */}
-        {(activeTab === "todos" || activeTab === "animes") && newAnimes.length > 0 && (
-          <View style={root.section}>
-            <SectionHeader title="Animes da Semana" icon="star" badge={newAnimes.length}
-              accentColor={PURPLE} subtitle="Novos animes adicionados"
-              onSeeAll={newAnimes.length > 6 ? () => openModal("Animes da Semana", newAnimes, PURPLE) : undefined} />
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 4 }}>
-              {newAnimes.slice(0, 6).map((item, i) => (
-                <AnimeCard key={`an_${item.id}_${i}`} item={item} onPress={() => goTo(item)} />
-              ))}
-            </ScrollView>
-          </View>
-        )}
-
-        {/* ── RODAPÉ ───────────────────────────────────────────────────── */}
-        <View style={root.footer}>
-          <LinearGradient colors={[`${RED}33`, "transparent"]}
-            start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-            style={root.footerLine} />
-          <Text style={root.footerText}>NETPLAY · Atualizado diariamente</Text>
-          <LinearGradient colors={["transparent", `${RED}33`]}
-            start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-            style={root.footerLine} />
-        </View>
-      </ScrollView>
+          }
+          renderItem={({ item }) => (
+            <NovidadesVerticalCard
+              item={item}
+              type="trending"
+              onPress={() => goTo(item)}
+            />
+          )}
+          ListEmptyComponent={
+            <View style={{ alignItems: "center", paddingTop: 80 }}>
+              <ActivityIndicator color={RED} size="large" />
+            </View>
+          }
+        />
+      )}
 
       {/* ═══ VER MAIS MODAL ══════════════════════════════════════════════════ */}
       <VerMaisModal
@@ -2365,30 +2225,10 @@ export default function NovidadesScreen() {
         onClose={closeModal}
         onItemPress={goTo}
       />
-
-      {/* ═══ SINGLE EP SHEET ═════════════════════════════════════════════════ */}
-      <SingleEpSheet
-        visible={singleSheet.visible}
-        group={singleSheet.group}
-        onClose={() => setSingleSheet({ visible: false, group: null })}
-        onPlay={(g) => handlePlayEpisode(g, g.latestEp)}
-        onSynopsis={handleEpSynopsis}
-      />
-
-      {/* ═══ EPISODES VER MAIS MODAL ═════════════════════════════════════════ */}
-      <EpisodesModal
-        visible={showEpsModal}
-        groups={epGroups}
-        onClose={() => setShowEpsModal(false)}
-        onPlayEp={handlePlayEpisode}
-        onViewSeries={(g) => {
-          setShowEpsModal(false);
-          router.push({ pathname: "/detail", params: epDetailParams(g) });
-        }}
-      />
     </View>
   );
 }
+
 
 const top10st = StyleSheet.create({
   card: { width: 100, marginRight: 10 },
