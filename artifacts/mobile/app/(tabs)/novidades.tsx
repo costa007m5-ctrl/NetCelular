@@ -1852,9 +1852,21 @@ function useTmdbEnrichMap(items: ContentItem[]): Map<number, EnrichData> {
               ]);
               const d = det.status === "fulfilled" ? (det.value as any) : null;
               const l = logo.status === "fulfilled" ? logo.value : null;
+
+              // When TMDB returns empty overview, try a title search as fallback
+              let overview: string | null = d?.overview || null;
+              if (!overview && it.title) {
+                try {
+                  const searchType = mt === "movie" ? "movie" : "tv";
+                  const sr = await api.tmdb.search(it.title, searchType);
+                  const hit = (sr as any)?.results?.[0];
+                  if (hit?.overview) overview = hit.overview;
+                } catch { /* ignore search errors */ }
+              }
+
               return [id, {
                 backdropUrl: d?.backdrop_path ? (TMDB_IMG(d.backdrop_path, "w780") ?? null) : null,
-                overview: d?.overview || null,
+                overview,
                 logoUrl: l?.logo_path ? (resolveImgUrl(l.logo_path, "w300") ?? null) : null,
               }];
             } catch {
