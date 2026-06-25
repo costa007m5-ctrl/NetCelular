@@ -1566,51 +1566,73 @@ function NovidadesVerticalCard({
   releaseDate,
   type,
   onPress,
+  enrich,
 }: {
   item: ContentItem;
   releaseDate?: string;
   type: "upcoming" | "trending";
   onPress: () => void;
+  enrich?: EnrichData;
 }) {
   const [imgErr, setImgErr]         = useState(false);
   const [logoErr, setLogoErr]       = useState(false);
-  const [logoUrl, setLogoUrl]       = useState<string | null>(null);
-  const [fetchedBd, setFetchedBd]   = useState<string | null>(null);
-  const [fetchedDesc, setFetchedDesc] = useState<string | null>(null);
+  const [streamUrl, setStreamUrl]   = useState<string | null>(null);
+  const [epStillUrl, setEpStillUrl] = useState<string | null>(null);
+  const [muted, setMuted]           = useState(true);
 
-  const rawBackdrop = item.backdropPath || item.posterPath;
-  const imgUri      = fetchedBd || rawBackdrop || null;
+  // All metadata comes from the batch-pre-fetched enrich prop — instant, no delay
+  const logoUrl    = (!logoErr && enrich?.logoUrl)    ? enrich.logoUrl    : null;
+  const backdropUrl = enrich?.backdropUrl || item.backdropPath || item.posterPath || null;
+  const overview   = enrich?.overview || item.description || null;
 
-  // Fetch backdrop + logo + description from TMDB when data is missing
+  // For video preview: episode still (series) takes priority over backdrop
+  const backdropShown = !imgErr ? (epStillUrl || backdropUrl) : null;
+  const canPlayVideo  = IS_NATIVE_EP && !!streamUrl && WebViewEp !== null;
+
+  // Lazy-fetch stream URL (flix2) + episode still (TMDB) for video preview
   useEffect(() => {
     const tmdbId = item.tmdbId;
     if (!tmdbId || tmdbId <= 0) return;
-    const mediaType = item.mediaType ?? (item.type === "movie" ? "movie" : "tv");
-
+    const isMovie  = (item.mediaType ?? item.type) === "movie";
+    const flix2Type = isMovie ? "movie" : "serie";
     let cancelled = false;
 
-    const detFetch = mediaType === "movie" ? api.tmdb.movie(tmdbId) : api.tmdb.tv(tmdbId);
+    // 1.5s delay so the card settles before firing flix2 requests
+    const tid = setTimeout(async () => {
+      try {
+        const fi = await r2Route<{
+          stream_url?: string;
+          episodes?: Array<{ season: number; episode: number; stream_url?: string }>;
+        }>(`/flix2/lookup?tmdbId=${tmdbId}&type=${flix2Type}&title=${encodeURIComponent(item.title)}`);
+        if (cancelled) return;
 
-    Promise.allSettled([
-      detFetch,
-      api.tmdb.franchiseLogo(mediaType, tmdbId),
-    ]).then(([detRes, logoRes]) => {
-      if (cancelled) return;
-      if (detRes.status === "fulfilled") {
-        const det = detRes.value as any;
-        const bd = det.backdrop_path as string | null | undefined;
-        if (bd) setFetchedBd(TMDB_IMG(bd, "w780") ?? null);
-        const ov = (det.overview ?? det.description ?? "") as string;
-        if (ov && !item.description) setFetchedDesc(ov);
-      }
-      if (logoRes.status === "fulfilled") {
-        const lp = logoRes.value.logo_path;
-        if (lp) setLogoUrl(resolveImgUrl(lp, "w300"));
-      }
-    }).catch(() => {});
+        if (isMovie && fi.stream_url) {
+          setStreamUrl(fi.stream_url);
+        } else if (!isMovie && fi.episodes?.length) {
+          const sorted = [...fi.episodes].sort((a, b) =>
+            b.season !== a.season ? b.season - a.season : b.episode - a.episode,
+          );
+          const latest = sorted[0];
+          if (latest?.stream_url && !cancelled) setStreamUrl(latest.stream_url);
 
-    return () => { cancelled = true; };
-  }, [item.tmdbId, item.mediaType, item.type, item.description]);
+          // Fetch last episode still from TMDB for the backdrop
+          if (latest && !cancelled) {
+            try {
+              const seasonData = await api.tmdb.tvSeason(tmdbId, latest.season) as any;
+              const ep = (seasonData?.episodes ?? []).find(
+                (e: any) => e.episode_number === latest.episode,
+              );
+              if (ep?.still_path && !cancelled) {
+                setEpStillUrl(TMDB_IMG(ep.still_path, "w780") ?? null);
+              }
+            } catch {}
+          }
+        }
+      } catch {}
+    }, 1500);
+
+    return () => { cancelled = true; clearTimeout(tid); };
+  }, [item.tmdbId, item.title, item.mediaType, item.type]);
 
   const days = useMemo(() => {
     if (!releaseDate) return null;
@@ -1626,16 +1648,23 @@ function NovidadesVerticalCard({
     } catch { return releaseDate; }
   }, [releaseDate]);
 
-  const effectiveLogo = (!logoErr && logoUrl) ? logoUrl : null;
-  const description   = item.description || fetchedDesc || null;
-
   return (
     <View style={nvc.wrap}>
-      {/* ── 16:9 Backdrop ── */}
+      {/* ── 16:9 Backdrop / Video Preview ── */}
       <View style={nvc.imgWrap}>
-        {!imgErr && imgUri ? (
+        {canPlayVideo ? (
+          <WebViewEp
+            style={StyleSheet.absoluteFill}
+            source={{ html: buildEpPreviewHtml(streamUrl!, muted) }}
+            scrollEnabled={false}
+            allowsInlineMediaPlayback
+            mediaPlaybackRequiresUserAction={false}
+            javaScriptEnabled
+            originWhiteList={["*"]}
+          />
+        ) : backdropShown ? (
           <Image
-            source={{ uri: imgUri }}
+            source={{ uri: backdropShown }}
             style={StyleSheet.absoluteFill}
             contentFit="cover"
             cachePolicy="memory-disk"
@@ -1644,23 +1673,40 @@ function NovidadesVerticalCard({
         ) : (
           <LinearGradient colors={["#1a0814", "#0e060c"]} style={StyleSheet.absoluteFill} />
         )}
-        <LinearGradient
-          colors={["transparent", "rgba(0,0,0,0.9)"]}
-          locations={[0.35, 1]}
-          style={StyleSheet.absoluteFill}
-        />
-        <View style={nvc.muteBtn}>
-          <Feather name="volume-x" size={15} color="rgba(255,255,255,0.8)" />
+
+        {/* Gradient overlay — ignore touches so WebView is still interactive */}
+        <View style={StyleSheet.absoluteFill} pointerEvents="none">
+          <LinearGradient
+            colors={["transparent", "rgba(0,0,0,0.9)"]}
+            locations={[0.35, 1]}
+            style={StyleSheet.absoluteFill}
+          />
         </View>
+
+        {/* Mute/Unmute button — only visible while video is playing */}
+        <TouchableOpacity
+          style={nvc.muteBtn}
+          onPress={() => setMuted(m => !m)}
+          activeOpacity={0.8}
+        >
+          <Feather
+            name={canPlayVideo ? (muted ? "volume-x" : "volume-2") : "volume-x"}
+            size={15}
+            color="rgba(255,255,255,0.8)"
+          />
+        </TouchableOpacity>
+
+        {/* Countdown badge for upcoming content */}
         {days != null && days > 0 && days <= 30 && (
           <View style={nvc.daysWrap}>
             <Text style={nvc.daysTxt}>{days === 1 ? "AMANHÃ" : `EM ${days} DIAS`}</Text>
           </View>
         )}
-        {/* Logo overlay inside the backdrop (bottom-left) */}
-        {effectiveLogo && (
+
+        {/* Logo overlay — bottom-left of backdrop */}
+        {logoUrl && (
           <Image
-            source={{ uri: effectiveLogo }}
+            source={{ uri: logoUrl }}
             style={nvc.logoOverlay}
             contentFit="contain"
             cachePolicy="memory-disk"
@@ -1672,8 +1718,8 @@ function NovidadesVerticalCard({
       {/* ── Info Section ── */}
       <View style={nvc.info}>
         {!!dateLabel && <Text style={nvc.dateLabel}>{dateLabel}</Text>}
-        {/* Show logo below backdrop if available, otherwise fallback to text title */}
-        {effectiveLogo ? null : (
+        {/* Text title only as fallback when logo is unavailable */}
+        {!logoUrl && (
           <Text style={nvc.title} numberOfLines={2}>{item.title}</Text>
         )}
         {item.rating > 0 && (
@@ -1686,8 +1732,8 @@ function NovidadesVerticalCard({
             {!!(item.genres?.[0]) && <Text style={nvc.metaGenre}>{item.genres[0]}</Text>}
           </View>
         )}
-        {!!description && (
-          <Text style={nvc.desc} numberOfLines={3}>{description}</Text>
+        {!!overview && (
+          <Text style={nvc.desc} numberOfLines={3}>{overview}</Text>
         )}
         <TouchableOpacity
           style={type === "upcoming" ? nvc.btnOutline : nvc.btnFill}
@@ -1769,6 +1815,70 @@ const pillsNf = StyleSheet.create({
   labelActive: { color: "#000" },
 });
 
+// ─── Enrich data type (pre-fetched TMDB metadata) ─────────────────────────────
+type EnrichData = {
+  logoUrl: string | null;
+  backdropUrl: string | null;
+  overview: string | null;
+};
+
+// Batch-fetches logo + backdrop + overview for a list of items so every card
+// has its data ready instantly (no per-card lazy fetch delay).
+function useTmdbEnrichMap(items: ContentItem[]): Map<number, EnrichData> {
+  const [enrichMap, setEnrichMap] = useState<Map<number, EnrichData>>(new Map());
+  const idsKey = useMemo(
+    () => items.map(i => i.tmdbId ?? 0).filter(Boolean).join(","),
+    [items],
+  );
+
+  useEffect(() => {
+    if (!idsKey) return;
+    const toFetch = items.filter(i => (i.tmdbId ?? 0) > 0);
+    let cancelled = false;
+    const BATCH = 4;
+
+    const process = async () => {
+      for (let bi = 0; bi < toFetch.length; bi += BATCH) {
+        if (cancelled) return;
+        const batch = toFetch.slice(bi, bi + BATCH);
+        const results = await Promise.all(
+          batch.map(async (it): Promise<[number, EnrichData]> => {
+            const id = it.tmdbId!;
+            const mt = it.mediaType ?? (it.type === "movie" ? "movie" : "tv");
+            try {
+              const [det, logo] = await Promise.allSettled([
+                mt === "movie" ? api.tmdb.movie(id) : api.tmdb.tv(id),
+                api.tmdb.franchiseLogo(mt, id),
+              ]);
+              const d = det.status === "fulfilled" ? (det.value as any) : null;
+              const l = logo.status === "fulfilled" ? logo.value : null;
+              return [id, {
+                backdropUrl: d?.backdrop_path ? (TMDB_IMG(d.backdrop_path, "w780") ?? null) : null,
+                overview: d?.overview || null,
+                logoUrl: l?.logo_path ? (resolveImgUrl(l.logo_path, "w300") ?? null) : null,
+              }];
+            } catch {
+              return [id, { backdropUrl: null, overview: null, logoUrl: null }];
+            }
+          }),
+        );
+        if (cancelled) return;
+        setEnrichMap(prev => {
+          const next = new Map(prev);
+          for (const [id, d] of results) next.set(id, d);
+          return next;
+        });
+        if (bi + BATCH < toFetch.length) await new Promise(r => setTimeout(r, 150));
+      }
+    };
+
+    process().catch(() => {});
+    return () => { cancelled = true; };
+  }, [idsKey]);
+
+  return enrichMap;
+}
+
 // ─── CategoryFlatList ─────────────────────────────────────────────────────────
 function CategoryFlatList({
   items, keyPrefix, emptyIcon, emptyText, topPad, refreshing, onRefresh, onPress,
@@ -1782,6 +1892,8 @@ function CategoryFlatList({
   onRefresh: () => void;
   onPress: (item: ContentItem) => void;
 }) {
+  const enrichMap = useTmdbEnrichMap(items);
+
   return (
     <FlatList
       data={items}
@@ -1793,7 +1905,12 @@ function CategoryFlatList({
           tintColor={RED} colors={[RED]} progressViewOffset={topPad + 96} />
       }
       renderItem={({ item }) => (
-        <NovidadesVerticalCard item={item} type="trending" onPress={() => onPress(item)} />
+        <NovidadesVerticalCard
+          item={item}
+          type="trending"
+          onPress={() => onPress(item)}
+          enrich={enrichMap.get(item.tmdbId ?? 0)}
+        />
       )}
       ListEmptyComponent={
         <View style={{ alignItems: "center", paddingTop: 80, gap: 12 }}>
