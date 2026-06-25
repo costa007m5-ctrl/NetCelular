@@ -167,7 +167,7 @@ function formatDate(dateStr: string): string {
 
 async function fetchWhatsNew(attempt = 0): Promise<WhatsNewResp | null> {
   try {
-    const res = await r2Route<WhatsNewResp>("/flix2/whats-new?days=30&limit=200");
+    const res = await r2Route<WhatsNewResp>("/flix2/whats-new?days=30&limit=500");
     // Only retry when we have ZERO items — if series/animes are available, show them
     // immediately even if movies is still warming (movies may never warm in production).
     const hasData = (res.total ?? 0) > 0;
@@ -1590,6 +1590,7 @@ function NovidadesVerticalCard({
   const [streamUrl, setStreamUrl]   = useState<string | null>(null);
   const [epStillUrl, setEpStillUrl] = useState<string | null>(null);
   const [muted, setMuted]           = useState(true);
+  const webVideoRef = useRef<any>(null);
 
   // All metadata comes from the batch-pre-fetched enrich prop — instant, no delay
   const logoUrl    = (!logoErr && enrich?.logoUrl)    ? enrich.logoUrl    : null;
@@ -1598,7 +1599,13 @@ function NovidadesVerticalCard({
 
   // For video preview: episode still (series) takes priority over backdrop
   const backdropShown = !imgErr ? (epStillUrl || backdropUrl) : null;
-  const canPlayVideo  = IS_NATIVE_EP && !!streamUrl && WebViewEp !== null;
+  const canPlayVideo    = IS_NATIVE_EP && !!streamUrl && WebViewEp !== null;
+  const canPlayVideoWeb = !IS_NATIVE_EP && !!streamUrl;
+
+  // Sync muted state to web <video> element imperatively
+  useEffect(() => {
+    if (webVideoRef.current) webVideoRef.current.muted = muted;
+  }, [muted]);
 
   // Lazy-fetch stream URL (flix2) + episode still (TMDB) for video preview
   useEffect(() => {
@@ -1675,6 +1682,32 @@ function NovidadesVerticalCard({
             javaScriptEnabled
             originWhiteList={["*"]}
           />
+        ) : canPlayVideoWeb ? (
+          <>
+            {backdropShown && (
+              <Image
+                source={{ uri: backdropShown }}
+                style={StyleSheet.absoluteFill}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+                onError={() => setImgErr(true)}
+              />
+            )}
+            {React.createElement("video", {
+              ref: webVideoRef,
+              src: streamUrl!,
+              autoPlay: true,
+              muted: true,
+              playsInline: true,
+              loop: true,
+              style: {
+                position: "absolute", top: 0, left: 0,
+                width: "100%", height: "100%",
+                objectFit: "cover",
+              },
+              onError: () => setStreamUrl(null),
+            })}
+          </>
         ) : backdropShown ? (
           <Image
             source={{ uri: backdropShown }}
@@ -1703,7 +1736,7 @@ function NovidadesVerticalCard({
           activeOpacity={0.8}
         >
           <Feather
-            name={canPlayVideo ? (muted ? "volume-x" : "volume-2") : "volume-x"}
+            name={(canPlayVideo || canPlayVideoWeb) ? (muted ? "volume-x" : "volume-2") : "volume-x"}
             size={15}
             color="rgba(255,255,255,0.8)"
           />
@@ -2434,12 +2467,18 @@ export default function NovidadesScreen() {
 
   const newMovies = useMemo<ContentItem[]>(() => {
     if (!data?.whatsNew) return [];
-    return data.whatsNew.movies.filter((i) => i.poster).map(wn2Content);
+    return data.whatsNew.movies
+      .filter((i) => i.poster || i.backdrop)
+      .sort((a, b) => b.added_at - a.added_at)
+      .map(wn2Content);
   }, [data]);
 
   const newSeries = useMemo<ContentItem[]>(() => {
     if (!data?.whatsNew) return [];
-    return data.whatsNew.series.filter((i) => i.poster).map(wn2Content);
+    return data.whatsNew.series
+      .filter((i) => i.poster || i.backdrop)
+      .sort((a, b) => b.added_at - a.added_at)
+      .map(wn2Content);
   }, [data]);
 
   // "Novos Episódios" — séries do whats-new onde novos eps foram adicionados
