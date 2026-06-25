@@ -2428,6 +2428,26 @@ export default function NovidadesScreen() {
     return data.whatsNew.animes.filter((i) => i.poster).map(wn2Content);
   }, [data]);
 
+  // "Animes JP" — apenas animes de animação japonesa verdadeiros.
+  // Filtra os itens do flix2 cross-referenciando com o discover do TMDB
+  // (idioma original=ja + gênero Animação), e complementa com o restante do TMDB.
+  const jpAnimesFiltered = useMemo<ContentItem[]>(() => {
+    const jpIds = new Set(jpAnimes.map((i) => i.tmdbId).filter(Boolean));
+
+    // Itens novos (flix2) que existem no TMDB com idioma ja + gênero animação
+    const fromNew = newAnimes.filter(
+      (i) => i.tmdbId && jpIds.has(i.tmdbId)
+    );
+    const fromNewIds = new Set(fromNew.map((i) => i.tmdbId).filter(Boolean));
+
+    // Demais do TMDB que não estão nos novos
+    const fromJp = jpAnimes.filter(
+      (i) => !i.tmdbId || !fromNewIds.has(i.tmdbId)
+    );
+
+    return [...fromNew, ...fromJp];
+  }, [newAnimes, jpAnimes]);
+
   const totalNew = (data?.whatsNew?.total ?? 0);
 
   // ── Week stats ──────────────────────────────────────────────────────────────
@@ -2551,10 +2571,10 @@ export default function NovidadesScreen() {
         />
       ) : activeTab === "animes" ? (
         <CategoryFlatList
-          items={newAnimes}
+          items={jpAnimesFiltered}
           keyPrefix="ani"
           emptyIcon="star"
-          emptyText="Nenhum anime novo nos últimos 30 dias"
+          emptyText="Nenhum anime japonês disponível no momento"
           topPad={topPad}
           refreshing={refreshing}
           onRefresh={onRefresh}
