@@ -2129,29 +2129,17 @@ export default function NovidadesScreen() {
   }, [load]);
 
   useEffect(() => {
-    const since30 = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
-    r2Route<{ results: TmdbItem[] }>(
-      `/tmdb/discover?type=tv&with_origin_country=KR&sort_by=popularity.desc&first_air_date.gte=${since30}`
-    )
+    api.tmdb.discoverByCountry("tv", "KR")
       .then((res) => {
-        if (res.results?.length) setDoramas(res.results.map(tmdbItemToContent));
+        if ((res as any).results?.length) setDoramas(((res as any).results as TmdbItem[]).map(tmdbItemToContent));
       })
-      .catch(() => {
-        r2Route<{ results: TmdbItem[] }>("/tmdb/discover?type=tv&with_origin_country=KR&sort_by=popularity.desc")
-          .then((res2) => { if (res2.results?.length) setDoramas(res2.results.map(tmdbItemToContent)); })
-          .catch(() => {});
-      });
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
-    const since30 = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
     Promise.allSettled([
-      r2Route<{ results: TmdbItem[] }>(
-        `/tmdb/discover?type=movie&with_genres=16&sort_by=popularity.desc&primary_release_date.gte=${since30}`
-      ),
-      r2Route<{ results: TmdbItem[] }>(
-        `/tmdb/discover?type=tv&with_genres=16&sort_by=popularity.desc&first_air_date.gte=${since30}`
-      ),
+      api.tmdb.discover("movie", 16),
+      api.tmdb.discover("tv", 16),
     ]).then(([movRes, tvRes]) => {
       const movs = movRes.status === "fulfilled" ? (movRes.value.results ?? []) : [];
       const tvs  = tvRes.status  === "fulfilled" ? (tvRes.value.results  ?? []) : [];
