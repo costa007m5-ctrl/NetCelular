@@ -2055,6 +2055,7 @@ export default function NovidadesScreen() {
   const [activeTab, setActiveTab] = useState<"embreve" | "assistindo" | "filmes" | "series" | "dorama" | "animes" | "animacao">("embreve");
   const [doramas, setDoramas] = useState<ContentItem[]>([]);
   const [animations, setAnimations] = useState<ContentItem[]>([]);
+  const [jpAnimes, setJpAnimes] = useState<ContentItem[]>([]);
 
   const openModal = (title: string, items: ContentItem[], accent = RED) =>
     setModal({ visible: true, title, items, accent });
@@ -2134,6 +2135,20 @@ export default function NovidadesScreen() {
         if ((res as any).results?.length) setDoramas(((res as any).results as TmdbItem[]).map(tmdbItemToContent));
       })
       .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    Promise.allSettled([
+      api.tmdb.discoverByLang("tv", "ja", 16),
+      api.tmdb.discoverByLang("movie", "ja", 16),
+    ]).then(([tvRes, movRes]) => {
+      const tvs  = tvRes.status  === "fulfilled" ? (tvRes.value.results  ?? []) : [];
+      const movs = movRes.status === "fulfilled" ? (movRes.value.results ?? []) : [];
+      const merged = [...tvs, ...movs].sort((a, b) => (b.popularity ?? 0) - (a.popularity ?? 0));
+      const seen = new Set<number>();
+      const unique = merged.filter(i => { if (seen.has(i.id)) return false; seen.add(i.id); return true; });
+      if (unique.length) setJpAnimes(unique.map(tmdbItemToContent));
+    }).catch(() => {});
   }, []);
 
   useEffect(() => {
