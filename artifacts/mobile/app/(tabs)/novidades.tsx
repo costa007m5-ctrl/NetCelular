@@ -894,7 +894,7 @@ function EpisodeCard({
               )}
               {ep.title && !/S\d+\s*E\d+/i.test(ep.title)
                 ? <Text style={epc.epName} numberOfLines={1}>{ep.title}</Text>
-                : !isSingle && <Text style={epc.epCount}>{group.totalEps} episódios</Text>
+                : !isSingle && <Text style={epc.epCount}>{group.totalEps} novos ep</Text>
               }
             </View>
             {!isSingle && (
@@ -1586,13 +1586,16 @@ function NovidadesVerticalCard({
   onPress: () => void;
   enrich?: EnrichData;
 }) {
-  const [imgErr, setImgErr]         = useState(false);
-  const [logoErr, setLogoErr]       = useState(false);
-  const [streamUrl, setStreamUrl]   = useState<string | null>(null);
-  const [epCount, setEpCount]       = useState<number | null>(null);
-  const [stillUrls, setStillUrls]   = useState<string[]>([]);
-  const [stillIdx, setStillIdx]     = useState(0);
-  const [muted, setMuted]           = useState(true);
+  const [imgErr, setImgErr]             = useState(false);
+  const [logoErr, setLogoErr]           = useState(false);
+  const [streamUrl, setStreamUrl]       = useState<string | null>(null);
+  const [epCount, setEpCount]           = useState<number | null>(null);
+  const [stillUrls, setStillUrls]       = useState<string[]>([]);
+  const [stillIdx, setStillIdx]         = useState(0);
+  const [muted, setMuted]               = useState(true);
+  const [isVideoPlaying, setIsVideoPlaying] = useState(false);
+  const [vidReady, setVidReady]         = useState(false);
+  const [vidErrored, setVidErrored]     = useState(false);
   const nativeWebViewRef = useRef<any>(null);
   const webVideoRef      = useRef<any>(null);
 
@@ -1705,45 +1708,8 @@ function NovidadesVerticalCard({
     <View style={nvc.wrap}>
       {/* ── 16:9 Backdrop / Video Preview ── */}
       <View style={nvc.imgWrap}>
-        {canPlayVideo ? (
-          <WebViewEp
-            ref={nativeWebViewRef}
-            style={StyleSheet.absoluteFill}
-            source={{ html: buildEpPreviewHtml(streamUrl!) }}
-            scrollEnabled={false}
-            allowsInlineMediaPlayback
-            mediaPlaybackRequiresUserAction={false}
-            javaScriptEnabled
-            originWhiteList={["*"]}
-            mixedContentMode="always"
-          />
-        ) : canPlayVideoWeb ? (
-          <>
-            {backdropShown && (
-              <Image
-                source={{ uri: backdropShown }}
-                style={StyleSheet.absoluteFill}
-                contentFit="cover"
-                cachePolicy="memory-disk"
-                onError={() => setImgErr(true)}
-              />
-            )}
-            {React.createElement("video", {
-              ref: webVideoRef,
-              src: streamUrl!,
-              autoPlay: true,
-              muted: true,
-              playsInline: true,
-              loop: true,
-              style: {
-                position: "absolute", top: 0, left: 0,
-                width: "100%", height: "100%",
-                objectFit: "cover",
-              },
-              onError: () => setStreamUrl(null),
-            })}
-          </>
-        ) : backdropShown ? (
+        {/* Layer 1: backdrop image — always visible as base */}
+        {backdropShown ? (
           <Image
             source={{ uri: backdropShown }}
             style={StyleSheet.absoluteFill}
@@ -1755,7 +1721,46 @@ function NovidadesVerticalCard({
           <LinearGradient colors={["#1a0814", "#0e060c"]} style={StyleSheet.absoluteFill} />
         )}
 
-        {/* Gradient overlay — ignore touches so WebView is still interactive */}
+        {/* Layer 2a: WebView video (native) — overlaid on top of image, fades in when ready */}
+        {isVideoPlaying && canPlayVideo && !vidErrored && (
+          <WebViewEp
+            ref={nativeWebViewRef}
+            style={[StyleSheet.absoluteFill, { opacity: vidReady ? 1 : 0 }]}
+            source={{ html: buildEpPreviewHtml(streamUrl!) }}
+            scrollEnabled={false}
+            allowsInlineMediaPlayback
+            mediaPlaybackRequiresUserAction={false}
+            javaScriptEnabled
+            originWhitelist={["*"]}
+            mixedContentMode="always"
+            onMessage={(e: any) => {
+              try {
+                const msg = JSON.parse(e.nativeEvent.data);
+                if (msg.type === "ready") setVidReady(true);
+                else if (msg.type === "error") { setVidReady(false); setVidErrored(true); }
+              } catch {}
+            }}
+            onError={() => { setVidReady(false); setVidErrored(true); }}
+          />
+        )}
+
+        {/* Layer 2b: HTML5 video (web only) */}
+        {canPlayVideoWeb && React.createElement("video", {
+          ref: webVideoRef,
+          src: streamUrl!,
+          autoPlay: true,
+          muted: true,
+          playsInline: true,
+          loop: true,
+          style: {
+            position: "absolute", top: 0, left: 0,
+            width: "100%", height: "100%",
+            objectFit: "cover",
+          },
+          onError: () => setStreamUrl(null),
+        })}
+
+        {/* Gradient overlay — non-interactive, always on top */}
         <View style={[StyleSheet.absoluteFill, { pointerEvents: "none" }]}>
           <LinearGradient
             colors={["transparent", "rgba(0,0,0,0.9)"]}
@@ -1764,18 +1769,47 @@ function NovidadesVerticalCard({
           />
         </View>
 
-        {/* Mute/Unmute button — only visible while video is playing */}
-        <TouchableOpacity
-          style={nvc.muteBtn}
-          onPress={handleMuteToggle}
-          activeOpacity={0.8}
-        >
-          <Feather
-            name={(canPlayVideo || canPlayVideoWeb) ? (muted ? "volume-x" : "volume-2") : "volume-x"}
-            size={15}
-            color="rgba(255,255,255,0.8)"
-          />
-        </TouchableOpacity>
+        {/* Play preview button — shown when stream URL is ready and video not yet started */}
+        {!!streamUrl && !isVideoPlaying && IS_NATIVE_EP && WebViewEp !== null && (
+          <TouchableOpacity
+            style={nvc.previewPlayBtn}
+            onPress={() => { setIsVideoPlaying(true); setVidReady(false); setVidErrored(false); }}
+            activeOpacity={0.8}
+          >
+            <Feather name="play" size={14} color="#fff" />
+            <Text style={nvc.previewPlayTxt}>Prévia</Text>
+          </TouchableOpacity>
+        )}
+
+        {/* Loading spinner while video initializes */}
+        {isVideoPlaying && !vidReady && !vidErrored && (
+          <View style={nvc.previewLoading}>
+            <ActivityIndicator size="small" color="#fff" />
+          </View>
+        )}
+
+        {/* PRÉVIA badge — shown when video is actively playing */}
+        {isVideoPlaying && vidReady && (
+          <View style={nvc.previewBadge}>
+            <View style={nvc.previewDot} />
+            <Text style={nvc.previewBadgeTxt}>PRÉVIA</Text>
+          </View>
+        )}
+
+        {/* Mute/Unmute button — only shown while video is playing */}
+        {(isVideoPlaying || canPlayVideoWeb) && (
+          <TouchableOpacity
+            style={nvc.muteBtn}
+            onPress={handleMuteToggle}
+            activeOpacity={0.8}
+          >
+            <Feather
+              name={muted ? "volume-x" : "volume-2"}
+              size={15}
+              color="rgba(255,255,255,0.8)"
+            />
+          </TouchableOpacity>
+        )}
 
         {/* Countdown badge for upcoming content */}
         {days != null && days > 0 && days <= 30 && (
@@ -1941,6 +1975,29 @@ const nvc = StyleSheet.create({
   epCountTxt: {
     fontSize: 11, fontWeight: "800", color: GREEN, letterSpacing: 0.3,
   },
+  previewPlayBtn: {
+    position: "absolute", bottom: 12, right: 12,
+    flexDirection: "row", alignItems: "center", gap: 6,
+    backgroundColor: "rgba(229,9,20,0.88)",
+    borderRadius: 20, paddingHorizontal: 12, paddingVertical: 7,
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.25)",
+  },
+  previewPlayTxt: { fontSize: 12, fontWeight: "800", color: "#fff", letterSpacing: 0.3 },
+  previewLoading: {
+    position: "absolute", bottom: 12, right: 12,
+    width: 34, height: 34, borderRadius: 17,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.2)",
+    alignItems: "center", justifyContent: "center",
+  },
+  previewBadge: {
+    position: "absolute", top: 8, left: 10,
+    flexDirection: "row", alignItems: "center", gap: 5,
+    backgroundColor: "rgba(229,9,20,0.92)", borderRadius: 5,
+    paddingHorizontal: 8, paddingVertical: 3,
+  },
+  previewDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: "#fff" },
+  previewBadgeTxt: { fontSize: 8, fontWeight: "900", color: "#fff", letterSpacing: 0.8 },
 });
 
 const pillsNf = StyleSheet.create({
