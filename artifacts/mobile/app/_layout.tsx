@@ -386,10 +386,10 @@ export default function RootLayout() {
     requestPermissionsAndSetup().then((granted) => {
       if (granted) scheduleNewContentNotification().catch(() => {});
     });
-    // OTA: silent reload if update is available right at launch
+    // OTA: check for update after launch, show banner (never force-reload)
     const updateTimer = setTimeout(() => {
-      checkAndApplyUpdate({ forceReload: true }).catch(() => {});
-    }, 3000);
+      checkAndApplyUpdate({ silent: true }).catch(() => {});
+    }, 10000);
     // OTA: periodic checks every 30 min while app is open
     startPeriodicUpdateChecks(30 * 60 * 1000);
     return () => clearTimeout(updateTimer);
