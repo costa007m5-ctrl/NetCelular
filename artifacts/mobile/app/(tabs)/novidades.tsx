@@ -138,7 +138,18 @@ function wn2Content(item: WhatsNewItem): ContentItem {
     type: isMovie ? "movie" : "series",
     mediaType: isMovie ? "movie" : "tv",
     exclusive: item.exclusive ?? false,
+    addedAt: item.added_at,
   };
+}
+
+/** Retorna dias desde que foi adicionado (0 = hoje), ou null se desconhecido/fora dos 30 dias */
+function getDaysAgo(addedAt: number | undefined): number | null {
+  if (!addedAt) return null;
+  // added_at pode ser segundos (< 1e12) ou milissegundos
+  const ms = addedAt < 1e12 ? addedAt * 1000 : addedAt;
+  const days = Math.floor((Date.now() - ms) / 86400000);
+  if (days < 0 || days > 30) return null;
+  return days;
 }
 
 function daysUntil(dateStr: string): number {
@@ -1639,6 +1650,8 @@ function NovidadesVerticalCard({
     return Math.ceil((new Date(releaseDate).getTime() - Date.now()) / 86400000);
   }, [releaseDate]);
 
+  const daysAgo = useMemo(() => getDaysAgo(item.addedAt), [item.addedAt]);
+
   const dateLabel = useMemo(() => {
     if (!releaseDate) return null;
     try {
@@ -1700,6 +1713,21 @@ function NovidadesVerticalCard({
         {days != null && days > 0 && days <= 30 && (
           <View style={nvc.daysWrap}>
             <Text style={nvc.daysTxt}>{days === 1 ? "AMANHÃ" : `EM ${days} DIAS`}</Text>
+          </View>
+        )}
+
+        {/* "Adicionado há X dias" badge — only for trending cards with addedAt */}
+        {type === "trending" && daysAgo != null && (
+          <View style={[
+            nvc.addedBadge,
+            daysAgo <= 3 ? nvc.addedBadgeHot : daysAgo <= 7 ? nvc.addedBadgeNew : nvc.addedBadgeOld,
+          ]}>
+            <View style={nvc.addedBadgeInner}>
+              <Text style={nvc.addedBadgeTop}>NOVO</Text>
+              <Text style={nvc.addedBadgeBottom}>
+                {daysAgo === 0 ? "HOJE" : daysAgo === 1 ? "HÁ 1 DIA" : `HÁ ${daysAgo} DIAS`}
+              </Text>
+            </View>
           </View>
         )}
 
@@ -1770,6 +1798,35 @@ const nvc = StyleSheet.create({
     paddingHorizontal: 10, paddingVertical: 4,
   },
   daysTxt: { fontSize: 11, fontWeight: "900", color: "#fff", letterSpacing: 0.8 },
+  addedBadge: {
+    position: "absolute", top: 10, left: 14,
+    borderRadius: 7, overflow: "hidden",
+    borderWidth: 1,
+  },
+  addedBadgeHot: {
+    backgroundColor: `${GREEN}f0`,
+    borderColor: `${GREEN}`,
+  },
+  addedBadgeNew: {
+    backgroundColor: `${TEAL}e0`,
+    borderColor: `${TEAL}`,
+  },
+  addedBadgeOld: {
+    backgroundColor: "rgba(255,255,255,0.13)",
+    borderColor: "rgba(255,255,255,0.22)",
+  },
+  addedBadgeInner: {
+    paddingHorizontal: 9, paddingVertical: 5,
+    alignItems: "center",
+  },
+  addedBadgeTop: {
+    fontSize: 9, fontWeight: "900", color: "#fff",
+    letterSpacing: 1.2, lineHeight: 11,
+  },
+  addedBadgeBottom: {
+    fontSize: 8, fontWeight: "700", color: "rgba(255,255,255,0.85)",
+    letterSpacing: 0.5, lineHeight: 11,
+  },
   info: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 20 },
   dateLabel: { fontSize: 11, fontWeight: "700", color: RED, letterSpacing: 1.2, marginBottom: 5 },
   title: { fontSize: 22, fontWeight: "900", color: "#fff", lineHeight: 28, marginBottom: 6 },
