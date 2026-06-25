@@ -1572,8 +1572,45 @@ function NovidadesVerticalCard({
   type: "upcoming" | "trending";
   onPress: () => void;
 }) {
-  const [imgErr, setImgErr] = useState(false);
-  const imgUri = item.backdropPath || item.posterPath;
+  const [imgErr, setImgErr]         = useState(false);
+  const [logoErr, setLogoErr]       = useState(false);
+  const [logoUrl, setLogoUrl]       = useState<string | null>(null);
+  const [fetchedBd, setFetchedBd]   = useState<string | null>(null);
+  const [fetchedDesc, setFetchedDesc] = useState<string | null>(null);
+
+  const rawBackdrop = item.backdropPath || item.posterPath;
+  const imgUri      = fetchedBd || rawBackdrop || null;
+
+  // Fetch backdrop + logo + description from TMDB when data is missing
+  useEffect(() => {
+    const tmdbId = item.tmdbId;
+    if (!tmdbId || tmdbId <= 0) return;
+    const mediaType = item.mediaType ?? (item.type === "movie" ? "movie" : "tv");
+
+    let cancelled = false;
+
+    const detFetch = mediaType === "movie" ? api.tmdb.movie(tmdbId) : api.tmdb.tv(tmdbId);
+
+    Promise.allSettled([
+      detFetch,
+      api.tmdb.franchiseLogo(mediaType, tmdbId),
+    ]).then(([detRes, logoRes]) => {
+      if (cancelled) return;
+      if (detRes.status === "fulfilled") {
+        const det = detRes.value as any;
+        const bd = det.backdrop_path as string | null | undefined;
+        if (bd) setFetchedBd(TMDB_IMG(bd, "w780") ?? null);
+        const ov = (det.overview ?? det.description ?? "") as string;
+        if (ov && !item.description) setFetchedDesc(ov);
+      }
+      if (logoRes.status === "fulfilled") {
+        const lp = logoRes.value.logo_path;
+        if (lp) setLogoUrl(resolveImgUrl(lp, "w300"));
+      }
+    }).catch(() => {});
+
+    return () => { cancelled = true; };
+  }, [item.tmdbId, item.mediaType, item.type, item.description]);
 
   const days = useMemo(() => {
     if (!releaseDate) return null;
@@ -1588,6 +1625,9 @@ function NovidadesVerticalCard({
       }).toUpperCase();
     } catch { return releaseDate; }
   }, [releaseDate]);
+
+  const effectiveLogo = (!logoErr && logoUrl) ? logoUrl : null;
+  const description   = item.description || fetchedDesc || null;
 
   return (
     <View style={nvc.wrap}>
@@ -1617,12 +1657,25 @@ function NovidadesVerticalCard({
             <Text style={nvc.daysTxt}>{days === 1 ? "AMANHÃ" : `EM ${days} DIAS`}</Text>
           </View>
         )}
+        {/* Logo overlay inside the backdrop (bottom-left) */}
+        {effectiveLogo && (
+          <Image
+            source={{ uri: effectiveLogo }}
+            style={nvc.logoOverlay}
+            contentFit="contain"
+            cachePolicy="memory-disk"
+            onError={() => setLogoErr(true)}
+          />
+        )}
       </View>
 
       {/* ── Info Section ── */}
       <View style={nvc.info}>
         {!!dateLabel && <Text style={nvc.dateLabel}>{dateLabel}</Text>}
-        <Text style={nvc.title} numberOfLines={2}>{item.title}</Text>
+        {/* Show logo below backdrop if available, otherwise fallback to text title */}
+        {effectiveLogo ? null : (
+          <Text style={nvc.title} numberOfLines={2}>{item.title}</Text>
+        )}
         {item.rating > 0 && (
           <View style={nvc.metaRow}>
             {item.year > 0 && <Text style={nvc.metaYear}>{item.year}</Text>}
@@ -1633,8 +1686,8 @@ function NovidadesVerticalCard({
             {!!(item.genres?.[0]) && <Text style={nvc.metaGenre}>{item.genres[0]}</Text>}
           </View>
         )}
-        {!!item.description && (
-          <Text style={nvc.desc} numberOfLines={3}>{item.description}</Text>
+        {!!description && (
+          <Text style={nvc.desc} numberOfLines={3}>{description}</Text>
         )}
         <TouchableOpacity
           style={type === "upcoming" ? nvc.btnOutline : nvc.btnFill}
@@ -1654,6 +1707,10 @@ function NovidadesVerticalCard({
 const nvc = StyleSheet.create({
   wrap: { width: "100%", backgroundColor: "#050508" },
   imgWrap: { width: "100%", aspectRatio: 16 / 9, backgroundColor: "#111", overflow: "hidden" },
+  logoOverlay: {
+    position: "absolute", bottom: 14, left: 14,
+    width: 160, height: 52,
+  },
   muteBtn: {
     position: "absolute", top: 10, right: 10,
     width: 34, height: 34, borderRadius: 17,
@@ -1662,7 +1719,7 @@ const nvc = StyleSheet.create({
     alignItems: "center", justifyContent: "center",
   },
   daysWrap: {
-    position: "absolute", bottom: 10, left: 14,
+    position: "absolute", top: 10, left: 14,
     backgroundColor: `${RED}e0`, borderRadius: 5,
     paddingHorizontal: 10, paddingVertical: 4,
   },
