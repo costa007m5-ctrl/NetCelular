@@ -1675,7 +1675,7 @@ function NovidadesVerticalCard({
         )}
 
         {/* Gradient overlay — ignore touches so WebView is still interactive */}
-        <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        <View style={[StyleSheet.absoluteFill, { pointerEvents: "none" }]}>
           <LinearGradient
             colors={["transparent", "rgba(0,0,0,0.9)"]}
             locations={[0.35, 1]}

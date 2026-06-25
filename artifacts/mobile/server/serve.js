@@ -461,7 +461,23 @@ const server = http.createServer((req, res) => {
 
     if (pathname === "/") {
       if (hasWebBuild) return serveWebApp("/index.html", res);
-      return serveLandingPage(req, res, landingPageTemplate, appName);
+      // No static web build: proxy root to Metro dev server so Chrome sees the live app
+      const metroReq = http.request({
+        hostname: "localhost",
+        port: METRO_DEV_PORT,
+        path: req.url,
+        method: req.method,
+        headers: Object.assign({}, req.headers, { host: `localhost:${METRO_DEV_PORT}` }),
+      }, (proxyRes) => {
+        res.writeHead(proxyRes.statusCode || 502, proxyRes.headers);
+        proxyRes.pipe(res, { end: true });
+      });
+      metroReq.on("error", () => {
+        // Metro not ready yet — show landing page as fallback
+        serveLandingPage(req, res, landingPageTemplate, appName);
+      });
+      req.pipe(metroReq, { end: true });
+      return;
     }
   }
 
