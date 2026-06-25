@@ -1925,6 +1925,87 @@ function CategoryFlatList({
   );
 }
 
+// ─── TrendingFlatList (Todo mundo) ────────────────────────────────────────────
+function TrendingFlatList({
+  items, topPad, refreshing, onRefresh, onPress,
+}: {
+  items: ContentItem[];
+  topPad: number;
+  refreshing: boolean;
+  onRefresh: () => void;
+  onPress: (item: ContentItem) => void;
+}) {
+  const enrichMap = useTmdbEnrichMap(items);
+  return (
+    <FlatList
+      data={items}
+      keyExtractor={(item, i) => `tr_${item.id}_${i}`}
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={{ paddingTop: topPad + 96, paddingBottom: 160 }}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh}
+          tintColor={RED} colors={[RED]} progressViewOffset={topPad + 96} />
+      }
+      renderItem={({ item }) => (
+        <NovidadesVerticalCard
+          item={item}
+          type="trending"
+          onPress={() => onPress(item)}
+          enrich={enrichMap.get(item.tmdbId ?? 0)}
+        />
+      )}
+      ListEmptyComponent={
+        <View style={{ alignItems: "center", paddingTop: 80 }}>
+          <ActivityIndicator color={RED} size="large" />
+        </View>
+      }
+    />
+  );
+}
+
+// ─── UpcomingFlatList (Em breve) ───────────────────────────────────────────────
+function UpcomingFlatList({
+  items, topPad, refreshing, onRefresh, onPress,
+}: {
+  items: Array<{ item: ContentItem; releaseDate: string }>;
+  topPad: number;
+  refreshing: boolean;
+  onRefresh: () => void;
+  onPress: (item: ContentItem) => void;
+}) {
+  const contentItems = useMemo(() => items.map(i => i.item), [items]);
+  const enrichMap = useTmdbEnrichMap(contentItems);
+  return (
+    <FlatList
+      data={items}
+      keyExtractor={(_, i) => `up_${i}`}
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={{ paddingTop: topPad + 96, paddingBottom: 160 }}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh}
+          tintColor={RED} colors={[RED]} progressViewOffset={topPad + 96} />
+      }
+      renderItem={({ item: { item, releaseDate } }) => (
+        <NovidadesVerticalCard
+          item={item}
+          releaseDate={releaseDate}
+          type="upcoming"
+          onPress={() => onPress(item)}
+          enrich={enrichMap.get(item.tmdbId ?? 0)}
+        />
+      )}
+      ListEmptyComponent={
+        <View style={{ alignItems: "center", paddingTop: 80 }}>
+          <Feather name="calendar" size={40} color="rgba(255,255,255,0.12)" />
+          <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 14, marginTop: 12 }}>
+            Nenhum lançamento em breve
+          </Text>
+        </View>
+      }
+    />
+  );
+}
+
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function NovidadesScreen() {
   const colors = useColors();
@@ -2396,24 +2477,12 @@ export default function NovidadesScreen() {
           <ActivityIndicator size="large" color={RED} />
         </View>
       ) : activeTab === "embreve" ? (
-        <FlatList
-          data={upcomingItems}
-          keyExtractor={(_, i) => `up_${i}`}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingTop: topPad + 96, paddingBottom: 160 }}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh}
-              tintColor={RED} colors={[RED]} progressViewOffset={topPad + 96} />
-          }
-          renderItem={({ item: { item, releaseDate } }) => (
-            <NovidadesVerticalCard item={item} releaseDate={releaseDate} type="upcoming" onPress={() => goTo(item)} />
-          )}
-          ListEmptyComponent={
-            <View style={{ alignItems: "center", paddingTop: 80 }}>
-              <Feather name="calendar" size={40} color="rgba(255,255,255,0.12)" />
-              <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 14, marginTop: 12 }}>Nenhum lançamento em breve</Text>
-            </View>
-          }
+        <UpcomingFlatList
+          items={upcomingItems}
+          topPad={topPad}
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          onPress={goTo}
         />
       ) : activeTab === "filmes" ? (
         <CategoryFlatList
@@ -2471,27 +2540,16 @@ export default function NovidadesScreen() {
           onPress={goTo}
         />
       ) : (
-        <FlatList
-          data={[...heroBannerItems, ...newMovies.slice(0, 6), ...newSeries.slice(0, 6)].filter(
+        <TrendingFlatList
+          items={[...heroBannerItems, ...newMovies.slice(0, 6), ...newSeries.slice(0, 6)].filter(
             (item, idx, arr) =>
               arr.findIndex(x => (x.tmdbId ?? 0) === (item.tmdbId ?? 0) && (x.tmdbId ?? 0) > 0) === idx ||
               (item.tmdbId ?? 0) === 0
           )}
-          keyExtractor={(item, i) => `tr_${item.id}_${i}`}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingTop: topPad + 96, paddingBottom: 160 }}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh}
-              tintColor={RED} colors={[RED]} progressViewOffset={topPad + 96} />
-          }
-          renderItem={({ item }) => (
-            <NovidadesVerticalCard item={item} type="trending" onPress={() => goTo(item)} />
-          )}
-          ListEmptyComponent={
-            <View style={{ alignItems: "center", paddingTop: 80 }}>
-              <ActivityIndicator color={RED} size="large" />
-            </View>
-          }
+          topPad={topPad}
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          onPress={goTo}
         />
       )}
 
