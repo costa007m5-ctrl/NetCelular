@@ -1824,54 +1824,71 @@ type EnrichData = {
 
 // Batch-fetches logo + backdrop + overview for a list of items so every card
 // has its data ready instantly (no per-card lazy fetch delay).
-function useTmdbEnrichMap(items: ContentItem[]): Map<number, EnrichData> {
-  const [enrichMap, setEnrichMap] = useState<Map<number, EnrichData>>(new Map());
+// Keyed by item.id (string) to avoid collisions when tmdbId = 0.
+function useTmdbEnrichMap(items: ContentItem[]): Map<string, EnrichData> {
+  const [enrichMap, setEnrichMap] = useState<Map<string, EnrichData>>(new Map());
   const idsKey = useMemo(
-    () => items.map(i => i.tmdbId ?? 0).filter(Boolean).join(","),
+    () => items.map(i => `${i.id}:${i.tmdbId ?? 0}`).join(","),
     [items],
   );
 
   useEffect(() => {
-    if (!idsKey) return;
-    const toFetch = items.filter(i => (i.tmdbId ?? 0) > 0);
+    if (!items.length) return;
     let cancelled = false;
     const BATCH = 4;
 
     const process = async () => {
-      for (let bi = 0; bi < toFetch.length; bi += BATCH) {
+      for (let bi = 0; bi < items.length; bi += BATCH) {
         if (cancelled) return;
-        const batch = toFetch.slice(bi, bi + BATCH);
+        const batch = items.slice(bi, bi + BATCH);
         const results = await Promise.all(
-          batch.map(async (it): Promise<[number, EnrichData]> => {
-            const id = it.tmdbId!;
+          batch.map(async (it): Promise<[string, EnrichData]> => {
+            const itemKey = it.id;
+            const tmdbId = it.tmdbId ?? 0;
             const mt = it.mediaType ?? (it.type === "movie" ? "movie" : "tv");
+            const searchType = mt === "movie" ? "movie" : "tv";
             try {
-              const [det, logo] = await Promise.allSettled([
-                mt === "movie" ? api.tmdb.movie(id) : api.tmdb.tv(id),
-                api.tmdb.franchiseLogo(mt, id),
-              ]);
-              const d = det.status === "fulfilled" ? (det.value as any) : null;
-              const l = logo.status === "fulfilled" ? logo.value : null;
+              if (tmdbId > 0) {
+                // Normal path: fetch details + logo by TMDB ID
+                const [det, logo] = await Promise.allSettled([
+                  mt === "movie" ? api.tmdb.movie(tmdbId) : api.tmdb.tv(tmdbId),
+                  api.tmdb.franchiseLogo(mt, tmdbId),
+                ]);
+                const d = det.status === "fulfilled" ? (det.value as any) : null;
+                const l = logo.status === "fulfilled" ? logo.value : null;
 
-              // When TMDB returns empty overview, try a title search as fallback
-              let overview: string | null = d?.overview || null;
-              if (!overview && it.title) {
-                try {
-                  const searchType = mt === "movie" ? "movie" : "tv";
-                  const sr = await api.tmdb.search(it.title, searchType);
-                  const hit = (sr as any)?.results?.[0];
-                  if (hit?.overview) overview = hit.overview;
-                } catch { /* ignore search errors */ }
+                // When TMDB returns empty overview, try title search as fallback
+                let overview: string | null = d?.overview || null;
+                if (!overview && it.title) {
+                  try {
+                    const sr = await api.tmdb.search(it.title, searchType);
+                    const hit = (sr as any)?.results?.[0];
+                    if (hit?.overview) overview = hit.overview;
+                  } catch { /* ignore */ }
+                }
+
+                return [itemKey, {
+                  backdropUrl: d?.backdrop_path ? (TMDB_IMG(d.backdrop_path, "w780") ?? null) : null,
+                  overview,
+                  logoUrl: (l as any)?.logo_path ? (resolveImgUrl((l as any).logo_path, "w300") ?? null) : null,
+                }];
+              } else if (it.title) {
+                // No TMDB ID: resolve via title search to get overview + logo + backdrop
+                const sr = await api.tmdb.search(it.title, searchType);
+                const hit = (sr as any)?.results?.[0];
+                if (!hit) return [itemKey, { backdropUrl: null, overview: null, logoUrl: null }];
+
+                const foundId = hit.id as number;
+                const logo = await api.tmdb.franchiseLogo(mt, foundId).catch(() => null);
+
+                return [itemKey, {
+                  backdropUrl: hit.backdrop_path ? (TMDB_IMG(hit.backdrop_path, "w780") ?? null) : null,
+                  overview: hit.overview || null,
+                  logoUrl: (logo as any)?.logo_path ? (resolveImgUrl((logo as any).logo_path, "w300") ?? null) : null,
+                }];
               }
-
-              return [id, {
-                backdropUrl: d?.backdrop_path ? (TMDB_IMG(d.backdrop_path, "w780") ?? null) : null,
-                overview,
-                logoUrl: l?.logo_path ? (resolveImgUrl(l.logo_path, "w300") ?? null) : null,
-              }];
-            } catch {
-              return [id, { backdropUrl: null, overview: null, logoUrl: null }];
-            }
+            } catch { /* ignore */ }
+            return [itemKey, { backdropUrl: null, overview: null, logoUrl: null }];
           }),
         );
         if (cancelled) return;
@@ -1880,7 +1897,7 @@ function useTmdbEnrichMap(items: ContentItem[]): Map<number, EnrichData> {
           for (const [id, d] of results) next.set(id, d);
           return next;
         });
-        if (bi + BATCH < toFetch.length) await new Promise(r => setTimeout(r, 150));
+        if (bi + BATCH < items.length) await new Promise(r => setTimeout(r, 150));
       }
     };
 
@@ -1921,7 +1938,7 @@ function CategoryFlatList({
           item={item}
           type="trending"
           onPress={() => onPress(item)}
-          enrich={enrichMap.get(item.tmdbId ?? 0)}
+          enrich={enrichMap.get(item.id)}
         />
       )}
       ListEmptyComponent={
@@ -1963,7 +1980,7 @@ function TrendingFlatList({
           item={item}
           type="trending"
           onPress={() => onPress(item)}
-          enrich={enrichMap.get(item.tmdbId ?? 0)}
+          enrich={enrichMap.get(item.id)}
         />
       )}
       ListEmptyComponent={
@@ -2003,7 +2020,7 @@ function UpcomingFlatList({
           releaseDate={releaseDate}
           type="upcoming"
           onPress={() => onPress(item)}
-          enrich={enrichMap.get(item.tmdbId ?? 0)}
+          enrich={enrichMap.get(item.id)}
         />
       )}
       ListEmptyComponent={
