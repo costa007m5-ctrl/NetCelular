@@ -156,7 +156,7 @@ function formatDate(dateStr: string): string {
 
 async function fetchWhatsNew(attempt = 0): Promise<WhatsNewResp | null> {
   try {
-    const res = await r2Route<WhatsNewResp>("/flix2/whats-new?days=90&limit=150");
+    const res = await r2Route<WhatsNewResp>("/flix2/whats-new?days=30&limit=200");
     // Only retry when we have ZERO items — if series/animes are available, show them
     // immediately even if movies is still warming (movies may never warm in production).
     const hasData = (res.total ?? 0) > 0;
@@ -1712,6 +1712,45 @@ const pillsNf = StyleSheet.create({
   labelActive: { color: "#000" },
 });
 
+// ─── CategoryFlatList ─────────────────────────────────────────────────────────
+function CategoryFlatList({
+  items, keyPrefix, emptyIcon, emptyText, topPad, refreshing, onRefresh, onPress,
+}: {
+  items: ContentItem[];
+  keyPrefix: string;
+  emptyIcon: keyof typeof Feather.glyphMap;
+  emptyText: string;
+  topPad: number;
+  refreshing: boolean;
+  onRefresh: () => void;
+  onPress: (item: ContentItem) => void;
+}) {
+  return (
+    <FlatList
+      data={items}
+      keyExtractor={(item, i) => `${keyPrefix}_${item.id}_${i}`}
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={{ paddingTop: topPad + 96, paddingBottom: 160 }}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh}
+          tintColor={RED} colors={[RED]} progressViewOffset={topPad + 96} />
+      }
+      renderItem={({ item }) => (
+        <NovidadesVerticalCard item={item} type="trending" onPress={() => onPress(item)} />
+      )}
+      ListEmptyComponent={
+        <View style={{ alignItems: "center", paddingTop: 80, gap: 12 }}>
+          <Feather name={emptyIcon} size={40} color="rgba(255,255,255,0.12)" />
+          <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 14, textAlign: "center", paddingHorizontal: 32 }}>
+            {emptyText}
+          </Text>
+          <ActivityIndicator color={RED} size="small" style={{ marginTop: 8 }} />
+        </View>
+      }
+    />
+  );
+}
+
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function NovidadesScreen() {
   const colors = useColors();
@@ -1729,8 +1768,9 @@ export default function NovidadesScreen() {
     visible: false, title: "", items: [], accent: RED,
   });
 
-  const [activeTab, setActiveTab] = useState<"embreve" | "assistindo">("embreve");
+  const [activeTab, setActiveTab] = useState<"embreve" | "assistindo" | "filmes" | "series" | "dorama" | "animes" | "animacao">("embreve");
   const [doramas, setDoramas] = useState<ContentItem[]>([]);
+  const [animations, setAnimations] = useState<ContentItem[]>([]);
 
   const openModal = (title: string, items: ContentItem[], accent = RED) =>
     setModal({ visible: true, title, items, accent });
@@ -1805,11 +1845,37 @@ export default function NovidadesScreen() {
   }, [load]);
 
   useEffect(() => {
-    r2Route<{ results: TmdbItem[] }>("/tmdb/discover?type=tv&with_origin_country=KR&sort_by=popularity.desc")
+    const since30 = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+    r2Route<{ results: TmdbItem[] }>(
+      `/tmdb/discover?type=tv&with_origin_country=KR&sort_by=popularity.desc&first_air_date.gte=${since30}`
+    )
       .then((res) => {
         if (res.results?.length) setDoramas(res.results.map(tmdbItemToContent));
       })
-      .catch(() => {});
+      .catch(() => {
+        r2Route<{ results: TmdbItem[] }>("/tmdb/discover?type=tv&with_origin_country=KR&sort_by=popularity.desc")
+          .then((res2) => { if (res2.results?.length) setDoramas(res2.results.map(tmdbItemToContent)); })
+          .catch(() => {});
+      });
+  }, []);
+
+  useEffect(() => {
+    const since30 = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+    Promise.allSettled([
+      r2Route<{ results: TmdbItem[] }>(
+        `/tmdb/discover?type=movie&with_genres=16&sort_by=popularity.desc&primary_release_date.gte=${since30}`
+      ),
+      r2Route<{ results: TmdbItem[] }>(
+        `/tmdb/discover?type=tv&with_genres=16&sort_by=popularity.desc&first_air_date.gte=${since30}`
+      ),
+    ]).then(([movRes, tvRes]) => {
+      const movs = movRes.status === "fulfilled" ? (movRes.value.results ?? []) : [];
+      const tvs  = tvRes.status  === "fulfilled" ? (tvRes.value.results  ?? []) : [];
+      const merged = [...movs, ...tvs].sort((a, b) => (b.popularity ?? 0) - (a.popularity ?? 0));
+      const seen = new Set<number>();
+      const unique = merged.filter(i => { if (seen.has(i.id)) return false; seen.add(i.id); return true; });
+      if (unique.length) setAnimations(unique.map(tmdbItemToContent));
+    }).catch(() => {});
   }, []);
 
   // ── Top 10 Em Alta Agora ─────────────────────────────────────────────────
@@ -2126,8 +2192,13 @@ export default function NovidadesScreen() {
         >
           {(
             [
-              { id: "embreve" as const, emoji: "🍿", label: "Em breve" },
-              { id: "assistindo" as const, emoji: "🔥", label: "Todo mundo está assistindo" },
+              { id: "embreve" as const,    emoji: "🍿", label: "Em breve" },
+              { id: "assistindo" as const, emoji: "🔥", label: "Todo mundo" },
+              { id: "filmes" as const,     emoji: "🎬", label: "Filmes" },
+              { id: "series" as const,     emoji: "📺", label: "Séries" },
+              { id: "dorama" as const,     emoji: "🌸", label: "Dorama" },
+              { id: "animes" as const,     emoji: "⛩️", label: "Animes JP" },
+              { id: "animacao" as const,   emoji: "🎨", label: "Animação" },
             ] as const
           ).map(tab => (
             <TouchableOpacity
@@ -2157,30 +2228,73 @@ export default function NovidadesScreen() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingTop: topPad + 96, paddingBottom: 160 }}
           refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor={RED}
-              colors={[RED]}
-              progressViewOffset={topPad + 96}
-            />
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh}
+              tintColor={RED} colors={[RED]} progressViewOffset={topPad + 96} />
           }
           renderItem={({ item: { item, releaseDate } }) => (
-            <NovidadesVerticalCard
-              item={item}
-              releaseDate={releaseDate}
-              type="upcoming"
-              onPress={() => goTo(item)}
-            />
+            <NovidadesVerticalCard item={item} releaseDate={releaseDate} type="upcoming" onPress={() => goTo(item)} />
           )}
           ListEmptyComponent={
             <View style={{ alignItems: "center", paddingTop: 80 }}>
               <Feather name="calendar" size={40} color="rgba(255,255,255,0.12)" />
-              <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 14, marginTop: 12 }}>
-                Nenhum lançamento em breve
-              </Text>
+              <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 14, marginTop: 12 }}>Nenhum lançamento em breve</Text>
             </View>
           }
+        />
+      ) : activeTab === "filmes" ? (
+        <CategoryFlatList
+          items={newMovies}
+          keyPrefix="film"
+          emptyIcon="film"
+          emptyText="Nenhum filme novo nos últimos 30 dias"
+          topPad={topPad}
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          onPress={goTo}
+        />
+      ) : activeTab === "series" ? (
+        <CategoryFlatList
+          items={newSeries}
+          keyPrefix="ser"
+          emptyIcon="tv"
+          emptyText="Nenhuma série nova nos últimos 30 dias"
+          topPad={topPad}
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          onPress={goTo}
+        />
+      ) : activeTab === "dorama" ? (
+        <CategoryFlatList
+          items={doramas}
+          keyPrefix="dor"
+          emptyIcon="heart"
+          emptyText="Nenhum dorama disponível no momento"
+          topPad={topPad}
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          onPress={goTo}
+        />
+      ) : activeTab === "animes" ? (
+        <CategoryFlatList
+          items={newAnimes}
+          keyPrefix="ani"
+          emptyIcon="star"
+          emptyText="Nenhum anime novo nos últimos 30 dias"
+          topPad={topPad}
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          onPress={goTo}
+        />
+      ) : activeTab === "animacao" ? (
+        <CategoryFlatList
+          items={animations}
+          keyPrefix="anim"
+          emptyIcon="play-circle"
+          emptyText="Nenhuma animação disponível nos últimos 30 dias"
+          topPad={topPad}
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          onPress={goTo}
         />
       ) : (
         <FlatList
@@ -2193,20 +2307,11 @@ export default function NovidadesScreen() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingTop: topPad + 96, paddingBottom: 160 }}
           refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor={RED}
-              colors={[RED]}
-              progressViewOffset={topPad + 96}
-            />
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh}
+              tintColor={RED} colors={[RED]} progressViewOffset={topPad + 96} />
           }
           renderItem={({ item }) => (
-            <NovidadesVerticalCard
-              item={item}
-              type="trending"
-              onPress={() => goTo(item)}
-            />
+            <NovidadesVerticalCard item={item} type="trending" onPress={() => goTo(item)} />
           )}
           ListEmptyComponent={
             <View style={{ alignItems: "center", paddingTop: 80 }}>
