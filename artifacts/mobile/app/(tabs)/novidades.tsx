@@ -131,8 +131,9 @@ function wn2Content(item: WhatsNewItem): ContentItem {
     title: item.title ?? "",
     year: item.year || 0,
     rating: item.rating ?? 0,
-    posterPath: item.poster ?? "",
-    backdropPath: item.backdrop ?? item.poster ?? "",
+    // Use || (not ??) so empty strings fall through to the fallback
+    posterPath: item.poster || item.backdrop || "",
+    backdropPath: item.backdrop || item.poster || "",
     description: item.overview ?? "",
     genres: [],
     type: isMovie ? "movie" : "series",
@@ -1817,6 +1818,17 @@ function NovidadesVerticalCard({
         {!logoUrl && (
           <Text style={nvc.title} numberOfLines={2}>{item.title}</Text>
         )}
+        {/* Episode count badge — always visible for series once loaded */}
+        {epCount != null && item.type !== "movie" && (
+          <View style={nvc.epCountRow}>
+            <View style={nvc.epCountBadge}>
+              <Feather name="play-circle" size={10} color={GREEN} />
+              <Text style={nvc.epCountTxt}>
+                {epCount === 1 ? "1 ep disponível" : `${epCount} eps disponíveis`}
+              </Text>
+            </View>
+          </View>
+        )}
         {item.rating > 0 && (
           <View style={nvc.metaRow}>
             {item.year > 0 && <Text style={nvc.metaYear}>{item.year}</Text>}
@@ -1825,15 +1837,6 @@ function NovidadesVerticalCard({
               <Text style={nvc.metaRating}>{item.rating.toFixed(1)}</Text>
             </View>
             {!!(item.genres?.[0]) && <Text style={nvc.metaGenre}>{item.genres[0]}</Text>}
-            {/* New episode count badge — only for series */}
-            {epCount != null && item.type !== "movie" && (
-              <View style={nvc.epCountBadge}>
-                <Feather name="play-circle" size={9} color={GREEN} />
-                <Text style={nvc.epCountTxt}>
-                  {epCount === 1 ? "1 ep" : `${epCount} eps`}
-                </Text>
-              </View>
-            )}
           </View>
         )}
         {!!overview && (
@@ -1926,14 +1929,17 @@ const nvc = StyleSheet.create({
   },
   btnTxt: { fontSize: 15, fontWeight: "800", color: "#fff" },
   divider: { height: 8, backgroundColor: "rgba(255,255,255,0.035)" },
+  epCountRow: {
+    flexDirection: "row", alignItems: "center", marginBottom: 8,
+  },
   epCountBadge: {
-    flexDirection: "row", alignItems: "center", gap: 4,
-    backgroundColor: `${GREEN}22`, borderRadius: 10,
+    flexDirection: "row", alignItems: "center", gap: 5,
+    backgroundColor: `${GREEN}22`, borderRadius: 12,
     borderWidth: 1, borderColor: `${GREEN}55`,
-    paddingHorizontal: 7, paddingVertical: 2,
+    paddingHorizontal: 9, paddingVertical: 4,
   },
   epCountTxt: {
-    fontSize: 10, fontWeight: "800", color: GREEN, letterSpacing: 0.3,
+    fontSize: 11, fontWeight: "800", color: GREEN, letterSpacing: 0.3,
   },
 });
 

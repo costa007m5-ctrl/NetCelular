@@ -4000,6 +4000,87 @@ router.get("/flix2/stream-url", async (req, res) => {
   }
 });
 
+// ── GET /flix2/preview-proxy?url=<encoded> ────────────────────────────────────
+// Proxies a flix2 stream URL server-side so the Expo Web client (HTTPS page)
+// can load HTTP CDN streams without mixed-content blocks.
+// Follows HTTPS→HTTP redirects that browsers refuse to follow in HTTPS context.
+const FLIX2_ALLOWED_HOSTS = [
+  "fontedecanais.com", "cineveo.lat", "nixplay.lat", "vod99.cineveo.lat",
+  "vod.fontedecanais.com", "cdn.fontedecanais.com", "stream.fontedecanais.com",
+  "hubby.cx", "animezey.workers.dev",
+];
+function isAllowedFlix2Host(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return FLIX2_ALLOWED_HOSTS.some(h => host === h || host.endsWith("." + h));
+  } catch { return false; }
+}
+
+router.get("/flix2/preview-proxy", async (req: any, res: any) => {
+  const rawUrl = String(req.query.url ?? "").trim();
+  if (!rawUrl) { res.status(400).json({ error: "url is required" }); return; }
+
+  // Resolve nixplay/other redirects to final CDN URL first
+  let targetUrl = rawUrl;
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 8000);
+    const headResp = await fetch(rawUrl, { method: "HEAD", redirect: "manual", signal: ctrl.signal,
+      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120" } });
+    clearTimeout(t);
+    const loc = headResp.headers.get("location");
+    if (loc && (headResp.status === 301 || headResp.status === 302 || headResp.status === 303 || headResp.status === 307 || headResp.status === 308)) {
+      targetUrl = loc.startsWith("http") ? loc : new URL(loc, rawUrl).href;
+    }
+  } catch { /* keep rawUrl */ }
+
+  if (!isAllowedFlix2Host(rawUrl) && !isAllowedFlix2Host(targetUrl)) {
+    res.status(403).json({ error: "URL not from allowed flix2 host" }); return;
+  }
+
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 30_000);
+    const upHeaders: Record<string, string> = {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+      "Accept": "*/*",
+      "Accept-Encoding": "identity",
+    };
+    const rangeHdr = req.headers["range"];
+    if (rangeHdr) upHeaders["Range"] = rangeHdr;
+
+    const upstream = await fetch(targetUrl, { signal: ctrl.signal, headers: upHeaders });
+    clearTimeout(t);
+
+    res.status(upstream.status);
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Accept-Ranges", "bytes");
+    const ct = upstream.headers.get("content-type");
+    res.set("Content-Type", ct || "video/mp4");
+    const cl = upstream.headers.get("content-length");
+    if (cl) res.set("Content-Length", cl);
+    const cr = upstream.headers.get("content-range");
+    if (cr) res.set("Content-Range", cr);
+
+    if (!upstream.body) { res.end(); return; }
+    const reader = (upstream.body as any).getReader();
+    const pump = async () => {
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const ok = res.write(Buffer.from(value));
+          if (!ok) await new Promise<void>((r) => res.once("drain", r));
+        }
+        res.end();
+      } catch { res.end(); }
+    };
+    pump();
+  } catch {
+    if (!res.headersSent) res.status(502).json({ error: "upstream error" });
+  }
+});
+
 // ── GET /flix2/debug-url?streamUrl=<encoded> ──────────────────────────────────
 // Diagnostic endpoint: traces the full chain for any Flix2 stream URL.
 // Returns CDN domain, resolved URL, HTTP status, content type (HLS/MP4),
