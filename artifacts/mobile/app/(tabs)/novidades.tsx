@@ -30,6 +30,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { ProfileAvatarButton } from "@/components/ProfileAvatarButton";
 import { r2Route } from "@/lib/r2-direct";
+import { getProxiedStreamUrl } from "@/lib/gdrive-index";
 import { api, TMDB_IMG, tmdbItemToContent, type TmdbItem } from "@/lib/api";
 import type { ContentItem } from "@/constants/content";
 import { getMergedPreferences } from "@/lib/smart-preferences";
@@ -1752,10 +1753,10 @@ function NovidadesVerticalCard({
           />
         )}
 
-        {/* Layer 2b: HTML5 video (web only) */}
+        {/* Layer 2b: HTML5 video (web only) — stream proxied via /api/stream/proxy to avoid CORS */}
         {canPlayVideoWeb && React.createElement("video", {
           ref: webVideoRef,
-          src: streamUrl!,
+          src: getProxiedStreamUrl(streamUrl!),
           autoPlay: true,
           muted: true,
           playsInline: true,
