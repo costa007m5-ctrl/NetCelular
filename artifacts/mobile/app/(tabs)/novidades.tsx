@@ -1721,8 +1721,8 @@ function NovidadesVerticalCard({
           <LinearGradient colors={["#1a0814", "#0e060c"]} style={StyleSheet.absoluteFill} />
         )}
 
-        {/* Layer 2a: WebView video (native) — overlaid on top of image, fades in when ready */}
-        {isVideoPlaying && canPlayVideo && !vidErrored && (
+        {/* Layer 2a: WebView video (native) — auto-plays on top of image, fades in when ready */}
+        {canPlayVideo && !vidErrored && (
           <WebViewEp
             ref={nativeWebViewRef}
             style={[StyleSheet.absoluteFill, { opacity: vidReady ? 1 : 0 }]}
@@ -1769,35 +1769,23 @@ function NovidadesVerticalCard({
           />
         </View>
 
-        {/* Play preview button — shown when stream URL is ready and video not yet started */}
-        {!!streamUrl && !isVideoPlaying && IS_NATIVE_EP && WebViewEp !== null && (
-          <TouchableOpacity
-            style={nvc.previewPlayBtn}
-            onPress={() => { setIsVideoPlaying(true); setVidReady(false); setVidErrored(false); }}
-            activeOpacity={0.8}
-          >
-            <Feather name="play" size={14} color="#fff" />
-            <Text style={nvc.previewPlayTxt}>Prévia</Text>
-          </TouchableOpacity>
-        )}
-
-        {/* Loading spinner while video initializes */}
-        {isVideoPlaying && !vidReady && !vidErrored && (
+        {/* Loading spinner — shown while video is buffering */}
+        {canPlayVideo && !vidReady && !vidErrored && (
           <View style={nvc.previewLoading}>
             <ActivityIndicator size="small" color="#fff" />
           </View>
         )}
 
-        {/* PRÉVIA badge — shown when video is actively playing */}
-        {isVideoPlaying && vidReady && (
+        {/* PRÉVIA badge — shown when video is playing */}
+        {(canPlayVideo && vidReady) && (
           <View style={nvc.previewBadge}>
             <View style={nvc.previewDot} />
             <Text style={nvc.previewBadgeTxt}>PRÉVIA</Text>
           </View>
         )}
 
-        {/* Mute/Unmute button — only shown while video is playing */}
-        {(isVideoPlaying || canPlayVideoWeb) && (
+        {/* Mute/Unmute button — shown while video is active */}
+        {(canPlayVideo || canPlayVideoWeb) && (
           <TouchableOpacity
             style={nvc.muteBtn}
             onPress={handleMuteToggle}
@@ -1858,7 +1846,7 @@ function NovidadesVerticalCard({
             <View style={nvc.epCountBadge}>
               <Feather name="play-circle" size={10} color={GREEN} />
               <Text style={nvc.epCountTxt}>
-                {epCount === 1 ? "1 ep disponível" : `${epCount} eps disponíveis`}
+                {epCount === 1 ? "1 novo ep" : `${epCount} novos ep`}
               </Text>
             </View>
           </View>
@@ -2115,7 +2103,7 @@ function useTmdbEnrichMap(items: ContentItem[]): Map<string, EnrichData> {
 
 // ─── CategoryFlatList ─────────────────────────────────────────────────────────
 function CategoryFlatList({
-  items, keyPrefix, emptyIcon, emptyText, topPad, refreshing, onRefresh, onPress,
+  items, keyPrefix, emptyIcon, emptyText, topPad, refreshing, onRefresh, onPress, listHeader,
 }: {
   items: ContentItem[];
   keyPrefix: string;
@@ -2125,6 +2113,7 @@ function CategoryFlatList({
   refreshing: boolean;
   onRefresh: () => void;
   onPress: (item: ContentItem) => void;
+  listHeader?: React.ReactNode;
 }) {
   const enrichMap = useTmdbEnrichMap(items);
 
@@ -2134,6 +2123,7 @@ function CategoryFlatList({
       keyExtractor={(item, i) => `${keyPrefix}_${item.id}_${i}`}
       showsVerticalScrollIndicator={false}
       contentContainerStyle={{ paddingTop: topPad + 96, paddingBottom: 160 }}
+      ListHeaderComponent={listHeader ? <>{listHeader}</> : null}
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh}
           tintColor={RED} colors={[RED]} progressViewOffset={topPad + 96} />
@@ -2768,6 +2758,40 @@ export default function NovidadesScreen() {
           refreshing={refreshing}
           onRefresh={onRefresh}
           onPress={goTo}
+          listHeader={
+            epGroups.length > 0 ? (
+              <View style={{ marginBottom: 8 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingBottom: 10, gap: 8 }}>
+                  <View style={{ width: 3, height: 18, borderRadius: 2, backgroundColor: TEAL }} />
+                  <Text style={{ fontSize: 15, fontWeight: "800", color: "#fff" }}>Novos Episódios</Text>
+                  <View style={{ flex: 1 }} />
+                  {epLoading && <ActivityIndicator size="small" color={TEAL} />}
+                </View>
+                <FlatList
+                  horizontal
+                  data={epGroups}
+                  keyExtractor={g => `epg_${g.seriesId}`}
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 4 }}
+                  renderItem={({ item: g }) => (
+                    <EpisodeCard
+                      group={g}
+                      onPress={handleEpCardPress}
+                      onSynopsis={handleEpSynopsis}
+                    />
+                  )}
+                />
+              </View>
+            ) : epLoading ? (
+              <View style={{ paddingHorizontal: 16, paddingBottom: 16 }}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                  <View style={{ width: 3, height: 18, borderRadius: 2, backgroundColor: TEAL }} />
+                  <Text style={{ fontSize: 15, fontWeight: "800", color: "#fff" }}>Novos Episódios</Text>
+                  <ActivityIndicator size="small" color={TEAL} style={{ marginLeft: 4 }} />
+                </View>
+              </View>
+            ) : null
+          }
         />
       ) : activeTab === "dorama" ? (
         <CategoryFlatList
