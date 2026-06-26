@@ -1594,11 +1594,14 @@ function NovidadesVerticalCard({
   const [stillUrls, setStillUrls]       = useState<string[]>([]);
   const [stillIdx, setStillIdx]         = useState(0);
   const [muted, setMuted]               = useState(true);
-  const [isVideoPlaying, setIsVideoPlaying] = useState(false);
   const [vidReady, setVidReady]         = useState(false);
   const [vidErrored, setVidErrored]     = useState(false);
+  const [userRequestedPlay, setUserRequestedPlay] = useState(false);
+  const [isVisible, setIsVisible]       = useState(false);
+  const [webVidPlaying, setWebVidPlaying] = useState(false);
   const nativeWebViewRef = useRef<any>(null);
   const webVideoRef      = useRef<any>(null);
+  const containerRef     = useRef<View>(null);
 
   // All metadata comes from the batch-pre-fetched enrich prop — instant, no delay
   const logoUrl    = (!logoErr && enrich?.logoUrl)    ? enrich.logoUrl    : null;
@@ -1633,6 +1636,30 @@ function NovidadesVerticalCard({
       return next;
     });
   }, []);
+
+  // Web-only: IntersectionObserver to detect when card enters/leaves viewport
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof IntersectionObserver === "undefined") return;
+    const el = containerRef.current as unknown as Element;
+    if (!el) return;
+    const obs = new IntersectionObserver(
+      ([entry]) => setIsVisible(entry.intersectionRatio >= 0.5),
+      { threshold: 0.5 }
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+
+  // Web: auto-play when visible or user tapped play; pause when scrolled away
+  useEffect(() => {
+    if (IS_NATIVE_EP || !webVideoRef.current) return;
+    const shouldPlay = (isVisible || userRequestedPlay) && !!streamUrl;
+    if (shouldPlay) {
+      webVideoRef.current.play?.().catch(() => {});
+    } else {
+      webVideoRef.current.pause?.();
+    }
+  }, [isVisible, userRequestedPlay, streamUrl]);
 
   // Lazy-fetch stream URL (flix2) + episode stills (TMDB) for video preview
   useEffect(() => {
@@ -1714,7 +1741,7 @@ function NovidadesVerticalCard({
   }, [releaseDate]);
 
   return (
-    <View style={nvc.wrap}>
+    <View ref={containerRef} style={nvc.wrap}>
       {/* ── 16:9 Backdrop / Video Preview ── */}
       <View style={nvc.imgWrap}>
         {/* Layer 1: backdrop image — always visible as base */}
@@ -1757,8 +1784,8 @@ function NovidadesVerticalCard({
         {canPlayVideoWeb && React.createElement("video", {
           ref: webVideoRef,
           src: getProxiedStreamUrl(streamUrl!),
-          autoPlay: true,
-          muted: true,
+          autoPlay: false,
+          muted: muted,
           playsInline: true,
           loop: true,
           style: {
@@ -1766,7 +1793,9 @@ function NovidadesVerticalCard({
             width: "100%", height: "100%",
             objectFit: "cover",
           },
-          onError: () => setStreamUrl(null),
+          onPlay: () => setWebVidPlaying(true),
+          onPause: () => setWebVidPlaying(false),
+          onError: () => { setStreamUrl(null); setWebVidPlaying(false); },
         })}
 
         {/* Gradient overlay — non-interactive, always on top */}
@@ -1778,15 +1807,32 @@ function NovidadesVerticalCard({
           />
         </View>
 
-        {/* Loading spinner — shown while video is buffering */}
+        {/* Play button overlay — tap to start preview (web) or native loading */}
+        {!canPlayVideo && !webVidPlaying && (
+          <TouchableOpacity
+            style={nvc.playBtnOverlay}
+            onPress={() => setUserRequestedPlay(true)}
+            activeOpacity={0.75}
+          >
+            <View style={nvc.playBtnCircle}>
+              {userRequestedPlay && !streamUrl ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Feather name="play" size={24} color="#fff" style={{ marginLeft: 3 }} />
+              )}
+            </View>
+          </TouchableOpacity>
+        )}
+
+        {/* Loading spinner — native buffering */}
         {canPlayVideo && !vidReady && !vidErrored && (
           <View style={nvc.previewLoading}>
             <ActivityIndicator size="small" color="#fff" />
           </View>
         )}
 
-        {/* PRÉVIA badge — shown when video is playing */}
-        {(canPlayVideo && vidReady) && (
+        {/* PRÉVIA badge — native or web */}
+        {((canPlayVideo && vidReady) || webVidPlaying) && (
           <View style={nvc.previewBadge}>
             <View style={nvc.previewDot} />
             <Text style={nvc.previewBadgeTxt}>PRÉVIA</Text>
@@ -1794,7 +1840,7 @@ function NovidadesVerticalCard({
         )}
 
         {/* Mute/Unmute button — shown while video is active */}
-        {(canPlayVideo || canPlayVideoWeb) && (
+        {(canPlayVideo || webVidPlaying) && (
           <TouchableOpacity
             style={nvc.muteBtn}
             onPress={handleMuteToggle}
@@ -1995,6 +2041,16 @@ const nvc = StyleSheet.create({
   },
   previewDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: "#fff" },
   previewBadgeTxt: { fontSize: 8, fontWeight: "900", color: "#fff", letterSpacing: 0.8 },
+  playBtnOverlay: {
+    position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
+    alignItems: "center", justifyContent: "center",
+  },
+  playBtnCircle: {
+    width: 58, height: 58, borderRadius: 29,
+    backgroundColor: "rgba(0,0,0,0.58)",
+    borderWidth: 2, borderColor: "rgba(255,255,255,0.55)",
+    alignItems: "center", justifyContent: "center",
+  },
 });
 
 const pillsNf = StyleSheet.create({
