@@ -1638,24 +1638,32 @@ function NovidadesVerticalCard({
     const tmdbId = item.tmdbId;
     if (!tmdbId || tmdbId <= 0) return;
     const isMovie   = (item.mediaType ?? item.type) === "movie";
-    const flix2Type = isMovie ? "movie" : "serie";
+    const flix2Type = isMovie ? "movies" : "all";
     let cancelled = false;
 
     const tid = setTimeout(async () => {
       try {
-        const fi = await r2Route<{
-          stream_url?: string;
-          episodes?: Array<{ season: number; episode: number; stream_url?: string }>;
-        }>(`/flix2/lookup?tmdbId=${tmdbId}&type=${flix2Type}&title=${encodeURIComponent(item.title)}`);
-        if (cancelled) return;
+        // API returns { found: boolean, item: { id, stream_url, type, ... } }
+        const fi = await r2Route<{ found: boolean; item: any }>(
+          `/flix2/lookup?tmdbId=${tmdbId}&type=${flix2Type}&title=${encodeURIComponent(item.title)}`
+        );
+        if (cancelled || !fi.found || !fi.item) return;
 
-        if (isMovie && fi.stream_url) {
-          setStreamUrl(fi.stream_url);
-        } else if (!isMovie && fi.episodes?.length) {
-          const sorted = [...fi.episodes].sort((a, b) =>
+        if (isMovie && fi.item.stream_url) {
+          // Movie: stream URL is returned directly in the item
+          setStreamUrl(fi.item.stream_url);
+        } else if (!isMovie && fi.item.id) {
+          // Series: lookup returns the series item (stream_url null), need to fetch episodes separately
+          const epResp = await r2Route<{
+            found: boolean;
+            episodes: Array<{ season: number; episode: number; stream_url?: string }>;
+          }>(`/flix2/series-episodes?seriesId=${fi.item.id}`);
+          if (cancelled || !epResp.found || !epResp.episodes?.length) return;
+
+          const sorted = [...epResp.episodes].sort((a, b) =>
             b.season !== a.season ? b.season - a.season : b.episode - a.episode,
           );
-          if (!cancelled) setEpCount(fi.episodes.length);
+          if (!cancelled) setEpCount(epResp.episodes.length);
           const latest = sorted[0];
           if (latest?.stream_url && !cancelled) setStreamUrl(latest.stream_url);
 
