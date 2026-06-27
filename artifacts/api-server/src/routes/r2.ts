@@ -4650,6 +4650,7 @@ router.get("/flix2/whats-new", async (req, res) => {
     overview:   i.overview || i.synopsis || "",
     added_at:   i.added_at,
     added_date: i.added_at ? new Date(i.added_at * 1000).toISOString().slice(0, 10) : null,
+    stream_url: i.stream_url || i.fast_stream_url || null,
   });
 
   const activeTypes = types.length ? types : FLIX2_TYPES;

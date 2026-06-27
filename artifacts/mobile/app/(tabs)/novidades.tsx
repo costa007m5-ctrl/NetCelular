@@ -71,6 +71,7 @@ interface WhatsNewItem {
   rating?: number;
   overview?: string;
   exclusive?: boolean;
+  stream_url?: string;
 }
 
 interface Top10Item {
@@ -182,13 +183,23 @@ async function _resolveSeriesStream(seriesId: string, signal: AbortSignal): Prom
   return "";
 }
 
-/** Full Flix2 stream resolution: lookup → movie URL or series episodes → final URL.
- *  Falls back to Veo catalog (nixplay.lat) when Flix2 doesn't have the item. */
+/** Full Flix2 stream resolution. Priority:
+ *  0. item.flix2Url already set (from WhatsNew catalog) → use directly, no lookup needed
+ *  1. Flix2 catalog lookup (by tmdbId or title)
+ *  2. Veo catalog fallback (nixplay.lat) */
 async function resolveFlixStream(item: ContentItem, signal: AbortSignal): Promise<string | null> {
-  const tmdbId = item.tmdbId;
-  if (!tmdbId || tmdbId <= 0) return null;
   const isMovie = (item.mediaType ?? item.type) === "movie";
   const base = getApiBase();
+
+  // ── 0. Direct stream URL already embedded in item (WhatsNew items) ──────────
+  if (item.flix2Url && _isDirectVideo(item.flix2Url)) {
+    return item.flix2Url;
+  }
+
+  // Need at least a title to do a catalog lookup
+  if (!item.title) return null;
+
+  const tmdbId = item.tmdbId ?? 0;
 
   // ── 1. Try Flix2 catalog first ─────────────────────────────────────────────
   try {
@@ -254,6 +265,7 @@ function wn2Content(item: WhatsNewItem): ContentItem {
     mediaType: isMovie ? "movie" : "tv",
     exclusive: item.exclusive ?? false,
     addedAt: item.added_at,
+    flix2Url: item.stream_url,
   };
 }
 
