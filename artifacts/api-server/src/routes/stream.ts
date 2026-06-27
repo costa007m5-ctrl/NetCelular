@@ -375,8 +375,9 @@ router.get("/proxy", async (req: Request, res: ExpressResponse) => {
   req.on("close", () => { clientClosed = true; ctrl.abort(); });
 
   try {
-    // If the URL is a nixplay.lat redirect URL, resolve it to the CDN URL
-    // using THIS instance's outbound IP so the IP-bound token matches.
+    // Pre-resolve redirect-only hosts so we fetch the real CDN URL directly.
+    // This avoids Node's fetch hanging on redirect chains where the target CDN
+    // uses a different IP/port (e.g. hubby.cx → fontedecanais HTTP port 80).
     let fetchUrl = decodedUrl;
     if (isNixplayUrl(decodedUrl)) {
       try {
@@ -385,6 +386,19 @@ router.get("/proxy", async (req: Request, res: ExpressResponse) => {
         console.log(`[proxy] nixplay redirect failed, using original url: ${e}`);
       }
       // Rebuild upstream headers for the resolved CDN URL (different host)
+      if (fetchUrl !== decodedUrl) {
+        Object.assign(upstreamHeaders, buildUpstreamHeaders(fetchUrl, clientRange, forceRange));
+      }
+    } else if (isHubbyCxStreamUrl(decodedUrl)) {
+      // hubby.cx is a pure redirect host (302 → fontedecanais CDN on HTTP port 80).
+      // Resolve the redirect server-side so we can fetch the CDN URL directly.
+      // The fontedecanais URL is NOT IP-bound, so any server IP works.
+      try {
+        fetchUrl = await resolveHubbyCxCdn(decodedUrl, ctrl.signal);
+        console.log(`[proxy] hubby.cx→CDN resolved: ${new URL(fetchUrl).hostname}`);
+      } catch (e) {
+        console.log(`[proxy] hubby.cx redirect failed, using original url: ${e}`);
+      }
       if (fetchUrl !== decodedUrl) {
         Object.assign(upstreamHeaders, buildUpstreamHeaders(fetchUrl, clientRange, forceRange));
       }

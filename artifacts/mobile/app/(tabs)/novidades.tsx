@@ -1843,7 +1843,7 @@ function NovidadesVerticalCard({
         {canPlayVideoWeb && React.createElement("video", {
           ref: webVideoRef,
           src: getProxiedStreamUrl(streamUrl!),
-          autoPlay: false,
+          autoPlay: true,
           muted: muted,
           playsInline: true,
           loop: true,
@@ -1854,7 +1854,16 @@ function NovidadesVerticalCard({
           },
           onPlay: () => setWebVidPlaying(true),
           onPause: () => setWebVidPlaying(false),
-          onError: () => { setStreamUrl(null); setWebVidPlaying(false); },
+          onError: () => {
+            const tmdbId = item.tmdbId;
+            if (tmdbId && tmdbId > 0) {
+              const cacheKey = `${tmdbId}_${item.mediaType ?? item.type}`;
+              FLIX_STREAM_CACHE.delete(cacheKey);
+            }
+            setStreamUrl(null);
+            setWebVidPlaying(false);
+            setUserRequestedPlay(false);
+          },
         })}
 
         {/* Gradient overlay — non-interactive, always on top */}
