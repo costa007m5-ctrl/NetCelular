@@ -1869,10 +1869,12 @@ function NovidadesVerticalCard({
           />
         )}
 
-        {/* Layer 2b: HTML5 video (web only) — stream proxied via /api/stream/proxy to avoid CORS */}
+        {/* Layer 2b: HTML5 video (web only) — URL direto ao CDN (não proxy).
+            Browser faz a request com IP do dispositivo → nixplay/cineveo não bloqueiam.
+            CORS não é aplicado para <video src>, só para fetch(). */}
         {canPlayVideoWeb && React.createElement("video", {
           ref: webVideoRef,
-          src: getProxiedStreamUrl(streamUrl!),
+          src: streamUrl!,
           autoPlay: true,
           muted: muted,
           playsInline: true,
@@ -1916,7 +1918,7 @@ function NovidadesVerticalCard({
               {!streamResolved ? (
                 <ActivityIndicator size="small" color="#fff" />
               ) : streamResolved && !streamUrl ? (
-                <Feather name="lock" size={18} color="#fff" />
+                <Feather name="film" size={18} color="rgba(255,255,255,0.5)" />
               ) : userRequestedPlay ? (
                 <ActivityIndicator size="small" color="#fff" />
               ) : (

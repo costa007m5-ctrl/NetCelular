@@ -1040,11 +1040,47 @@ export default function Flix2PlayerScreen() {
       <Modal visible={!!sessionBlocked} transparent animationType="fade">
         <View style={styles.sessionModal}>
           <View style={styles.sessionBox}>
-            <Feather name="lock" size={32} color={RED} />
-            <Text style={styles.sessionTitle}>Limite de telas atingido</Text>
-            <Text style={styles.sessionMsg}>Seu plano não permite mais dispositivos simultâneos.</Text>
-            <Pressable style={styles.sessionBtn} onPress={() => router.back()}>
-              <Text style={styles.sessionBtnText}>Voltar</Text>
+            <Feather
+              name={sessionBlocked === "limit_exceeded" ? "monitor" : "clock"}
+              size={32}
+              color={RED}
+            />
+            <Text style={styles.sessionTitle}>
+              {sessionBlocked === "trial_expired"
+                ? "Período de teste encerrado"
+                : sessionBlocked === "plan_expired"
+                ? "Plano vencido"
+                : "Limite de telas atingido"}
+            </Text>
+            <Text style={styles.sessionMsg}>
+              {sessionBlocked === "trial_expired"
+                ? "Seu período de teste gratuito de 3 dias chegou ao fim. Assine um plano para continuar assistindo."
+                : sessionBlocked === "plan_expired"
+                ? "Seu plano expirou. Renove para continuar assistindo sem interrupções."
+                : "Seu plano não permite mais dispositivos simultâneos. Encerre outra sessão ou faça upgrade."}
+            </Text>
+            <Pressable
+              style={styles.sessionBtn}
+              onPress={() => {
+                const { Linking } = require("react-native");
+                Linking.openURL(
+                  `https://wa.me/5596991718167?text=${encodeURIComponent(
+                    sessionBlocked === "trial_expired"
+                      ? "Olá! Meu período de teste encerrou, quero assinar um plano."
+                      : sessionBlocked === "plan_expired"
+                      ? "Olá! Meu plano venceu, quero renovar."
+                      : "Olá! Quero fazer upgrade do meu plano para mais telas."
+                  )}`
+                );
+              }}
+            >
+              <Text style={styles.sessionBtnText}>Falar no WhatsApp</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.sessionBtn, { backgroundColor: "rgba(255,255,255,0.08)", marginTop: 8 }]}
+              onPress={() => router.back()}
+            >
+              <Text style={[styles.sessionBtnText, { color: "rgba(255,255,255,0.6)" }]}>Voltar</Text>
             </Pressable>
           </View>
         </View>

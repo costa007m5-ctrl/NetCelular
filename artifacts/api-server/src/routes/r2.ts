@@ -3710,6 +3710,10 @@ router.get("/flix2/lookup", async (req, res) => {
       }
       // Exact normalized match
       if (iNorm === normTitle) return true;
+      // Prefix match: query is a prefix of the catalog title (e.g. "toy story 5" matches
+      // "toy story 5 cam rip" or "toy story 5 2025 bluray"). Avoids false positives by
+      // requiring the char after the prefix to be a space (not another digit/letter).
+      if (iNorm.startsWith(normTitle + " ")) return true;
       // Fuzzy word match: ≥70% of significant query words (4+ chars) present in item title.
       // REQUIRES at least 2 significant words to avoid false positives on short/common titles.
       // Example: "Spider Noir" → ["spider","noir"] → 2 words → fuzzy ok
