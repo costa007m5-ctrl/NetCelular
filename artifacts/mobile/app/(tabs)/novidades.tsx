@@ -447,6 +447,11 @@ function PosterCard({
 }) {
   const scale = useRef(new Animated.Value(1)).current;
   const [err, setErr] = useState(false);
+  const prevPosterRef = useRef<string>("");
+  useEffect(() => {
+    const u = item.posterPath || "";
+    if (u && u !== prevPosterRef.current) { prevPosterRef.current = u; setErr(false); }
+  }, [item.posterPath]);
   const pi = () => Animated.spring(scale, { toValue: 0.93, useNativeDriver: true, speed: 32 }).start();
   const po = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 28 }).start();
   return (
@@ -502,6 +507,10 @@ function LandscapeCard({ item, onPress }: { item: ContentItem; onPress: () => vo
   const scale = useRef(new Animated.Value(1)).current;
   const [err, setErr] = useState(false);
   const imgUri = item.backdropPath || item.posterPath;
+  const prevImgRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (imgUri && imgUri !== prevImgRef.current) { prevImgRef.current = imgUri; setErr(false); }
+  }, [imgUri]);
   const pi = () => Animated.spring(scale, { toValue: 0.96, useNativeDriver: true, speed: 30 }).start();
   const po = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 26 }).start();
   return (
@@ -616,7 +625,9 @@ function HeroRotatingBanner({
   const fade = useRef(new Animated.Value(1)).current;
   const flatRef = useRef<FlatList>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [imgErrs, setImgErrs] = useState<Record<number, boolean>>({});
+  // Map index → the URL that failed (not just a boolean) so if the URL later changes
+  // (TMDB enrichment), the error doesn't carry over to the new URL.
+  const [imgErrUrls, setImgErrUrls] = useState<Record<number, string>>({});
 
   const advanceTo = useCallback((next: number) => {
     Animated.timing(fade, { toValue: 0, duration: 320, useNativeDriver: true }).start(() => {
@@ -645,7 +656,8 @@ function HeroRotatingBanner({
   if (!items.length) return <SkeletonHero />;
   const item = items[Math.min(index, items.length - 1)];
   const imgUri = item.backdropPath || item.posterPath;
-  const hasErr = imgErrs[index];
+  // Error only counts if the *same* URL failed — a new URL from TMDB enrichment gets a fresh attempt
+  const hasErr = !!imgUri && imgErrUrls[index] === imgUri;
 
   return (
     <View style={{ width: W, height: HERO_H + topPad }}>
@@ -654,7 +666,7 @@ function HeroRotatingBanner({
         {!hasErr && imgUri ? (
           <Image source={{ uri: imgUri }} style={StyleSheet.absoluteFill}
             contentFit="cover" cachePolicy="memory-disk" transition={300}
-            onError={() => setImgErrs((e) => ({ ...e, [index]: true }))} />
+            onError={() => setImgErrUrls((e) => ({ ...e, [index]: imgUri ?? "" }))} />
         ) : (
           <LinearGradient colors={["#1a0814", "#0e060c", "#050508"]} style={StyleSheet.absoluteFill} />
         )}
@@ -878,6 +890,11 @@ function BreakingBanner({ items, onPress }: { items: ContentItem[]; onPress: (it
 function TvOnAirCard({ item, onPress }: { item: ContentItem; onPress: () => void }) {
   const scale = useRef(new Animated.Value(1)).current;
   const [err, setErr] = useState(false);
+  const prevPosterRef = useRef<string>("");
+  useEffect(() => {
+    const u = item.posterPath || "";
+    if (u && u !== prevPosterRef.current) { prevPosterRef.current = u; setErr(false); }
+  }, [item.posterPath]);
   const pi = () => Animated.spring(scale, { toValue: 0.94, useNativeDriver: true, speed: 32 }).start();
   const po = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 28 }).start();
   return (
@@ -925,6 +942,11 @@ const tv = StyleSheet.create({
 function AnimeCard({ item, onPress }: { item: ContentItem; onPress: () => void }) {
   const scale = useRef(new Animated.Value(1)).current;
   const [err, setErr] = useState(false);
+  const prevPosterRef = useRef<string>("");
+  useEffect(() => {
+    const u = item.posterPath || "";
+    if (u && u !== prevPosterRef.current) { prevPosterRef.current = u; setErr(false); }
+  }, [item.posterPath]);
   const pi = () => Animated.spring(scale, { toValue: 0.93, useNativeDriver: true, speed: 32 }).start();
   const po = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 28 }).start();
   return (
@@ -972,6 +994,24 @@ function EpisodeCard({
   const [backdropErr, setBackdropErr] = useState(false);
   const [posterErr,  setPosterErr]  = useState(false);
   const [logoErr,    setLogoErr]    = useState(false);
+  const prevStillRef    = useRef<string>("");
+  const prevBackdropRef = useRef<string>("");
+  const prevPosterRef   = useRef<string>("");
+
+  // Reset errors when TMDB enrichment provides better URLs after initial Xtream CDN load fails
+  useEffect(() => {
+    const u = group.latestEpStill || "";
+    if (u && u !== prevStillRef.current) { prevStillRef.current = u; setStillErr(false); }
+  }, [group.latestEpStill]);
+  useEffect(() => {
+    const u = group.backdropPath || "";
+    if (u && u !== prevBackdropRef.current) { prevBackdropRef.current = u; setBackdropErr(false); }
+  }, [group.backdropPath]);
+  useEffect(() => {
+    const u = group.seriesPoster || "";
+    if (u && u !== prevPosterRef.current) { prevPosterRef.current = u; setPosterErr(false); }
+  }, [group.seriesPoster]);
+
   const ep = group.latestEp;
   const isSingle = group.totalEps === 1;
   const epLabel = `S${String(ep.season).padStart(2, "0")} E${String(ep.episode).padStart(2, "0")}`;
@@ -1107,6 +1147,21 @@ function EpPreviewRow({
   const [webVidPlaying, setWebVidPlaying] = useState(false);
   const ep = item.ep;
   const g = item.group;
+  const prevStillRef2    = useRef<string>("");
+  const prevBackdropRef2 = useRef<string>("");
+  const prevPosterRef2   = useRef<string>("");
+  useEffect(() => {
+    const u = g.latestEpStill || "";
+    if (u && u !== prevStillRef2.current) { prevStillRef2.current = u; setStillErr(false); }
+  }, [g.latestEpStill]);
+  useEffect(() => {
+    const u = g.backdropPath || "";
+    if (u && u !== prevBackdropRef2.current) { prevBackdropRef2.current = u; setBackdropErr(false); }
+  }, [g.backdropPath]);
+  useEffect(() => {
+    const u = g.seriesPoster || "";
+    if (u && u !== prevPosterRef2.current) { prevPosterRef2.current = u; setPosterErr(false); }
+  }, [g.seriesPoster]);
   const epLabel = `S${String(ep.season).padStart(2, "0")} E${String(ep.episode).padStart(2, "0")}`;
   const webviewEpRef = useRef<any>(null);
   const webVideoEpRef = useRef<any>(null);
