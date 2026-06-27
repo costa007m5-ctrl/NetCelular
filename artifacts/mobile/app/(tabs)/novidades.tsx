@@ -1738,6 +1738,7 @@ function NovidadesVerticalCard({
   const [streamResolved, setStreamResolved]       = useState(false);
   const [isVisible, setIsVisible]       = useState(false);
   const [webVidPlaying, setWebVidPlaying] = useState(false);
+  const [webVidFailed, setWebVidFailed]   = useState(false);
   const nativeWebViewRef = useRef<any>(null);
   const webVideoRef      = useRef<any>(null);
   const containerRef     = useRef<View>(null);
@@ -1758,7 +1759,7 @@ function NovidadesVerticalCard({
   // For video preview: episode still (series) takes priority over backdrop
   const backdropShown   = !imgErr ? (epStillUrl || backdropUrl) : null;
   const canPlayVideo    = IS_NATIVE_EP && !!streamUrl && WebViewEp !== null;
-  const canPlayVideoWeb = !IS_NATIVE_EP && !!streamUrl;
+  const canPlayVideoWeb = !IS_NATIVE_EP && !!streamUrl && !webVidFailed;
 
   // Toggle muted without reloading the video
   const handleMuteToggle = useCallback(() => {
@@ -1906,12 +1907,10 @@ function NovidadesVerticalCard({
           onPlay: () => setWebVidPlaying(true),
           onPause: () => setWebVidPlaying(false),
           onError: () => {
-            const tmdbId = item.tmdbId;
-            if (tmdbId && tmdbId > 0) {
-              const cacheKey = `${tmdbId}_${item.mediaType ?? item.type}`;
-              FLIX_STREAM_CACHE.delete(cacheKey);
-            }
-            setStreamUrl(null);
+            // Video failed to play (e.g. mixed-content HTTPS→HTTP, or CDN block).
+            // Keep streamUrl intact so the play button stays visible — content
+            // exists in the catalog and is watchable via the detail/player screen.
+            setWebVidFailed(true);
             setWebVidPlaying(false);
             setUserRequestedPlay(false);
           },
