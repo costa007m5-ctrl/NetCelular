@@ -183,6 +183,21 @@ async function _resolveSeriesStream(seriesId: string, signal: AbortSignal): Prom
   return "";
 }
 
+/** Extracts quality (HD/CAM/4K…) and audio (DUB/LEG/DUAL) labels from a catalog title. */
+function _extractQuality(title: string): { q: string | null; audio: string | null } {
+  const u = (title ?? "").toUpperCase();
+  let q: string | null = null;
+  let audio: string | null = null;
+  if (/\b4K\b|\b2160P?\b/.test(u))                                   q = "4K";
+  else if (/\b1080P?\b|\bFULL[\s-]?HD\b|\bBLU[\s-]?RAY\b|\bBDRIP\b|\bBDREMUX\b/.test(u)) q = "FHD";
+  else if (/\b720P?\b|\bHDTV\b|\bWEB[\s-]?DL\b|\bWEBRIP\b|\bHDRIP\b|\bHD\b/.test(u))     q = "HD";
+  else if (/\bCAM[\s-]?RIP\b|\bCAM\b|\bTS\b|\bDVDSCR\b|\bSCREENER\b/.test(u))            q = "CAM";
+  if      (/\bDUAL[\s-]?(AUDIO|ÁUDIO|AUDIO)?\b/.test(u))            audio = "DUAL";
+  else if (/\bDUBLAD[OA]\b|\b\(DUB\)\b|\bDUBLAGEM\b|\b\sDUB\b/.test(u)) audio = "DUB";
+  else if (/\bLEGENDAD[OA]\b|\b\(LEG\)\b|\bLEGENDADO\b/.test(u))   audio = "LEG";
+  return { q, audio };
+}
+
 /** Full Flix2 stream resolution. Priority:
  *  0. item.flix2Url already set (from WhatsNew catalog) → use directly, no lookup needed
  *  1. Flix2 catalog lookup (by tmdbId or title)
@@ -1773,6 +1788,9 @@ function NovidadesVerticalCard({
   const canPlayVideo    = IS_NATIVE_EP && !!streamUrl && WebViewEp !== null;
   const canPlayVideoWeb = !IS_NATIVE_EP && !!streamUrl && !webVidFailed;
 
+  // Quality / audio badges — extracted from the raw catalog title
+  const qualBadge = useMemo(() => _extractQuality(item.title), [item.title]);
+
   // Toggle muted without reloading the video
   const handleMuteToggle = useCallback(() => {
     setMuted(m => {
@@ -2029,6 +2047,22 @@ function NovidadesVerticalCard({
         {!logoUrl && (
           <Text style={nvc.title} numberOfLines={2}>{item.title}</Text>
         )}
+        {/* Quality / audio badges — HD, FHD, 4K, CAM, DUB, LEG, DUAL */}
+        {(qualBadge.q || qualBadge.audio) && (
+          <View style={nvc.qualRow}>
+            {qualBadge.q && (
+              <View style={[nvc.qualPill, qualBadge.q === "CAM" ? nvc.qualPillCam : qualBadge.q === "4K" ? nvc.qualPill4k : nvc.qualPillHd]}>
+                <Text style={nvc.qualPillTxt}>{qualBadge.q}</Text>
+              </View>
+            )}
+            {qualBadge.audio && (
+              <View style={nvc.qualPill}>
+                <Text style={nvc.qualPillTxt}>{qualBadge.audio}</Text>
+              </View>
+            )}
+          </View>
+        )}
+
         {/* Episode count badge — always visible for series once loaded */}
         {epCount != null && item.type !== "movie" && (
           <View style={nvc.epCountRow}>
@@ -2185,6 +2219,25 @@ const nvc = StyleSheet.create({
     borderWidth: 2, borderColor: "rgba(255,255,255,0.55)",
     alignItems: "center", justifyContent: "center",
   },
+  qualRow: { flexDirection: "row", gap: 6, marginBottom: 8 },
+  qualPill: {
+    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4,
+    backgroundColor: "rgba(255,255,255,0.12)",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.22)",
+  },
+  qualPillHd: {
+    backgroundColor: "rgba(59,130,246,0.22)",
+    borderColor: "rgba(59,130,246,0.55)",
+  },
+  qualPill4k: {
+    backgroundColor: "rgba(168,85,247,0.22)",
+    borderColor: "rgba(168,85,247,0.55)",
+  },
+  qualPillCam: {
+    backgroundColor: "rgba(245,158,11,0.22)",
+    borderColor: "rgba(245,158,11,0.55)",
+  },
+  qualPillTxt: { fontSize: 9, fontWeight: "900", color: "#fff", letterSpacing: 0.9 },
 });
 
 const pillsNf = StyleSheet.create({
