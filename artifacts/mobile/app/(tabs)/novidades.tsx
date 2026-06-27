@@ -107,9 +107,10 @@ let WebViewEp: any = null;
 try { WebViewEp = require("react-native-webview").WebView; } catch {}
 const IS_NATIVE_EP = Platform.OS !== "web";
 
-function buildEpPreviewHtml(uri: string): string {
+function buildEpPreviewHtml(uri: string, muted = true): string {
   const escaped = uri.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-  return `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no"/><style>*{margin:0;padding:0;background:#000}html,body,video{width:100%;height:100%;overflow:hidden}video{object-fit:cover;display:block}</style></head><body><video id="v" playsinline webkit-playsinline preload="auto"></video><script>(function(){var v=document.getElementById('v');var rn=window.ReactNativeWebView;v.muted=true;function send(t,d){try{rn.postMessage(JSON.stringify(Object.assign({type:t},d||{})))}catch(e){}}v.addEventListener('loadedmetadata',function(){send('ready',{duration:v.duration*1000});});v.addEventListener('canplay',function(){v.play().catch(function(){});});v.addEventListener('error',function(){send('error',{code:v.error?v.error.code:-1});});function handleCmd(e){try{var d=JSON.parse(typeof e==='string'?e:(e.data||'{}'));if(d.type==='mute'){v.muted=true;}else if(d.type==='unmute'){v.muted=false;v.play().catch(function(){});}}catch(ex){}}window.addEventListener('message',handleCmd);document.addEventListener('message',handleCmd);v.src='${escaped}';v.load();v.play().catch(function(){});})()</script></body></html>`;
+  const mutedStr = muted ? "true" : "false";
+  return `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no"/><style>*{margin:0;padding:0;background:#000}html,body,video{width:100%;height:100%;overflow:hidden}video{object-fit:cover;display:block}</style></head><body><video id="v" playsinline webkit-playsinline preload="auto"></video><script>(function(){var v=document.getElementById('v');var rn=window.ReactNativeWebView;v.muted=${mutedStr};function send(t,d){try{rn.postMessage(JSON.stringify(Object.assign({type:t},d||{})))}catch(e){}}v.addEventListener('loadedmetadata',function(){send('ready',{duration:v.duration*1000});});v.addEventListener('canplay',function(){v.play().catch(function(){});});v.addEventListener('error',function(){send('error',{code:v.error?v.error.code:-1});});function handleCmd(e){try{var d=JSON.parse(typeof e==='string'?e:(e.data||'{}'));if(d.type==='mute'){v.muted=true;}else if(d.type==='unmute'){v.muted=false;v.play().catch(function(){});}}catch(ex){}}window.addEventListener('message',handleCmd);document.addEventListener('message',handleCmd);v.src='${escaped}';v.load();v.play().catch(function(){});})()</script></body></html>`;
 }
 
 // ─── Flix2 stream resolution (ported from Shorts system) ──────────────────────
@@ -170,6 +171,7 @@ async function _resolveSeriesStream(seriesId: string, signal: AbortSignal): Prom
           if (!ep?.id) continue;
           const ext = (ep.container_extension as string) || "mp4";
           all.push({ season: Number(s), episode: Number(ep.episode_num ?? ep.episode ?? 1),
+            title: (ep.name ?? ep.title ?? "") as string,
             stream_url: `${data.streamBase as string}${ep.id}.${ext}` });
         }
       }
@@ -1056,14 +1058,17 @@ function EpPreviewRow({
   const [stillErr, setStillErr] = useState(false);
   const [backdropErr, setBackdropErr] = useState(false);
   const [posterErr, setPosterErr] = useState(false);
+  const [webVidPlaying, setWebVidPlaying] = useState(false);
   const ep = item.ep;
   const g = item.group;
   const epLabel = `S${String(ep.season).padStart(2, "0")} E${String(ep.episode).padStart(2, "0")}`;
   const webviewEpRef = useRef<any>(null);
+  const webVideoEpRef = useRef<any>(null);
   const [epDuration, setEpDuration] = useState(0);
   const [autoSeeked, setAutoSeeked] = useState(false);
   const [activeScene, setActiveScene] = useState<number | null>(null);
   const canPreview = IS_NATIVE_EP ? WebViewEp !== null : false;
+  const canPreviewWeb = !IS_NATIVE_EP && !!ep.stream_url;
 
   // Episode still is the primary banner (landscape 16:9); falls back to series backdrop then poster
   const stillUrl = (!stillErr && g.latestEpStill) ? resolveImgUrl(g.latestEpStill, "w780") : null;
@@ -1077,15 +1082,17 @@ function EpPreviewRow({
 
   // Reset video state when play starts/stops
   useEffect(() => {
-    setVidLoading(isPlaying);
+    setVidLoading(isPlaying && !canPreviewWeb);
     if (!isPlaying) {
       setVidReady(false);
       setVidErrored(false);
       setEpDuration(0);
       setAutoSeeked(false);
       setActiveScene(null);
+      setWebVidPlaying(false);
+      if (webVideoEpRef.current) webVideoEpRef.current.pause?.();
     }
-  }, [isPlaying]);
+  }, [isPlaying, canPreviewWeb]);
 
   // Sync mute toggle via injectedJavaScript (no need to remount WebView)
   useEffect(() => {
@@ -1134,7 +1141,7 @@ function EpPreviewRow({
           <LinearGradient colors={["#1a0c24", "#0c0818", "#080510"]} style={StyleSheet.absoluteFill} />
         )}
 
-        {/* WebView video preview — mesmo player do Shorts/Flix 2.0, funciona no APK */}
+        {/* WebView video preview — native APK only */}
         {isPlaying && canPreview && !vidErrored && (
           <WebViewEp
             ref={webviewEpRef}
@@ -1176,6 +1183,26 @@ function EpPreviewRow({
             onHttpError={() => { setVidLoading(false); setVidErrored(true); }}
           />
         )}
+
+        {/* HTML5 video preview — web browser only (Chrome/Safari), proxied to avoid CORS */}
+        {isPlaying && canPreviewWeb && !vidErrored && React.createElement("video", {
+          ref: webVideoEpRef,
+          key: ep.stream_url,
+          src: getProxiedStreamUrl(ep.stream_url),
+          autoPlay: true,
+          muted: muted,
+          playsInline: true,
+          loop: true,
+          style: {
+            position: "absolute", top: 0, left: 0,
+            width: "100%", height: "100%",
+            objectFit: "cover",
+          },
+          onPlay: () => { setWebVidPlaying(true); setVidReady(true); setVidLoading(false); },
+          onPause: () => setWebVidPlaying(false),
+          onError: () => { setVidErrored(true); setVidLoading(false); setWebVidPlaying(false); },
+        })}
+
         {/* Timeout: 10s sem resposta → desiste graciosamente */}
         {isPlaying && vidLoading && !vidReady && !vidErrored && (
           <HangTimeout onTimeout={() => { setVidLoading(false); setVidErrored(true); }} />
@@ -1190,16 +1217,16 @@ function EpPreviewRow({
           />
         )}
 
-        {/* Loading spinner */}
-        {isPlaying && vidLoading && (
+        {/* Loading spinner — native only (web video doesn't use vidLoading) */}
+        {isPlaying && vidLoading && !canPreviewWeb && (
           <View style={epr.loadingOverlay}>
             <ActivityIndicator size="large" color="#fff" />
             <Text style={epr.loadingText}>Carregando prévia…</Text>
           </View>
         )}
 
-        {/* PRÉVIA badge */}
-        {isPlaying && vidReady && (
+        {/* PRÉVIA badge — shows when video is playing (native WebView or web <video>) */}
+        {isPlaying && (vidReady || webVidPlaying) && (
           <View style={epr.liveBadge}>
             <View style={epr.liveDot} />
             <Text style={epr.liveTxt}>PRÉVIA</Text>
