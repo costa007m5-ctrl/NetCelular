@@ -116,8 +116,6 @@ function buildEpPreviewHtml(uri: string): string {
 // Module-level cache so cards that scroll past once don't re-fetch on re-render
 const FLIX_STREAM_CACHE = new Map<string, string>(); // cacheKey → final stream URL
 
-type RawEp = { season: number; episode: number; stream_url: string };
-
 function _isDirectVideo(u: string): boolean {
   return u.length > 0 && !u.startsWith("flix2id:") && !u.includes("player_api.php") && u !== "null";
 }
