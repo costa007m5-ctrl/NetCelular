@@ -2028,6 +2028,55 @@ function NovidadesVerticalCard({
       return;
     }
 
+    // Series: fetch episodes directly by Xtream series ID (stream_url is null for series catalog items)
+    const isSeries2 = item.type === "series" || item.mediaType === "tv";
+    if (isSeries2 && item.id) {
+      const epUrlsCacheKey = `ep_urls_${item.id}`;
+      const cachedEpUrls = FLIX_STREAM_CACHE.get(epUrlsCacheKey);
+      if (cachedEpUrls) {
+        const urls = cachedEpUrls.split("||").filter(_isDirectVideo);
+        if (urls.length > 0) {
+          const startIdx = Math.floor(Math.random() * urls.length);
+          setPreviewUrls(urls);
+          setPreviewIdx(startIdx);
+          setStreamUrl(urls[startIdx]);
+          setStreamResolved(true);
+          return;
+        }
+      }
+      const ctrl = new AbortController();
+      const t = setTimeout(async () => {
+        try {
+          const base = getApiBase();
+          const res = await fetch(`${base}/r2/flix2/series-episodes?seriesId=${item.id}`, { signal: ctrl.signal });
+          if (!res.ok || ctrl.signal.aborted) { if (!ctrl.signal.aborted) setStreamResolved(true); return; }
+          const data = await res.json() as any;
+          if (!data.found || !Array.isArray(data.episodes) || data.episodes.length === 0) {
+            if (!ctrl.signal.aborted) setStreamResolved(true);
+            return;
+          }
+          // Sort by season DESC, episode DESC → most recently-aired first
+          const sorted = [...(data.episodes as RawEp[])].sort((a, b) =>
+            b.season !== a.season ? b.season - a.season : b.episode - a.episode
+          );
+          // Take up to 10 most recent with valid URLs
+          const recent = sorted.slice(0, 10).filter(e => _isDirectVideo(e.stream_url));
+          if (recent.length === 0) { if (!ctrl.signal.aborted) setStreamResolved(true); return; }
+          // Shuffle and pick up to 2 random recent episodes
+          const shuffled = [...recent].sort(() => Math.random() - 0.5);
+          const picked = shuffled.slice(0, Math.min(2, shuffled.length)).map(e => e.stream_url);
+          FLIX_STREAM_CACHE.set(epUrlsCacheKey, picked.join("||"));
+          if (!ctrl.signal.aborted) {
+            setPreviewUrls(picked);
+            setPreviewIdx(0);
+            setStreamUrl(picked[0]);
+            setStreamResolved(true);
+          }
+        } catch { if (!ctrl.signal.aborted) setStreamResolved(true); }
+      }, 200);
+      return () => { ctrl.abort(); clearTimeout(t); };
+    }
+
     if (!tmdbId || tmdbId <= 0) {
       setStreamResolved(true); // no tmdbId and no direct URL → unavailable immediately
       return;
