@@ -216,7 +216,8 @@ async function resolveFlixStream(item: ContentItem, signal: AbortSignal): Promis
     isWeb && (u.includes("hubby.cx") || u.includes("fontedecanais") || u.includes("cineveo"));
 
   // ── 0. Direct stream URL already embedded in item (WhatsNew items) ──────────
-  if (item.flix2Url && _isDirectVideo(item.flix2Url) && !_isWebBlocked(item.flix2Url)) {
+  // Always return flix2Url if present — on web, the preview-proxy handles CDN/redirect issues
+  if (item.flix2Url && _isDirectVideo(item.flix2Url)) {
     return item.flix2Url;
   }
 
@@ -1940,8 +1941,19 @@ function NovidadesVerticalCard({
   // Lazy-fetch stream URL using the same system as Shorts (lookup + tryClientDirect fallback)
   useEffect(() => {
     const tmdbId = item.tmdbId;
+
+    // Fast path: item already has a direct stream URL (whats-new catalog items)
+    // Use it immediately without any network lookup — on web the preview-proxy handles CDN issues
+    if (item.flix2Url && _isDirectVideo(item.flix2Url)) {
+      const cacheKey = `flix2url_${item.id}`;
+      if (!FLIX_STREAM_CACHE.has(cacheKey)) FLIX_STREAM_CACHE.set(cacheKey, item.flix2Url);
+      setStreamUrl(FLIX_STREAM_CACHE.get(cacheKey)!);
+      setStreamResolved(true);
+      return;
+    }
+
     if (!tmdbId || tmdbId <= 0) {
-      setStreamResolved(true); // no tmdbId → unavailable immediately
+      setStreamResolved(true); // no tmdbId and no direct URL → unavailable immediately
       return;
     }
     const cacheKey = `${tmdbId}_${item.mediaType ?? item.type}`;
@@ -1967,7 +1979,7 @@ function NovidadesVerticalCard({
     }, 300);
 
     return () => { ctrl.abort(); clearTimeout(tid); };
-  }, [item.tmdbId, item.title, item.mediaType, item.type]);
+  }, [item.tmdbId, item.title, item.mediaType, item.type, item.flix2Url, item.id]);
 
   const days = useMemo(() => {
     if (!releaseDate) return null;
