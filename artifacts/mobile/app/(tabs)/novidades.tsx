@@ -1852,6 +1852,9 @@ function NovidadesVerticalCard({
   const [isVisible, setIsVisible]       = useState(false);
   const [webVidPlaying, setWebVidPlaying] = useState(false);
   const [webVidFailed, setWebVidFailed]   = useState(false);
+  // Series: array of 2 random recent episode URLs that cycle every 20s
+  const [previewUrls, setPreviewUrls]   = useState<string[]>([]);
+  const [previewIdx, setPreviewIdx]     = useState(0);
   const nativeWebViewRef   = useRef<any>(null);
   const webVideoRef        = useRef<any>(null);
   const containerRef       = useRef<View>(null);
@@ -1889,6 +1892,23 @@ function NovidadesVerticalCard({
     const t = setInterval(() => setStillIdx(i => (i + 1) % stillUrls.length), 4000);
     return () => clearInterval(t);
   }, [stillUrls]);
+
+  // Series: cycle between 2 random recent episode URLs every 20s
+  useEffect(() => {
+    if (previewUrls.length < 2) return;
+    const t = setInterval(() => {
+      setPreviewIdx(i => {
+        const next = (i + 1) % previewUrls.length;
+        setStreamUrl(previewUrls[next]);
+        setVidReady(false);
+        setVidErrored(false);
+        setWebVidFailed(false);
+        setWebVidPlaying(false);
+        return next;
+      });
+    }, 20000);
+    return () => clearInterval(t);
+  }, [previewUrls]);
 
   // For video preview: episode still (series) takes priority over backdrop
   const backdropShown   = !imgErr ? (epStillUrl || backdropUrl) : null;
@@ -1945,10 +1965,66 @@ function NovidadesVerticalCard({
     // Fast path: item already has a direct stream URL (whats-new catalog items)
     // Use it immediately without any network lookup — on web the preview-proxy handles CDN issues
     if (item.flix2Url && _isDirectVideo(item.flix2Url)) {
+      const isSeries = item.type === "series" || item.mediaType === "tv";
+      const epUrlsCacheKey = `ep_urls_${item.id}`;
+
+      // If we already cached 2 episode URLs for this series, use them immediately
+      const cachedEpUrls = isSeries ? FLIX_STREAM_CACHE.get(epUrlsCacheKey) : null;
+      if (cachedEpUrls) {
+        const urls = cachedEpUrls.split("||").filter(_isDirectVideo);
+        if (urls.length > 0) {
+          const startIdx = Math.floor(Math.random() * urls.length);
+          setPreviewUrls(urls);
+          setPreviewIdx(startIdx);
+          setStreamUrl(urls[startIdx]);
+          setStreamResolved(true);
+          return;
+        }
+      }
+
+      // Start playing with the embedded URL immediately
       const cacheKey = `flix2url_${item.id}`;
       if (!FLIX_STREAM_CACHE.has(cacheKey)) FLIX_STREAM_CACHE.set(cacheKey, item.flix2Url);
       setStreamUrl(FLIX_STREAM_CACHE.get(cacheKey)!);
       setStreamResolved(true);
+
+      // For series: fetch 2 random recent episodes in background for cycling
+      if (isSeries && item.id) {
+        const ctrl = new AbortController();
+        const t = setTimeout(async () => {
+          try {
+            const base = getApiBase();
+            const res = await fetch(`${base}/r2/flix2/series-episodes?seriesId=${item.id}`, { signal: ctrl.signal });
+            if (!res.ok || ctrl.signal.aborted) return;
+            const data = await res.json() as any;
+            if (!data.found || !Array.isArray(data.episodes) || data.episodes.length === 0) return;
+
+            // Sort by season DESC, then episode DESC → most recently-aired first
+            const sorted = [...(data.episodes as RawEp[])].sort((a, b) =>
+              b.season !== a.season ? b.season - a.season : b.episode - a.episode
+            );
+            // Take up to 10 most recent, exclude invalid stream URLs
+            const recent = sorted.slice(0, 10).filter(e => _isDirectVideo(e.stream_url));
+            if (recent.length < 2) return;
+
+            // Shuffle and pick 2 random ones
+            const shuffled = [...recent].sort(() => Math.random() - 0.5);
+            const picked = shuffled.slice(0, 2).map(e => e.stream_url);
+            FLIX_STREAM_CACHE.set(epUrlsCacheKey, picked.join("||"));
+
+            if (!ctrl.signal.aborted) {
+              setPreviewUrls(picked);
+              setPreviewIdx(0);
+              setStreamUrl(picked[0]);
+              setVidReady(false);
+              setVidErrored(false);
+              setWebVidFailed(false);
+              setWebVidPlaying(false);
+            }
+          } catch { /* keep initial flix2Url */ }
+        }, 600);
+        return () => { ctrl.abort(); clearTimeout(t); };
+      }
       return;
     }
 
