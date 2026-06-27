@@ -1716,6 +1716,7 @@ function NovidadesVerticalCard({
   const [vidReady, setVidReady]         = useState(false);
   const [vidErrored, setVidErrored]     = useState(false);
   const [userRequestedPlay, setUserRequestedPlay] = useState(false);
+  const [streamResolved, setStreamResolved]       = useState(false);
   const [isVisible, setIsVisible]       = useState(false);
   const [webVidPlaying, setWebVidPlaying] = useState(false);
   const nativeWebViewRef = useRef<any>(null);
@@ -1783,12 +1784,15 @@ function NovidadesVerticalCard({
   // Lazy-fetch stream URL using the same system as Shorts (lookup + tryClientDirect fallback)
   useEffect(() => {
     const tmdbId = item.tmdbId;
-    if (!tmdbId || tmdbId <= 0) return;
+    if (!tmdbId || tmdbId <= 0) {
+      setStreamResolved(true); // no tmdbId → unavailable immediately
+      return;
+    }
     const cacheKey = `${tmdbId}_${item.mediaType ?? item.type}`;
 
     // If already resolved (scrolled past before), set immediately
     const cached = FLIX_STREAM_CACHE.get(cacheKey);
-    if (cached) { setStreamUrl(cached); return; }
+    if (cached) { setStreamUrl(cached); setStreamResolved(true); return; }
 
     const ctrl = new AbortController();
     const tid = setTimeout(async () => {
@@ -1798,12 +1802,11 @@ function NovidadesVerticalCard({
         if (url) {
           FLIX_STREAM_CACHE.set(cacheKey, url);
           setStreamUrl(url);
-        } else {
-          // Not found — reset play request so ▶ button reappears instead of stuck spinner
-          setUserRequestedPlay(false);
         }
-      } catch {
-        if (!ctrl.signal.aborted) setUserRequestedPlay(false);
+      } catch { /* network error — leave streamUrl null */ }
+      if (!ctrl.signal.aborted) {
+        setStreamResolved(true);
+        setUserRequestedPlay(false);
       }
     }, 300);
 
@@ -1906,11 +1909,15 @@ function NovidadesVerticalCard({
         {!canPlayVideo && !webVidPlaying && (
           <TouchableOpacity
             style={nvc.playBtnOverlay}
-            onPress={() => setUserRequestedPlay(true)}
-            activeOpacity={0.75}
+            onPress={() => { if (streamUrl || !streamResolved) setUserRequestedPlay(true); }}
+            activeOpacity={streamResolved && !streamUrl ? 1 : 0.75}
           >
-            <View style={nvc.playBtnCircle}>
-              {userRequestedPlay && !streamUrl ? (
+            <View style={[nvc.playBtnCircle, streamResolved && !streamUrl ? { opacity: 0.45 } : undefined]}>
+              {!streamResolved ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : streamResolved && !streamUrl ? (
+                <Feather name="lock" size={18} color="#fff" />
+              ) : userRequestedPlay ? (
                 <ActivityIndicator size="small" color="#fff" />
               ) : (
                 <Feather name="play" size={24} color="#fff" style={{ marginLeft: 3 }} />
