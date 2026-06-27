@@ -1889,12 +1889,12 @@ function NovidadesVerticalCard({
           />
         )}
 
-        {/* Layer 2b: HTML5 video (web only) — URL direto ao CDN (não proxy).
-            Browser faz a request com IP do dispositivo → nixplay/cineveo não bloqueiam.
-            CORS não é aplicado para <video src>, só para fetch(). */}
+        {/* Layer 2b: HTML5 video (web only) — roteado via /flix2/preview-proxy.
+            O servidor resolve redirects HTTPS→HTTP e serve o vídeo sobre HTTPS,
+            contornando o bloqueio de mixed-content do Chrome. */}
         {canPlayVideoWeb && React.createElement("video", {
           ref: webVideoRef,
-          src: streamUrl!,
+          src: `${getApiBase()}/r2/flix2/preview-proxy?url=${encodeURIComponent(streamUrl!)}`,
           autoPlay: true,
           muted: muted,
           playsInline: true,
