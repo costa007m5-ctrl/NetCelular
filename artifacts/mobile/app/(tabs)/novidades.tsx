@@ -31,7 +31,7 @@ import { useColors } from "@/hooks/useColors";
 import { ProfileAvatarButton } from "@/components/ProfileAvatarButton";
 import { r2Route } from "@/lib/r2-direct";
 import { getProxiedStreamUrl } from "@/lib/gdrive-index";
-import { api, TMDB_IMG, tmdbItemToContent, type TmdbItem } from "@/lib/api";
+import { api, getApiBase, TMDB_IMG, tmdbItemToContent, type TmdbItem } from "@/lib/api";
 import type { ContentItem } from "@/constants/content";
 import { getMergedPreferences } from "@/lib/smart-preferences";
 import { getBehaviorProfile, trackOpen } from "@/lib/ai-behavior-tracker";
@@ -110,6 +110,100 @@ const IS_NATIVE_EP = Platform.OS !== "web";
 function buildEpPreviewHtml(uri: string): string {
   const escaped = uri.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
   return `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no"/><style>*{margin:0;padding:0;background:#000}html,body,video{width:100%;height:100%;overflow:hidden}video{object-fit:cover;display:block}</style></head><body><video id="v" playsinline webkit-playsinline preload="auto"></video><script>(function(){var v=document.getElementById('v');var rn=window.ReactNativeWebView;v.muted=true;function send(t,d){try{rn.postMessage(JSON.stringify(Object.assign({type:t},d||{})))}catch(e){}}v.addEventListener('loadedmetadata',function(){send('ready',{duration:v.duration*1000});});v.addEventListener('canplay',function(){v.play().catch(function(){});});v.addEventListener('error',function(){send('error',{code:v.error?v.error.code:-1});});function handleCmd(e){try{var d=JSON.parse(typeof e==='string'?e:(e.data||'{}'));if(d.type==='mute'){v.muted=true;}else if(d.type==='unmute'){v.muted=false;v.play().catch(function(){});}}catch(ex){}}window.addEventListener('message',handleCmd);document.addEventListener('message',handleCmd);v.src='${escaped}';v.load();v.play().catch(function(){});})()</script></body></html>`;
+}
+
+// ─── Flix2 stream resolution (ported from Shorts system) ──────────────────────
+// Module-level cache so cards that scroll past once don't re-fetch on re-render
+const FLIX_STREAM_CACHE = new Map<string, string>(); // cacheKey → final stream URL
+
+type RawEp = { season: number; episode: number; stream_url: string };
+
+function _isDirectVideo(u: string): boolean {
+  return u.length > 0 && !u.startsWith("flix2id:") && !u.includes("player_api.php") && u !== "null";
+}
+
+/** Client-side episode picker when server IP is blocked (mirrors Shorts pickInterestingEpisode) */
+function _pickEpisode(episodes: RawEp[]): RawEp | null {
+  if (!episodes.length) return null;
+  const bySeason = new Map<number, RawEp[]>();
+  for (const ep of episodes) {
+    if (!bySeason.has(ep.season)) bySeason.set(ep.season, []);
+    bySeason.get(ep.season)!.push(ep);
+  }
+  const seasons = [...bySeason.keys()].sort((a, b) => a - b);
+  const target = seasons.length >= 3
+    ? seasons.slice(1, 3)[Math.floor(Math.random() * 2)]
+    : seasons[seasons.length - 1];
+  const pool = (bySeason.get(target) ?? episodes).filter(
+    ep => !(ep.season === 1 && ep.episode <= 2)
+  );
+  const src = pool.length > 0 ? pool : (bySeason.get(target) ?? episodes);
+  return src[Math.floor(Math.random() * src.length)] ?? null;
+}
+
+/** Resolve series episode stream URL — with client-side fallback (datacenter IP blocked) */
+async function _resolveSeriesStream(seriesId: string, signal: AbortSignal): Promise<string> {
+  const base = getApiBase();
+  const res = await fetch(`${base}/r2/flix2/series-episodes?seriesId=${seriesId}`, { signal });
+  if (!res.ok) return "";
+  const data = await res.json() as any;
+
+  if (data.found && Array.isArray(data.episodes) && data.episodes.length > 0) {
+    const sorted = [...(data.episodes as RawEp[])].sort((a, b) =>
+      b.season !== a.season ? b.season - a.season : b.episode - a.episode
+    );
+    return sorted[0]?.stream_url ?? "";
+  }
+
+  // Datacenter IP blocked → fetch directly from device (residential IP)
+  if (data.tryClientDirect && data.directUrl && data.streamBase) {
+    const ctrl2 = new AbortController();
+    const t2 = setTimeout(() => ctrl2.abort(), 8000);
+    try {
+      const r2 = await fetch(data.directUrl as string, { signal: ctrl2.signal });
+      clearTimeout(t2);
+      if (!r2.ok) return "";
+      const d2 = await r2.json() as any;
+      if (!d2?.episodes || typeof d2.episodes !== "object") return "";
+      const all: RawEp[] = [];
+      for (const [s, eps] of Object.entries(d2.episodes as Record<string, any[]>)) {
+        if (!Array.isArray(eps)) continue;
+        for (const ep of eps) {
+          if (!ep?.id) continue;
+          const ext = (ep.container_extension as string) || "mp4";
+          all.push({ season: Number(s), episode: Number(ep.episode_num ?? ep.episode ?? 1),
+            stream_url: `${data.streamBase as string}${ep.id}.${ext}` });
+        }
+      }
+      const picked = _pickEpisode(all);
+      return picked?.stream_url ?? "";
+    } catch { clearTimeout(t2); return ""; }
+  }
+  return "";
+}
+
+/** Full Flix2 stream resolution: lookup → movie URL or series episodes → final URL */
+async function resolveFlixStream(item: ContentItem, signal: AbortSignal): Promise<string | null> {
+  const tmdbId = item.tmdbId;
+  if (!tmdbId || tmdbId <= 0) return null;
+  const isMovie = (item.mediaType ?? item.type) === "movie";
+  const base = getApiBase();
+  const lookupUrl = `${base}/r2/flix2/lookup?tmdbId=${tmdbId}&type=${isMovie ? "movies" : "all"}&title=${encodeURIComponent(item.title)}`;
+
+  const res = await fetch(lookupUrl, { signal });
+  if (!res.ok || signal.aborted) return null;
+  const data = await res.json() as any;
+  if (!data.found || !data.item) return null;
+
+  let raw: string = data.item?.stream_url ?? "";
+
+  if (!_isDirectVideo(raw)) {
+    const seriesId = String(data.item?.id ?? data.item?.series_id ?? "");
+    if (!seriesId) return null;
+    raw = await _resolveSeriesStream(seriesId, signal);
+  }
+
+  return _isDirectVideo(raw) ? raw : null;
 }
 
 interface AllData {
@@ -1661,67 +1755,34 @@ function NovidadesVerticalCard({
     }
   }, [isVisible, userRequestedPlay, streamUrl]);
 
-  // Lazy-fetch stream URL (flix2) + episode stills (TMDB) for video preview
+  // Lazy-fetch stream URL using the same system as Shorts (lookup + tryClientDirect fallback)
   useEffect(() => {
     const tmdbId = item.tmdbId;
     if (!tmdbId || tmdbId <= 0) return;
-    const isMovie   = (item.mediaType ?? item.type) === "movie";
-    const flix2Type = isMovie ? "movies" : "all";
-    let cancelled = false;
+    const cacheKey = `${tmdbId}_${item.mediaType ?? item.type}`;
 
+    // If already resolved (scrolled past before), set immediately
+    const cached = FLIX_STREAM_CACHE.get(cacheKey);
+    if (cached) { setStreamUrl(cached); return; }
+
+    const ctrl = new AbortController();
     const tid = setTimeout(async () => {
       try {
-        // API returns { found: boolean, item: { id, stream_url, type, ... } }
-        const fi = await r2Route<{ found: boolean; item: any }>(
-          `/flix2/lookup?tmdbId=${tmdbId}&type=${flix2Type}&title=${encodeURIComponent(item.title)}`
-        );
-        if (cancelled || !fi.found || !fi.item) return;
-
-        if (isMovie && fi.item.stream_url) {
-          // Movie: stream URL is returned directly in the item
-          setStreamUrl(fi.item.stream_url);
-        } else if (!isMovie && fi.item.id) {
-          // Series: lookup returns the series item (stream_url null), need to fetch episodes separately
-          const epResp = await r2Route<{
-            found: boolean;
-            episodes: Array<{ season: number; episode: number; stream_url?: string }>;
-          }>(`/flix2/series-episodes?seriesId=${fi.item.id}`);
-          if (cancelled || !epResp.found || !epResp.episodes?.length) return;
-
-          const sorted = [...epResp.episodes].sort((a, b) =>
-            b.season !== a.season ? b.season - a.season : b.episode - a.episode,
-          );
-          if (!cancelled) setEpCount(epResp.episodes.length);
-          const latest = sorted[0];
-          if (latest?.stream_url && !cancelled) setStreamUrl(latest.stream_url);
-
-          // Fetch stills from up to 3 different episodes (latest + spread across list)
-          const picks = Array.from(new Set([
-            0,
-            Math.floor(sorted.length * 0.33),
-            Math.floor(sorted.length * 0.66),
-          ])).map(i => sorted[i]).filter(Boolean);
-
-          const stills: string[] = [];
-          await Promise.all(
-            picks.map(async (ep) => {
-              try {
-                const sd = await api.tmdb.tvSeason(tmdbId, ep.season) as any;
-                const epData = (sd?.episodes ?? []).find(
-                  (e: any) => e.episode_number === ep.episode,
-                );
-                if (epData?.still_path && !cancelled) {
-                  stills.push(TMDB_IMG(epData.still_path, "w780") ?? "");
-                }
-              } catch {}
-            })
-          );
-          if (!cancelled && stills.length > 0) setStillUrls(stills.filter(Boolean));
+        const url = await resolveFlixStream(item, ctrl.signal);
+        if (ctrl.signal.aborted) return;
+        if (url) {
+          FLIX_STREAM_CACHE.set(cacheKey, url);
+          setStreamUrl(url);
+        } else {
+          // Not found — reset play request so ▶ button reappears instead of stuck spinner
+          setUserRequestedPlay(false);
         }
-      } catch {}
-    }, 1500);
+      } catch {
+        if (!ctrl.signal.aborted) setUserRequestedPlay(false);
+      }
+    }, 300);
 
-    return () => { cancelled = true; clearTimeout(tid); };
+    return () => { ctrl.abort(); clearTimeout(tid); };
   }, [item.tmdbId, item.title, item.mediaType, item.type]);
 
   const days = useMemo(() => {
