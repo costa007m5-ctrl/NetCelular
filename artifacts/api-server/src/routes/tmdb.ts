@@ -271,9 +271,34 @@ router.get("/now-playing", handle(async () => {
 
 router.get("/upcoming", handle(async () => {
   const key = getKey();
-  const res = await fetch(`https://api.themoviedb.org/3/movie/upcoming?api_key=${key}&language=pt-BR`);
-  const data: any = await res.json();
-  return data.results ?? [];
+  // Fetch 3 pages of upcoming movies + 2 pages of upcoming TV series (discover)
+  const today = new Date().toISOString().slice(0, 10);
+  const in90 = new Date(Date.now() + 90 * 86400000).toISOString().slice(0, 10);
+  const [p1, p2, p3, tv1, tv2] = await Promise.allSettled([
+    fetch(`https://api.themoviedb.org/3/movie/upcoming?api_key=${key}&language=pt-BR&page=1`).then(r => r.json()),
+    fetch(`https://api.themoviedb.org/3/movie/upcoming?api_key=${key}&language=pt-BR&page=2`).then(r => r.json()),
+    fetch(`https://api.themoviedb.org/3/movie/upcoming?api_key=${key}&language=pt-BR&page=3`).then(r => r.json()),
+    fetch(`https://api.themoviedb.org/3/discover/tv?api_key=${key}&language=pt-BR&first_air_date.gte=${today}&first_air_date.lte=${in90}&sort_by=first_air_date.asc&page=1`).then(r => r.json()),
+    fetch(`https://api.themoviedb.org/3/discover/tv?api_key=${key}&language=pt-BR&first_air_date.gte=${today}&first_air_date.lte=${in90}&sort_by=first_air_date.asc&page=2`).then(r => r.json()),
+  ]);
+  const movies: any[] = [
+    ...((p1 as any).value?.results ?? []),
+    ...((p2 as any).value?.results ?? []),
+    ...((p3 as any).value?.results ?? []),
+  ];
+  const tvItems: any[] = [
+    ...((tv1 as any).value?.results ?? []).map((i: any) => ({ ...i, media_type: "tv", release_date: i.first_air_date })),
+    ...((tv2 as any).value?.results ?? []).map((i: any) => ({ ...i, media_type: "tv", release_date: i.first_air_date })),
+  ];
+  // Deduplicate by id+type, sort by release date
+  const seen = new Set<string>();
+  const all: any[] = [];
+  for (const item of [...movies, ...tvItems]) {
+    const k = `${item.media_type ?? "movie"}:${item.id}`;
+    if (!seen.has(k)) { seen.add(k); all.push(item); }
+  }
+  all.sort((a, b) => (a.release_date ?? "").localeCompare(b.release_date ?? ""));
+  return all;
 }));
 
 router.get("/on-the-air", handle(async () => {

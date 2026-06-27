@@ -2002,7 +2002,7 @@ function NovidadesVerticalCard({
         try {
           const base = getApiBase();
           const mtype = item.mediaType === "tv" ? "tv" : "movie";
-          const res = await fetch(`${base}/tmdb/trailer?tmdbId=${tmdbId}&type=${mtype}`, { signal: ctrl.signal });
+          const res = await fetch(`${base}/r2/tmdb/trailer?tmdbId=${tmdbId}&type=${mtype}`, { signal: ctrl.signal });
           if (res.ok && !ctrl.signal.aborted) {
             const data = await res.json() as any;
             const key = data.found && data.key ? (data.key as string) : null;
@@ -3128,8 +3128,14 @@ export default function NovidadesScreen() {
   const upcomingItems = useMemo<Array<{ item: ContentItem; releaseDate: string }>>(() => {
     if (!data) return [];
     return data.upcoming
-      .filter((i) => i.release_date && daysUntil(i.release_date) >= 0)
-      .map((i) => ({ item: tmdbItemToContent(i), releaseDate: i.release_date! }));
+      .filter((i) => {
+        const date = i.release_date ?? i.first_air_date;
+        return date && daysUntil(date) >= -3; // include up to 3 days ago (timezone buffer)
+      })
+      .map((i) => {
+        const date = (i.release_date ?? i.first_air_date)!;
+        return { item: tmdbItemToContent(i), releaseDate: date };
+      });
   }, [data]);
 
   const onTheAirItems = useMemo<ContentItem[]>(() => {
