@@ -359,17 +359,16 @@ async function fetchWhatsNew(attempt = 0): Promise<WhatsNewResp | null> {
   }
 }
 
-async function loadAll(): Promise<AllData> {
-  const [trendingRes, nowPlayingRes, upcomingRes, onTheAirRes, airingRes, wnRes] =
+/** Phase 1: only TMDB calls — returns in ~1-2s */
+async function loadTmdb(): Promise<Omit<AllData, "whatsNew">> {
+  const [trendingRes, nowPlayingRes, upcomingRes, onTheAirRes, airingRes] =
     await Promise.allSettled([
       api.tmdb.trending(),
       api.tmdb.nowPlaying(),
       api.tmdb.upcoming(),
       api.tmdb.onTheAir(),
       api.tmdb.airingToday(),
-      fetchWhatsNew(),
     ]);
-
   const trending = trendingRes.status === "fulfilled" ? trendingRes.value : { all: [], movies: [], tv: [] };
   return {
     trending: (trending as any).all ?? [],
@@ -379,8 +378,16 @@ async function loadAll(): Promise<AllData> {
     upcoming: upcomingRes.status === "fulfilled" ? (upcomingRes.value as TmdbItem[]) : [],
     onTheAir: onTheAirRes.status === "fulfilled" ? (onTheAirRes.value as TmdbItem[]) : [],
     airingToday: airingRes.status === "fulfilled" ? (airingRes.value as TmdbItem[]) : [],
-    whatsNew: wnRes.status === "fulfilled" ? (wnRes.value as WhatsNewResp | null) : null,
   };
+}
+
+async function loadAll(): Promise<AllData> {
+  const [tmdb, wn] = await Promise.allSettled([loadTmdb(), fetchWhatsNew()]);
+  const base = tmdb.status === "fulfilled" ? tmdb.value : {
+    trending: [], trendingMovies: [], trendingTv: [],
+    nowPlaying: [], upcoming: [], onTheAir: [], airingToday: [],
+  };
+  return { ...base, whatsNew: wn.status === "fulfilled" ? (wn.value as WhatsNewResp | null) : null };
 }
 
 // ─── Skeleton ─────────────────────────────────────────────────────────────────
@@ -2823,6 +2830,7 @@ export default function NovidadesScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [data, setData] = useState<AllData | null>(null);
+  const [wnLoading, setWnLoading] = useState(true); // true while WhatsNew is still fetching
   const [paraVoce, setParaVoce] = useState<ContentItem[]>([]);
   const [paraVoceLabel, setParaVoceLabel] = useState("Lançamentos para Você");
   const [modal, setModal] = useState<{ visible: boolean; title: string; items: ContentItem[]; accent: string }>({
@@ -2853,12 +2861,18 @@ export default function NovidadesScreen() {
   }, [router]);
 
   const load = useCallback(async () => {
-    const result = await loadAll();
-    setData(result);
+    // Phase 1: TMDB data loads in ~1-2s — show content immediately
+    const tmdbData = await loadTmdb();
+    setData({ ...tmdbData, whatsNew: null });
+    setLoading(false);
+    // Phase 2: WhatsNew loads in background (can take 5-25s while Flix2 warms up)
+    fetchWhatsNew().then((wn) => {
+      setData((prev) => prev ? { ...prev, whatsNew: wn } : { ...tmdbData, whatsNew: wn });
+    }).catch(() => {}).finally(() => setWnLoading(false));
   }, []);
 
   useEffect(() => {
-    load().finally(() => setLoading(false));
+    load();
   }, [load]);
 
   // ── IA: Lançamentos para Você — filtrar por gêneros preferidos ───────────
@@ -2903,6 +2917,7 @@ export default function NovidadesScreen() {
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
+    setWnLoading(true);
     load().finally(() => setRefreshing(false));
   }, [load]);
 
@@ -3326,6 +3341,12 @@ export default function NovidadesScreen() {
           onPress={goTo}
         />
       ) : activeTab === "filmes" ? (
+        wnLoading && newMovies.length === 0 ? (
+          <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+            <ActivityIndicator size="large" color={RED} />
+            <Text style={{ color: "rgba(255,255,255,0.5)", marginTop: 12, fontSize: 13 }}>Carregando catálogo…</Text>
+          </View>
+        ) : (
         <CategoryFlatList
           items={newMovies}
           keyPrefix="film"
@@ -3336,7 +3357,14 @@ export default function NovidadesScreen() {
           onRefresh={onRefresh}
           onPress={goTo}
         />
+        )
       ) : activeTab === "series" ? (
+        wnLoading && newSeries.length === 0 ? (
+          <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+            <ActivityIndicator size="large" color={RED} />
+            <Text style={{ color: "rgba(255,255,255,0.5)", marginTop: 12, fontSize: 13 }}>Carregando catálogo…</Text>
+          </View>
+        ) : (
         <CategoryFlatList
           items={newSeries}
           keyPrefix="ser"
@@ -3381,7 +3409,14 @@ export default function NovidadesScreen() {
             ) : null
           }
         />
+        )
       ) : activeTab === "dorama" ? (
+        wnLoading && doramas.length === 0 ? (
+          <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+            <ActivityIndicator size="large" color={RED} />
+            <Text style={{ color: "rgba(255,255,255,0.5)", marginTop: 12, fontSize: 13 }}>Carregando catálogo…</Text>
+          </View>
+        ) : (
         <CategoryFlatList
           items={doramas}
           keyPrefix="dor"
@@ -3392,7 +3427,14 @@ export default function NovidadesScreen() {
           onRefresh={onRefresh}
           onPress={goTo}
         />
+        )
       ) : activeTab === "animes" ? (
+        wnLoading && jpAnimesFiltered.length === 0 ? (
+          <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+            <ActivityIndicator size="large" color={RED} />
+            <Text style={{ color: "rgba(255,255,255,0.5)", marginTop: 12, fontSize: 13 }}>Carregando catálogo…</Text>
+          </View>
+        ) : (
         <CategoryFlatList
           items={jpAnimesFiltered}
           keyPrefix="ani"
@@ -3403,7 +3445,14 @@ export default function NovidadesScreen() {
           onRefresh={onRefresh}
           onPress={goTo}
         />
+        )
       ) : activeTab === "animacao" ? (
+        wnLoading && animations.length === 0 ? (
+          <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+            <ActivityIndicator size="large" color={RED} />
+            <Text style={{ color: "rgba(255,255,255,0.5)", marginTop: 12, fontSize: 13 }}>Carregando catálogo…</Text>
+          </View>
+        ) : (
         <CategoryFlatList
           items={animations}
           keyPrefix="anim"
@@ -3414,6 +3463,7 @@ export default function NovidadesScreen() {
           onRefresh={onRefresh}
           onPress={goTo}
         />
+        )
       ) : (
         <TrendingFlatList
           items={[...heroBannerItems, ...newMovies.slice(0, 6), ...newSeries.slice(0, 6)].filter(
