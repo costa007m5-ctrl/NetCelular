@@ -182,28 +182,47 @@ async function _resolveSeriesStream(seriesId: string, signal: AbortSignal): Prom
   return "";
 }
 
-/** Full Flix2 stream resolution: lookup → movie URL or series episodes → final URL */
+/** Full Flix2 stream resolution: lookup → movie URL or series episodes → final URL.
+ *  Falls back to Veo catalog (nixplay.lat) when Flix2 doesn't have the item. */
 async function resolveFlixStream(item: ContentItem, signal: AbortSignal): Promise<string | null> {
   const tmdbId = item.tmdbId;
   if (!tmdbId || tmdbId <= 0) return null;
   const isMovie = (item.mediaType ?? item.type) === "movie";
   const base = getApiBase();
-  const lookupUrl = `${base}/r2/flix2/lookup?tmdbId=${tmdbId}&type=${isMovie ? "movies" : "all"}&title=${encodeURIComponent(item.title)}`;
 
-  const res = await fetch(lookupUrl, { signal });
-  if (!res.ok || signal.aborted) return null;
-  const data = await res.json() as any;
-  if (!data.found || !data.item) return null;
+  // ── 1. Try Flix2 catalog first ─────────────────────────────────────────────
+  try {
+    const lookupUrl = `${base}/r2/flix2/lookup?tmdbId=${tmdbId}&type=${isMovie ? "movies" : "all"}&title=${encodeURIComponent(item.title)}`;
+    const res = await fetch(lookupUrl, { signal });
+    if (res.ok && !signal.aborted) {
+      const data = await res.json() as any;
+      if (data.found && data.item) {
+        let raw: string = data.item?.stream_url ?? "";
+        if (!_isDirectVideo(raw)) {
+          const seriesId = String(data.item?.id ?? data.item?.series_id ?? "");
+          if (seriesId) raw = await _resolveSeriesStream(seriesId, signal);
+        }
+        if (_isDirectVideo(raw)) return raw;
+      }
+    }
+  } catch { /* fall through to Veo */ }
 
-  let raw: string = data.item?.stream_url ?? "";
+  if (signal.aborted) return null;
 
-  if (!_isDirectVideo(raw)) {
-    const seriesId = String(data.item?.id ?? data.item?.series_id ?? "");
-    if (!seriesId) return null;
-    raw = await _resolveSeriesStream(seriesId, signal);
-  }
+  // ── 2. Fallback: try Veo catalog (nixplay.lat) ─────────────────────────────
+  try {
+    const veoUrl = `${base}/r2/veo/lookup?tmdbId=${tmdbId}&type=${isMovie ? "movies" : "all"}&title=${encodeURIComponent(item.title)}`;
+    const vRes = await fetch(veoUrl, { signal });
+    if (vRes.ok && !signal.aborted) {
+      const vData = await vRes.json() as any;
+      if (vData.found && vData.item?.stream_url) {
+        const raw: string = vData.item.stream_url;
+        if (_isDirectVideo(raw)) return raw;
+      }
+    }
+  } catch { /* not available */ }
 
-  return _isDirectVideo(raw) ? raw : null;
+  return null;
 }
 
 interface AllData {
