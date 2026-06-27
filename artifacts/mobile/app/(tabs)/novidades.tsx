@@ -1766,14 +1766,25 @@ function NovidadesVerticalCard({
   const [isVisible, setIsVisible]       = useState(false);
   const [webVidPlaying, setWebVidPlaying] = useState(false);
   const [webVidFailed, setWebVidFailed]   = useState(false);
-  const nativeWebViewRef = useRef<any>(null);
-  const webVideoRef      = useRef<any>(null);
-  const containerRef     = useRef<View>(null);
+  const nativeWebViewRef   = useRef<any>(null);
+  const webVideoRef        = useRef<any>(null);
+  const containerRef       = useRef<View>(null);
+  const prevBackdropUrlRef = useRef<string | null>(null);
 
   // All metadata comes from the batch-pre-fetched enrich prop — instant, no delay
   const logoUrl    = (!logoErr && enrich?.logoUrl)    ? enrich.logoUrl    : null;
   const backdropUrl = enrich?.backdropUrl || item.backdropPath || item.posterPath || null;
   const overview   = enrich?.overview || item.description || null;
+
+  // When TMDB enrichment arrives with a better URL, reset imgErr so the new image gets a chance.
+  // Without this, once the Xtream CDN image fails, imgErr stays true forever even after
+  // TMDB provides a valid image.tmdb.org URL.
+  useEffect(() => {
+    if (backdropUrl && backdropUrl !== prevBackdropUrlRef.current) {
+      prevBackdropUrlRef.current = backdropUrl;
+      setImgErr(false);
+    }
+  }, [backdropUrl]);
 
   // Cycle through episode stills every 4s
   const epStillUrl = stillUrls[stillIdx] ?? null;

@@ -2769,6 +2769,7 @@ interface Tmdb2026Entry {
 const TMDB_IMG_SRV = (path: string | null, size = "w780") =>
   path ? `https://image.tmdb.org/t/p/${size}${path}` : null;
 const TMDB_2026_MAP      = new Map<string, Tmdb2026Entry>();
+const TMDB_2026_BY_ID    = new Map<number, Tmdb2026Entry>(); // reverse lookup: tmdbId → entry
 let   TMDB_2026_WARMED_AT = 0;
 let   TMDB_2026_WARMING   = false;
 const TMDB_2026_TTL_MS   = 12 * 60 * 60 * 1000; // 12 hours
@@ -3218,6 +3219,7 @@ export async function warmTmdb2026(): Promise<void> {
             overview: overviewText, overviewEn: "",
           };
           byId.set(id, entry);
+          TMDB_2026_BY_ID.set(id, entry);
           if (ptTitle) TMDB_2026_MAP.set(normTitle(ptTitle), entry);
           if (enTitle && normTitle(enTitle) !== normTitle(ptTitle))
             TMDB_2026_MAP.set(normTitle(enTitle), entry);
@@ -4639,19 +4641,27 @@ router.get("/flix2/whats-new", async (req, res) => {
   let warming  = false;
   let isFallback = false;
 
-  const toItem = (i: any) => ({
-    id:         i.id,
-    title:      i.title,
-    tmdb_id:    i.tmdb_id,
-    type:       i.type,
-    year:       i.year,
-    poster:     i.poster,
-    backdrop:   i.backdrop || "",
-    overview:   i.overview || i.synopsis || "",
-    added_at:   i.added_at,
-    added_date: i.added_at ? new Date(i.added_at * 1000).toISOString().slice(0, 10) : null,
-    stream_url: i.stream_url || i.fast_stream_url || null,
-  });
+  const toItem = (i: any) => {
+    // Prefer TMDB CDN images (guaranteed CORS-safe, no expiry) over Xtream CDN URLs.
+    // Priority: TMDB_2026_BY_ID (has backdropPath) > Xtream poster (may be TMDB URL already)
+    const tmdbId = Number(i.tmdb_id) || 0;
+    const t2026  = tmdbId > 0 ? TMDB_2026_BY_ID.get(tmdbId) : undefined;
+    const tmdbPoster   = t2026?.posterPath   ? TMDB_IMG_SRV(t2026.posterPath,   "w342")! : "";
+    const tmdbBackdrop = t2026?.backdropPath ? TMDB_IMG_SRV(t2026.backdropPath, "w780")! : "";
+    return {
+      id:         i.id,
+      title:      i.title,
+      tmdb_id:    tmdbId,
+      type:       i.type,
+      year:       i.year,
+      poster:     tmdbPoster   || i.poster   || "",
+      backdrop:   tmdbBackdrop || i.backdrop || "",
+      overview:   t2026?.overview || i.overview || i.synopsis || "",
+      added_at:   i.added_at,
+      added_date: i.added_at ? new Date(i.added_at * 1000).toISOString().slice(0, 10) : null,
+      stream_url: i.stream_url || i.fast_stream_url || null,
+    };
+  };
 
   const activeTypes = types.length ? types : FLIX2_TYPES;
 
