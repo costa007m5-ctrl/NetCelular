@@ -114,6 +114,11 @@ function buildEpPreviewHtml(uri: string, muted = true): string {
   return `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no"/><style>*{margin:0;padding:0;background:#000}html,body,video{width:100%;height:100%;overflow:hidden}video{object-fit:cover;display:block}</style></head><body><video id="v" playsinline webkit-playsinline preload="auto"></video><script>(function(){var v=document.getElementById('v');var rn=window.ReactNativeWebView;v.muted=${mutedStr};function send(t,d){try{rn.postMessage(JSON.stringify(Object.assign({type:t},d||{})))}catch(e){}}v.addEventListener('loadedmetadata',function(){send('ready',{duration:v.duration*1000});});v.addEventListener('canplay',function(){v.play().catch(function(){});});v.addEventListener('error',function(){send('error',{code:v.error?v.error.code:-1});});function handleCmd(e){try{var d=JSON.parse(typeof e==='string'?e:(e.data||'{}'));if(d.type==='mute'){v.muted=true;}else if(d.type==='unmute'){v.muted=false;v.play().catch(function(){});}}catch(ex){}}window.addEventListener('message',handleCmd);document.addEventListener('message',handleCmd);v.src='${escaped}';v.load();v.play().catch(function(){});})()</script></body></html>`;
 }
 
+/** HTML wrapper that embeds a YouTube trailer via IFrame API — native WebView only */
+function buildTrailerHtml(key: string): string {
+  return `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><style>*{margin:0;padding:0;background:#000}html,body{width:100%;height:100%;overflow:hidden}#p{position:fixed;top:0;left:0;width:100%;height:100%;}</style></head><body><div id="p"></div><script src="https://www.youtube.com/iframe_api"></script><script>(function(){var _p;function onYouTubeIframeAPIReady(){_p=new YT.Player('p',{videoId:'${key}',playerVars:{autoplay:1,mute:1,playsinline:1,rel:0,modestbranding:1,controls:0,iv_load_policy:3,fs:0,origin:'https://www.youtube.com'},events:{onReady:function(e){e.target.playVideo();send('ready');},onStateChange:function(e){if(e.data===1)send('ready');},onError:function(){send('error');}}});}function send(t){try{window.ReactNativeWebView&&window.ReactNativeWebView.postMessage(JSON.stringify({type:t}));}catch(e){}}function handleMsg(e){try{var d=JSON.parse(typeof e==='string'?e:(e.data||'{}'));if(d.type==='mute'&&_p){if(d.value)_p.mute();else _p.unMute();}if(d.type==='pause'&&_p)_p.pauseVideo();if(d.type==='play'&&_p)_p.playVideo();}catch(x){}}window.addEventListener('message',handleMsg);document.addEventListener('message',handleMsg);window.onYouTubeIframeAPIReady=onYouTubeIframeAPIReady;})()</script></body></html>`;
+}
+
 // ─── Flix2 stream resolution (ported from Shorts system) ──────────────────────
 // Module-level cache so cards that scroll past once don't re-fetch on re-render
 const FLIX_STREAM_CACHE = new Map<string, string>(); // cacheKey → final stream URL
@@ -1855,8 +1860,13 @@ function NovidadesVerticalCard({
   // Series: array of 2 random recent episode URLs that cycle every 20s
   const [previewUrls, setPreviewUrls]   = useState<string[]>([]);
   const [previewIdx, setPreviewIdx]     = useState(0);
+  // Upcoming: YouTube trailer key fetched from TMDB
+  const [trailerKey, setTrailerKey]     = useState<string | null>(null);
   const nativeWebViewRef   = useRef<any>(null);
   const webVideoRef        = useRef<any>(null);
+  const trailerIframeRef   = useRef<any>(null);
+  const trailerKeyRef      = useRef<string | null>(null);
+  trailerKeyRef.current    = trailerKey;
   const containerRef       = useRef<View>(null);
   const prevBackdropUrlRef = useRef<string | null>(null);
   const prevStreamUrlRef   = useRef<string | null>(null);
@@ -1911,21 +1921,36 @@ function NovidadesVerticalCard({
   }, [previewUrls]);
 
   // For video preview: episode still (series) takes priority over backdrop
-  const backdropShown   = !imgErr ? (epStillUrl || backdropUrl) : null;
-  const canPlayVideo    = IS_NATIVE_EP && !!streamUrl && WebViewEp !== null;
-  const canPlayVideoWeb = !IS_NATIVE_EP && !!streamUrl && !webVidFailed;
+  const backdropShown    = !imgErr ? (epStillUrl || backdropUrl) : null;
+  const canPlayTrailer   = IS_NATIVE_EP && !!trailerKey && WebViewEp !== null;
+  const canPlayTrailerWeb = !IS_NATIVE_EP && !!trailerKey;
+  const canPlayVideo     = !trailerKey && IS_NATIVE_EP && !!streamUrl && WebViewEp !== null;
+  const canPlayVideoWeb  = !trailerKey && !IS_NATIVE_EP && !!streamUrl && !webVidFailed;
 
   // Quality / audio badges — extracted from the raw catalog title
   const qualBadge = useMemo(() => _extractQuality(item.title), [item.title]);
 
-  // Toggle muted without reloading the video
+  // Toggle muted — handles both direct video preview and YouTube trailer
   const handleMuteToggle = useCallback(() => {
     setMuted(m => {
       const next = !m;
+      const isTrailer = !!trailerKeyRef.current;
       if (IS_NATIVE_EP) {
-        nativeWebViewRef.current?.injectJavaScript(
-          `(function(){var v=document.getElementById('v');if(v)v.muted=${next};})();true;`
-        );
+        if (isTrailer) {
+          nativeWebViewRef.current?.injectJavaScript(
+            `(function(){try{var d=JSON.stringify({type:'mute',value:${next}});if(window.ReactNativeWebView)document.dispatchEvent(new MessageEvent('message',{data:d}));window.dispatchEvent(new MessageEvent('message',{data:d}));}catch(e){}})();true;`
+          );
+        } else {
+          nativeWebViewRef.current?.injectJavaScript(
+            `(function(){var v=document.getElementById('v');if(v)v.muted=${next};})();true;`
+          );
+        }
+      } else if (isTrailer && trailerIframeRef.current) {
+        try {
+          trailerIframeRef.current.contentWindow?.postMessage(
+            JSON.stringify({ event: "command", func: next ? "mute" : "unMute", args: [] }), "*"
+          );
+        } catch {}
       } else if (webVideoRef.current) {
         webVideoRef.current.muted = next;
         if (!next) webVideoRef.current.play?.().catch(() => {});
@@ -1961,6 +1986,34 @@ function NovidadesVerticalCard({
   // Lazy-fetch stream URL using the same system as Shorts (lookup + tryClientDirect fallback)
   useEffect(() => {
     const tmdbId = item.tmdbId;
+
+    // Upcoming content: fetch YouTube trailer from TMDB (no Flix2 stream — not released yet)
+    if (type === "upcoming") {
+      if (!tmdbId || tmdbId <= 0) { setStreamResolved(true); return; }
+      const cacheKey = `trailer_${tmdbId}`;
+      const cached = FLIX_STREAM_CACHE.get(cacheKey);
+      if (cached) {
+        if (cached !== "_none_") setTrailerKey(cached);
+        setStreamResolved(true);
+        return;
+      }
+      const ctrl = new AbortController();
+      const t = setTimeout(async () => {
+        try {
+          const base = getApiBase();
+          const mtype = item.mediaType === "tv" ? "tv" : "movie";
+          const res = await fetch(`${base}/tmdb/trailer?tmdbId=${tmdbId}&type=${mtype}`, { signal: ctrl.signal });
+          if (res.ok && !ctrl.signal.aborted) {
+            const data = await res.json() as any;
+            const key = data.found && data.key ? (data.key as string) : null;
+            FLIX_STREAM_CACHE.set(cacheKey, key ?? "_none_");
+            if (key && !ctrl.signal.aborted) setTrailerKey(key);
+          }
+        } catch { /* no trailer — leave trailerKey null */ }
+        if (!ctrl.signal.aborted) setStreamResolved(true);
+      }, 300);
+      return () => { ctrl.abort(); clearTimeout(t); };
+    }
 
     // Fast path: item already has a direct stream URL (whats-new catalog items)
     // Use it immediately without any network lookup — on web the preview-proxy handles CDN issues
@@ -2139,7 +2192,30 @@ function NovidadesVerticalCard({
           <LinearGradient colors={["#1a0814", "#0e060c"]} style={StyleSheet.absoluteFill} />
         )}
 
-        {/* Layer 2a: WebView video (native) — auto-plays on top of image, fades in when ready */}
+        {/* Layer 2a: YouTube trailer WebView (native) — for upcoming content */}
+        {canPlayTrailer && !vidErrored && (
+          <WebViewEp
+            ref={nativeWebViewRef}
+            style={[StyleSheet.absoluteFill, { opacity: vidReady ? 1 : 0 }]}
+            source={{ html: buildTrailerHtml(trailerKey!) }}
+            scrollEnabled={false}
+            allowsInlineMediaPlayback
+            mediaPlaybackRequiresUserAction={false}
+            javaScriptEnabled
+            originWhitelist={["*"]}
+            mixedContentMode="always"
+            onMessage={(e: any) => {
+              try {
+                const msg = JSON.parse(e.nativeEvent.data);
+                if (msg.type === "ready") setVidReady(true);
+                else if (msg.type === "error") { setVidReady(false); setVidErrored(true); }
+              } catch {}
+            }}
+            onError={() => { setVidReady(false); setVidErrored(true); }}
+          />
+        )}
+
+        {/* Layer 2a2: Episode stream WebView (native) — for trending/series content */}
         {canPlayVideo && !vidErrored && (
           <WebViewEp
             ref={nativeWebViewRef}
@@ -2162,7 +2238,21 @@ function NovidadesVerticalCard({
           />
         )}
 
-        {/* Layer 2b: HTML5 video (web only) — roteado via /flix2/preview-proxy.
+        {/* Layer 2b: YouTube trailer iframe (web) — for upcoming content */}
+        {canPlayTrailerWeb && React.createElement("iframe", {
+          ref: trailerIframeRef,
+          src: `https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=1&playsinline=1&rel=0&modestbranding=1&enablejsapi=1&controls=0&iv_load_policy=3`,
+          allow: "autoplay; encrypted-media; fullscreen",
+          style: {
+            position: "absolute", top: 0, left: 0,
+            width: "100%", height: "100%",
+            border: "none",
+          },
+          onLoad: () => { setVidReady(true); setWebVidPlaying(true); },
+          onError: () => { setVidErrored(true); setWebVidPlaying(false); },
+        })}
+
+        {/* Layer 2c: HTML5 video (web only) — roteado via /flix2/preview-proxy.
             O servidor resolve redirects HTTPS→HTTP e serve o vídeo sobre HTTPS,
             contornando o bloqueio de mixed-content do Chrome. */}
         {canPlayVideoWeb && React.createElement("video", {
@@ -2180,9 +2270,6 @@ function NovidadesVerticalCard({
           onPlay: () => setWebVidPlaying(true),
           onPause: () => setWebVidPlaying(false),
           onError: () => {
-            // Video failed to play (e.g. mixed-content HTTPS→HTTP, or CDN block).
-            // Keep streamUrl intact so the play button stays visible — content
-            // exists in the catalog and is watchable via the detail/player screen.
             setWebVidFailed(true);
             setWebVidPlaying(false);
             setUserRequestedPlay(false);
@@ -2226,16 +2313,16 @@ function NovidadesVerticalCard({
           </View>
         )}
 
-        {/* PRÉVIA badge — native or web */}
-        {((canPlayVideo && vidReady) || webVidPlaying) && (
+        {/* PRÉVIA / TRAILER badge — native or web */}
+        {((canPlayTrailer && vidReady) || (canPlayVideo && vidReady) || (canPlayTrailerWeb && vidReady) || webVidPlaying) && (
           <View style={nvc.previewBadge}>
             <View style={nvc.previewDot} />
-            <Text style={nvc.previewBadgeTxt}>PRÉVIA</Text>
+            <Text style={nvc.previewBadgeTxt}>{trailerKey ? "TRAILER" : "PRÉVIA"}</Text>
           </View>
         )}
 
-        {/* Mute/Unmute button — shown while video is active */}
-        {(canPlayVideo || webVidPlaying) && (
+        {/* Mute/Unmute button — shown while video or trailer is active */}
+        {(canPlayVideo || canPlayTrailer || webVidPlaying || (canPlayTrailerWeb && vidReady)) && (
           <TouchableOpacity
             style={nvc.muteBtn}
             onPress={handleMuteToggle}

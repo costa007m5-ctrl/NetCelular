@@ -1970,6 +1970,45 @@ router.get("/tmdb-search", async (req, res) => {
   }
 });
 
+// ── GET /tmdb/trailer — best YouTube trailer key for a TMDB title ─────────────
+router.get("/tmdb/trailer", async (req, res) => {
+  const { tmdbId, type = "movie" } = req.query as Record<string, string>;
+  if (!tmdbId || isNaN(Number(tmdbId))) {
+    res.status(400).json({ error: "tmdbId required" }); return;
+  }
+  const TMDB_KEY = process.env.TMDB_API_KEY ?? "8f0beb08cf016ec8de49e454e09879ec";
+  const mediaType = type === "tv" ? "tv" : "movie";
+  try {
+    const pick = (vids: any[]): any =>
+      vids.find((v: any) => v.site === "YouTube" && v.type === "Trailer" && v.official) ??
+      vids.find((v: any) => v.site === "YouTube" && v.type === "Trailer") ??
+      vids.find((v: any) => v.site === "YouTube" && v.type === "Teaser") ??
+      vids.find((v: any) => v.site === "YouTube") ?? null;
+
+    const fetchVids = async (lang: string): Promise<any[]> => {
+      const r = await fetch(
+        `https://api.themoviedb.org/3/${mediaType}/${tmdbId}/videos?api_key=${TMDB_KEY}&language=${lang}`
+      );
+      if (!r.ok) return [];
+      const d = await r.json() as any;
+      return d.results ?? [];
+    };
+
+    let vids = await fetchVids("pt-BR");
+    let trailer = pick(vids);
+    if (!trailer) {
+      vids = await fetchVids("en-US");
+      trailer = pick(vids);
+    }
+
+    if (!trailer?.key) { res.json({ found: false }); return; }
+    res.set("Cache-Control", "public, max-age=86400");
+    res.json({ found: true, key: trailer.key, name: trailer.name ?? "", trailerType: trailer.type ?? "" });
+  } catch (e: any) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
 // ── Drive helpers ─────────────────────────────────────────────────────────────
 
 function extractDriveFileId(url: string): string | null {
