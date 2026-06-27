@@ -199,15 +199,24 @@ function _extractQuality(title: string): { q: string | null; audio: string | nul
 }
 
 /** Full Flix2 stream resolution. Priority:
- *  0. item.flix2Url already set (from WhatsNew catalog) → use directly, no lookup needed
- *  1. Flix2 catalog lookup (by tmdbId or title)
- *  2. Veo catalog fallback (nixplay.lat) */
+ *  0. item.flix2Url already set (from WhatsNew catalog) → use directly on native only;
+ *     on web, hubby.cx/fontedecanais redirect to CDNs that block datacenter IPs,
+ *     so we fall through to the full lookup so Veo (nixplay.lat) can serve it.
+ *  1. Flix2 catalog lookup (by tmdbId or title) — also skipped on web for same CDN reason
+ *  2. Veo catalog fallback (nixplay.lat) — works from server, proxy can serve it */
 async function resolveFlixStream(item: ContentItem, signal: AbortSignal): Promise<string | null> {
   const isMovie = (item.mediaType ?? item.type) === "movie";
   const base = getApiBase();
+  const isWeb = Platform.OS === "web";
+
+  // On web, Flix2 Xtream server URLs (hubby.cx → redirect → fontedecanais/cineveo)
+  // are blocked by the CDN when accessed from server/datacenter IPs.
+  // Skip these on web and rely on Veo for a proxy-friendly URL.
+  const _isWebBlocked = (u: string) =>
+    isWeb && (u.includes("hubby.cx") || u.includes("fontedecanais") || u.includes("cineveo"));
 
   // ── 0. Direct stream URL already embedded in item (WhatsNew items) ──────────
-  if (item.flix2Url && _isDirectVideo(item.flix2Url)) {
+  if (item.flix2Url && _isDirectVideo(item.flix2Url) && !_isWebBlocked(item.flix2Url)) {
     return item.flix2Url;
   }
 
@@ -216,26 +225,28 @@ async function resolveFlixStream(item: ContentItem, signal: AbortSignal): Promis
 
   const tmdbId = item.tmdbId ?? 0;
 
-  // ── 1. Try Flix2 catalog first ─────────────────────────────────────────────
-  try {
-    const lookupUrl = `${base}/r2/flix2/lookup?tmdbId=${tmdbId}&type=${isMovie ? "movies" : "all"}&title=${encodeURIComponent(item.title)}`;
-    const res = await fetch(lookupUrl, { signal });
-    if (res.ok && !signal.aborted) {
-      const data = await res.json() as any;
-      if (data.found && data.item) {
-        let raw: string = data.item?.stream_url ?? "";
-        if (!_isDirectVideo(raw)) {
-          const seriesId = String(data.item?.id ?? data.item?.series_id ?? "");
-          if (seriesId) raw = await _resolveSeriesStream(seriesId, signal);
+  // ── 1. Try Flix2 catalog first (native only — web falls through to Veo) ─────
+  if (!isWeb) {
+    try {
+      const lookupUrl = `${base}/r2/flix2/lookup?tmdbId=${tmdbId}&type=${isMovie ? "movies" : "all"}&title=${encodeURIComponent(item.title)}`;
+      const res = await fetch(lookupUrl, { signal });
+      if (res.ok && !signal.aborted) {
+        const data = await res.json() as any;
+        if (data.found && data.item) {
+          let raw: string = data.item?.stream_url ?? "";
+          if (!_isDirectVideo(raw)) {
+            const seriesId = String(data.item?.id ?? data.item?.series_id ?? "");
+            if (seriesId) raw = await _resolveSeriesStream(seriesId, signal);
+          }
+          if (_isDirectVideo(raw)) return raw;
         }
-        if (_isDirectVideo(raw)) return raw;
       }
-    }
-  } catch { /* fall through to Veo */ }
+    } catch { /* fall through to Veo */ }
+  }
 
   if (signal.aborted) return null;
 
-  // ── 2. Fallback: try Veo catalog (nixplay.lat) ─────────────────────────────
+  // ── 2. Veo catalog (nixplay.lat) — proxy-friendly, works from server/datacenter ─
   try {
     const veoUrl = `${base}/r2/veo/lookup?tmdbId=${tmdbId}&type=${isMovie ? "movies" : "all"}&title=${encodeURIComponent(item.title)}`;
     const vRes = await fetch(veoUrl, { signal });
@@ -243,10 +254,29 @@ async function resolveFlixStream(item: ContentItem, signal: AbortSignal): Promis
       const vData = await vRes.json() as any;
       if (vData.found && vData.item?.stream_url) {
         const raw: string = vData.item.stream_url;
-        if (_isDirectVideo(raw)) return raw;
+        if (_isDirectVideo(raw) && !_isWebBlocked(raw)) return raw;
       }
     }
   } catch { /* not available */ }
+
+  // ── 3. Last resort on web: try Flix2 lookup (still may fail via proxy) ──────
+  if (isWeb && tmdbId > 0) {
+    try {
+      const lookupUrl = `${base}/r2/flix2/lookup?tmdbId=${tmdbId}&type=${isMovie ? "movies" : "all"}&title=${encodeURIComponent(item.title)}`;
+      const res = await fetch(lookupUrl, { signal });
+      if (res.ok && !signal.aborted) {
+        const data = await res.json() as any;
+        if (data.found && data.item) {
+          let raw: string = data.item?.stream_url ?? "";
+          if (!_isDirectVideo(raw)) {
+            const seriesId = String(data.item?.id ?? data.item?.series_id ?? "");
+            if (seriesId) raw = await _resolveSeriesStream(seriesId, signal);
+          }
+          if (_isDirectVideo(raw)) return raw;
+        }
+      }
+    } catch { /* give up */ }
+  }
 
   return null;
 }
@@ -1825,6 +1855,16 @@ function NovidadesVerticalCard({
   const webVideoRef        = useRef<any>(null);
   const containerRef       = useRef<View>(null);
   const prevBackdropUrlRef = useRef<string | null>(null);
+  const prevStreamUrlRef   = useRef<string | null>(null);
+
+  // Reset webVidFailed when a new stream URL arrives so re-attempts get a clean slate
+  useEffect(() => {
+    if (streamUrl && streamUrl !== prevStreamUrlRef.current) {
+      prevStreamUrlRef.current = streamUrl;
+      setWebVidFailed(false);
+      setVidErrored(false);
+    }
+  }, [streamUrl]);
 
   // All metadata comes from the batch-pre-fetched enrich prop — instant, no delay
   const logoUrl    = (!logoErr && enrich?.logoUrl)    ? enrich.logoUrl    : null;
