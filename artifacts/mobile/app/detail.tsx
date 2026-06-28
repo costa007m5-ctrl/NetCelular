@@ -284,6 +284,11 @@ export default function DetailScreen() {
   // Tracks if the background Flix 2.0 lookup is still running (separate from r2Loading)
   const [flix2Loading, setFlix2Loading] = useState(false);
 
+  // Ref so the banner effect can read current localProgress without it being a dep
+  // (avoids race condition where localProgress for new content fires effect with old r2Items)
+  const localProgressRef = useRef<typeof localProgress>(null);
+  React.useEffect(() => { localProgressRef.current = localProgress; }, [localProgress]);
+
   // Set banner video URL from: R2 signed URL (priority 1) or Flix2 stream (priority 2)
   React.useEffect(() => {
     if (!r2Items.length) return;
@@ -303,15 +308,16 @@ export default function DetailScreen() {
     // Priority 2: Flix2 stream
     // For movies: item with no episode number
     // For series: prefer the episode matching localProgress (continue watching),
-    //             then fall back to S01E01, then first episode of S1
-    const progressSeason = localProgress?.season;
-    const progressEpisode = localProgress?.episode;
+    //             then fall back to S01E01, then first episode of S1.
+    // Use ref (not state) so this effect only re-runs when r2Items changes,
+    // not when progress changes (prevents stale-r2Items race condition).
+    const prog = localProgressRef.current;
     const flix2Item =
       // Movie-level item (no episode)
       r2Items.find((i) => isFlixItem(i) && i.flix2Url && !i.episode) ??
       // Continue watching: episode matching saved progress
-      (progressSeason != null && progressEpisode != null
-        ? r2Items.find((i) => isFlixItem(i) && i.flix2Url && i.season === progressSeason && i.episode === progressEpisode)
+      (prog?.season != null && prog?.episode != null
+        ? r2Items.find((i) => isFlixItem(i) && i.flix2Url && i.season === prog.season && i.episode === prog.episode)
         : undefined) ??
       // Default: S01E01
       r2Items.find((i) => isFlixItem(i) && i.flix2Url && i.season === 1 && i.episode === 1) ??
@@ -319,15 +325,13 @@ export default function DetailScreen() {
       r2Items.find((i) => isFlixItem(i) && i.flix2Url && i.season === 1);
     if (flix2Item?.flix2Url) {
       if (Platform.OS === "web") {
-        // Web: proxy the stream to avoid CORS issues
         setBannerVideoUrl(`${getApiBase()}/stream/proxy?url=${encodeURIComponent(flix2Item.flix2Url)}`);
       } else {
-        // Native: play directly from device (device IP bypasses CDN token restrictions)
         setBannerVideoUrl(flix2Item.flix2Url);
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [r2Items.map((i) => i.id).join(","), localProgress?.season, localProgress?.episode]);
+  }, [r2Items.map((i) => i.id).join(",")]);
 
   // Try to go fullscreen on the banner video; falls back to a navigation call.
   // Web:    uses requestFullscreen() on the <video> element directly — no reload.
