@@ -1207,9 +1207,27 @@ export default function DetailScreen() {
         .then((r) => r.json())
         .then(async (data) => {
           const results: any[] = data.results ?? [];
-          const hit =
-            results.find((r: any) => r.media_type === mediaType) ??
-            results[0];
+
+          // Pick best TMDB match:
+          // 1. Prefer results that match the expected media_type
+          // 2. Among same-title exact matches, prefer highest vote_count —
+          //    IPTV catalogs serve established/classic content that has accumulated
+          //    more ratings over time vs newly-released films with the same name.
+          const normQ = titleQ.toLowerCase().trim();
+          const typeMatches = results.filter((r: any) => r.media_type === mediaType);
+          const pool = typeMatches.length > 0 ? typeMatches : results;
+
+          const exactPool = pool.filter((r: any) =>
+            (r.title ?? r.name ?? "").toLowerCase().trim() === normQ
+          );
+          const candidatePool = exactPool.length > 0 ? exactPool : pool;
+
+          const hit = candidatePool.reduce((best: any, r: any) => {
+            if (!best) return r;
+            // Among candidates, prefer the one with most community ratings (vote_count).
+            // This consistently picks classic/established films over same-titled new releases.
+            return (r.vote_count ?? 0) > (best.vote_count ?? 0) ? r : best;
+          }, null as any) ?? pool[0];
           if (!hit?.id) return;
           const hitType: "movie" | "tv" =
             hit.media_type === "movie" ? "movie" : "tv";
