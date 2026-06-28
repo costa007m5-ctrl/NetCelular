@@ -19,14 +19,20 @@ config.resolver.nodeModulesPaths = [
   path.resolve(monorepoRoot, "node_modules"),
 ];
 
-// Block .local from file watching — avoids crashes when skill directories are
-// created/deleted by Replit's agent tooling while Metro is running.
+// Block directories that should not be watched by Metro:
+// - .local: skill dirs created/deleted by Replit's agent tooling
+// - .config/npe: global npm install dir lives inside workspace on Replit,
+//   causing ENOENT crashes when Metro tries to watch temp pnpm dirs inside it
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-const localDir = path.resolve(monorepoRoot, ".local");
+const blockDirs = [
+  path.resolve(monorepoRoot, ".local"),
+  path.resolve(monorepoRoot, ".config"),
+  path.resolve(monorepoRoot, ".cache"),
+];
 const existing = config.resolver.blockList;
 config.resolver.blockList = [
   ...(Array.isArray(existing) ? existing : existing ? [existing] : []),
-  new RegExp(`^${escapeRegex(localDir)}(/.*)?$`),
+  ...blockDirs.map((d) => new RegExp(`^${escapeRegex(d)}(/.*)?$`)),
 ];
 
 module.exports = config;
