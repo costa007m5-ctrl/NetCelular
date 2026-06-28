@@ -551,6 +551,15 @@ export default function DetailScreen() {
           );
         }
 
+        // For TV series pages: strip any Flix2 registry items that have no episode number.
+        // These are spurious movie-level entries (e.g. "Dublado HD" with /movie/ URL)
+        // that were saved to the registry in error — they show wrong content on series pages.
+        if (type !== "movie") {
+          registryItems = registryItems.filter(
+            (i) => !isFlixItem(i) || i.episode != null
+          );
+        }
+
         setR2Items(registryItems);
         setR2Loading(false);  // fase 1 concluída — UI já pode mostrar botões
 
