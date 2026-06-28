@@ -42,7 +42,7 @@ import { Image } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-import { getApiBase } from "@/lib/api";
+import { getApiBase, api } from "@/lib/api";
 import { recordContentView } from "@/lib/view-tracker";
 import { appLog } from "@/lib/app-logger";
 import { getProxiedStreamUrl } from "@/lib/gdrive-index";
@@ -935,21 +935,18 @@ export default function Flix2PlayerScreen() {
     ]).start(() => setShowEpisodes(false));
   }, []);
 
-  // Pre-fetch TMDB episodes — eager on mount so names/stills are ready when
-  // the panel opens. Re-runs when the season tab changes.
+  // Pre-fetch TMDB episodes via server proxy — same path used by the detail screen.
+  // Eager on mount so names/stills are ready when the panel opens.
+  // Re-runs when the season tab changes.
   useEffect(() => {
     if (!tmdbId || !isTV) return;
+    let cancelled = false;
     setPanelLoading(true);
-    const ctrl = new AbortController();
-    fetch(
-      `https://api.themoviedb.org/3/tv/${tmdbId}/season/${panelSeason}?api_key=${TMDB_KEY}&language=pt-BR`,
-      { signal: ctrl.signal }
-    )
-      .then((r) => r.json())
-      .then((data) => setPanelEpisodes(data.episodes ?? []))
-      .catch(() => setPanelEpisodes([]))
-      .finally(() => setPanelLoading(false));
-    return () => ctrl.abort();
+    api.tmdb.tvSeason(tmdbId, panelSeason)
+      .then((data: any) => { if (!cancelled) setPanelEpisodes(data.episodes ?? []); })
+      .catch(() => { if (!cancelled) setPanelEpisodes([]); })
+      .finally(() => { if (!cancelled) setPanelLoading(false); });
+    return () => { cancelled = true; };
   }, [panelSeason, tmdbId, isTV]);
 
   // ── Video callbacks ──────────────────────────────────────────────────────────
