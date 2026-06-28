@@ -949,16 +949,16 @@ export default function Flix2PlayerScreen() {
     if (tmdbId && tmdbId > 0) { setResolvedTmdbId(tmdbId); return; }
     if (!title) return;
     let cancelled = false;
-    getApiBase().then((apiBase) => {
-      return fetch(
-        `${apiBase}/api/flix2/lookup?title=${encodeURIComponent(title)}&type=serie`,
-        { signal: AbortSignal.timeout ? undefined : undefined }
-      ).then((r) => r.json());
-    }).then((fi: any) => {
-      if (!cancelled && fi?.tmdb_id && Number(fi.tmdb_id) > 0) {
-        setResolvedTmdbId(Number(fi.tmdb_id));
-      }
-    }).catch(() => {});
+    // getApiBase() is synchronous — returns a string, not a Promise.
+    const apiBase = getApiBase();
+    fetch(`${apiBase}/flix2/lookup?title=${encodeURIComponent(title)}&type=serie`)
+      .then((r) => r.json())
+      .then((fi: any) => {
+        if (!cancelled && fi?.tmdb_id && Number(fi.tmdb_id) > 0) {
+          setResolvedTmdbId(Number(fi.tmdb_id));
+        }
+      })
+      .catch(() => {});
     return () => { cancelled = true; };
   }, [tmdbId, title, isTV]);
 

@@ -2893,8 +2893,9 @@ function mapXtreamVod(item: any): any {
 function mapXtreamSeries(item: any): any {
   const seriesId = item.series_id ?? item.num;
   const backdropArr: string[] = item.backdrop_path ?? [];
-  const poster   = normalizeXtreamImageUrl(item.cover ?? "");
-  const backdrop = normalizeXtreamImageUrl(backdropArr[0] ?? item.cover ?? "");
+  // Some Xtream providers store the series image in stream_icon instead of cover
+  const poster   = normalizeXtreamImageUrl(item.cover ?? item.stream_icon ?? "");
+  const backdrop = normalizeXtreamImageUrl(backdropArr[0] ?? item.cover ?? item.stream_icon ?? "");
   // `last_modified` changes whenever a new episode is added; fall back to `added`
   const addedTs = item.last_modified ? Number(item.last_modified) : (item.added ? Number(item.added) : 0);
   return {
@@ -3042,6 +3043,39 @@ async function getRegistryCached(): Promise<RegistryItem[]> {
   }
 }
 
+// ── Background TMDB poster enrichment ───────────────────────────────────────
+// After catalog warm-up, fill in poster/backdrop URLs for items that have a
+// tmdb_id but no poster (Xtream server left cover blank for these entries).
+async function enrichCatalogPosters(catalogType: string): Promise<void> {
+  const TMDB_KEY = process.env.TMDB_API_KEY ?? "8f0beb08cf016ec8de49e454e09879ec";
+  if (!TMDB_KEY) return;
+  const catalog = FULL_CATALOG_CACHE.get(catalogType);
+  if (!catalog) return;
+  const needsEnrich = catalog.data.filter((item: any) => !item.poster && Number(item.tmdb_id) > 0);
+  if (needsEnrich.length === 0) return;
+  console.log(`[flix2] enriching ${needsEnrich.length} items with TMDB posters for type=${catalogType}`);
+  const BATCH = 6;
+  for (let i = 0; i < needsEnrich.length; i += BATCH) {
+    const batch = needsEnrich.slice(i, i + BATCH);
+    await Promise.all(batch.map(async (item: any) => {
+      const mediaType = item.type === "filme" ? "movie" : "tv";
+      const tmdbId = Number(item.tmdb_id);
+      try {
+        const r = await fetch(
+          `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_KEY}&language=pt-BR`,
+          { signal: AbortController.prototype.constructor ? (() => { const c = new AbortController(); setTimeout(() => c.abort(), 4000); return c.signal; })() : undefined }
+        );
+        if (!r.ok) return;
+        const d = await r.json();
+        if (d.poster_path) item.poster = `https://image.tmdb.org/t/p/w342${d.poster_path}`;
+        if (d.backdrop_path && !item.backdrop) item.backdrop = `https://image.tmdb.org/t/p/w780${d.backdrop_path}`;
+      } catch {}
+    }));
+    if (i + BATCH < needsEnrich.length) await new Promise(resolve => setTimeout(resolve, 300));
+  }
+  console.log(`[flix2] TMDB poster enrichment done for type=${catalogType}`);
+}
+
 // Cache for TMDB poster paths looked up for registry items
 const REGISTRY_TMDB_POSTER = new Map<string, string>(); // `{type}_{tmdbId}` → poster URL
 
@@ -3155,6 +3189,8 @@ async function warmCatalogType(type: string): Promise<void> {
       itemCount: deduped.length, startedAt: getWarmState(type).startedAt, completedAt: Date.now(),
     });
     console.log(`[flix2] cache warm: type=${type} items=${deduped.length}`);
+    // Background: fill in TMDB posters for items the Xtream server left without cover
+    setTimeout(() => enrichCatalogPosters(type).catch(() => {}), 3000);
     // Snapshot diff: runs after every warm-up to track new/updated content
     try { computeAndSaveDiff(type, deduped); } catch {}
 
