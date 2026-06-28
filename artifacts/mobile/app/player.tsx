@@ -9,6 +9,7 @@ import {
   GestureResponderEvent,
   Linking,
   Modal,
+  PanResponder,
   Platform,
   Pressable,
   ScrollView,
@@ -16,6 +17,7 @@ import {
   Text,
   ToastAndroid,
   TouchableOpacity,
+  Vibration,
   View,
 } from "react-native";
 import { Image } from "expo-image";
@@ -375,6 +377,28 @@ function fmtTime(ms: number): string {
 
 // ─── NATIVE VIDEO PLAYER ─────────────────────────────────────────────────────
 
+const NAT_SPEEDS = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0] as const;
+const NAT_SLEEP = [15, 30, 45, 60, 90] as const;
+const NAT_RED = "#e50914";
+
+function NatSeekFlash({ side, anim }: { side: "left" | "right"; anim: Animated.Value }) {
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={[
+        nat.seekFlash,
+        side === "left"
+          ? { left: 0, borderTopRightRadius: 80, borderBottomRightRadius: 80 }
+          : { right: 0, borderTopLeftRadius: 80, borderBottomLeftRadius: 80 },
+        { opacity: anim },
+      ]}
+    >
+      <Feather name={side === "left" ? "rotate-ccw" : "rotate-cw"} size={28} color="#fff" />
+      <Text style={nat.seekFlashTxt}>{side === "left" ? "-15s" : "+15s"}</Text>
+    </Animated.View>
+  );
+}
+
 interface NativePlayerProps {
   m3u8Url: string;
   referer: string;
@@ -397,110 +421,280 @@ function NativeVideoPlayer({
 }: NativePlayerProps) {
   const insets = useSafeAreaInsets();
   const videoRef = useRef<any>(null);
+
+  // ── Core state ──────────────────────────────────────────────────────────────
   const [isPlaying, setIsPlaying] = useState(true);
   const [positionMs, setPositionMs] = useState(0);
   const [durationMs, setDurationMs] = useState(0);
+  const [bufferedMs, setBufferedMs] = useState(0);
   const [buffering, setBuffering] = useState(true);
   const [loadError, setLoadError] = useState(false);
+
+  // ── Controls visibility ─────────────────────────────────────────────────────
   const [controlsVisible, setControlsVisible] = useState(true);
-  const controlsOpacity = useRef(new Animated.Value(1)).current;
+  const lockAnim = useRef(new Animated.Value(1)).current;
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const seekBarWidthRef = useRef(0);
-  const isSeeking = useRef(false);
-  const [seekPreview, setSeekPreview] = useState<number | null>(null);
+  const [isScrubbing, setIsScrubbing] = useState(false);
+  const [scrubPosition, setScrubPosition] = useState(0);
+  const [showTimeRemaining, setShowTimeRemaining] = useState(false);
+
+  // ── Speed ───────────────────────────────────────────────────────────────────
+  const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
+  const [showSpeedPanel, setShowSpeedPanel] = useState(false);
+  const [isSpeedBoost, setIsSpeedBoost] = useState(false);
+
+  // ── Sleep timer ─────────────────────────────────────────────────────────────
+  const [sleepTimerEnd, setSleepTimerEnd] = useState<number | null>(null);
+  const [sleepMinutesLeft, setSleepMinutesLeft] = useState<number | null>(null);
+  const [showSleepPanel, setShowSleepPanel] = useState(false);
+  const sleepCheckRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // ── Screen lock ─────────────────────────────────────────────────────────────
+  const [isLocked, setIsLocked] = useState(false);
+
+  // ── Seek flash ──────────────────────────────────────────────────────────────
+  const seekFlashLeft = useRef(new Animated.Value(0)).current;
+  const seekFlashRight = useRef(new Animated.Value(0)).current;
+
+  // ── Swipe-to-seek ───────────────────────────────────────────────────────────
+  const [isSwipeSeeking, setIsSwipeSeeking] = useState(false);
+  const [swipeSeekDisplay, setSwipeSeekDisplay] = useState(0);
+  const swipeGestureActive = useRef(false);
+  const swipeDeltaSec = useRef(0);
+  const seekByRef = useRef<(ms: number) => void>(() => {});
+
+  // ── Brightness (left 28% vertical swipe → black dim overlay) ───────────────
+  const [brightnessLevel, setBrightnessLevel] = useState(0);
+  const [showBrightnessHud, setShowBrightnessHud] = useState(false);
+  const brightnessAtStart = useRef(0);
+  const brightnessLevelRef = useRef(0);
+  const brightnessHudTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Volume (right 28% vertical swipe → expo-av volume) ─────────────────────
+  const [volumeLevel, setVolumeLevel] = useState(1.0);
+  const [showVolumeHud, setShowVolumeHud] = useState(false);
+  const volumeAtStart = useRef(1.0);
+  const volumeLevelRef = useRef(1.0);
+  const volumeHudTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Continuous play (TV) ────────────────────────────────────────────────────
+  const [continuousPlay, setContinuousPlay] = useState(true);
+
+  // ── Double-tap ──────────────────────────────────────────────────────────────
+  const lastTapRef = useRef<{ time: number; x: number } | null>(null);
+  const tapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Position tracking refs for closures ────────────────────────────────────
+  const positionMsRef = useRef(0);
+  const durationMsRef = useRef(0);
+  const positionRatioRef = useRef(0);
 
   // ── Smart Autoplay (TV only) ───────────────────────────────────────────────
   const [autoplayVisible, setAutoplayVisible] = useState(false);
   const [autoplayCountdown, setAutoplayCountdown] = useState(10);
   const autoplayTriggeredRef = useRef(false);
-  const autoplayIntervalRef  = useRef<any>(null);
+  const autoplayIntervalRef = useRef<any>(null);
 
-  const dismissAutoplay = useCallback(() => {
-    setAutoplayVisible(false);
-    setAutoplayCountdown(10);
-    if (autoplayIntervalRef.current) {
-      clearInterval(autoplayIntervalRef.current);
-      autoplayIntervalRef.current = null;
-    }
-  }, []);
+  // ── Derived ─────────────────────────────────────────────────────────────────
+  const positionSec = Math.floor(positionMs / 1000);
+  const durationSec = Math.floor(durationMs / 1000);
+  const remainingSec = durationSec - positionSec;
+  const displayPos = isScrubbing ? scrubPosition : positionMs;
+  const displayProgress = durationMs > 0 ? displayPos / durationMs : 0;
+  const bufferedRatio = durationMs > 0 ? bufferedMs / durationMs : 0;
+  const showSkipIntro = type === "tv" && positionSec >= 5 && positionSec <= 90 && durationMs > 0;
+  const showSkipCredits = durationSec > 0 && remainingSec > 0 && remainingSec <= 180;
 
+  // ── Controls auto-hide ──────────────────────────────────────────────────────
   const showControls = useCallback(() => {
-    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    if (isLocked) return;
     setControlsVisible(true);
-    Animated.timing(controlsOpacity, { toValue: 1, duration: 200, useNativeDriver: true }).start();
+    Animated.timing(lockAnim, { toValue: 1, duration: 200, useNativeDriver: true }).start();
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     hideTimerRef.current = setTimeout(() => {
-      Animated.timing(controlsOpacity, { toValue: 0, duration: 500, useNativeDriver: true }).start(() => {
-        setControlsVisible(false);
-      });
+      Animated.timing(lockAnim, { toValue: 0, duration: 500, useNativeDriver: true }).start(() =>
+        setControlsVisible(false)
+      );
     }, AUTO_HIDE_MS);
-  }, [controlsOpacity]);
+  }, [isLocked, lockAnim]);
 
   useEffect(() => {
     showControls();
     return () => { if (hideTimerRef.current) clearTimeout(hideTimerRef.current); };
   }, []);
 
-  // Autoplay countdown tick
+  // ── Sleep timer ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!sleepTimerEnd) {
+      setSleepMinutesLeft(null);
+      if (sleepCheckRef.current) { clearInterval(sleepCheckRef.current); sleepCheckRef.current = null; }
+      return;
+    }
+    const check = () => {
+      const minsLeft = Math.ceil((sleepTimerEnd - Date.now()) / 60000);
+      if (minsLeft <= 0) { setSleepTimerEnd(null); videoRef.current?.pauseAsync?.().catch(() => {}); }
+      else setSleepMinutesLeft(minsLeft);
+    };
+    check();
+    sleepCheckRef.current = setInterval(check, 10000);
+    return () => { if (sleepCheckRef.current) { clearInterval(sleepCheckRef.current); sleepCheckRef.current = null; } };
+  }, [sleepTimerEnd]);
+
+  // ── Smart Autoplay countdown tick ───────────────────────────────────────────
+  const dismissAutoplay = useCallback(() => {
+    setAutoplayVisible(false);
+    setAutoplayCountdown(10);
+    if (autoplayIntervalRef.current) { clearInterval(autoplayIntervalRef.current); autoplayIntervalRef.current = null; }
+  }, []);
+
   useEffect(() => {
     if (!autoplayVisible) return;
     autoplayIntervalRef.current = setInterval(() => {
       setAutoplayCountdown((prev) => {
-        if (prev <= 1) {
-          // Fire next episode on next render cycle
-          setTimeout(() => { dismissAutoplay(); onNextEp(); }, 0);
-          return 10;
-        }
+        if (prev <= 1) { setTimeout(() => { dismissAutoplay(); if (continuousPlay) onNextEp(); }, 0); return 10; }
         return prev - 1;
       });
     }, 1000);
-    return () => {
-      if (autoplayIntervalRef.current) {
-        clearInterval(autoplayIntervalRef.current);
-        autoplayIntervalRef.current = null;
-      }
-    };
-  }, [autoplayVisible]);
+    return () => { if (autoplayIntervalRef.current) { clearInterval(autoplayIntervalRef.current); autoplayIntervalRef.current = null; } };
+  }, [autoplayVisible, continuousPlay, onNextEp, dismissAutoplay]);
 
+  // ── Playback actions ────────────────────────────────────────────────────────
   const togglePlay = useCallback(() => {
     if (!videoRef.current) return;
+    try { Vibration.vibrate(30); } catch {}
     showControls();
-    if (isPlaying) {
-      videoRef.current.pauseAsync().catch(() => {});
-    } else {
-      videoRef.current.playAsync().catch(() => {});
-    }
+    if (isPlaying) videoRef.current.pauseAsync().catch(() => {});
+    else videoRef.current.playAsync().catch(() => {});
   }, [isPlaying, showControls]);
 
-  const skip = useCallback((ms: number) => {
+  const seekBy = useCallback((ms: number) => {
     if (!videoRef.current) return;
+    const newPos = Math.max(0, Math.min(durationMsRef.current, positionMsRef.current + ms));
+    videoRef.current.setPositionAsync(newPos).catch(() => {});
+    setPositionMs(newPos);
+    positionMsRef.current = newPos;
     showControls();
-    const next = Math.max(0, Math.min(positionMs + ms, durationMs));
-    videoRef.current.setPositionAsync(next).catch(() => {});
-  }, [positionMs, durationMs, showControls]);
+  }, [showControls]);
+
+  useEffect(() => { seekByRef.current = seekBy; }, [seekBy]);
 
   const seekToRatio = useCallback((ratio: number) => {
-    if (!videoRef.current || !durationMs) return;
-    const pos = Math.max(0, Math.min(ratio, 1)) * durationMs;
+    if (!videoRef.current || !durationMsRef.current) return;
+    const pos = Math.max(0, Math.min(1, ratio)) * durationMsRef.current;
     videoRef.current.setPositionAsync(pos).catch(() => {});
     setPositionMs(pos);
-  }, [durationMs]);
+    positionMsRef.current = pos;
+  }, []);
 
-  const handleSeekBarPress = useCallback((e: GestureResponderEvent) => {
-    if (!seekBarWidthRef.current) return;
-    const x = e.nativeEvent.locationX;
-    const ratio = x / seekBarWidthRef.current;
-    seekToRatio(ratio);
-    showControls();
-  }, [seekToRatio, showControls]);
+  // ── Swipe-to-seek PanResponder ──────────────────────────────────────────────
+  const bodySwipePan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onStartShouldSetPanResponderCapture: () => false,
+      onMoveShouldSetPanResponder: (_, gs) =>
+        !swipeGestureActive.current
+          ? Math.abs(gs.dx) > 14 && Math.abs(gs.dx) > Math.abs(gs.dy) * 1.5
+          : true,
+      onMoveShouldSetPanResponderCapture: () => false,
+      onPanResponderGrant: () => { swipeGestureActive.current = true; },
+      onPanResponderMove: (_, gs) => {
+        const deltaSec = Math.round((gs.dx / 360) * 120);
+        swipeDeltaSec.current = deltaSec;
+        setSwipeSeekDisplay(deltaSec);
+        setIsSwipeSeeking(true);
+      },
+      onPanResponderRelease: () => {
+        if (swipeGestureActive.current && swipeDeltaSec.current !== 0) {
+          seekByRef.current(swipeDeltaSec.current * 1000);
+          try { Vibration.vibrate(30); } catch {}
+        }
+        swipeGestureActive.current = false; swipeDeltaSec.current = 0;
+        setSwipeSeekDisplay(0); setIsSwipeSeeking(false);
+      },
+      onPanResponderTerminate: () => {
+        swipeGestureActive.current = false; swipeDeltaSec.current = 0;
+        setSwipeSeekDisplay(0); setIsSwipeSeeking(false);
+      },
+    })
+  ).current;
 
-  const progress = durationMs > 0 ? positionMs / durationMs : 0;
+  // ── Brightness zone PanResponder (left 28%) ─────────────────────────────────
+  const leftZonePan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onStartShouldSetPanResponderCapture: () => false,
+      onMoveShouldSetPanResponder: (_, gs) => Math.abs(gs.dy) > 12 && Math.abs(gs.dy) > Math.abs(gs.dx) * 1.5,
+      onMoveShouldSetPanResponderCapture: () => false,
+      onPanResponderGrant: () => { brightnessAtStart.current = brightnessLevelRef.current; },
+      onPanResponderMove: (_, gs) => {
+        const newLvl = Math.max(0, Math.min(0.85, brightnessAtStart.current + (-gs.dy / (H * 0.6))));
+        brightnessLevelRef.current = newLvl; setBrightnessLevel(newLvl); setShowBrightnessHud(true);
+        if (brightnessHudTimer.current) clearTimeout(brightnessHudTimer.current);
+      },
+      onPanResponderRelease: () => { brightnessHudTimer.current = setTimeout(() => setShowBrightnessHud(false), 1500); },
+      onPanResponderTerminate: () => { brightnessHudTimer.current = setTimeout(() => setShowBrightnessHud(false), 1500); },
+    })
+  ).current;
 
+  // ── Volume zone PanResponder (right 28%) ────────────────────────────────────
+  const rightZonePan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onStartShouldSetPanResponderCapture: () => false,
+      onMoveShouldSetPanResponder: (_, gs) => Math.abs(gs.dy) > 12 && Math.abs(gs.dy) > Math.abs(gs.dx) * 1.5,
+      onMoveShouldSetPanResponderCapture: () => false,
+      onPanResponderGrant: () => { volumeAtStart.current = volumeLevelRef.current; },
+      onPanResponderMove: (_, gs) => {
+        const newVol = Math.max(0, Math.min(1.0, volumeAtStart.current + (-gs.dy / (H * 0.6))));
+        volumeLevelRef.current = newVol; setVolumeLevel(newVol); setShowVolumeHud(true);
+        if (volumeHudTimer.current) clearTimeout(volumeHudTimer.current);
+        videoRef.current?.setVolumeAsync?.(newVol).catch(() => {});
+      },
+      onPanResponderRelease: () => { volumeHudTimer.current = setTimeout(() => setShowVolumeHud(false), 1500); },
+      onPanResponderTerminate: () => { volumeHudTimer.current = setTimeout(() => setShowVolumeHud(false), 1500); },
+    })
+  ).current;
+
+  // ── Double-tap handler ──────────────────────────────────────────────────────
+  const handleTap = useCallback((px: number) => {
+    const now = Date.now();
+    const zoneW = W / 3;
+    const isLeft = px < zoneW;
+    const isRight = px > W - zoneW;
+    if (lastTapRef.current && now - lastTapRef.current.time < 350 && Math.abs(px - lastTapRef.current.x) < 80) {
+      if (tapTimerRef.current) { clearTimeout(tapTimerRef.current); tapTimerRef.current = null; }
+      lastTapRef.current = null;
+      try { Vibration.vibrate([0, 30, 50, 30]); } catch {}
+      if (isLeft) {
+        seekByRef.current(-15000);
+        Animated.sequence([
+          Animated.timing(seekFlashLeft, { toValue: 0.85, duration: 100, useNativeDriver: true }),
+          Animated.timing(seekFlashLeft, { toValue: 0, duration: 400, useNativeDriver: true }),
+        ]).start();
+      } else if (isRight) {
+        seekByRef.current(15000);
+        Animated.sequence([
+          Animated.timing(seekFlashRight, { toValue: 0.85, duration: 100, useNativeDriver: true }),
+          Animated.timing(seekFlashRight, { toValue: 0, duration: 400, useNativeDriver: true }),
+        ]).start();
+      }
+    } else {
+      lastTapRef.current = { time: now, x: px };
+      tapTimerRef.current = setTimeout(() => {
+        lastTapRef.current = null; tapTimerRef.current = null;
+        showControls();
+      }, 360);
+    }
+  }, [showControls, seekFlashLeft, seekFlashRight]);
+
+  // ── Error screen ────────────────────────────────────────────────────────────
   if (loadError) {
     return (
       <View style={nat.container}>
         <StatusBar style="light" hidden />
         <View style={nat.errCenter}>
-          <Feather name="alert-triangle" size={48} color="#e50914" />
+          <Feather name="alert-triangle" size={48} color={NAT_RED} />
           <Text style={nat.errTitle}>Erro ao carregar stream</Text>
           <Text style={nat.errSub}>O m3u8 não pôde ser reproduzido nativamente.</Text>
           <TouchableOpacity style={nat.errBtn} onPress={onFallbackToWebView}>
@@ -520,6 +714,7 @@ function NativeVideoPlayer({
     <View style={nat.container}>
       <StatusBar style="light" hidden />
 
+      {/* ── Video ── */}
       {Video ? (
         <Video
           ref={videoRef}
@@ -528,181 +723,266 @@ function NativeVideoPlayer({
           resizeMode={ResizeMode?.CONTAIN ?? "contain"}
           shouldPlay
           useNativeControls={false}
+          rate={isSpeedBoost ? 2.0 : playbackSpeed}
+          volume={volumeLevel}
           onPlaybackStatusUpdate={(status: any) => {
-            if (!status.isLoaded) {
-              if (status.error) setLoadError(true);
-              return;
-            }
+            if (!status.isLoaded) { if (status.error) setLoadError(true); return; }
             setIsPlaying(status.isPlaying ?? false);
             setPositionMs(status.positionMillis ?? 0);
             setDurationMs(status.durationMillis ?? 0);
+            setBufferedMs(status.playableDurationMillis ?? 0);
             setBuffering(status.isBuffering ?? false);
+            positionMsRef.current = status.positionMillis ?? 0;
+            durationMsRef.current = status.durationMillis ?? 0;
             if (status.durationMillis && status.durationMillis > 0) {
               positionRatioRef.current = (status.positionMillis ?? 0) / status.durationMillis;
               onProgressUpdate?.(status.positionMillis ?? 0, status.durationMillis ?? 0);
-              // Smart Autoplay: trigger at 93% for TV episodes
-              if (type === "tv" && !autoplayTriggeredRef.current &&
-                  positionRatioRef.current >= 0.93) {
-                autoplayTriggeredRef.current = true;
-                setAutoplayVisible(true);
+              if (type === "tv" && !autoplayTriggeredRef.current && positionRatioRef.current >= 0.93) {
+                autoplayTriggeredRef.current = true; setAutoplayVisible(true);
               }
             }
-            // Also trigger if video just ended
             if (status.didJustFinish && type === "tv" && !autoplayTriggeredRef.current) {
-              autoplayTriggeredRef.current = true;
-              setAutoplayVisible(true);
+              autoplayTriggeredRef.current = true; setAutoplayVisible(true);
             }
           }}
           onError={() => setLoadError(true)}
         />
       ) : null}
 
-      {/* Buffering spinner */}
+      {/* ── Brightness dim overlay ── */}
+      {brightnessLevel > 0 && (
+        <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: "#000", opacity: brightnessLevel }]} />
+      )}
+
+      {/* ── Buffering spinner ── */}
       {buffering && (
         <View style={nat.bufferOverlay} pointerEvents="none">
-          <ActivityIndicator size="large" color="#e50914" />
+          <ActivityIndicator size="large" color={NAT_RED} />
         </View>
       )}
 
-      {/* Tap area to show controls */}
-      {!controlsVisible && (
-        <Pressable style={StyleSheet.absoluteFillObject} onPress={showControls} />
+      {/* ── Speed boost badge ── */}
+      {isSpeedBoost && (
+        <View style={nat.speedBoostBadge} pointerEvents="none">
+          <Feather name="zap" size={14} color="#fff" />
+          <Text style={nat.speedBoostText}>2.0×</Text>
+        </View>
       )}
 
-      <Animated.View style={[nat.overlay, { opacity: controlsOpacity }]} pointerEvents={controlsVisible ? "box-none" : "none"}>
+      {/* ── Seek flash overlays ── */}
+      <NatSeekFlash side="left" anim={seekFlashLeft} />
+      <NatSeekFlash side="right" anim={seekFlashRight} />
 
-        {/* ── TOP BAR ── */}
-        <View style={[nat.topBar, { paddingTop: (Platform.OS === "android" ? 8 : insets.top) + 4 }]}>
-          <Pressable onPress={onBack} style={nat.iconBtn} hitSlop={12}>
-            <Feather name="arrow-left" size={22} color="#fff" />
-          </Pressable>
-          <View style={{ flex: 1, alignItems: "center" }}>
-            <Text style={nat.titleText} numberOfLines={1}>{title}</Text>
-            {type === "tv" && (
-              <Text style={nat.subTitle}>T{season} · Ep {episode}</Text>
-            )}
+      {/* ── Swipe-to-seek display ── */}
+      {isSwipeSeeking && (
+        <View style={nat.swipeSeekBubble} pointerEvents="none">
+          <Feather name={swipeSeekDisplay >= 0 ? "fast-forward" : "rewind"} size={18} color="#fff" />
+          <Text style={nat.swipeSeekText}>{swipeSeekDisplay >= 0 ? "+" : ""}{swipeSeekDisplay}s</Text>
+        </View>
+      )}
+
+      {/* ── Brightness HUD ── */}
+      {showBrightnessHud && (
+        <View style={nat.hudPill} pointerEvents="none">
+          <Feather name="sun" size={13} color="#fff" />
+          <View style={nat.hudBar}><View style={[nat.hudBarFill, { width: `${Math.round((1 - brightnessLevel / 0.85) * 100)}%` as any }]} /></View>
+          <Text style={nat.hudPct}>{Math.round((1 - brightnessLevel / 0.85) * 100)}%</Text>
+        </View>
+      )}
+
+      {/* ── Volume HUD ── */}
+      {showVolumeHud && (
+        <View style={nat.hudPill} pointerEvents="none">
+          <Feather name={volumeLevel === 0 ? "volume-x" : volumeLevel < 0.4 ? "volume-1" : "volume-2"} size={13} color="#fff" />
+          <View style={nat.hudBar}><View style={[nat.hudBarFill, { width: `${Math.round(volumeLevel * 100)}%` as any }]} /></View>
+          <Text style={nat.hudPct}>{Math.round(volumeLevel * 100)}%</Text>
+        </View>
+      )}
+
+      {/* ── Sleep badge ── */}
+      {sleepTimerEnd && sleepMinutesLeft != null && (
+        <Pressable style={nat.sleepBadge} onPress={() => setShowSleepPanel(true)}>
+          <Feather name="moon" size={11} color="#aaa" />
+          <Text style={nat.sleepBadgeText}>{sleepMinutesLeft > 0 ? `${sleepMinutesLeft}min` : "Pausando..."}</Text>
+        </Pressable>
+      )}
+
+      {/* ── Skip intro ── */}
+      {showSkipIntro && !isLocked && controlsVisible && (
+        <Pressable style={nat.skipIntroPos} onPress={() => { try { Vibration.vibrate([0, 40, 60, 40]); } catch {} seekBy(90 * 1000 - positionMs); }}>
+          <View style={nat.skipIntroBtn}><Feather name="skip-forward" size={13} color="#fff" /><Text style={nat.skipIntroBtnText}>Pular abertura</Text></View>
+        </Pressable>
+      )}
+
+      {/* ── Skip credits ── */}
+      {showSkipCredits && !isLocked && controlsVisible && !showSkipIntro && (
+        <Pressable style={nat.skipIntroPos} onPress={() => { try { Vibration.vibrate([0, 40, 60, 40]); } catch {} if (type === "tv") onNextEp(); }}>
+          <View style={nat.skipIntroBtn}><Feather name="skip-forward" size={13} color="#fff" /><Text style={nat.skipIntroBtnText}>{type === "tv" ? "Próximo episódio" : "Pular créditos"}</Text></View>
+        </Pressable>
+      )}
+
+      {/* ── Lock screen ── */}
+      {isLocked && (
+        <Pressable style={StyleSheet.absoluteFillObject} onLongPress={() => { try { Vibration.vibrate([0, 30, 50, 30]); } catch {} setIsLocked(false); showControls(); }} delayLongPress={700}>
+          <View style={nat.lockPill}><Feather name="lock" size={14} color="#fff" /><Text style={nat.lockPillText}>Segure para desbloquear</Text></View>
+        </Pressable>
+      )}
+
+      {/* ── Controls overlay ── */}
+      {!isLocked && (
+        <Animated.View style={[StyleSheet.absoluteFillObject, { opacity: lockAnim }]} pointerEvents={controlsVisible ? "box-none" : "none"}>
+          <View style={nat.gradTop} pointerEvents="none" />
+          <View style={nat.gradBottom} pointerEvents="none" />
+
+          {/* Gesture zones: horizontal seek + brightness (left) + volume (right) */}
+          <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+            <View style={StyleSheet.absoluteFill} {...bodySwipePan.panHandlers} pointerEvents="box-none" />
+            <View style={[nat.gestureZone, { left: 0, width: W * 0.28 }]} {...leftZonePan.panHandlers} pointerEvents="box-none" />
+            <View style={[nat.gestureZone, { right: 0, width: W * 0.28 }]} {...rightZonePan.panHandlers} pointerEvents="box-none" />
+            <Pressable
+              style={StyleSheet.absoluteFill}
+              onPress={(e) => handleTap(e.nativeEvent.pageX)}
+              onLongPress={() => { setIsSpeedBoost(true); try { Vibration.vibrate([0, 20]); } catch {} }}
+              onPressOut={() => { if (isSpeedBoost) setIsSpeedBoost(false); }}
+              delayLongPress={600}
+            />
           </View>
-          {type === "tv" ? (
-            <Pressable onPress={onOpenPicker} style={nat.iconBtn} hitSlop={12}>
-              <Feather name="list" size={20} color="#fff" />
-            </Pressable>
-          ) : (
-            <View style={{ width: 40 }} />
-          )}
-        </View>
 
-        {/* ── CENTER CONTROLS ── */}
-        <View style={nat.centerRow} pointerEvents="box-none">
-          <Pressable onPress={() => skip(-10000)} style={nat.skipBtn} hitSlop={16}>
-            <View style={nat.skipCircle}>
-              <Feather name="rotate-ccw" size={22} color="#fff" />
-              <Text style={nat.skipLabel}>10</Text>
+          {/* Top bar */}
+          <View style={[nat.topBar, { paddingTop: (Platform.OS === "android" ? 8 : insets.top) + 4 }]}>
+            <Pressable onPress={onBack} style={nat.iconBtn} hitSlop={12}><Feather name="arrow-left" size={22} color="#fff" /></Pressable>
+            <View style={{ flex: 1, alignItems: "center" }}>
+              <Text style={nat.titleText} numberOfLines={1}>{title}</Text>
+              {type === "tv" && <Text style={nat.subTitle}>T{season} · Ep {episode}</Text>}
             </View>
-          </Pressable>
+            {playbackSpeed !== 1.0 && <View style={nat.speedBadge}><Text style={nat.speedBadgeText}>{playbackSpeed}×</Text></View>}
+            <Pressable style={nat.iconBtn} onPress={() => { setShowSpeedPanel(true); showControls(); }} hitSlop={12}><Feather name="zap" size={18} color="#fff" /></Pressable>
+            <Pressable style={nat.iconBtn} onPress={() => { setShowSleepPanel(true); showControls(); }} hitSlop={12}><Feather name="moon" size={18} color={sleepTimerEnd ? "#f59e0b" : "#fff"} /></Pressable>
+            <Pressable style={nat.iconBtn} onPress={() => { try { Vibration.vibrate(30); } catch {} setIsLocked(true); }} hitSlop={12}><Feather name="unlock" size={18} color="#fff" /></Pressable>
+            {type === "tv" ? (
+              <Pressable onPress={onOpenPicker} style={nat.iconBtn} hitSlop={12}><Feather name="list" size={20} color="#fff" /></Pressable>
+            ) : <View style={{ width: 8 }} />}
+          </View>
 
-          <Pressable onPress={togglePlay} style={nat.playBtn} hitSlop={10}>
-            <View style={nat.playCircle}>
-              {buffering ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <Feather name={isPlaying ? "pause" : "play"} size={32} color="#fff" />
+          {/* Center row */}
+          <View style={nat.centerRow}>
+            {type === "tv" && <Pressable onPress={onPrevEp} style={nat.iconBtn} hitSlop={12}><Feather name="skip-back" size={22} color="#fff" /></Pressable>}
+            <Pressable onPress={() => seekBy(-15000)} style={nat.skipBtn} hitSlop={16}>
+              <View style={nat.skipCircle}><Feather name="rotate-ccw" size={22} color="#fff" /><Text style={nat.skipLabel}>15</Text></View>
+            </Pressable>
+            <Pressable onPress={togglePlay} style={nat.playBtn} hitSlop={10}>
+              <View style={nat.playCircle}>
+                {buffering ? <ActivityIndicator size="small" color="#fff" /> : <Feather name={isPlaying ? "pause" : "play"} size={32} color="#fff" />}
+              </View>
+            </Pressable>
+            <Pressable onPress={() => seekBy(15000)} style={nat.skipBtn} hitSlop={16}>
+              <View style={nat.skipCircle}><Feather name="rotate-cw" size={22} color="#fff" /><Text style={nat.skipLabel}>15</Text></View>
+            </Pressable>
+            {type === "tv" && <Pressable onPress={onNextEp} style={nat.iconBtn} hitSlop={12}><Feather name="skip-forward" size={22} color="#fff" /></Pressable>}
+          </View>
+
+          {/* Bottom bar */}
+          <View style={[nat.bottomBar, { paddingBottom: Math.max(insets.bottom, 12) + 4 }]}>
+            <Pressable onPress={() => setShowTimeRemaining(!showTimeRemaining)}>
+              <Text style={nat.timeText}>{showTimeRemaining ? `-${fmtTime(Math.max(0, durationMs - displayPos))}` : fmtTime(displayPos)}</Text>
+            </Pressable>
+            <View
+              style={nat.seekBarTrack}
+              onLayout={(e) => { seekBarWidthRef.current = e.nativeEvent.layout.width; }}
+              onStartShouldSetResponder={() => true}
+              onMoveShouldSetResponder={() => true}
+              onResponderGrant={(e) => {
+                const ratio = Math.max(0, Math.min(e.nativeEvent.locationX / seekBarWidthRef.current, 1));
+                setScrubPosition(ratio * durationMs); setIsScrubbing(true); showControls();
+              }}
+              onResponderMove={(e) => {
+                if (!seekBarWidthRef.current) return;
+                const ratio = Math.max(0, Math.min(e.nativeEvent.locationX / seekBarWidthRef.current, 1));
+                setScrubPosition(ratio * durationMs);
+              }}
+              onResponderRelease={(e) => {
+                if (!seekBarWidthRef.current) return;
+                const ratio = Math.max(0, Math.min(e.nativeEvent.locationX / seekBarWidthRef.current, 1));
+                seekToRatio(ratio); setIsScrubbing(false); showControls();
+              }}
+            >
+              <View style={[nat.seekBarBuf, { width: `${Math.round(bufferedRatio * 100)}%` as any }]} />
+              <View style={[nat.seekBarFill, { width: `${Math.round(displayProgress * 100)}%` as any }]} />
+              <View style={[nat.seekThumb, {
+                left: `${Math.round(displayProgress * 100)}%` as any,
+                width: isScrubbing ? 18 : 13, height: isScrubbing ? 18 : 13,
+                marginTop: isScrubbing ? -7 : -4.5, marginLeft: isScrubbing ? -9 : -6.5,
+              }]} />
+              {isScrubbing && (
+                <View style={[nat.scrubTooltip, { left: Math.max(24, Math.min(seekBarWidthRef.current - 40, displayProgress * seekBarWidthRef.current - 24)) }]}>
+                  <Text style={nat.scrubTooltipText}>{fmtTime(scrubPosition)}</Text>
+                </View>
               )}
             </View>
-          </Pressable>
-
-          <Pressable onPress={() => skip(10000)} style={nat.skipBtn} hitSlop={16}>
-            <View style={nat.skipCircle}>
-              <Feather name="rotate-cw" size={22} color="#fff" />
-              <Text style={nat.skipLabel}>10</Text>
-            </View>
-          </Pressable>
-        </View>
-
-        {/* ── BOTTOM BAR ── */}
-        <View style={[nat.bottomBar, { paddingBottom: Math.max(insets.bottom, 12) + 4 }]}>
-          {/* Episode navigation */}
-          {type === "tv" && (
-            <View style={nat.epRow}>
-              <Pressable style={nat.epNavBtn} onPress={onPrevEp}>
-                <Feather name="chevron-left" size={14} color="#fff" />
-                <Text style={nat.epNavTxt}>Anterior</Text>
-              </Pressable>
-              <Pressable style={[nat.epNavBtn, { backgroundColor: "#e50914", borderColor: "#e50914" }]} onPress={onNextEp}>
-                <Text style={nat.epNavTxt}>Próximo</Text>
-                <Feather name="chevron-right" size={14} color="#fff" />
-              </Pressable>
-            </View>
-          )}
-
-          {/* Time row */}
-          <View style={nat.timeRow}>
-            <Text style={nat.timeText}>{fmtTime(positionMs)}</Text>
             <Text style={nat.timeText}>{fmtTime(durationMs)}</Text>
+            {type === "tv" && (
+              <Pressable style={[nat.iconBtnSm, continuousPlay && { backgroundColor: "rgba(229,9,20,0.2)" }]} onPress={() => { try { Vibration.vibrate(20); } catch {} setContinuousPlay(!continuousPlay); }}>
+                <Feather name="repeat" size={15} color={continuousPlay ? NAT_RED : "rgba(255,255,255,0.5)"} />
+              </Pressable>
+            )}
           </View>
+        </Animated.View>
+      )}
 
-          {/* Seek bar */}
-          <View
-            style={nat.seekBarTrack}
-            onLayout={(e) => { seekBarWidthRef.current = e.nativeEvent.layout.width; }}
-            onStartShouldSetResponder={() => true}
-            onResponderGrant={handleSeekBarPress}
-            onResponderMove={(e) => {
-              if (!seekBarWidthRef.current) return;
-              const x = e.nativeEvent.locationX;
-              const ratio = Math.max(0, Math.min(x / seekBarWidthRef.current, 1));
-              setSeekPreview(ratio);
-            }}
-            onResponderRelease={(e) => {
-              if (!seekBarWidthRef.current) return;
-              const x = e.nativeEvent.locationX;
-              const ratio = Math.max(0, Math.min(x / seekBarWidthRef.current, 1));
-              seekToRatio(ratio);
-              setSeekPreview(null);
-              showControls();
-            }}
-          >
-            {/* Buffered track (background) */}
-            <View style={[nat.seekBarFill, { width: `${Math.round(progress * 100)}%`, backgroundColor: "rgba(255,255,255,0.35)" }]} />
-            {/* Progress fill */}
-            <View style={[nat.seekBarFill, { width: `${Math.round((seekPreview ?? progress) * 100)}%`, backgroundColor: "#e50914", position: "absolute", top: 0, left: 0, bottom: 0 }]} />
-            {/* Thumb */}
-            <View style={[nat.seekThumb, { left: `${Math.round((seekPreview ?? progress) * 100)}%` }]} />
+      {/* ── Speed panel ── */}
+      <Modal visible={showSpeedPanel} transparent animationType="fade" onRequestClose={() => setShowSpeedPanel(false)}>
+        <Pressable style={nat.panelBackdrop} onPress={() => setShowSpeedPanel(false)}>
+          <View style={nat.panel}>
+            <Text style={nat.panelTitle}>Velocidade de Reprodução</Text>
+            {NAT_SPEEDS.map((s) => (
+              <Pressable key={s} style={[nat.panelRow, playbackSpeed === s && { backgroundColor: "rgba(229,9,20,0.12)" }]}
+                onPress={() => { try { Vibration.vibrate(20); } catch {} setPlaybackSpeed(s); setShowSpeedPanel(false); showControls(); }}>
+                <Text style={[nat.panelRowText, playbackSpeed === s && { color: NAT_RED, fontWeight: "700" }]}>{s === 1.0 ? "1.0× (Normal)" : `${s}×`}</Text>
+                {playbackSpeed === s && <Feather name="check" size={16} color={NAT_RED} />}
+              </Pressable>
+            ))}
           </View>
-        </View>
+        </Pressable>
+      </Modal>
 
-      </Animated.View>
+      {/* ── Sleep panel ── */}
+      <Modal visible={showSleepPanel} transparent animationType="fade" onRequestClose={() => setShowSleepPanel(false)}>
+        <Pressable style={nat.panelBackdrop} onPress={() => setShowSleepPanel(false)}>
+          <View style={nat.panel}>
+            <Text style={nat.panelTitle}>Timer de Sono</Text>
+            {NAT_SLEEP.map((m) => (
+              <Pressable key={m} style={nat.panelRow}
+                onPress={() => { try { Vibration.vibrate(20); } catch {} setSleepTimerEnd(Date.now() + m * 60 * 1000); setShowSleepPanel(false); showControls(); }}>
+                <Text style={nat.panelRowText}>{m} minutos</Text>
+              </Pressable>
+            ))}
+            {sleepTimerEnd && (
+              <Pressable style={[nat.panelRow, { borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.08)", marginTop: 4 }]}
+                onPress={() => { try { Vibration.vibrate(20); } catch {} setSleepTimerEnd(null); setShowSleepPanel(false); }}>
+                <Text style={[nat.panelRowText, { color: "#f87171" }]}>Cancelar timer</Text>
+              </Pressable>
+            )}
+          </View>
+        </Pressable>
+      </Modal>
 
-      {/* ── SMART AUTOPLAY OVERLAY (TV only) ─────────────────────────────── */}
+      {/* ── Smart Autoplay (TV) ── */}
       {type === "tv" && autoplayVisible && (
         <View style={nat.autoplayOverlay}>
           <View style={nat.autoplayCard}>
             <Text style={nat.autoplayLabel}>PRÓXIMO EPISÓDIO</Text>
             <Text style={nat.autoplayEpInfo}>T{season} · Episódio {episode + 1}</Text>
-
-            {/* Countdown ring */}
             <View style={nat.autoplayCountdownWrap}>
               <Text style={nat.autoplayCountdownNum}>{autoplayCountdown}</Text>
               <Text style={nat.autoplayCountdownSub}>segundos</Text>
             </View>
-
-            {/* Progress bar */}
             <View style={nat.autoplayBarTrack}>
-              <View style={[nat.autoplayBarFill, {
-                width: `${((10 - autoplayCountdown) / 10) * 100}%` as any,
-              }]} />
+              <View style={[nat.autoplayBarFill, { width: `${((10 - autoplayCountdown) / 10) * 100}%` as any }]} />
             </View>
-
-            {/* Buttons */}
             <View style={nat.autoplayBtns}>
-              <Pressable style={nat.autoCancelBtn} onPress={dismissAutoplay}>
-                <Text style={nat.autoCancelTxt}>Cancelar</Text>
-              </Pressable>
-              <Pressable
-                style={nat.autoNextBtn}
-                onPress={() => { dismissAutoplay(); onNextEp(); }}
-              >
-                <Feather name="play" size={15} color="#fff" />
-                <Text style={nat.autoNextTxt}>Próximo</Text>
+              <Pressable style={nat.autoCancelBtn} onPress={dismissAutoplay}><Text style={nat.autoCancelTxt}>Cancelar</Text></Pressable>
+              <Pressable style={nat.autoNextBtn} onPress={() => { dismissAutoplay(); onNextEp(); }}>
+                <Feather name="play" size={15} color="#fff" /><Text style={nat.autoNextTxt}>Próximo</Text>
               </Pressable>
             </View>
           </View>
@@ -720,129 +1000,66 @@ const nat = StyleSheet.create({
   errBtn: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#e50914", paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12, marginTop: 8 },
   errBtnTxt: { color: "#fff", fontSize: 14, fontWeight: "700" },
   bufferOverlay: { ...StyleSheet.absoluteFillObject as any, alignItems: "center", justifyContent: "center" },
-  overlay: { ...StyleSheet.absoluteFillObject as any, justifyContent: "space-between" },
-  topBar: {
-    flexDirection: "row", alignItems: "center",
-    paddingHorizontal: 12, paddingBottom: 8,
-    backgroundColor: "rgba(0,0,0,0.55)",
-  },
-  iconBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(0,0,0,0.4)", alignItems: "center", justifyContent: "center" },
+  gradTop: { position: "absolute", top: 0, left: 0, right: 0, height: 130, backgroundColor: "rgba(0,0,0,0.55)" },
+  gradBottom: { position: "absolute", bottom: 0, left: 0, right: 0, height: 130, backgroundColor: "rgba(0,0,0,0.6)" },
+  gestureZone: { position: "absolute", top: 0, bottom: 0 },
+  topBar: { position: "absolute", top: 0, left: 0, right: 0, flexDirection: "row", alignItems: "center", paddingHorizontal: 8, paddingBottom: 8, gap: 2 },
+  iconBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
+  iconBtnSm: { width: 32, height: 32, justifyContent: "center", alignItems: "center", borderRadius: 8 },
   titleText: { color: "#fff", fontSize: 15, fontWeight: "700", textShadowColor: "rgba(0,0,0,0.9)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
   subTitle: { color: "rgba(255,255,255,0.55)", fontSize: 12, marginTop: 2 },
-  centerRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 48 },
+  speedBadge: { backgroundColor: "rgba(229,9,20,0.18)", borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3, borderWidth: 1, borderColor: "rgba(229,9,20,0.35)" },
+  speedBadgeText: { color: "#e50914", fontSize: 11, fontWeight: "700" },
+  centerRow: { ...StyleSheet.absoluteFillObject as any, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 32 },
   skipBtn: { alignItems: "center", justifyContent: "center" },
-  skipCircle: { width: 58, height: 58, borderRadius: 29, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center", borderWidth: 1.5, borderColor: "rgba(255,255,255,0.25)" },
+  skipCircle: { width: 58, height: 58, borderRadius: 29, backgroundColor: "rgba(0,0,0,0.45)", alignItems: "center", justifyContent: "center", borderWidth: 1.5, borderColor: "rgba(255,255,255,0.22)" },
   skipLabel: { color: "#fff", fontSize: 10, fontWeight: "700", position: "absolute", bottom: 9 },
   playBtn: { alignItems: "center", justifyContent: "center" },
   playCircle: { width: 74, height: 74, borderRadius: 37, backgroundColor: "rgba(229,9,20,0.85)", alignItems: "center", justifyContent: "center", shadowColor: "#e50914", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.6, shadowRadius: 16, elevation: 12 },
-  bottomBar: { paddingHorizontal: 16, paddingTop: 8, backgroundColor: "rgba(0,0,0,0.6)" },
-  epRow: { flexDirection: "row", gap: 8, marginBottom: 10 },
-  epNavBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 14, paddingVertical: 7, borderRadius: 8, borderWidth: 1, borderColor: "rgba(255,255,255,0.25)", backgroundColor: "rgba(255,255,255,0.1)" },
-  epNavTxt: { color: "#fff", fontSize: 12, fontWeight: "600" },
-  timeRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 6 },
-  timeText: { color: "rgba(255,255,255,0.7)", fontSize: 12, fontWeight: "500", fontVariant: ["tabular-nums"] },
-  seekBarTrack: { height: 28, justifyContent: "center", marginBottom: 4, position: "relative" },
-  seekBarFill: { height: 4, borderRadius: 2, position: "absolute", top: 12, left: 0 },
-  seekThumb: { position: "absolute", top: 8, width: 14, height: 14, borderRadius: 7, backgroundColor: "#e50914", marginLeft: -7, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.6, shadowRadius: 4, elevation: 4 },
-
-  // ── Smart Autoplay ────────────────────────────────────────────────────────
-  autoplayOverlay: {
-    ...StyleSheet.absoluteFillObject as any,
-    alignItems: "flex-end",
-    justifyContent: "flex-end",
-    padding: 20,
-    zIndex: 30,
-    backgroundColor: "rgba(0,0,0,0.45)",
-  },
-  autoplayCard: {
-    width: 270,
-    backgroundColor: "rgba(12,6,10,0.97)",
-    borderRadius: 20,
-    padding: 20,
-    gap: 10,
-    borderWidth: 1,
-    borderColor: "rgba(229,9,20,0.4)",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.7,
-    shadowRadius: 28,
-    elevation: 24,
-  },
-  autoplayLabel: {
-    color: "#e50914",
-    fontSize: 9,
-    fontWeight: "900",
-    letterSpacing: 2.5,
-  },
-  autoplayEpInfo: {
-    color: "#fff",
-    fontSize: 17,
-    fontWeight: "800",
-    lineHeight: 22,
-  },
-  autoplayCountdownWrap: {
-    alignSelf: "center",
-    alignItems: "center",
-    paddingVertical: 4,
-  },
-  autoplayCountdownNum: {
-    color: "#fff",
-    fontSize: 56,
-    fontWeight: "900",
-    lineHeight: 62,
-    fontVariant: ["tabular-nums"] as any,
-  },
-  autoplayCountdownSub: {
-    color: "rgba(255,255,255,0.38)",
-    fontSize: 11,
-    fontWeight: "600",
-    letterSpacing: 0.5,
-  },
-  autoplayBarTrack: {
-    height: 3,
-    backgroundColor: "rgba(255,255,255,0.12)",
-    borderRadius: 2,
-    overflow: "hidden",
-  },
-  autoplayBarFill: {
-    height: 3,
-    backgroundColor: "#e50914",
-    borderRadius: 2,
-  },
-  autoplayBtns: {
-    flexDirection: "row",
-    gap: 10,
-    marginTop: 4,
-  },
-  autoCancelBtn: {
-    flex: 1,
-    paddingVertical: 11,
-    borderRadius: 10,
-    alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.1)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.18)",
-  },
-  autoCancelTxt: {
-    color: "rgba(255,255,255,0.65)",
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  autoNextBtn: {
-    flex: 1.5,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 7,
-    paddingVertical: 11,
-    borderRadius: 10,
-    backgroundColor: "#e50914",
-  },
-  autoNextTxt: {
-    color: "#fff",
-    fontSize: 14,
-    fontWeight: "800",
-  },
+  bottomBar: { position: "absolute", bottom: 0, left: 0, right: 0, flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingTop: 10, gap: 10 },
+  timeText: { color: "rgba(255,255,255,0.75)", fontSize: 12, fontWeight: "500", fontVariant: ["tabular-nums"] as any },
+  seekBarTrack: { flex: 1, height: 28, justifyContent: "center", position: "relative" },
+  seekBarBuf: { height: 4, borderRadius: 2, position: "absolute", top: 12, left: 0, backgroundColor: "rgba(255,255,255,0.3)" },
+  seekBarFill: { height: 4, borderRadius: 2, position: "absolute", top: 12, left: 0, backgroundColor: "#e50914" },
+  seekThumb: { position: "absolute", top: 9, borderRadius: 9, backgroundColor: "#e50914", shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.6, shadowRadius: 4, elevation: 4 },
+  scrubTooltip: { position: "absolute", bottom: 20, backgroundColor: "rgba(0,0,0,0.85)", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 },
+  scrubTooltipText: { color: "#fff", fontSize: 12, fontWeight: "600", fontVariant: ["tabular-nums"] as any },
+  seekFlash: { position: "absolute", top: 0, bottom: 0, width: "38%", alignItems: "center", justifyContent: "center", gap: 6, backgroundColor: "rgba(255,255,255,0.1)" },
+  seekFlashTxt: { color: "#fff", fontSize: 14, fontWeight: "700" },
+  swipeSeekBubble: { position: "absolute", top: "50%", alignSelf: "center", flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(0,0,0,0.7)", borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8, marginTop: -20 },
+  swipeSeekText: { color: "#fff", fontSize: 18, fontWeight: "700" },
+  hudPill: { position: "absolute", top: "40%", alignSelf: "center", flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(0,0,0,0.72)", borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8, marginTop: -18 },
+  hudBar: { width: 100, height: 4, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.25)", overflow: "hidden" },
+  hudBarFill: { height: 4, backgroundColor: "#fff", borderRadius: 2 },
+  hudPct: { color: "#fff", fontSize: 13, fontWeight: "700", minWidth: 34 },
+  sleepBadge: { position: "absolute", top: 56, right: 12, flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(0,0,0,0.55)", borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4 },
+  sleepBadgeText: { color: "#aaa", fontSize: 11 },
+  skipIntroPos: { position: "absolute", bottom: 80, right: 18 },
+  skipIntroBtn: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(0,0,0,0.7)", borderRadius: 8, paddingHorizontal: 14, paddingVertical: 9, borderWidth: 1, borderColor: "rgba(255,255,255,0.22)" },
+  skipIntroBtnText: { color: "#fff", fontSize: 13, fontWeight: "600" },
+  lockPill: { position: "absolute", bottom: 50, alignSelf: "center", flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "rgba(0,0,0,0.6)", borderRadius: 20, paddingHorizontal: 16, paddingVertical: 9, borderWidth: 1, borderColor: "rgba(255,255,255,0.18)" },
+  lockPillText: { color: "rgba(255,255,255,0.7)", fontSize: 13, fontWeight: "600" },
+  speedBoostBadge: { position: "absolute", top: "48%", alignSelf: "center", flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "rgba(229,9,20,0.85)", borderRadius: 16, paddingHorizontal: 14, paddingVertical: 6, marginTop: -16 },
+  speedBoostText: { color: "#fff", fontSize: 16, fontWeight: "900" },
+  panelBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", alignItems: "center" },
+  panel: { backgroundColor: "rgba(16,16,16,0.98)", borderRadius: 18, paddingVertical: 10, paddingHorizontal: 4, minWidth: 240, borderWidth: 1, borderColor: "rgba(255,255,255,0.08)" },
+  panelTitle: { color: "rgba(255,255,255,0.45)", fontSize: 11, fontWeight: "700", letterSpacing: 1.5, marginBottom: 6, paddingHorizontal: 20, paddingTop: 4 },
+  panelRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, paddingVertical: 13, borderRadius: 10 },
+  panelRowText: { color: "#fff", fontSize: 15, fontWeight: "500" },
+  autoplayOverlay: { ...StyleSheet.absoluteFillObject as any, alignItems: "flex-end", justifyContent: "flex-end", padding: 20, zIndex: 30, backgroundColor: "rgba(0,0,0,0.45)" },
+  autoplayCard: { width: 270, backgroundColor: "rgba(12,6,10,0.97)", borderRadius: 20, padding: 20, gap: 10, borderWidth: 1, borderColor: "rgba(229,9,20,0.4)", shadowColor: "#000", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.7, shadowRadius: 28, elevation: 24 },
+  autoplayLabel: { color: "#e50914", fontSize: 9, fontWeight: "900", letterSpacing: 2.5 },
+  autoplayEpInfo: { color: "#fff", fontSize: 17, fontWeight: "800", lineHeight: 22 },
+  autoplayCountdownWrap: { alignSelf: "center", alignItems: "center", paddingVertical: 4 },
+  autoplayCountdownNum: { color: "#fff", fontSize: 56, fontWeight: "900", lineHeight: 62, fontVariant: ["tabular-nums"] as any },
+  autoplayCountdownSub: { color: "rgba(255,255,255,0.38)", fontSize: 11, fontWeight: "600", letterSpacing: 0.5 },
+  autoplayBarTrack: { height: 3, backgroundColor: "rgba(255,255,255,0.12)", borderRadius: 2, overflow: "hidden" },
+  autoplayBarFill: { height: 3, backgroundColor: "#e50914", borderRadius: 2 },
+  autoplayBtns: { flexDirection: "row", gap: 10, marginTop: 4 },
+  autoCancelBtn: { flex: 1, paddingVertical: 11, borderRadius: 10, alignItems: "center", backgroundColor: "rgba(255,255,255,0.1)", borderWidth: 1, borderColor: "rgba(255,255,255,0.18)" },
+  autoCancelTxt: { color: "rgba(255,255,255,0.65)", fontSize: 13, fontWeight: "700" },
+  autoNextBtn: { flex: 1.5, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, paddingVertical: 11, borderRadius: 10, backgroundColor: "#e50914" },
+  autoNextTxt: { color: "#fff", fontSize: 14, fontWeight: "800" },
 });
 
 // ─── MAIN PLAYER SCREEN ───────────────────────────────────────────────────────

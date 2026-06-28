@@ -271,6 +271,20 @@ export default function Flix2PlayerScreen() {
   const swipeDeltaSec = useRef(0);
   const seekByRef = useRef<(ms: number) => void>(() => {});
 
+  // ── Brightness (left 28% vertical swipe → black dim overlay) ───────────────
+  const [brightnessLevel, setBrightnessLevel] = useState(0);
+  const [showBrightnessHud, setShowBrightnessHud] = useState(false);
+  const brightnessAtStart = useRef(0);
+  const brightnessLevelRef = useRef(0);
+  const brightnessHudTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Volume (right 28% vertical swipe) ──────────────────────────────────────
+  const [volumeLevel, setVolumeLevel] = useState(1.0);
+  const [showVolumeHud, setShowVolumeHud] = useState(false);
+  const volumeAtStart = useRef(1.0);
+  const volumeLevelRef = useRef(1.0);
+  const volumeHudTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const progress = durationMs > 0 ? positionMs / durationMs : 0;
   const positionSec = Math.floor(positionMs / 1000);
   const durationSec = Math.floor(durationMs / 1000);
@@ -1023,6 +1037,43 @@ export default function Flix2PlayerScreen() {
     })
   ).current;
 
+  // ── Brightness zone PanResponder (left 28%) ─────────────────────────────────
+  const leftBrightPan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onStartShouldSetPanResponderCapture: () => false,
+      onMoveShouldSetPanResponder: (_, gs) => Math.abs(gs.dy) > 12 && Math.abs(gs.dy) > Math.abs(gs.dx) * 1.5,
+      onMoveShouldSetPanResponderCapture: () => false,
+      onPanResponderGrant: () => { brightnessAtStart.current = brightnessLevelRef.current; },
+      onPanResponderMove: (_, gs) => {
+        const newLvl = Math.max(0, Math.min(0.85, brightnessAtStart.current + (-gs.dy / (H * 0.6))));
+        brightnessLevelRef.current = newLvl; setBrightnessLevel(newLvl); setShowBrightnessHud(true);
+        if (brightnessHudTimer.current) clearTimeout(brightnessHudTimer.current);
+      },
+      onPanResponderRelease: () => { brightnessHudTimer.current = setTimeout(() => setShowBrightnessHud(false), 1500); },
+      onPanResponderTerminate: () => { brightnessHudTimer.current = setTimeout(() => setShowBrightnessHud(false), 1500); },
+    })
+  ).current;
+
+  // ── Volume zone PanResponder (right 28%) ────────────────────────────────────
+  const rightVolPan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onStartShouldSetPanResponderCapture: () => false,
+      onMoveShouldSetPanResponder: (_, gs) => Math.abs(gs.dy) > 12 && Math.abs(gs.dy) > Math.abs(gs.dx) * 1.5,
+      onMoveShouldSetPanResponderCapture: () => false,
+      onPanResponderGrant: () => { volumeAtStart.current = volumeLevelRef.current; },
+      onPanResponderMove: (_, gs) => {
+        const newVol = Math.max(0, Math.min(1.0, volumeAtStart.current + (-gs.dy / (H * 0.6))));
+        volumeLevelRef.current = newVol; setVolumeLevel(newVol); setShowVolumeHud(true);
+        if (volumeHudTimer.current) clearTimeout(volumeHudTimer.current);
+        videoRef.current?.setVolumeAsync?.(newVol).catch(() => {});
+      },
+      onPanResponderRelease: () => { volumeHudTimer.current = setTimeout(() => setShowVolumeHud(false), 1500); },
+      onPanResponderTerminate: () => { volumeHudTimer.current = setTimeout(() => setShowVolumeHud(false), 1500); },
+    })
+  ).current;
+
   // ── Double-tap seek detection ─────────────────────────────────────────────────
   const handleTap = useCallback((x: number) => {
     const now = Date.now();
@@ -1521,12 +1572,37 @@ export default function Flix2PlayerScreen() {
         </Pressable>
       )}
 
+      {/* ── Brightness dim overlay ── */}
+      {brightnessLevel > 0 && (
+        <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: "#000", opacity: brightnessLevel }]} />
+      )}
+
+      {/* ── Brightness HUD ── */}
+      {showBrightnessHud && (
+        <View style={styles.hudPill} pointerEvents="none">
+          <Feather name="sun" size={13} color="#fff" />
+          <View style={styles.hudBar}><View style={[styles.hudBarFill, { width: `${Math.round((1 - brightnessLevel / 0.85) * 100)}%` as any }]} /></View>
+          <Text style={styles.hudPct}>{Math.round((1 - brightnessLevel / 0.85) * 100)}%</Text>
+        </View>
+      )}
+
+      {/* ── Volume HUD ── */}
+      {showVolumeHud && (
+        <View style={styles.hudPill} pointerEvents="none">
+          <Feather name={volumeLevel === 0 ? "volume-x" : volumeLevel < 0.4 ? "volume-1" : "volume-2"} size={13} color="#fff" />
+          <View style={styles.hudBar}><View style={[styles.hudBarFill, { width: `${Math.round(volumeLevel * 100)}%` as any }]} /></View>
+          <Text style={styles.hudPct}>{Math.round(volumeLevel * 100)}%</Text>
+        </View>
+      )}
+
       {/* ── Controls overlay ───────────────────────────────────────────────── */}
       {phase === "ready" && !showEpisodes && !isLocked && (
         <>
           <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-            {/* Swipe-to-seek gesture layer — must be below Pressable so taps still fire */}
+            {/* Gesture layers: horizontal seek + brightness (left) + volume (right) */}
             <View style={StyleSheet.absoluteFill} {...bodySwipePan.panHandlers} pointerEvents="box-none" />
+            <View style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: W * 0.28 }} {...leftBrightPan.panHandlers} pointerEvents="box-none" />
+            <View style={{ position: "absolute", top: 0, bottom: 0, right: 0, width: W * 0.28 }} {...rightVolPan.panHandlers} pointerEvents="box-none" />
             <Pressable
               style={StyleSheet.absoluteFill}
               onPress={(e) => handleTap(e.nativeEvent.pageX)}
@@ -1930,6 +2006,10 @@ const styles = StyleSheet.create({
   // Sleep badge
   sleepBadge: { position: "absolute", top: 54, right: 16, flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "rgba(0,0,0,0.55)", borderRadius: 10, paddingHorizontal: 10, paddingVertical: 5 },
   sleepBadgeText: { color: "#aaa", fontSize: 11 },
+  hudPill: { position: "absolute", top: "40%" as any, alignSelf: "center", flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(0,0,0,0.72)", borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8, marginTop: -18 },
+  hudBar: { width: 100, height: 4, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.25)", overflow: "hidden" },
+  hudBarFill: { height: 4, backgroundColor: "#fff", borderRadius: 2 },
+  hudPct: { color: "#fff", fontSize: 13, fontWeight: "700" as const, minWidth: 34 },
 
   // Lock screen
   lockOverlay: { justifyContent: "center", alignItems: "center", backgroundColor: "rgba(0,0,0,0.3)" },

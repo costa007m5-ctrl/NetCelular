@@ -25,6 +25,7 @@ export interface WebViewVideoPlayerRef {
   playAsync: () => Promise<void>;
   pauseAsync: () => Promise<void>;
   setRateAsync: (rate: number, _pitchCorrect?: boolean) => Promise<void>;
+  setVolumeAsync: (volume: number) => Promise<void>;
 }
 
 export interface PlaybackStatus {
@@ -137,6 +138,7 @@ video{width:100%;height:100%;object-fit:contain;display:block}
       else if (cmd.type === 'pause') v.pause();
       else if (cmd.type === 'seek') { v.currentTime = cmd.position / 1000; sendProgress(true); }
       else if (cmd.type === 'rate') { v.playbackRate = cmd.value; }
+      else if (cmd.type === 'volume') { v.volume = Math.max(0, Math.min(1, cmd.value)); }
       else if (cmd.type === 'src') {
         stopTimer();
         v.src = cmd.url;
@@ -192,6 +194,7 @@ const WebViewVideoPlayer = forwardRef<WebViewVideoPlayerRef, Props>(function Web
     playAsync: async () => { injectCmd({ type: "play" }); },
     pauseAsync: async () => { injectCmd({ type: "pause" }); },
     setRateAsync: async (r: number) => { injectCmd({ type: "rate", value: r }); },
+    setVolumeAsync: async (v: number) => { injectCmd({ type: "volume", value: v }); },
   }), [injectCmd]);
 
   const onMessage = useCallback((event: any) => {
