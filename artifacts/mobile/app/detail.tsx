@@ -872,7 +872,54 @@ export default function DetailScreen() {
                   primaryHit.id !== tmdbId &&
                   (primaryHit.vote_count ?? 0) > myVoteCount
                 ) {
+                  // Remove wrongly-injected flix2 items for this film
                   setR2Items((prev) => prev.filter((i) => !i.id.startsWith("flix2-auto-")));
+
+                  // Try Veo as fallback — it may have the correct stream for this newer film.
+                  // Phase 3 was originally skipped because flix2 returned found:true (title match).
+                  try {
+                    const veoType = type === "movie" ? "movies" : "all";
+                    const veoRaw = await r2Route<{ found: boolean; item: any; contentType: string }>(
+                      `/veo/lookup?tmdbId=${tmdbId}&type=${veoType}&title=${encodeURIComponent(lookupTitle)}`
+                    );
+                    if (veoRaw.found && veoRaw.item) {
+                      const vi = veoRaw.item;
+                      const checkUrl: string | null =
+                        vi?.stream_url ||
+                        (Array.isArray(vi?.episodes) && vi.episodes.length > 0 ? vi.episodes[0]?.stream_url : null);
+                      if (checkUrl) {
+                        const cdnCheck = await r2Route<{ ok: boolean; cdnOk: boolean; cdnHost: string }>(
+                          `/veo/stream-check?streamUrl=${encodeURIComponent(checkUrl)}`
+                        );
+                        if (cdnCheck.cdnOk) {
+                          if (vi?.synopsis) setFlix2Synopsis(vi.synopsis);
+                          const veoItems: RegistryItem[] = [];
+                          if (vi?.stream_url) {
+                            veoItems.push({
+                              id: `veo-auto-${tmdbId}`, r2Key: "", flix2Url: vi.stream_url,
+                              tmdbId, tmdbType: type, title: vi.title ?? "",
+                              label: `${vi.title ?? ""} · Veo`,
+                              season: null, episode: null,
+                            });
+                          } else if (Array.isArray(vi?.episodes) && vi.episodes.length > 0) {
+                            for (const ep of vi.episodes as Array<{ season: number; episode: number; stream_url?: string }>) {
+                              if (!ep?.stream_url) continue;
+                              veoItems.push({
+                                id: `veo-auto-${tmdbId}-s${ep.season}e${ep.episode}`, r2Key: "",
+                                flix2Url: ep.stream_url, tmdbId, tmdbType: type,
+                                title: vi.title ?? "",
+                                label: `T${String(ep.season).padStart(2,"0")} E${String(ep.episode).padStart(2,"0")} · Veo`,
+                                season: ep.season, episode: ep.episode,
+                              });
+                            }
+                          }
+                          if (veoItems.length > 0) {
+                            setR2Items((prev) => [...prev.filter((i) => !i.id.startsWith("veo-auto-")), ...veoItems]);
+                          }
+                        }
+                      }
+                    }
+                  } catch {}
                   return;
                 }
               }
