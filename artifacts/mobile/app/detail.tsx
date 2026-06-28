@@ -300,8 +300,11 @@ export default function DetailScreen() {
       })();
       return () => { cancelled = true; };
     }
-    // Priority 2: Flix2 stream — movie (not episode) items only
-    const flix2Item = r2Items.find((i) => isFlixItem(i) && i.flix2Url && !i.episode);
+    // Priority 2: Flix2 stream — movie items, or S01E01 for series
+    const flix2Item = r2Items.find((i) => isFlixItem(i) && i.flix2Url && !i.episode)
+      ?? r2Items.find((i) => isFlixItem(i) && i.flix2Url && i.season === 1 && i.episode === 1)
+      ?? r2Items.find((i) => isFlixItem(i) && i.flix2Url && i.season === 1)
+      ?? r2Items.find((i) => isFlixItem(i) && !!i.flix2Url);
     if (flix2Item?.flix2Url) {
       if (Platform.OS === "web") {
         // Web: proxy the stream to avoid CORS issues
@@ -332,19 +335,8 @@ export default function DetailScreen() {
         fsPromise.catch(() => { vid.controls = false; fallback(); });
         return;
       }
-    } else if (Platform.OS !== "web" && vid?.injectJavaScript && bannerVideoUrl) {
-      // Native: ask the video inside the WebView to go fullscreen; it plays without reload
-      vid.injectJavaScript(`
-        (function(){
-          var v = document.querySelector('video');
-          if (!v) return;
-          v.muted = false;
-          var fs = v.requestFullscreen || v.webkitRequestFullscreen || v.mozRequestFullScreen || v.msRequestFullscreen;
-          if (fs) { try { fs.call(v); } catch(e) {} }
-        })(); true;
-      `);
-      return;
     }
+    // Native: WebView requestFullscreen is unreliable on Android — always navigate to the player
     fallback();
   }, [bannerVideoUrl]);
   const [showAddSrcModal, setShowAddSrcModal] = useState(false);
