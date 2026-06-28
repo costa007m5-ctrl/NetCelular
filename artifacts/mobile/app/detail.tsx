@@ -270,6 +270,8 @@ export default function DetailScreen() {
   const [trailerKey, setTrailerKey] = useState<string | null>(null);
   const [showTrailerModal, setShowTrailerModal] = useState(false);
   const [trailerPlaying, setTrailerPlaying] = useState(true);
+  const [bannerMuted, setBannerMuted] = useState(true);
+  const [bannerPreviewActive, setBannerPreviewActive] = useState(false);
   const [showAddSrcModal, setShowAddSrcModal] = useState(false);
   const [addSrcUrl, setAddSrcUrl] = useState("");
   const [addSrcBusy, setAddSrcBusy] = useState(false);
@@ -3563,9 +3565,28 @@ export default function DetailScreen() {
       </Modal>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
-        {/* Backdrop */}
+        {/* Backdrop / Banner Preview */}
         <View style={{ height: BACKDROP_H + topPad }}>
-          {backdropUri && !imgError ? (
+          {/* Background: video preview (muted autoplay) or static image */}
+          {trailerKey && bannerPreviewActive ? (
+            Platform.OS === "web" ? (
+              <iframe
+                src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${bannerMuted ? 1 : 0}&rel=0&controls=0&showinfo=0&modestbranding=1&loop=1&playlist=${trailerKey}&playsinline=1&iv_load_policy=3`}
+                style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", border: "none", objectFit: "cover" } as any}
+                allow="autoplay; fullscreen"
+                allowFullScreen
+              />
+            ) : WebView ? (
+              <WebView
+                source={{ uri: `https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${bannerMuted ? 1 : 0}&rel=0&controls=0&showinfo=0&modestbranding=1&loop=1&playlist=${trailerKey}&playsinline=1&iv_load_policy=3` }}
+                style={[StyleSheet.absoluteFill, { backgroundColor: "#000" }]}
+                mediaPlaybackRequiresUserAction={false}
+                javaScriptEnabled
+                scrollEnabled={false}
+                injectedJavaScript={`document.body.style.overflow='hidden';document.documentElement.style.overflow='hidden';true;`}
+              />
+            ) : null
+          ) : backdropUri && !imgError ? (
             <Image
               source={{ uri: backdropUri }}
               style={[StyleSheet.absoluteFill, { height: BACKDROP_H + topPad }]}
@@ -3575,18 +3596,57 @@ export default function DetailScreen() {
           ) : (
             <LinearGradient colors={["#1a0000", "#141414"]} style={[StyleSheet.absoluteFill]} />
           )}
+
+          {/* Gradient overlay */}
           <LinearGradient
-            colors={["rgba(0,0,0,0.1)", "rgba(0,0,0,0.7)", colors.background]}
+            colors={["rgba(0,0,0,0.05)", "rgba(0,0,0,0.55)", colors.background]}
             style={[StyleSheet.absoluteFill]}
           />
+
+          {/* Top bar: back + actions */}
           <View style={[styles.topBar, { paddingTop: topPad + 8 }]}>
             <Pressable onPress={() => router.back()} style={styles.circleBtn}>
               <Feather name="arrow-left" size={20} color="#fff" />
             </Pressable>
-            <Pressable onPress={handleShare} style={styles.circleBtn}>
-              <Feather name="share-2" size={20} color="#fff" />
-            </Pressable>
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              {/* Preview toggle — only show when trailer exists */}
+              {trailerKey && (
+                <Pressable
+                  style={styles.circleBtn}
+                  onPress={() => {
+                    if (bannerPreviewActive) {
+                      setBannerPreviewActive(false);
+                    } else {
+                      setBannerPreviewActive(true);
+                      setBannerMuted(true);
+                    }
+                  }}
+                >
+                  <Feather name={bannerPreviewActive ? "image" : "film"} size={18} color="#fff" />
+                </Pressable>
+              )}
+              {/* Mute toggle — only when preview is active */}
+              {trailerKey && bannerPreviewActive && (
+                <Pressable style={styles.circleBtn} onPress={() => setBannerMuted((m) => !m)}>
+                  <Feather name={bannerMuted ? "volume-x" : "volume-2"} size={18} color="#fff" />
+                </Pressable>
+              )}
+              <Pressable onPress={handleShare} style={styles.circleBtn}>
+                <Feather name="share-2" size={20} color="#fff" />
+              </Pressable>
+            </View>
           </View>
+
+          {/* Preview badge shown at bottom of banner */}
+          {trailerKey && !bannerPreviewActive && (
+            <Pressable
+              onPress={() => { setBannerPreviewActive(true); setBannerMuted(true); }}
+              style={{ position: "absolute", bottom: 16, right: 16, flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(0,0,0,0.65)", borderRadius: 20, paddingVertical: 6, paddingHorizontal: 12, borderWidth: 1, borderColor: "rgba(255,255,255,0.18)" }}
+            >
+              <Feather name="play-circle" size={14} color="#fff" />
+              <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>Prévia</Text>
+            </Pressable>
+          )}
         </View>
 
         {/* Info */}
@@ -3865,58 +3925,46 @@ export default function DetailScreen() {
 
                 // ── Continue watching card (shown when local progress exists) ──
                 const continueWatchingUI = hasLocalProgress && sources.length > 0 ? (
-                  <View style={{ gap: 8, marginBottom: 4 }}>
-                    {/* Progress bar + time info */}
-                    <View style={{ backgroundColor: "rgba(255,255,255,0.05)", borderRadius: 10, padding: 12, gap: 8, borderWidth: 1, borderColor: "rgba(255,255,255,0.08)" }}>
-                      {/* Bar */}
-                      <View style={{ height: 3, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.12)", overflow: "hidden" }}>
-                        <View style={{ height: 3, borderRadius: 2, backgroundColor: "#e50914", width: `${Math.min((localProgress!.progress) * 100, 100)}%` as any }} />
-                      </View>
-                      {/* Time labels */}
-                      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                        <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                          <Feather name="clock" size={11} color="rgba(255,255,255,0.45)" />
-                          <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 11 }}>
-                            {fmtMs(watchedMs) || `${Math.round(localProgress!.progress * 100)}%`} assistidos
-                          </Text>
-                        </View>
-                        {remainMs > 0 && (
-                          <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 11, fontWeight: "600" }}>
-                            {fmtMs(remainMs)} restantes
-                          </Text>
-                        )}
-                      </View>
-                      {/* Series episode info */}
-                      {localProgress!.season != null && localProgress!.episode != null && (
-                        <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-                          <Feather name="tv" size={11} color="rgba(255,255,255,0.35)" />
-                          <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 11 }}>
-                            Temporada {localProgress!.season} · Episódio {localProgress!.episode}
-                          </Text>
-                        </View>
+                  <View style={{ marginBottom: 4 }}>
+                    {/* Compact progress info row */}
+                    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                      <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 12 }}>
+                        {localProgress!.season != null && localProgress!.episode != null
+                          ? `T${localProgress!.season}·E${localProgress!.episode}  •  ${fmtMs(watchedMs) || `${Math.round(localProgress!.progress * 100)}%`} assistidos`
+                          : `${fmtMs(watchedMs) || `${Math.round(localProgress!.progress * 100)}%`} assistidos`}
+                      </Text>
+                      {remainMs > 0 && (
+                        <Text style={{ color: "rgba(255,255,255,0.65)", fontSize: 12, fontWeight: "600" }}>
+                          {fmtMs(remainMs)} restantes
+                        </Text>
                       )}
+                    </View>
+
+                    {/* Thin progress bar */}
+                    <View style={{ height: 2, borderRadius: 1, backgroundColor: "rgba(255,255,255,0.12)", overflow: "hidden", marginBottom: 14 }}>
+                      <View style={{ height: 2, borderRadius: 1, backgroundColor: "#e50914", width: `${Math.min((localProgress!.progress) * 100, 100)}%` as any }} />
                     </View>
 
                     {/* CONTINUAR button */}
                     <Pressable
-                      style={({ pressed }) => [styles.watchBtn, { backgroundColor: colors.primary }, pressed && { opacity: 0.85 }]}
+                      style={({ pressed }) => [styles.watchBtn, { backgroundColor: colors.primary, marginBottom: 10 }, pressed && { opacity: 0.85 }]}
                       onPress={() => sources[0]?.pressWith(localProgress!.progress)}
                     >
                       <Feather name="play" size={18} color="#fff" />
-                      <Text style={styles.watchBtnText}>CONTINUAR ASSISTINDO</Text>
+                      <Text style={styles.watchBtnText}>CONTINUAR</Text>
                     </Pressable>
 
-                    {/* RECOMEÇAR button */}
+                    {/* COMEÇAR DO INÍCIO — compact text link */}
                     <Pressable
-                      style={({ pressed }) => [styles.watchBtn, { backgroundColor: "rgba(255,255,255,0.08)", borderWidth: 1, borderColor: "rgba(255,255,255,0.15)" }, pressed && { opacity: 0.75 }]}
+                      style={({ pressed }) => [{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 8, marginBottom: 8 }, pressed && { opacity: 0.6 }]}
                       onPress={() => {
                         clearLocalProgress(`${type}_${tmdbId}`);
                         setLocalProgress(null);
                         sources[0]?.pressWith(0);
                       }}
                     >
-                      <Feather name="rotate-ccw" size={16} color="rgba(255,255,255,0.75)" />
-                      <Text style={[styles.watchBtnText, { color: "rgba(255,255,255,0.75)" }]}>COMEÇAR DO INÍCIO</Text>
+                      <Feather name="rotate-ccw" size={13} color="rgba(255,255,255,0.45)" />
+                      <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 13, fontWeight: "600" }}>Começar do início</Text>
                     </Pressable>
                   </View>
                 ) : null;
@@ -3989,21 +4037,7 @@ export default function DetailScreen() {
                 );
               })()}
 
-              {/* Trailer button */}
-              {trailerKey ? (
-                <Pressable
-                  style={({ pressed }) => [styles.trailerBtn, pressed && { opacity: 0.75 }]}
-                  onPress={() => setShowTrailerModal(true)}
-                >
-                  <Feather name="play-circle" size={17} color="#fff" />
-                  <Text style={styles.trailerBtnText}>ASSISTIR TRAILER</Text>
-                </Pressable>
-              ) : null}
-
-              {/* Spacer after trailer button when present */}
-              {trailerKey ? <View style={{ height: 20 }} /> : null}
-
-              {/* Action row */}
+              {/* Action row — Trailer moved here as icon */}
               <View style={styles.actionRow}>
                 <Pressable style={styles.actionBtn} onPress={toggleList}>
                   <Feather name={inList ? "check" : "plus"} size={20} color={inList ? colors.primary : colors.foreground} />
@@ -4025,10 +4059,17 @@ export default function DetailScreen() {
                   <Feather name="thumbs-up" size={20} color={liked === true ? "#4caf50" : colors.foreground} />
                   <Text style={[styles.actionLabel, { color: colors.mutedForeground }]}>Gostei</Text>
                 </Pressable>
-                <Pressable style={styles.actionBtn} onPress={handleShare}>
-                  <Feather name="share-2" size={20} color={colors.foreground} />
-                  <Text style={[styles.actionLabel, { color: colors.mutedForeground }]}>Compartilhar</Text>
-                </Pressable>
+                {trailerKey ? (
+                  <Pressable style={styles.actionBtn} onPress={() => setShowTrailerModal(true)}>
+                    <Feather name="play-circle" size={20} color={colors.foreground} />
+                    <Text style={[styles.actionLabel, { color: colors.mutedForeground }]}>Trailer</Text>
+                  </Pressable>
+                ) : (
+                  <Pressable style={styles.actionBtn} onPress={handleShare}>
+                    <Feather name="share-2" size={20} color={colors.foreground} />
+                    <Text style={[styles.actionLabel, { color: colors.mutedForeground }]}>Compartilhar</Text>
+                  </Pressable>
+                )}
                 {isAdmin && (
                   <Pressable style={styles.actionBtn} onPress={openEditModal}>
                     <View style={{ position: "relative" }}>
@@ -4038,6 +4079,12 @@ export default function DetailScreen() {
                       )}
                     </View>
                     <Text style={[styles.actionLabel, { color: contentOverride ? "#fbbf24" : colors.mutedForeground }]}>Editar</Text>
+                  </Pressable>
+                )}
+                {trailerKey && (
+                  <Pressable style={styles.actionBtn} onPress={handleShare}>
+                    <Feather name="share-2" size={20} color={colors.foreground} />
+                    <Text style={[styles.actionLabel, { color: colors.mutedForeground }]}>Compartilhar</Text>
                   </Pressable>
                 )}
               </View>
