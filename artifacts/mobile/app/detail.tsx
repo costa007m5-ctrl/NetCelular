@@ -112,9 +112,13 @@ function EpisodeRow({
   // Use series backdrop as styled fallback when no episode still is available
   const showFallback = !thumbUri && fallbackImage;
 
-  return (
-    <View style={[styles.episodeRow, { backgroundColor: colors.card, borderColor: current ? colors.primary : colors.border }]}>
-      {/* Thumbnail */}
+  // Count available source types — when Flix 2.0 is the ONLY source, tapping the
+  // thumbnail plays directly instead of showing a separate ⚡ button.
+  const sourceCount = [onPress, onR2Press, onFlixPress, onDrivePress].filter(Boolean).length;
+  const flixOnly = sourceCount === 1 && !!onFlixPress;
+
+  const thumbSection = (
+    <>
       {thumbUri ? (
         <Image
           source={{ uri: thumbUri }}
@@ -136,6 +140,29 @@ function EpisodeRow({
       ) : (
         <View style={[styles.episodeThumb, { backgroundColor: colors.border, alignItems: "center", justifyContent: "center" }]}>
           <Feather name="film" size={18} color={colors.mutedForeground} />
+        </View>
+      )}
+      {/* Single-source play overlay — shown directly on the thumbnail */}
+      {flixOnly && (
+        <View style={[StyleSheet.absoluteFill, { width: styles.episodeThumb.width, alignItems: "center", justifyContent: "center" }]}>
+          <View style={{ backgroundColor: "rgba(0,0,0,0.45)", borderRadius: 22, padding: 8 }}>
+            <Feather name="play" size={20} color="#fff" />
+          </View>
+        </View>
+      )}
+    </>
+  );
+
+  return (
+    <View style={[styles.episodeRow, { backgroundColor: colors.card, borderColor: current ? colors.primary : colors.border }]}>
+      {/* Thumbnail — tappable when Flix 2.0 is the only source */}
+      {flixOnly ? (
+        <Pressable onPress={onFlixPress} style={{ position: "relative" }}>
+          {thumbSection}
+        </Pressable>
+      ) : (
+        <View style={{ position: "relative" }}>
+          {thumbSection}
         </View>
       )}
 
@@ -196,29 +223,31 @@ function EpisodeRow({
         ) : null}
       </View>
 
-      {/* Play buttons column */}
-      <View style={styles.epPlayCol}>
-        {onPress && (
-          <Pressable onPress={onPress} style={styles.epPlayBtn}>
-            <Feather name="play-circle" size={28} color={current ? colors.primary : colors.foreground} />
-          </Pressable>
-        )}
-        {onR2Press && (
-          <Pressable onPress={onR2Press} style={[styles.epPlayBtn, { backgroundColor: "#e50914", borderRadius: 8, padding: 4, marginTop: onPress ? 4 : 0 }]}>
-            <Feather name="play" size={16} color="#fff" />
-          </Pressable>
-        )}
-        {onFlixPress && (
-          <Pressable onPress={onFlixPress} style={[styles.epPlayBtn, { backgroundColor: "#8b5cf6", borderRadius: 8, padding: 4, marginTop: onR2Press || onPress ? 4 : 0 }]}>
-            <Feather name="zap" size={14} color="#fff" />
-          </Pressable>
-        )}
-        {onDrivePress && (
-          <Pressable onPress={onDrivePress} style={[styles.epPlayBtn, { backgroundColor: "#16a34a", borderRadius: 8, padding: 4, marginTop: 4 }]}>
-            <Feather name="cloud" size={14} color="#fff" />
-          </Pressable>
-        )}
-      </View>
+      {/* Play buttons column — only rendered when multiple sources exist */}
+      {!flixOnly && (
+        <View style={styles.epPlayCol}>
+          {onPress && (
+            <Pressable onPress={onPress} style={styles.epPlayBtn}>
+              <Feather name="play-circle" size={28} color={current ? colors.primary : colors.foreground} />
+            </Pressable>
+          )}
+          {onR2Press && (
+            <Pressable onPress={onR2Press} style={[styles.epPlayBtn, { backgroundColor: "#e50914", borderRadius: 8, padding: 4, marginTop: onPress ? 4 : 0 }]}>
+              <Feather name="play" size={16} color="#fff" />
+            </Pressable>
+          )}
+          {onFlixPress && (
+            <Pressable onPress={onFlixPress} style={[styles.epPlayBtn, { backgroundColor: "#8b5cf6", borderRadius: 8, padding: 4, marginTop: onR2Press || onPress ? 4 : 0 }]}>
+              <Feather name="zap" size={14} color="#fff" />
+            </Pressable>
+          )}
+          {onDrivePress && (
+            <Pressable onPress={onDrivePress} style={[styles.epPlayBtn, { backgroundColor: "#16a34a", borderRadius: 8, padding: 4, marginTop: 4 }]}>
+              <Feather name="cloud" size={14} color="#fff" />
+            </Pressable>
+          )}
+        </View>
+      )}
     </View>
   );
 }

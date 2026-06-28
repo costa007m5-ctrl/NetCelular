@@ -872,9 +872,10 @@ export default function Flix2PlayerScreen() {
     Animated.timing(panelAnim, { toValue: 0, duration: 250, useNativeDriver: false }).start(() => setShowEpisodes(false));
   }, []);
 
-  // Fetch TMDB episodes for panel display
+  // Pre-fetch TMDB episodes — eager on mount so names/stills are ready when
+  // the panel opens. Re-runs when the season tab changes.
   useEffect(() => {
-    if (!showEpisodes || !tmdbId || !isTV) return;
+    if (!tmdbId || !isTV) return;
     setPanelLoading(true);
     const ctrl = new AbortController();
     fetch(
@@ -886,7 +887,7 @@ export default function Flix2PlayerScreen() {
       .catch(() => setPanelEpisodes([]))
       .finally(() => setPanelLoading(false));
     return () => ctrl.abort();
-  }, [showEpisodes, panelSeason, tmdbId, isTV]);
+  }, [panelSeason, tmdbId, isTV]);
 
   // ── Video callbacks ──────────────────────────────────────────────────────────
   const resolutionLabel = (h: number) => {
@@ -1582,25 +1583,6 @@ export default function Flix2PlayerScreen() {
         </View>
       )}
 
-      {/* ── Skip vinheta ─────────────────────────────────────────────────── */}
-      {showSkipIntro && phase === "ready" && controlsVisible && (
-        <Pressable style={styles.skipIntroBtnPos} onPress={skipIntro}>
-          <View style={styles.skipIntroBtn}>
-            <Feather name="skip-forward" size={14} color="#fff" />
-            <Text style={styles.skipIntroBtnText}>Pular Vinheta</Text>
-          </View>
-        </Pressable>
-      )}
-
-      {/* ── Skip credits ────────────────────────────────────────────────────── */}
-      {showSkipCredits && phase === "ready" && !showSkipIntro && controlsVisible && (
-        <Pressable style={styles.skipCreditsBtnPos} onPress={skipCredits}>
-          <View style={styles.skipIntroBtn}>
-            <Feather name="skip-forward" size={14} color="#fff" />
-            <Text style={styles.skipIntroBtnText}>{isTV ? "Próximo episódio" : "Pular créditos"}</Text>
-          </View>
-        </Pressable>
-      )}
 
       {/* ── Next episode countdown — side panel with poster ───────────────── */}
       {showNextEpCountdown && !showEpisodes && (
@@ -1837,6 +1819,26 @@ export default function Flix2PlayerScreen() {
             </Animated.View>
           )}
         </>
+      )}
+
+      {/* ── Skip vinheta — rendered AFTER controls overlay so it sits on top ── */}
+      {showSkipIntro && phase === "ready" && (
+        <Pressable style={styles.skipIntroBtnPos} onPress={skipIntro}>
+          <View style={styles.skipIntroBtn}>
+            <Feather name="skip-forward" size={14} color="#fff" />
+            <Text style={styles.skipIntroBtnText}>Pular Vinheta</Text>
+          </View>
+        </Pressable>
+      )}
+
+      {/* ── Skip credits ─────────────────────────────────────────────────────── */}
+      {showSkipCredits && phase === "ready" && !showSkipIntro && (
+        <Pressable style={styles.skipCreditsBtnPos} onPress={skipCredits}>
+          <View style={styles.skipIntroBtn}>
+            <Feather name="skip-forward" size={14} color="#fff" />
+            <Text style={styles.skipIntroBtnText}>{isTV ? "Próximo episódio" : "Pular créditos"}</Text>
+          </View>
+        </Pressable>
       )}
 
       {/* Dim overlay when episodes panel open */}
