@@ -642,12 +642,13 @@ export default function DetailScreen() {
           if (fi?.synopsis && !cancelled) setFlix2Synopsis(fi.synopsis);
           const flixItems: RegistryItem[] = [];
 
-          // Only accept a movie-style stream_url for content whose own type is movie.
-          // TV-series pages must go through the episodes path — if the lookup matched a
-          // VOD item (fi.stream_url set + fi.type === "filme"/"movie") for a TV detail
-          // page, that match is wrong content (e.g. same-name film vs animated series).
+          // Only accept a movie-style stream_url when the current page IS a movie.
+          // For series pages the lookup may return a VOD item (fi.stream_url + fi.type=filme)
+          // that is a same-name movie — or a series item with a stream_url AND episodes.
+          // In both cases we must fall through to the episodes path, not create a
+          // spurious movie-level entry (which shows as "Dublado HD" on every series).
           const fiIsMovie = (fi?.type ?? "").toLowerCase() === "filme" || (fi?.type ?? "").toLowerCase() === "movie";
-          if (fi?.stream_url && (type === "movie" || !fiIsMovie)) {
+          if (fi?.stream_url && type === "movie") {
             flixItems.push({
               id: `flix2-auto-${tmdbId}`, r2Key: "", flix2Url: fi.stream_url,
               tmdbId, tmdbType: type, title: fi.title ?? "", label: fi.title ?? "",
@@ -773,7 +774,7 @@ export default function DetailScreen() {
         // Build the corrected items list
         const flixItems: RegistryItem[] = [];
         const fiIsMovieYC = (fi?.type ?? "").toLowerCase() === "filme" || (fi?.type ?? "").toLowerCase() === "movie";
-        if (fi?.stream_url && (type === "movie" || !fiIsMovieYC)) {
+        if (fi?.stream_url && type === "movie") {
           flixItems.push({
             id: `flix2-auto-${tmdbId}`, r2Key: "", flix2Url: fi.stream_url,
             tmdbId, tmdbType: type, title: fi.title ?? "", label: fi.title ?? "",
