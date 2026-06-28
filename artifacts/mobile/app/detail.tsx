@@ -453,7 +453,7 @@ export default function DetailScreen() {
   const [fetchingAutoOverview, setFetchingAutoOverview] = useState(false);
   const [editSearchQuery, setEditSearchQuery] = useState("");
   const [editSearchType, setEditSearchType] = useState<"movie" | "tv">("tv");
-  const [editSearchResults, setEditSearchResults] = useState<Array<{ id: number; title: string; year: string; poster: string | null; overview: string }>>([]);
+  const [editSearchResults, setEditSearchResults] = useState<Array<{ id: number; title: string; year: string; poster: string | null; poster_path: string | null; backdrop_path: string | null; overview: string }>>([]);
   const [editSearchLoading, setEditSearchLoading] = useState(false);
   const [editSelectedResult, setEditSelectedResult] = useState<{ id: number; title: string; poster: string | null } | null>(null);
   const [editPosterPath, setEditPosterPath] = useState<string | null>(null);
@@ -2083,12 +2083,14 @@ export default function DetailScreen() {
       const r = await fetch(`${getApiBase()}/tmdb/${mediaType}/${id}/lang/pt-BR`);
       const data = r.ok ? await r.json() : null;
       if (data) {
-        setAutoOverview((data.overview as string) ?? "");
-        setEditPosterPath(data.poster_path ?? null);
-        setEditBackdropPath(data.backdrop_path ?? null);
-        setEditSeasons(data.number_of_seasons ?? null);
-        setEditEpisodes(data.number_of_episodes ?? null);
-        setEditVoteAverage(data.vote_average ?? null);
+        if (data.overview) setAutoOverview(data.overview as string);
+        // Só atualiza poster/backdrop se o TMDB retornou um valor — nunca sobrescreve
+        // um valor já definido com null (evita apagar o que foi setado em selectSearchResult)
+        if (data.poster_path) setEditPosterPath(data.poster_path);
+        if (data.backdrop_path) setEditBackdropPath(data.backdrop_path);
+        if (data.number_of_seasons != null) setEditSeasons(data.number_of_seasons);
+        if (data.number_of_episodes != null) setEditEpisodes(data.number_of_episodes);
+        if (data.vote_average != null) setEditVoteAverage(data.vote_average);
       } else {
         setAutoOverview("");
       }
@@ -2114,6 +2116,8 @@ export default function DetailScreen() {
         title: item.title ?? item.name ?? "",
         year: (item.release_date ?? item.first_air_date ?? "").slice(0, 4),
         poster: item.poster_path ? `https://image.tmdb.org/t/p/w92${item.poster_path}` : null,
+        poster_path: item.poster_path ?? null,
+        backdrop_path: item.backdrop_path ?? null,
         overview: item.overview ?? "",
       }));
       setEditSearchResults(results);
@@ -2126,14 +2130,18 @@ export default function DetailScreen() {
     }
   };
 
-  const selectSearchResult = (result: { id: number; title: string; year: string; poster: string | null; overview: string }) => {
+  const selectSearchResult = (result: { id: number; title: string; year: string; poster: string | null; poster_path: string | null; backdrop_path: string | null; overview: string }) => {
     setEditSelectedResult({ id: result.id, title: result.title, poster: result.poster });
     setEditTmdbId(String(result.id));
     setAutoOverview(result.overview);
     setEditSearchResults([]);
     setEditSearchQuery(result.title);
     setEditErr(null);
-    // Buscar dados completos (poster_path real, backdrop, temporadas, etc.)
+    // Setar poster_path e backdrop_path imediatamente dos resultados da busca
+    // para garantir que já estejam prontos quando o usuário clicar em Salvar
+    if (result.poster_path) setEditPosterPath(result.poster_path);
+    if (result.backdrop_path) setEditBackdropPath(result.backdrop_path);
+    // Buscar dados completos (sinopse pt-BR, temporadas, nota, etc.) em background
     fetchAutoOverviewForId(String(result.id));
   };
 
