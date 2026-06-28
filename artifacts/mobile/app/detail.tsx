@@ -25,8 +25,10 @@ import { downloadsManager } from "@/lib/downloads";
 import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
 import { Feather } from "@expo/vector-icons";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { getLocalProgress, clearLocalProgress } from "@/hooks/useWatchProgress";
+import type { WatchEntry } from "@/hooks/useWatchProgress";
 import { useColors } from "@/hooks/useColors";
 import { ContentCard } from "@/components/ContentCard";
 import { api as tmdbApi, TMDB_IMG, tmdbItemToContent } from "@/lib/api";
@@ -250,6 +252,7 @@ export default function DetailScreen() {
   const [imgError, setImgError] = useState(false);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [watchProgress, setWatchProgress] = useState<WatchProgress | null>(null);
+  const [localProgress, setLocalProgress] = useState<WatchEntry | null>(null);
   const [unavailableVisible, setUnavailableVisible] = useState(false);
   const [indicated, setIndicated] = useState(false);
   const [reportModalVisible, setReportModalVisible] = useState(false);
@@ -959,6 +962,21 @@ export default function DetailScreen() {
       db.progress.getForShow(userId, tmdbId, "tv").then(setWatchProgress);
     }
   }, [userId, tmdbId, type]);
+
+  // Load local AsyncStorage progress every time this screen gains focus
+  useFocusEffect(
+    useCallback(() => {
+      if (!tmdbId) return;
+      const contentId = `${type}_${tmdbId}`;
+      getLocalProgress(contentId).then((entry) => {
+        if (entry && entry.progress > 0.02 && entry.progress < 0.95) {
+          setLocalProgress(entry);
+        } else {
+          setLocalProgress(null);
+        }
+      });
+    }, [type, tmdbId])
+  );
 
   // Load content override (applies to ALL users; only admins can edit it)
   // Falls back to title-based key so overrides saved without a TMDB ID are still
@@ -2050,12 +2068,13 @@ export default function DetailScreen() {
     }
   };
 
-  const goToFlix2Player = (item: RegistryItem, overrideSeason?: number, overrideEpisode?: number) => {
+  const goToFlix2Player = (item: RegistryItem, overrideSeason?: number, overrideEpisode?: number, overrideRatio?: number) => {
     const seasonVal = overrideSeason != null ? overrideSeason : item.season;
     const episodeVal = overrideEpisode != null ? overrideEpisode : item.episode;
     const flix2Items = r2Items
       .filter((i) => isFlixItem(i))
       .map((i) => ({ id: i.id, flix2Url: i.flix2Url ?? "", title: i.title, label: i.label, season: i.season, episode: i.episode }));
+    const resolvedRatio = overrideRatio != null ? overrideRatio : (watchProgress?.progress ?? (localProgress?.progress ?? null));
     router.push({
       pathname: "/flix2-player",
       params: {
@@ -2071,14 +2090,15 @@ export default function DetailScreen() {
         flix2ItemsJson: JSON.stringify(flix2Items),
         watchSeason: watchProgress?.season != null ? String(watchProgress.season) : "",
         watchEpisode: watchProgress?.episode != null ? String(watchProgress.episode) : "",
-        watchProgressRatio: watchProgress?.progress != null ? String(watchProgress.progress) : "",
+        watchProgressRatio: resolvedRatio != null ? String(resolvedRatio) : "",
       },
     });
   };
 
-  const goToR2Player = (item: RegistryItem, overrideSeason?: number, overrideEpisode?: number, fallbackDriveItemId?: string, fallbackFlix2Url?: string) => {
+  const goToR2Player = (item: RegistryItem, overrideSeason?: number, overrideEpisode?: number, fallbackDriveItemId?: string, fallbackFlix2Url?: string, overrideRatio?: number) => {
     const seasonVal = overrideSeason != null ? overrideSeason : item.season;
     const episodeVal = overrideEpisode != null ? overrideEpisode : item.episode;
+    const resolvedRatio = overrideRatio != null ? overrideRatio : (watchProgress?.progress ?? (localProgress?.progress ?? null));
     router.push({
       pathname: "/r2-player",
       params: {
@@ -2099,14 +2119,15 @@ export default function DetailScreen() {
         r2ItemsJson: JSON.stringify(r2Items),
         watchSeason: watchProgress?.season != null ? String(watchProgress.season) : "",
         watchEpisode: watchProgress?.episode != null ? String(watchProgress.episode) : "",
-        watchProgressRatio: watchProgress?.progress != null ? String(watchProgress.progress) : "",
+        watchProgressRatio: resolvedRatio != null ? String(resolvedRatio) : "",
       },
     });
   };
 
-  const goToDrivePlayer = (item: RegistryItem, overrideSeason?: number, overrideEpisode?: number, fallbackFlix2Url?: string) => {
+  const goToDrivePlayer = (item: RegistryItem, overrideSeason?: number, overrideEpisode?: number, fallbackFlix2Url?: string, overrideRatio?: number) => {
     const seasonVal = overrideSeason != null ? overrideSeason : item.season;
     const episodeVal = overrideEpisode != null ? overrideEpisode : item.episode;
+    const resolvedRatio = overrideRatio != null ? overrideRatio : (watchProgress?.progress ?? (localProgress?.progress ?? null));
     router.push({
       pathname: "/r2-player",
       params: {
@@ -2125,7 +2146,7 @@ export default function DetailScreen() {
         r2ItemsJson: JSON.stringify(r2Items),
         watchSeason: watchProgress?.season != null ? String(watchProgress.season) : "",
         watchEpisode: watchProgress?.episode != null ? String(watchProgress.episode) : "",
-        watchProgressRatio: watchProgress?.progress != null ? String(watchProgress.progress) : "",
+        watchProgressRatio: resolvedRatio != null ? String(resolvedRatio) : "",
       },
     });
   };
@@ -3647,6 +3668,24 @@ export default function DetailScreen() {
                 const resumeS = (type === "tv" && watchProgress?.season) ? watchProgress.season : 1;
                 const resumeE = (type === "tv" && watchProgress?.episode) ? watchProgress.episode : 1;
 
+                // ── Local progress helpers ──────────────────────────────────
+                const hasLocalProgress = !!localProgress && localProgress.progress > 0.02 && localProgress.progress < 0.95;
+
+                function fmtMs(ms: number): string {
+                  if (!ms || ms < 1000) return "";
+                  const totalSec = Math.floor(ms / 1000);
+                  const h = Math.floor(totalSec / 3600);
+                  const m = Math.floor((totalSec % 3600) / 60);
+                  if (h > 0 && m > 0) return `${h}h ${m}min`;
+                  if (h > 0) return `${h}h`;
+                  if (m < 1) return "< 1min";
+                  return `${m}min`;
+                }
+
+                const watchedMs = localProgress?.positionMs ?? 0;
+                const totalMs   = localProgress?.durationMs ?? 0;
+                const remainMs  = Math.max(0, totalMs - watchedMs);
+
                 // Only items allowed by global source settings
                 const visibleItems = r2Items.filter((i) => {
                   if (isDriveItem(i)) return srcSettings.drive;
@@ -3666,40 +3705,45 @@ export default function DetailScreen() {
                   ? visibleItems.some((i) => isFlixItem(i) && i.season == null && i.episode == null)
                   : visibleItems.some((i) => isFlixItem(i)));
 
-                const pressR2 = () => {
+                // Generic helpers that accept a ratio override (for continue/restart)
+                const pressR2WithRatio = (ratio?: number) => {
                   if (type === "movie") {
                     const item = visibleItems.find((i) => !isDriveItem(i) && !isFlixItem(i) && i.season == null && i.episode == null);
-                    if (item) goToR2Player(item);
+                    if (item) goToR2Player(item, undefined, undefined, undefined, undefined, ratio);
                   } else {
                     const episodeItems = visibleItems.filter((i) => !isDriveItem(i) && !isFlixItem(i) && i.episode != null);
                     const lastAdded = episodeItems[episodeItems.length - 1] ?? visibleItems.find((i) => !isDriveItem(i) && !isFlixItem(i));
                     const resumeItem = (watchProgress?.season && watchProgress?.episode)
                       ? visibleItems.find((i) => !isDriveItem(i) && !isFlixItem(i) && i.season === watchProgress.season && i.episode === watchProgress.episode) ?? lastAdded
                       : lastAdded;
-                    if (resumeItem) goToR2Player(resumeItem);
+                    if (resumeItem) goToR2Player(resumeItem, undefined, undefined, undefined, undefined, ratio);
                   }
                 };
 
-                const pressFlix = () => {
+                const pressFlixWithRatio = (ratio?: number) => {
                   const item = type === "movie"
                     ? visibleItems.find((i) => isFlixItem(i) && i.season == null && i.episode == null)
                     : visibleItems.find((i) => isFlixItem(i));
-                  if (item) goToFlix2Player(item);
+                  if (item) goToFlix2Player(item, undefined, undefined, ratio);
                 };
 
-                const pressDrive = () => {
+                const pressDriveWithRatio = (ratio?: number) => {
                   const item = type === "movie"
                     ? visibleItems.find((i) => isDriveItem(i) && i.season == null && i.episode == null)
                     : visibleItems.find((i) => isDriveItem(i));
-                  if (item) goToDrivePlayer(item);
+                  if (item) goToDrivePlayer(item, undefined, undefined, undefined, ratio);
                 };
+
+                const pressR2    = () => pressR2WithRatio();
+                const pressFlix  = () => pressFlixWithRatio();
+                const pressDrive = () => pressDriveWithRatio();
 
                 // Flix 2.0 is primary — sources ordered: flix2, r2, drive
                 const sources = [
-                  hasFlix  && { id: "flix2",  press: pressFlix },
-                  hasR2    && { id: "r2",      press: pressR2 },
-                  hasDrive && { id: "drive",   press: pressDrive },
-                ].filter(Boolean) as { id: string; press: () => void }[];
+                  hasFlix  && { id: "flix2",  press: pressFlix,  pressWith: pressFlixWithRatio },
+                  hasR2    && { id: "r2",      press: pressR2,    pressWith: pressR2WithRatio },
+                  hasDrive && { id: "drive",   press: pressDrive, pressWith: pressDriveWithRatio },
+                ].filter(Boolean) as { id: string; press: () => void; pressWith: (r?: number) => void }[];
 
                 const primaryPress = sources[0]?.press;
 
@@ -3818,6 +3862,73 @@ export default function DetailScreen() {
                     <Text style={{ color: "#a78bfa", fontSize: 11, fontWeight: "600" }}>Flix 2.0 buscando…</Text>
                   </View>
                 ) : null;
+
+                // ── Continue watching card (shown when local progress exists) ──
+                const continueWatchingUI = hasLocalProgress && sources.length > 0 ? (
+                  <View style={{ gap: 8, marginBottom: 4 }}>
+                    {/* Progress bar + time info */}
+                    <View style={{ backgroundColor: "rgba(255,255,255,0.05)", borderRadius: 10, padding: 12, gap: 8, borderWidth: 1, borderColor: "rgba(255,255,255,0.08)" }}>
+                      {/* Bar */}
+                      <View style={{ height: 3, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.12)", overflow: "hidden" }}>
+                        <View style={{ height: 3, borderRadius: 2, backgroundColor: "#e50914", width: `${Math.min((localProgress!.progress) * 100, 100)}%` as any }} />
+                      </View>
+                      {/* Time labels */}
+                      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                          <Feather name="clock" size={11} color="rgba(255,255,255,0.45)" />
+                          <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 11 }}>
+                            {fmtMs(watchedMs) || `${Math.round(localProgress!.progress * 100)}%`} assistidos
+                          </Text>
+                        </View>
+                        {remainMs > 0 && (
+                          <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 11, fontWeight: "600" }}>
+                            {fmtMs(remainMs)} restantes
+                          </Text>
+                        )}
+                      </View>
+                      {/* Series episode info */}
+                      {localProgress!.season != null && localProgress!.episode != null && (
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
+                          <Feather name="tv" size={11} color="rgba(255,255,255,0.35)" />
+                          <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 11 }}>
+                            Temporada {localProgress!.season} · Episódio {localProgress!.episode}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+
+                    {/* CONTINUAR button */}
+                    <Pressable
+                      style={({ pressed }) => [styles.watchBtn, { backgroundColor: colors.primary }, pressed && { opacity: 0.85 }]}
+                      onPress={() => sources[0]?.pressWith(localProgress!.progress)}
+                    >
+                      <Feather name="play" size={18} color="#fff" />
+                      <Text style={styles.watchBtnText}>CONTINUAR ASSISTINDO</Text>
+                    </Pressable>
+
+                    {/* RECOMEÇAR button */}
+                    <Pressable
+                      style={({ pressed }) => [styles.watchBtn, { backgroundColor: "rgba(255,255,255,0.08)", borderWidth: 1, borderColor: "rgba(255,255,255,0.15)" }, pressed && { opacity: 0.75 }]}
+                      onPress={() => {
+                        clearLocalProgress(`${type}_${tmdbId}`);
+                        setLocalProgress(null);
+                        sources[0]?.pressWith(0);
+                      }}
+                    >
+                      <Feather name="rotate-ccw" size={16} color="rgba(255,255,255,0.75)" />
+                      <Text style={[styles.watchBtnText, { color: "rgba(255,255,255,0.75)" }]}>COMEÇAR DO INÍCIO</Text>
+                    </Pressable>
+                  </View>
+                ) : null;
+
+                if (continueWatchingUI) {
+                  return (
+                    <>
+                      {continueWatchingUI}
+                      {flix2SearchingBadge}
+                    </>
+                  );
+                }
 
                 if (sources.length === 1) {
                   // Single source — show as "ASSISTIR AGORA"
