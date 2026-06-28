@@ -1076,18 +1076,32 @@ export default function Flix2PlayerScreen() {
   ).current;
 
   // ── Double-tap seek detection ─────────────────────────────────────────────────
+  // Single tap: show controls only (never toggle play directly on bare screen tap).
+  // Double tap: seek ±15s. Toggle play is only via the center play button.
   const handleTap = useCallback((x: number) => {
     const now = Date.now();
     const isLeft = x < W / 2;
     if (lastTapRef.current && now - lastTapRef.current.time < 300 && Math.abs(x - lastTapRef.current.x) < 80) {
+      // Double tap → seek
       if (tapTimerRef.current) { clearTimeout(tapTimerRef.current); tapTimerRef.current = null; }
       lastTapRef.current = null;
       seekBy(isLeft ? -15000 : 15000);
     } else {
+      // Single tap → just show/hide controls, never auto-toggle play
       lastTapRef.current = { time: now, x };
-      tapTimerRef.current = setTimeout(() => { lastTapRef.current = null; togglePlay(); }, 300);
+      tapTimerRef.current = setTimeout(() => {
+        lastTapRef.current = null;
+        if (controlsVisible) {
+          // Controls already visible → hide them
+          if (hideTimer.current) clearTimeout(hideTimer.current);
+          setControlsVisible(false);
+        } else {
+          // Controls hidden → show them
+          showControls();
+        }
+      }, 300);
     }
-  }, [seekBy, togglePlay]);
+  }, [seekBy, controlsVisible, showControls]);
 
   // ── Seek bar ─────────────────────────────────────────────────────────────────
   const onSeekStart = useCallback((x: number) => {
@@ -1367,8 +1381,13 @@ export default function Flix2PlayerScreen() {
         />
       ) : null}
 
+      {/* ── Scrub overlay — hide video frames while dragging the seek bar ── */}
+      {isScrubbing && (
+        <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.72)" }]} />
+      )}
+
       {/* ── Buffering indicator ────────────────────────────────────────────── */}
-      {phase === "ready" && isBuffering && (
+      {phase === "ready" && isBuffering && !isScrubbing && (
         <View style={styles.bufferingOverlay} pointerEvents="none">
           <View style={styles.bufferingSpinner}>
             <Feather name="loader" size={32} color="#fff" />
@@ -1742,32 +1761,37 @@ export default function Flix2PlayerScreen() {
       {/* ── Episodes panel ─────────────────────────────────────────────────── */}
       <Animated.View
         style={[styles.episodesPanel, {
-          width: panelAnim.interpolate({ inputRange: [0, 1], outputRange: [0, W * 0.46] }),
-          opacity: panelAnim,
+          width: panelAnim.interpolate({ inputRange: [0, 1], outputRange: [0, W * 0.62] }),
+          opacity: panelAnim.interpolate({ inputRange: [0, 0.3, 1], outputRange: [0, 0.5, 1] }),
         }]}
         pointerEvents={showEpisodes ? "auto" : "none"}
       >
+        {/* Header with backdrop */}
         <View style={styles.panelHeader}>
           {backdropPath ? (
-            <Image source={{ uri: TMDB_IMG(backdropPath, "w780") ?? "" }} style={styles.panelBackdrop} contentFit="cover" />
+            <Image source={{ uri: TMDB_IMG(backdropPath, "w780") ?? "" }} style={StyleSheet.absoluteFill} contentFit="cover" />
           ) : posterPath ? (
-            <Image source={{ uri: TMDB_IMG(posterPath, "w342") ?? "" }} style={styles.panelBackdrop} contentFit="cover" />
+            <Image source={{ uri: TMDB_IMG(posterPath, "w342") ?? "" }} style={StyleSheet.absoluteFill} contentFit="cover" />
           ) : null}
           <View style={styles.panelBackdropGrad} />
-          <View style={styles.panelHeaderInfo}>
-            <Text style={styles.panelTitle} numberOfLines={2}>{title}</Text>
-            {season != null && episode != null && (
-              <Text style={styles.panelCurrentEp}>Assistindo: T{season} · Ep {episode}</Text>
-            )}
+          {/* Title row */}
+          <View style={styles.panelHeaderRow}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={styles.panelTitle} numberOfLines={1}>{title}</Text>
+              {season != null && episode != null && (
+                <Text style={styles.panelCurrentEp}>Assistindo: T{season} · Ep {episode}</Text>
+              )}
+            </View>
+            <Pressable style={styles.panelCloseBtn} onPress={closeEpisodesPanel}>
+              <Feather name="x" size={20} color="#fff" />
+            </Pressable>
           </View>
-          <Pressable style={styles.panelCloseBtn} onPress={closeEpisodesPanel}>
-            <Feather name="x" size={18} color="#fff" />
-          </Pressable>
         </View>
 
+        {/* Continuous play toggle */}
         <Pressable style={styles.panelAutoPlayRow} onPress={() => setContinuousPlay(!continuousPlay)}>
-          <Feather name="repeat" size={14} color={continuousPlay ? RED : "#666"} />
-          <Text style={[styles.panelAutoPlayText, continuousPlay && { color: RED }]}>
+          <Feather name="repeat" size={15} color={continuousPlay ? RED : "#777"} />
+          <Text style={[styles.panelAutoPlayText, continuousPlay && { color: "#fff" }]}>
             {continuousPlay ? "Reprodução contínua ativada" : "Reprodução contínua desativada"}
           </Text>
           <View style={[styles.panelAutoPlayToggle, continuousPlay && { backgroundColor: RED }]}>
@@ -2042,31 +2066,30 @@ const styles = StyleSheet.create({
   sessionBtnText: { color: "#fff", fontSize: 14, fontWeight: "700" },
 
   // Episodes panel
-  episodesPanel: { position: "absolute", top: 0, right: 0, bottom: 0, backgroundColor: "rgba(12,12,12,0.97)", borderLeftWidth: 1, borderLeftColor: "rgba(255,255,255,0.08)", overflow: "hidden" },
-  panelHeader: { height: 120, overflow: "hidden", position: "relative" },
-  panelBackdrop: { ...StyleSheet.absoluteFillObject },
-  panelBackdropGrad: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.55)" },
-  panelHeaderInfo: { position: "absolute", bottom: 10, left: 12, right: 40 },
-  panelTitle: { color: "#fff", fontSize: 14, fontWeight: "800" },
-  panelCurrentEp: { color: "rgba(255,255,255,0.5)", fontSize: 11, marginTop: 2 },
-  panelCloseBtn: { position: "absolute", top: 10, right: 10, width: 32, height: 32, justifyContent: "center", alignItems: "center" },
-  panelAutoPlayRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)" },
-  panelAutoPlayText: { color: "#666", fontSize: 11, fontWeight: "600", flex: 1 },
-  panelAutoPlayToggle: { width: 32, height: 18, backgroundColor: "rgba(255,255,255,0.12)", borderRadius: 9 },
-  panelAutoPlayKnob: { width: 14, height: 14, backgroundColor: "#fff", borderRadius: 7, marginTop: 2, marginLeft: 2 },
-  panelSeasonRow: { paddingHorizontal: 10, paddingVertical: 8, maxHeight: 48 },
-  panelSeasonBtn: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.15)", marginRight: 6 },
-  panelSeasonText: { color: "rgba(255,255,255,0.6)", fontSize: 12, fontWeight: "700" },
-  panelEmpty: { color: "rgba(255,255,255,0.3)", fontSize: 13 },
-  panelEpRow: { flexDirection: "row", gap: 10, paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.05)" },
-  panelEpRowActive: { backgroundColor: "rgba(229,9,20,0.1)", borderLeftWidth: 2, borderLeftColor: RED },
-  panelEpThumb: { width: 80, height: 48, borderRadius: 6, backgroundColor: "#222", overflow: "hidden" },
+  episodesPanel: { position: "absolute", top: 0, right: 0, bottom: 0, backgroundColor: "rgba(10,10,10,0.98)", borderLeftWidth: 1, borderLeftColor: "rgba(255,255,255,0.1)", overflow: "hidden" },
+  panelHeader: { height: 130, overflow: "hidden", position: "relative" },
+  panelBackdropGrad: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.65)" },
+  panelHeaderRow: { position: "absolute", bottom: 0, left: 0, right: 0, flexDirection: "row", alignItems: "flex-end", paddingHorizontal: 16, paddingBottom: 14, gap: 10 },
+  panelTitle: { color: "#fff", fontSize: 16, fontWeight: "800", lineHeight: 20 },
+  panelCurrentEp: { color: "rgba(255,255,255,0.55)", fontSize: 12, marginTop: 3 },
+  panelCloseBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.12)", justifyContent: "center", alignItems: "center", flexShrink: 0 },
+  panelAutoPlayRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.08)" },
+  panelAutoPlayText: { color: "#888", fontSize: 12, fontWeight: "600", flex: 1 },
+  panelAutoPlayToggle: { width: 34, height: 20, backgroundColor: "rgba(255,255,255,0.12)", borderRadius: 10, flexShrink: 0 },
+  panelAutoPlayKnob: { width: 16, height: 16, backgroundColor: "#fff", borderRadius: 8, marginTop: 2, marginLeft: 2 },
+  panelSeasonRow: { paddingHorizontal: 12, paddingVertical: 10, maxHeight: 52 },
+  panelSeasonBtn: { paddingHorizontal: 16, paddingVertical: 7, borderRadius: 12, borderWidth: 1, borderColor: "rgba(255,255,255,0.15)", marginRight: 8 },
+  panelSeasonText: { color: "rgba(255,255,255,0.65)", fontSize: 13, fontWeight: "700" },
+  panelEmpty: { color: "rgba(255,255,255,0.35)", fontSize: 13 },
+  panelEpRow: { flexDirection: "row", gap: 12, paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)" },
+  panelEpRowActive: { backgroundColor: "rgba(229,9,20,0.12)", borderLeftWidth: 3, borderLeftColor: RED },
+  panelEpThumb: { width: 106, height: 62, borderRadius: 8, backgroundColor: "#1e1e1e", overflow: "hidden", flexShrink: 0 },
   panelEpThumbFallback: { justifyContent: "center", alignItems: "center" },
-  panelEpPlayOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(229,9,20,0.4)", justifyContent: "center", alignItems: "center" },
-  panelEpNum: { color: "rgba(255,255,255,0.6)", fontSize: 10, fontWeight: "700" },
-  panelEpName: { color: "#fff", fontSize: 12, fontWeight: "600", marginTop: 2 },
-  panelEpRuntime: { color: "rgba(255,255,255,0.35)", fontSize: 10, marginTop: 2 },
-  panelEpOverview: { color: "rgba(255,255,255,0.4)", fontSize: 10, marginTop: 3, lineHeight: 14 },
-  panelEpWatchedTxt: { color: "rgba(255,255,255,0.4)", fontSize: 9, fontWeight: "600" },
+  panelEpPlayOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(229,9,20,0.45)", justifyContent: "center", alignItems: "center" },
+  panelEpNum: { color: "rgba(255,255,255,0.55)", fontSize: 11, fontWeight: "700" },
+  panelEpName: { color: "#fff", fontSize: 13, fontWeight: "600", marginTop: 3 },
+  panelEpRuntime: { color: "rgba(255,255,255,0.4)", fontSize: 11, marginTop: 2 },
+  panelEpOverview: { color: "rgba(255,255,255,0.45)", fontSize: 11, marginTop: 4, lineHeight: 15 },
+  panelEpWatchedTxt: { color: RED, fontSize: 10, fontWeight: "700" },
   panelEpWatchedBadge: { position: "absolute", bottom: 4, right: 4, backgroundColor: "rgba(229,9,20,0.8)", borderRadius: 10, width: 16, height: 16, justifyContent: "center", alignItems: "center" },
 });
