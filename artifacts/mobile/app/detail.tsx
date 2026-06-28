@@ -305,24 +305,11 @@ export default function DetailScreen() {
       })();
       return () => { cancelled = true; };
     }
-    // Priority 2: Flix2 stream
-    // For movies: item with no episode number
-    // For series: prefer the episode matching localProgress (continue watching),
-    //             then fall back to S01E01, then first episode of S1.
-    // Use ref (not state) so this effect only re-runs when r2Items changes,
-    // not when progress changes (prevents stale-r2Items race condition).
-    const prog = localProgressRef.current;
-    const flix2Item =
-      // Movie-level item (no episode)
-      r2Items.find((i) => isFlixItem(i) && i.flix2Url && !i.episode) ??
-      // Continue watching: episode matching saved progress
-      (prog?.season != null && prog?.episode != null
-        ? r2Items.find((i) => isFlixItem(i) && i.flix2Url && i.season === prog.season && i.episode === prog.episode)
-        : undefined) ??
-      // Default: S01E01
-      r2Items.find((i) => isFlixItem(i) && i.flix2Url && i.season === 1 && i.episode === 1) ??
-      // Fallback: first episode of season 1
-      r2Items.find((i) => isFlixItem(i) && i.flix2Url && i.season === 1);
+    // Priority 2: Flix2 stream — movies only (item with no episode number).
+    // Series episode streams are IP-bound CDN tokens (fontedecanais/hubby.cx) and
+    // are not reliable in a banner WebView — they resolve to wrong content.
+    // Series use the backdrop image as banner; the player handles streams correctly.
+    const flix2Item = r2Items.find((i) => isFlixItem(i) && i.flix2Url && !i.episode);
     if (flix2Item?.flix2Url) {
       if (Platform.OS === "web") {
         setBannerVideoUrl(`${getApiBase()}/stream/proxy?url=${encodeURIComponent(flix2Item.flix2Url)}`);
