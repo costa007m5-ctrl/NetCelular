@@ -311,6 +311,27 @@ export default function DetailScreen() {
       })();
       return () => { cancelled = true; };
     }
+    // Priority 1b: Drive items — build the stream URL from the item's stored path/URL.
+    // Movie: item with no episode. Series: prefer continue-watching episode, then S01E01.
+    const driveItem =
+      r2Items.find((i) => isDriveItem(i) && !i.episode) ??
+      (localProgressRef.current?.season != null && localProgressRef.current?.episode != null
+        ? r2Items.find((i) => isDriveItem(i) && i.season === localProgressRef.current!.season && i.episode === localProgressRef.current!.episode)
+        : undefined) ??
+      r2Items.find((i) => isDriveItem(i) && i.season === 1 && i.episode === 1) ??
+      r2Items.find((i) => isDriveItem(i) && i.season === 1);
+    if (driveItem) {
+      let cancelled = false;
+      (async () => {
+        try {
+          const { drivePlayDirect } = await import("@/lib/r2-direct");
+          const { url } = await drivePlayDirect(driveItem.id);
+          if (!cancelled && url) setBannerVideoUrl(url);
+        } catch {}
+      })();
+      return () => { cancelled = true; };
+    }
+
     // Priority 2: Flix2 stream
     // For movies: item with no episode number.
     // For series: prefer the episode matching localProgress (continue watching),
@@ -339,32 +360,13 @@ export default function DetailScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [r2Items.map((i) => i.id).join(",")]);
 
-  // Try to go fullscreen on the banner video; falls back to a navigation call.
-  // Web:    uses requestFullscreen() on the <video> element directly — no reload.
-  // Native: injects JS into the banner WebView to fullscreen the <video> inside it.
-  //         If the WebView fullscreen fails, falls back to opening the player screen
-  //         (which receives the pre-resolved URL so it skips the Flix2 lookup).
-  const tryBannerFullscreen = useCallback((startRatio: number | undefined, fallback: () => void) => {
-    const vid = bannerVideoRef.current;
-    // For series, the banner video preview is an HLS stream that Chrome Android
-    // can't play natively inside a <video> element — navigate to flix2-player
-    // which uses HLS.js/WebViewVideoPlayer for proper playback.
-    // For movies, the proxy URL can be played directly in the banner <video>.
-    if (Platform.OS === "web" && vid && bannerVideoUrl && type === "movie") {
-      if (startRatio != null && !Number.isNaN(vid.duration)) {
-        vid.currentTime = vid.duration * startRatio;
-      }
-      vid.muted = false;
-      vid.controls = true;
-      const fsPromise: Promise<void> | undefined = vid.requestFullscreen?.();
-      if (fsPromise) {
-        fsPromise.catch(() => { vid.controls = false; fallback(); });
-        return;
-      }
-    }
-    // Native + series web: always navigate to the dedicated player
+  // Always navigate to the dedicated player (flix2-player / r2-player / gdrive-player).
+  // Web fullscreen on the banner <video> was removed because it shows the browser's
+  // native controls without the NETPLAY custom player UI (episode panel, quality
+  // selector, sleep timer, etc.). All platforms now use the fallback navigation.
+  const tryBannerFullscreen = useCallback((_startRatio: number | undefined, fallback: () => void) => {
     fallback();
-  }, [bannerVideoUrl, type]);
+  }, []);
   const [showAddSrcModal, setShowAddSrcModal] = useState(false);
   const [addSrcUrl, setAddSrcUrl] = useState("");
   const [addSrcBusy, setAddSrcBusy] = useState(false);
