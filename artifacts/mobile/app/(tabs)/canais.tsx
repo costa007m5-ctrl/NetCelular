@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
@@ -1036,25 +1036,36 @@ export default function CanaisScreen() {
     [router]
   );
 
-  const getByCategory = (catId: number) =>
-    channels.filter((ch) => ch.categories?.includes(catId));
+  const {
+    sportsChannels,
+    newsChannels,
+    kidsChannels,
+    moviesChannels,
+    openChannels,
+    varietyChannels,
+    docsChannels,
+  } = useMemo(() => ({
+    sportsChannels:  channels.filter((ch) => ch.categories?.includes(1)),
+    newsChannels:    channels.filter((ch) => ch.categories?.includes(5)),
+    kidsChannels:    channels.filter((ch) => ch.categories?.includes(2)),
+    moviesChannels:  channels.filter((ch) => ch.categories?.includes(4)),
+    openChannels:    channels.filter((ch) => ch.categories?.includes(6)),
+    varietyChannels: channels.filter((ch) => ch.categories?.includes(7)),
+    docsChannels:    channels.filter((ch) => ch.categories?.includes(3)),
+  }), [channels]);
 
-  const sportsChannels = getByCategory(1);
-  const newsChannels = getByCategory(5);
-  const kidsChannels = getByCategory(2);
-  const moviesChannels = getByCategory(4);
-  const openChannels = getByCategory(6);
-  const varietyChannels = getByCategory(7);
-  const docsChannels = getByCategory(3);
-
-  const filtered =
-    selectedCat === 0
+  const filtered = useMemo(
+    () => selectedCat === 0
       ? channels
-      : channels.filter((ch) => ch.categories?.includes(selectedCat));
+      : channels.filter((ch) => ch.categories?.includes(selectedCat)),
+    [channels, selectedCat]
+  );
 
-  const liveJogos = jogos.filter((j) => jogoStatus(j.data.timer) === "live");
-  const upcomingJogos = jogos.filter((j) => jogoStatus(j.data.timer) === "upcoming");
-  const allSportJogos = [...liveJogos, ...upcomingJogos].slice(0, 8);
+  const { liveJogos, upcomingJogos, allSportJogos } = useMemo(() => {
+    const live     = jogos.filter((j) => jogoStatus(j.data.timer) === "live");
+    const upcoming = jogos.filter((j) => jogoStatus(j.data.timer) === "upcoming");
+    return { liveJogos: live, upcomingJogos: upcoming, allSportJogos: [...live, ...upcoming].slice(0, 8) };
+  }, [jogos]);
 
   if (loading) {
     return (

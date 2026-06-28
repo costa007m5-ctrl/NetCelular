@@ -139,7 +139,9 @@ router.get("/discover-keyword", handle(async (req) => {
 router.get("/collection/:id", handle(async (req) => {
   const id = Number(req.params.id);
   const data = await tmdb.collection.details(id);
-  data.parts.sort((a, b) => (a.release_date ?? "").localeCompare(b.release_date ?? ""));
+  if (Array.isArray(data?.parts)) {
+    data.parts.sort((a, b) => (a.release_date ?? "").localeCompare(b.release_date ?? ""));
+  }
   return data;
 }));
 
@@ -412,22 +414,11 @@ router.get("/find/:imdb_id", handle(async (req) => {
   const imdbId = String(req.params.imdb_id ?? "").trim();
   if (!imdbId) throw new Error("imdb_id obrigatório");
   const key = getKey();
-  const r = await fetch(
-    `https://api.themoviedb.org/3/find/${imdbId}?api_key=${key}&external_source=imdb_id&language=pt-BR`
-  );
-  if (!r.ok) throw new Error(`TMDB find falhou: ${r.status}`);
-  return r.json();
-}));
-
-// IMDB ID → TMDB lookup (used by admin edit modal)
-router.get("/find/:imdbId", handle(async (req) => {
-  const imdbId = String(req.params.imdbId);
-  const key = getKey();
   const lang = String(req.query.language ?? "pt-BR");
   const r = await fetch(
     `https://api.themoviedb.org/3/find/${imdbId}?api_key=${key}&external_source=imdb_id&language=${lang}`
   );
-  if (!r.ok) throw new Error(`TMDB find ${r.status}`);
+  if (!r.ok) throw new Error(`TMDB find falhou: ${r.status}`);
   return r.json();
 }));
 

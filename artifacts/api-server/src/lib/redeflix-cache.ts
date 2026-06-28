@@ -1,5 +1,5 @@
 import { notifyNewContent, notifyNewEpisode } from "./push-notifications.js";
-import { readFileSync, writeFileSync, mkdirSync } from "fs";
+import { readFileSync, writeFile, mkdirSync } from "fs";
 import { join } from "path";
 
 const LISTS: Record<string, string> = {
@@ -19,7 +19,7 @@ const CACHE_FILE = join(CACHE_DIR, "redeflix-ids.json");
 function saveToDisk(ids: number[]): void {
   try {
     mkdirSync(CACHE_DIR, { recursive: true });
-    writeFileSync(CACHE_FILE, JSON.stringify(ids), "utf-8");
+    writeFile(CACHE_FILE, JSON.stringify(ids), "utf-8", () => {});
   } catch {}
 }
 

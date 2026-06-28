@@ -2206,7 +2206,7 @@ export default function DetailScreen() {
     }
   };
 
-  const goToFlix2Player = (item: RegistryItem, overrideSeason?: number, overrideEpisode?: number, overrideRatio?: number) => {
+  const goToFlix2Player = useCallback((item: RegistryItem, overrideSeason?: number, overrideEpisode?: number, overrideRatio?: number) => {
     const seasonVal = overrideSeason != null ? overrideSeason : item.season;
     const episodeVal = overrideEpisode != null ? overrideEpisode : item.episode;
     const flix2Items = r2Items
@@ -2231,9 +2231,10 @@ export default function DetailScreen() {
         watchProgressRatio: resolvedRatio != null ? String(resolvedRatio) : "",
       },
     });
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [r2Items, watchProgress, localProgress, details, effectiveBackdropPath, effectivePosterPath, tmdbId, type, router]);
 
-  const goToR2Player = (item: RegistryItem, overrideSeason?: number, overrideEpisode?: number, fallbackDriveItemId?: string, fallbackFlix2Url?: string, overrideRatio?: number) => {
+  const goToR2Player = useCallback((item: RegistryItem, overrideSeason?: number, overrideEpisode?: number, fallbackDriveItemId?: string, fallbackFlix2Url?: string, overrideRatio?: number) => {
     const seasonVal = overrideSeason != null ? overrideSeason : item.season;
     const episodeVal = overrideEpisode != null ? overrideEpisode : item.episode;
     const resolvedRatio = overrideRatio != null ? overrideRatio : (watchProgress?.progress ?? (localProgress?.progress ?? null));
@@ -2260,7 +2261,8 @@ export default function DetailScreen() {
         watchProgressRatio: resolvedRatio != null ? String(resolvedRatio) : "",
       },
     });
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [r2Items, watchProgress, localProgress, details, effectiveBackdropPath, effectivePosterPath, tmdbId, type, router]);
 
   const goToDrivePlayer = (item: RegistryItem, overrideSeason?: number, overrideEpisode?: number, fallbackFlix2Url?: string, overrideRatio?: number) => {
     const seasonVal = overrideSeason != null ? overrideSeason : item.season;
