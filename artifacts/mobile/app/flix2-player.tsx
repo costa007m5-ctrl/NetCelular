@@ -219,6 +219,9 @@ export default function Flix2PlayerScreen() {
   const [panelEpisodes, setPanelEpisodes] = useState<any[]>([]);
   const [panelLoading, setPanelLoading] = useState(false);
   const panelAnim = useRef(new Animated.Value(0)).current;
+  // resolvedTmdbId: starts from the param; if it's 0 for a TV show we search
+  // TMDB by title so the episode panel can load rich info.
+  const [resolvedTmdbId, setResolvedTmdbId] = useState<number | null>(tmdbId ?? null);
 
   // ── Seek thumbnail — TMDB fallback (static, loaded on mount) ─────────────────
   const [seekThumbnailUrl, setSeekThumbnailUrl] = useState<string | null>(null);
@@ -935,19 +938,35 @@ export default function Flix2PlayerScreen() {
     ]).start(() => setShowEpisodes(false));
   }, []);
 
+  // When tmdbId is 0 (Flix 2.0 item without a TMDB ID in the catalog),
+  // search TMDB by title so the episode panel can show rich info.
+  useEffect(() => {
+    if (!isTV) return;
+    if (tmdbId && tmdbId > 0) { setResolvedTmdbId(tmdbId); return; }
+    if (!title) return;
+    let cancelled = false;
+    api.tmdb.search(title, "tv", 1)
+      .then((results: any) => {
+        const first = Array.isArray(results) ? results[0] : (results?.results ?? [])[0];
+        if (!cancelled && first?.id) setResolvedTmdbId(first.id);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [tmdbId, title, isTV]);
+
   // Pre-fetch TMDB episodes via server proxy — same path used by the detail screen.
   // Eager on mount so names/stills are ready when the panel opens.
-  // Re-runs when the season tab changes.
+  // Re-runs when the season tab or resolved TMDB ID changes.
   useEffect(() => {
-    if (!tmdbId || !isTV) return;
+    if (!resolvedTmdbId || !isTV) return;
     let cancelled = false;
     setPanelLoading(true);
-    api.tmdb.tvSeason(tmdbId, panelSeason)
+    api.tmdb.tvSeason(resolvedTmdbId, panelSeason)
       .then((data: any) => { if (!cancelled) setPanelEpisodes(data.episodes ?? []); })
       .catch(() => { if (!cancelled) setPanelEpisodes([]); })
       .finally(() => { if (!cancelled) setPanelLoading(false); });
     return () => { cancelled = true; };
-  }, [panelSeason, tmdbId, isTV]);
+  }, [panelSeason, resolvedTmdbId, isTV]);
 
   // ── Video callbacks ──────────────────────────────────────────────────────────
   const resolutionLabel = (h: number) => {
