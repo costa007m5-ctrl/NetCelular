@@ -271,16 +271,43 @@ export default function DetailScreen() {
   const [showTrailerModal, setShowTrailerModal] = useState(false);
   const [trailerPlaying, setTrailerPlaying] = useState(true);
   const [bannerMuted, setBannerMuted] = useState(true);
-  const [bannerPreviewActive, setBannerPreviewActive] = useState(false);
-  const bannerPreviewStarted = React.useRef(false);
+  const [bannerVideoUrl, setBannerVideoUrl] = useState<string | null>(null);
+  const bannerVideoRef = useRef<any>(null);
 
-  // Auto-start banner preview as soon as trailerKey is available (first time only)
+  // Fetch actual R2 video URL for banner preview when sources load
   React.useEffect(() => {
-    if (trailerKey && !bannerPreviewStarted.current) {
-      bannerPreviewStarted.current = true;
-      setBannerPreviewActive(true);
+    if (!r2Items.length) return;
+    const r2Item = r2Items.find((i) => !isDriveItem(i) && !isFlixItem(i) && i.r2Key);
+    if (!r2Item) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { apiSignedUrl } = await import("@/lib/r2-direct");
+        const { url } = await apiSignedUrl(r2Item.r2Key, 7200);
+        if (!cancelled) setBannerVideoUrl(url);
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [r2Items.map((i) => i.id).join(",")]);
+
+  // Try to go fullscreen on the banner video; falls back to a navigation call
+  const tryBannerFullscreen = useCallback((startRatio: number | undefined, fallback: () => void) => {
+    const vid = bannerVideoRef.current;
+    if (Platform.OS === "web" && vid && bannerVideoUrl) {
+      if (startRatio != null && !Number.isNaN(vid.duration)) {
+        vid.currentTime = vid.duration * startRatio;
+      }
+      vid.muted = false;
+      vid.controls = true;
+      const fsPromise: Promise<void> | undefined = vid.requestFullscreen?.();
+      if (fsPromise) {
+        fsPromise.catch(() => { vid.controls = false; fallback(); });
+        return;
+      }
     }
-  }, [trailerKey]);
+    fallback();
+  }, [bannerVideoUrl]);
   const [showAddSrcModal, setShowAddSrcModal] = useState(false);
   const [addSrcUrl, setAddSrcUrl] = useState("");
   const [addSrcBusy, setAddSrcBusy] = useState(false);
@@ -3576,41 +3603,21 @@ export default function DetailScreen() {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
         {/* Backdrop / Banner Preview */}
         <View style={{ height: BACKDROP_H + topPad }}>
-          {/* Background: video preview (muted autoplay) or static image */}
-          {trailerKey && bannerPreviewActive ? (
+          {/* Background: actual content video preview or static image */}
+          {bannerVideoUrl ? (
             Platform.OS === "web" ? (
-              // Oversized + clipped iframe to crop out all YouTube UI bars
-              <View style={[StyleSheet.absoluteFill, { overflow: "hidden" as any }]}>
-                <iframe
-                  src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${bannerMuted ? 1 : 0}&rel=0&controls=0&showinfo=0&modestbranding=1&loop=1&playlist=${trailerKey}&playsinline=1&iv_load_policy=3&disablekb=1&fs=0&cc_load_policy=0`}
-                  style={{
-                    position: "absolute",
-                    top: "-12%",
-                    left: "-5%",
-                    width: "110%",
-                    height: "130%",
-                    border: "none",
-                    pointerEvents: "none",
-                  } as any}
-                  allow="autoplay"
-                />
-              </View>
-            ) : WebView ? (
-              <WebView
-                source={{ uri: `https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${bannerMuted ? 1 : 0}&rel=0&controls=0&showinfo=0&modestbranding=1&loop=1&playlist=${trailerKey}&playsinline=1&iv_load_policy=3&disablekb=1&fs=0&cc_load_policy=0` }}
-                style={[StyleSheet.absoluteFill, { backgroundColor: "#000" }]}
-                mediaPlaybackRequiresUserAction={false}
-                javaScriptEnabled
-                scrollEnabled={false}
-                injectedJavaScript={`
-                  (function(){
-                    var s=document.createElement('style');
-                    s.textContent='.ytp-chrome-top,.ytp-chrome-bottom,.ytp-watermark,.ytp-youtube-button,.ytp-share-button,.ytp-watch-later-button,.ytp-title,.ytp-title-channel-logo,.ytp-channel-name,.ytp-gradient-top,.ytp-gradient-bottom,.ytp-cards-button,.ytp-ce-element,.ytp-endscreen-element,.ytp-pause-overlay,.ytp-cued-thumbnail-overlay,.iv-branding,.ytp-logo,.ytp-spinner,.ytp-big-mode .ytp-button{display:none!important}body,html{overflow:hidden;margin:0;padding:0;}';
-                    document.head.appendChild(s);
-                    document.body.style.background='#000';
-                    document.documentElement.style.background='#000';
-                  })();true;
-                `}
+              <video
+                ref={bannerVideoRef}
+                src={bannerVideoUrl}
+                autoPlay
+                muted={bannerMuted}
+                playsInline
+                loop
+                style={{
+                  position: "absolute", top: 0, left: 0,
+                  width: "100%", height: "100%",
+                  objectFit: "cover", pointerEvents: "none",
+                } as any}
               />
             ) : null
           ) : backdropUri && !imgError ? (
@@ -3640,22 +3647,18 @@ export default function DetailScreen() {
             </Pressable>
           </View>
 
-          {/* Mute/unmute pill — bottom right when preview playing */}
-          {trailerKey && bannerPreviewActive && (
-            <View style={{ position: "absolute", bottom: 14, right: 14, flexDirection: "row", gap: 8 }}>
-              <Pressable
-                onPress={() => setBannerMuted((m) => !m)}
-                style={{ flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "rgba(0,0,0,0.60)", borderRadius: 20, paddingVertical: 5, paddingHorizontal: 11, borderWidth: 1, borderColor: "rgba(255,255,255,0.15)" }}
-              >
-                <Feather name={bannerMuted ? "volume-x" : "volume-2"} size={13} color="#fff" />
-              </Pressable>
-              <Pressable
-                onPress={() => setBannerPreviewActive(false)}
-                style={{ flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "rgba(0,0,0,0.60)", borderRadius: 20, paddingVertical: 5, paddingHorizontal: 11, borderWidth: 1, borderColor: "rgba(255,255,255,0.15)" }}
-              >
-                <Feather name="x" size={13} color="#fff" />
-              </Pressable>
-            </View>
+          {/* Mute/unmute pill — bottom right when video is playing */}
+          {bannerVideoUrl && Platform.OS === "web" && (
+            <Pressable
+              onPress={() => {
+                const newMuted = !bannerMuted;
+                setBannerMuted(newMuted);
+                if (bannerVideoRef.current) bannerVideoRef.current.muted = newMuted;
+              }}
+              style={{ position: "absolute", bottom: 14, right: 14, flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "rgba(0,0,0,0.60)", borderRadius: 20, paddingVertical: 6, paddingHorizontal: 12, borderWidth: 1, borderColor: "rgba(255,255,255,0.15)" }}
+            >
+              <Feather name={bannerMuted ? "volume-x" : "volume-2"} size={14} color="#fff" />
+            </Pressable>
           )}
         </View>
 
@@ -3958,7 +3961,7 @@ export default function DetailScreen() {
                     {/* CONTINUAR button */}
                     <Pressable
                       style={({ pressed }) => [styles.watchBtn, { backgroundColor: colors.primary, marginBottom: 10 }, pressed && { opacity: 0.85 }]}
-                      onPress={() => sources[0]?.pressWith(localProgress!.progress)}
+                      onPress={() => tryBannerFullscreen(localProgress!.progress, () => sources[0]?.pressWith(localProgress!.progress))}
                     >
                       <Feather name="play" size={18} color="#fff" />
                       <Text style={styles.watchBtnText}>CONTINUAR</Text>
@@ -3970,7 +3973,7 @@ export default function DetailScreen() {
                       onPress={() => {
                         clearLocalProgress(`${type}_${tmdbId}`);
                         setLocalProgress(null);
-                        sources[0]?.pressWith(0);
+                        tryBannerFullscreen(0, () => sources[0]?.pressWith(0));
                       }}
                     >
                       <Feather name="rotate-ccw" size={13} color="rgba(255,255,255,0.45)" />
@@ -3994,7 +3997,7 @@ export default function DetailScreen() {
                     <>
                       <Pressable
                         style={({ pressed }) => [styles.watchBtn, { backgroundColor: colors.primary }, pressed && { opacity: 0.85 }]}
-                        onPress={primaryPress}
+                        onPress={() => tryBannerFullscreen(0, primaryPress!)}
                       >
                         <Feather name="play" size={18} color="#fff" />
                         <Text style={styles.watchBtnText}>ASSISTIR AGORA</Text>
@@ -4010,7 +4013,7 @@ export default function DetailScreen() {
                     {hasFlix && (
                       <Pressable
                         style={({ pressed }) => [styles.watchBtn, { backgroundColor: "#7c3aed" }, pressed && { opacity: 0.85 }]}
-                        onPress={pressFlix}
+                        onPress={() => tryBannerFullscreen(0, pressFlix)}
                       >
                         <Feather name="play" size={18} color="#fff" />
                         <Text style={styles.watchBtnText}>ASSISTIR (FLIX 2.0)</Text>
@@ -4023,7 +4026,7 @@ export default function DetailScreen() {
                           { backgroundColor: hasFlix ? "rgba(255,255,255,0.10)" : colors.primary, marginTop: hasFlix ? 8 : 0, borderWidth: hasFlix ? 1 : 0, borderColor: "rgba(255,255,255,0.15)" },
                           pressed && { opacity: 0.85 },
                         ]}
-                        onPress={pressR2}
+                        onPress={() => tryBannerFullscreen(0, pressR2)}
                       >
                         <Feather name={type === "tv" ? "tv" : "film"} size={18} color="#fff" />
                         <Text style={styles.watchBtnText}>{hasFlix ? "ASSISTIR (R2)" : "ASSISTIR AGORA"}</Text>
@@ -4036,7 +4039,7 @@ export default function DetailScreen() {
                           { backgroundColor: "#16a34a", marginTop: (hasFlix || hasR2) ? 8 : 0 },
                           pressed && { opacity: 0.85 },
                         ]}
-                        onPress={pressDrive}
+                        onPress={() => tryBannerFullscreen(0, pressDrive)}
                       >
                         <Feather name="cloud" size={18} color="#fff" />
                         <Text style={styles.watchBtnText}>ASSISTIR (DRIVE)</Text>
