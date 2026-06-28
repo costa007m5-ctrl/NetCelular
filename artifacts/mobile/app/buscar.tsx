@@ -386,6 +386,9 @@ export default function BuscarScreen() {
 
   const { r2All } = useR2Catalog();
 
+  // Tracks vote_count per TMDB id — used to resolve Flix2 ownership among duplicate titles
+  const voteCountRef = useRef<Map<string, number>>(new Map());
+
   const [query,           setQuery]           = useState(params.q ?? "");
   const [results,         setResults]         = useState<ContentItem[]>([]);
   const [loading,         setLoading]         = useState(false);
@@ -490,15 +493,18 @@ export default function BuscarScreen() {
       // Merge TMDB results from both queries, dedup by id
       const seen = new Set<string>();
       const merged: ContentItem[] = [];
+      const newVoteCounts = new Map<string, number>();
       for (const r of settled.slice(0, 2)) {
         if (r.status !== "fulfilled") continue;
         for (const x of (r.value.results ?? [])) {
           if (x.media_type !== "movie" && x.media_type !== "tv") continue;
           if (seen.has(String(x.id))) continue;
           seen.add(String(x.id));
+          newVoteCounts.set(String(x.id), x.vote_count ?? 0);
           merged.push(toItem(x));
         }
       }
+      voteCountRef.current = newVoteCounts;
 
       // Re-rank by fuzzy score (keeps TMDB relevance for top results, surfaces fuzzy matches)
       const scoredMerged = merged.map(item => ({ item, score: fuzzyScore(item.title, q) }));
@@ -550,6 +556,24 @@ export default function BuscarScreen() {
       flix2ByClean.get(k)!.push(f);
     }
 
+    // Pre-compute which TMDB item "owns" each Flix2 title when multiple results
+    // share the same normalized title (e.g. remakes, same name different years).
+    // The one with the highest vote_count is the primary claimant — it represents
+    // the established/classic film that's actually streamable in the IPTV catalog.
+    const primaryFlix2Owner = new Map<string, string>(); // normalizedTitle → item.id
+    for (const item of results) {
+      const key = cleanT(item.title);
+      if (!flix2ByClean.has(key)) continue;
+      const existing = primaryFlix2Owner.get(key);
+      if (!existing) {
+        primaryFlix2Owner.set(key, item.id);
+      } else {
+        const existingCount = voteCountRef.current.get(existing) ?? 0;
+        const thisCount     = voteCountRef.current.get(item.id)  ?? 0;
+        if (thisCount > existingCount) primaryFlix2Owner.set(key, item.id);
+      }
+    }
+
     type Expanded = { item: ContentItem; variantTitle?: string; variantLabel?: string; r2TmdbId?: number };
     const expandedItems: Expanded[] = [];
     const coveredFlix2 = new Set<string>();
@@ -561,7 +585,10 @@ export default function BuscarScreen() {
 
     for (const item of results) {
       const key = cleanT(item.title);
-      const variants = flix2ByClean.get(key) ?? [];
+      // Only attach Flix2 content to the primary claimant for this title.
+      // Other results with the same title (e.g. a remake) appear without a stream badge.
+      const isOwner = primaryFlix2Owner.get(key) === item.id;
+      const variants = isOwner ? (flix2ByClean.get(key) ?? []) : [];
       const seenLabels = new Set<string>();
       const uniqueVariants: Array<{ title: string; label: string | undefined }> = [];
       for (const v of variants) {
