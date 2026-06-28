@@ -2690,8 +2690,8 @@ export default function HomeScreen() {
           const res = await fetch(`${getApiBase()}/tmdb/trending`, { signal: ctrl.signal });
           if (!res.ok) return;
           const data = await res.json();
-          const trendMovieIds: number[] = (data.movies?.results ?? []).map((i: any) => i.id);
-          const trendTvIds: number[]    = (data.tv?.results ?? []).map((i: any) => i.id);
+          const trendMovieIds: number[] = (Array.isArray(data.movies) ? data.movies : (data.movies?.results ?? [])).map((i: any) => i.id);
+          const trendTvIds: number[]    = (Array.isArray(data.tv)     ? data.tv     : (data.tv?.results ?? [])).map((i: any) => i.id);
 
           if (m.length > 0 && trendMovieIds.length > 0) {
             const movieMap = new Map(m.map((i) => [i.tmdbId, i]));

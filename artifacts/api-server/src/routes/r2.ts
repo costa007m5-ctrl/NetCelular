@@ -5687,22 +5687,43 @@ export function isFlixCacheWarm(): boolean {
  *
  * GET /flix2/check-ids?ids=12345,67890,...
  * Response: { available: number[] }
+ *
+ * Batch-check which items are available in the Flix 2.0 catalog.
+ * Accepts: ?items=id1:EncodedTitle1,id2:EncodedTitle2,...
+ * Checks by TMDB numeric id first (fast), then falls back to normalized title.
+ * Returns { available: number[] } — ids that are found in the catalog.
  */
 router.get("/flix2/check-ids", (req: any, res: any) => {
   try {
-    const idsParam = String(req.query.ids ?? "");
-    const ids = idsParam.split(",").map((s: string) => parseInt(s, 10)).filter((n: number) => n > 0 && !isNaN(n));
-    if (!ids.length) return res.json({ available: [] });
+    const itemsParam = String(req.query.items ?? req.query.ids ?? "");
+    if (!itemsParam) return res.json({ available: [], cacheWarm: FLIX2_INDEX_CACHE.size > 0 });
 
     const types = ["movies", "series", "animes"];
     const available: number[] = [];
-    for (const id of ids) {
+
+    for (const token of itemsParam.split(",")) {
+      const sep = token.indexOf(":");
+      const rawId = sep >= 0 ? token.slice(0, sep) : token;
+      const rawTitle = sep >= 0 ? decodeURIComponent(token.slice(sep + 1)) : "";
+      const id = parseInt(rawId, 10);
+      if (isNaN(id) || id <= 0) continue;
+
+      const normTitle = rawTitle ? normalizeTitleForSearch(rawTitle) : "";
+      let found = false;
+
       for (const t of types) {
         const cached = FLIX2_INDEX_CACHE.get(t);
         if (!cached) continue;
-        if (cached.index[String(id)]) { available.push(id); break; }
+        const idx = cached.index;
+        // 1. Check by numeric TMDB id
+        if (idx[String(id)]) { found = true; break; }
+        // 2. Fallback: check by normalized title
+        if (normTitle && idx[`title:${normTitle}`]) { found = true; break; }
       }
+
+      if (found) available.push(id);
     }
+
     res.json({ available, cacheWarm: FLIX2_INDEX_CACHE.size > 0 });
   } catch {
     res.json({ available: [], cacheWarm: false });

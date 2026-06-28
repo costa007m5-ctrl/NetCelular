@@ -236,11 +236,15 @@ const DETAILS_CACHE_TTL = 5 * 60 * 1000;
  */
 async function filterSimByAvailability(items: ContentItem[]): Promise<ContentItem[]> {
   try {
-    const ids = items.map((i) => i.tmdbId).filter((id) => id && id > 0).join(",");
-    if (!ids) return items;
+    // Build "id:encodedTitle" tokens so the server can check by TMDB id OR by title
+    const tokens = items
+      .filter((i) => i.tmdbId && i.tmdbId > 0)
+      .map((i) => `${i.tmdbId}:${encodeURIComponent(i.title ?? "")}`)
+      .join(",");
+    if (!tokens) return items;
     const ctrl = new AbortController();
     setTimeout(() => ctrl.abort(), 5000);
-    const res = await fetch(`${getApiBase()}/r2/flix2/check-ids?ids=${ids}`, { signal: ctrl.signal });
+    const res = await fetch(`${getApiBase()}/r2/flix2/check-ids?items=${tokens}`, { signal: ctrl.signal });
     if (!res.ok) return items;
     const data = await res.json();
     if (!data.cacheWarm) return items;
@@ -1296,6 +1300,7 @@ export default function DetailScreen() {
     if (cachedEntry && Date.now() - cachedEntry.ts < DETAILS_CACHE_TTL) {
       setDetails(cachedEntry.details);
       setSimilar(cachedEntry.similar);
+      filterSimByAvailability(cachedEntry.similar).then((f) => setSimilar(f)).catch(() => {});
       setSeasons(cachedEntry.seasons);
       setProviders(cachedEntry.providers);
       setLoading(false);
@@ -1420,7 +1425,7 @@ export default function DetailScreen() {
             };
           });
           setSeasons(seasonList);
-          _detailsCache.set(cacheKey, { details: detWithOverview, similar: sim.map(tmdbItemToContent), seasons: seasonList, providers: prov?.flatrate ?? [], ts: Date.now() });
+          _detailsCache.set(cacheKey, { details: detWithOverview, similar: simItemsTV, seasons: seasonList, providers: prov?.flatrate ?? [], ts: Date.now() });
         }
         await imagesPromise;
       } catch (e) {
