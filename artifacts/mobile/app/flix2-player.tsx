@@ -1459,14 +1459,14 @@ export default function Flix2PlayerScreen() {
                 <Pressable style={styles.iconBtn} onPress={() => router.back()}>
                   <Feather name="arrow-left" size={22} color="#fff" />
                 </Pressable>
-                <View style={{ flex: 1, marginHorizontal: 10 }}>
+                <View style={{ flex: 1, minWidth: 0, marginHorizontal: 10, overflow: "hidden" }}>
                   {contentLogo ? (
                     <Image source={{ uri: contentLogo }} style={styles.ctrlContentLogo} contentFit="contain" />
                   ) : (
                     <Text style={styles.ctrlTitle} numberOfLines={1}>{title}</Text>
                   )}
                   {season != null && episode != null && (
-                    <Text style={styles.ctrlEp}>T{season} · Ep {episode}{episodeName ? ` — ${episodeName}` : ""}</Text>
+                    <Text style={styles.ctrlEp} numberOfLines={1}>T{season} · Ep {episode}{episodeName ? ` — ${episodeName}` : ""}</Text>
                   )}
                 </View>
                 {videoResolution && (

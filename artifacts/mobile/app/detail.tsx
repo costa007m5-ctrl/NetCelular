@@ -340,7 +340,11 @@ export default function DetailScreen() {
   //         (which receives the pre-resolved URL so it skips the Flix2 lookup).
   const tryBannerFullscreen = useCallback((startRatio: number | undefined, fallback: () => void) => {
     const vid = bannerVideoRef.current;
-    if (Platform.OS === "web" && vid && bannerVideoUrl) {
+    // For series, the banner video preview is an HLS stream that Chrome Android
+    // can't play natively inside a <video> element — navigate to flix2-player
+    // which uses HLS.js/WebViewVideoPlayer for proper playback.
+    // For movies, the proxy URL can be played directly in the banner <video>.
+    if (Platform.OS === "web" && vid && bannerVideoUrl && type === "movie") {
       if (startRatio != null && !Number.isNaN(vid.duration)) {
         vid.currentTime = vid.duration * startRatio;
       }
@@ -352,9 +356,9 @@ export default function DetailScreen() {
         return;
       }
     }
-    // Native: WebView requestFullscreen is unreliable on Android — always navigate to the player
+    // Native + series web: always navigate to the dedicated player
     fallback();
-  }, [bannerVideoUrl]);
+  }, [bannerVideoUrl, type]);
   const [showAddSrcModal, setShowAddSrcModal] = useState(false);
   const [addSrcUrl, setAddSrcUrl] = useState("");
   const [addSrcBusy, setAddSrcBusy] = useState(false);
