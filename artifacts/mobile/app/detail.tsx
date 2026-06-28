@@ -284,24 +284,41 @@ export default function DetailScreen() {
   // Tracks if the background Flix 2.0 lookup is still running (separate from r2Loading)
   const [flix2Loading, setFlix2Loading] = useState(false);
 
-  // Fetch actual R2 video URL for banner preview when sources load
+  // Set banner video URL from: R2 signed URL (priority 1) or Flix2 stream (priority 2)
   React.useEffect(() => {
     if (!r2Items.length) return;
+    // Priority 1: R2 bucket items — use signed URL directly
     const r2Item = r2Items.find((i) => !isDriveItem(i) && !isFlixItem(i) && i.r2Key);
-    if (!r2Item) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const { apiSignedUrl } = await import("@/lib/r2-direct");
-        const { url } = await apiSignedUrl(r2Item.r2Key, 7200);
-        if (!cancelled) setBannerVideoUrl(url);
-      } catch {}
-    })();
-    return () => { cancelled = true; };
+    if (r2Item) {
+      let cancelled = false;
+      (async () => {
+        try {
+          const { apiSignedUrl } = await import("@/lib/r2-direct");
+          const { url } = await apiSignedUrl(r2Item.r2Key, 7200);
+          if (!cancelled) setBannerVideoUrl(url);
+        } catch {}
+      })();
+      return () => { cancelled = true; };
+    }
+    // Priority 2: Flix2 stream — movie (not episode) items only
+    const flix2Item = r2Items.find((i) => isFlixItem(i) && i.flix2Url && !i.episode);
+    if (flix2Item?.flix2Url) {
+      if (Platform.OS === "web") {
+        // Web: proxy the stream to avoid CORS issues
+        setBannerVideoUrl(`${getApiBase()}/stream/proxy?url=${encodeURIComponent(flix2Item.flix2Url)}`);
+      } else {
+        // Native: play directly from device (device IP bypasses CDN token restrictions)
+        setBannerVideoUrl(flix2Item.flix2Url);
+      }
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [r2Items.map((i) => i.id).join(",")]);
 
-  // Try to go fullscreen on the banner video; falls back to a navigation call
+  // Try to go fullscreen on the banner video; falls back to a navigation call.
+  // Web:    uses requestFullscreen() on the <video> element directly — no reload.
+  // Native: injects JS into the banner WebView to fullscreen the <video> inside it.
+  //         If the WebView fullscreen fails, falls back to opening the player screen
+  //         (which receives the pre-resolved URL so it skips the Flix2 lookup).
   const tryBannerFullscreen = useCallback((startRatio: number | undefined, fallback: () => void) => {
     const vid = bannerVideoRef.current;
     if (Platform.OS === "web" && vid && bannerVideoUrl) {
@@ -315,6 +332,18 @@ export default function DetailScreen() {
         fsPromise.catch(() => { vid.controls = false; fallback(); });
         return;
       }
+    } else if (Platform.OS !== "web" && vid?.injectJavaScript && bannerVideoUrl) {
+      // Native: ask the video inside the WebView to go fullscreen; it plays without reload
+      vid.injectJavaScript(`
+        (function(){
+          var v = document.querySelector('video');
+          if (!v) return;
+          v.muted = false;
+          var fs = v.requestFullscreen || v.webkitRequestFullscreen || v.mozRequestFullScreen || v.msRequestFullscreen;
+          if (fs) { try { fs.call(v); } catch(e) {} }
+        })(); true;
+      `);
+      return;
     }
     fallback();
   }, [bannerVideoUrl]);
@@ -3607,7 +3636,7 @@ export default function DetailScreen() {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
         {/* Backdrop / Banner Preview */}
         <View style={{ height: BACKDROP_H + topPad }}>
-          {/* Background: R2 video > YouTube trailer > static backdrop > gradient */}
+          {/* Background: stream video (R2 or Flix2) > static backdrop > gradient */}
           {bannerVideoUrl ? (
             Platform.OS === "web" ? (
               <video
@@ -3623,40 +3652,22 @@ export default function DetailScreen() {
                   objectFit: "cover", pointerEvents: "none",
                 } as any}
               />
-            ) : null
-          ) : trailerKey ? (
-            Platform.OS === "web" ? (
-              <iframe
-                ref={bannerTrailerRef}
-                src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=1&loop=1&playlist=${trailerKey}&controls=0&showinfo=0&rel=0&modestbranding=1&iv_load_policy=3&disablekb=1&fs=0&playsinline=1&enablejsapi=1`}
-                style={{
-                  position: "absolute", top: "-10%", left: "-5%",
-                  width: "110%", height: "120%",
-                  border: "none", pointerEvents: "none",
-                } as any}
-                allow="autoplay; encrypted-media"
-              />
             ) : WebView ? (
+              // Native: embed stream in a minimal HTML page so the browser engine
+              // follows CDN redirects (HTTPS→HTTP) that RN's fetch layer blocks
               <View style={StyleSheet.absoluteFill} pointerEvents="none">
                 <WebView
-                  ref={bannerTrailerRef}
-                  source={{ uri: `https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=1&loop=1&playlist=${trailerKey}&controls=0&showinfo=0&rel=0&modestbranding=1&iv_load_policy=3&disablekb=1&fs=0&playsinline=1` }}
+                  ref={bannerVideoRef}
+                  source={{
+                    html: `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>*{margin:0;padding:0;background:#000;overflow:hidden}html,body{width:100%;height:100%}video{width:100%;height:100%;object-fit:cover}</style></head><body><video src="${bannerVideoUrl.replace(/"/g, "&quot;")}" autoplay muted playsinline loop preload="auto"></video></body></html>`,
+                  }}
                   style={StyleSheet.absoluteFill}
                   allowsInlineMediaPlayback
                   mediaPlaybackRequiresUserAction={false}
                   scrollEnabled={false}
                 />
               </View>
-            ) : backdropUri && !imgError ? (
-              <Image
-                source={{ uri: backdropUri }}
-                style={[StyleSheet.absoluteFill, { height: BACKDROP_H + topPad }]}
-                resizeMode="cover"
-                onError={() => setImgError(true)}
-              />
-            ) : (
-              <LinearGradient colors={["#1a0000", "#141414"]} style={[StyleSheet.absoluteFill]} />
-            )
+            ) : null
           ) : backdropUri && !imgError ? (
             <Image
               source={{ uri: backdropUri }}
@@ -3684,27 +3695,20 @@ export default function DetailScreen() {
             </Pressable>
           </View>
 
-          {/* Mute/unmute pill — bottom right when video or trailer is playing */}
-          {(bannerVideoUrl || trailerKey) && (
+          {/* Mute/unmute pill — bottom right when video is playing */}
+          {bannerVideoUrl && (
             <Pressable
               onPress={() => {
                 const newMuted = !bannerMuted;
                 setBannerMuted(newMuted);
-                if (bannerVideoUrl && bannerVideoRef.current) {
+                if (Platform.OS === "web" && bannerVideoRef.current) {
+                  // Web <video> element — direct property
                   bannerVideoRef.current.muted = newMuted;
-                } else if (trailerKey) {
-                  if (Platform.OS === "web" && bannerTrailerRef.current) {
-                    // YouTube IFrame API postMessage
-                    const cmd = newMuted ? "mute" : "unMute";
-                    bannerTrailerRef.current.contentWindow?.postMessage(
-                      JSON.stringify({ event: "command", func: cmd, args: "" }), "*"
-                    );
-                  } else if (bannerTrailerRef.current?.injectJavaScript) {
-                    // Native WebView — directly mute/unmute the video element
-                    bannerTrailerRef.current.injectJavaScript(
-                      `(function(){ var v=document.querySelector('video'); if(v) v.muted=${newMuted}; })(); true;`
-                    );
-                  }
+                } else if (bannerVideoRef.current?.injectJavaScript) {
+                  // Native WebView — inject JS to mute/unmute the <video> inside
+                  bannerVideoRef.current.injectJavaScript(
+                    `(function(){ var v=document.querySelector('video'); if(v) v.muted=${newMuted}; })(); true;`
+                  );
                 }
               }}
               style={{ position: "absolute", bottom: 14, right: 14, flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "rgba(0,0,0,0.60)", borderRadius: 20, paddingVertical: 6, paddingHorizontal: 12, borderWidth: 1, borderColor: "rgba(255,255,255,0.15)" }}
