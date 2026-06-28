@@ -453,40 +453,38 @@ export default function ListScreen() {
 
   const loadData = useCallback(async () => {
     setLoading(true);
+    try {
+      // Build progress map from local AsyncStorage first (fast, no auth needed)
+      const localEntries = await getAllLocalProgress();
+      const map = new Map<string, number>();
+      for (const e of localEntries) {
+        map.set(e.contentId, e.progress);
+      }
+      if (map.size > 0) setProgressMap(new Map(map));
 
-    // Build progress map from local AsyncStorage first (fast, no auth needed)
-    const localEntries = await getAllLocalProgress();
-    const map = new Map<string, number>();
-    for (const e of localEntries) {
-      map.set(e.contentId, e.progress);
-    }
-    if (map.size > 0) setProgressMap(new Map(map));
+      if (!user?.id || !isSupabaseConfigured) return;
 
-    if (!user?.id || !isSupabaseConfigured) {
+      const [wl, pr] = await Promise.all([
+        db.watchlist.getAll(user.id),
+        db.progress.getAll(user.id),
+      ]);
+      setWatchlist(wl);
+
+      // Merge cloud progress into map (cloud wins — cross-device sync)
+      for (const p of pr) {
+        const cid = `${p.type}_${p.tmdb_id}`;
+        map.set(cid, p.progress ?? 0);
+      }
+      setProgressMap(new Map(map));
+      setProgress(pr);
+    } catch {
+      // silently ignore — show whatever data was loaded so far
+    } finally {
       setLoading(false);
-      return;
     }
-
-    const [wl, pr] = await Promise.all([
-      db.watchlist.getAll(user.id),
-      db.progress.getAll(user.id),
-    ]);
-    setWatchlist(wl);
-
-    // Merge cloud progress into map (prefer whichever has latest data)
-    for (const p of pr) {
-      const cid = `${p.type}_${p.tmdb_id}`;
-      // Cloud has a timestamp; local doesn't — cloud wins if present
-      map.set(cid, p.progress ?? 0);
-    }
-    setProgressMap(new Map(map));
-    setProgress(pr);
-    setLoading(false);
   }, [user?.id]);
 
-  useEffect(() => { loadData(); }, [loadData]);
-
-  // Reload whenever the tab gains focus (e.g. returning from a player)
+  // Only useFocusEffect — fires on mount AND whenever the tab regains focus
   useFocusEffect(useCallback(() => { loadData(); }, [loadData]));
 
   const removeWatchlist = async (item: WatchlistItem) => {
