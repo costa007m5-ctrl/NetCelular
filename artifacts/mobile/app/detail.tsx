@@ -842,6 +842,45 @@ export default function DetailScreen() {
       try {
         const flix2Type = type === "movie" ? "movies" : "all";
         const lookupTitle = cleanTitle(params.title ?? "").replace(/[-_]/g, " ").replace(/\s+/g, " ").trim();
+
+        // ── Ownership validation ────────────────────────────────────────────────
+        // When a detail page has a known tmdbId (non-zero) and Flix2 items were
+        // injected via title-match (catalog tmdb_id=0 for all items), the stream may
+        // belong to a DIFFERENT film that shares the same title (e.g. classic vs remake).
+        // Only check for recent films (<2000 votes) where title collision is likely.
+        if (tmdbId > 0 && detYear >= 2020) {
+          const myVoteCount: number = (details as any)?.vote_count ?? Infinity;
+          if (myVoteCount < 2000) {
+            try {
+              const searchType = type === "movie" ? "movie" : "tv";
+              const searchResp = await fetch(
+                `${getApiBase()}/tmdb/search?q=${encodeURIComponent(lookupTitle)}&type=${searchType}`
+              );
+              if (searchResp.ok) {
+                const searchData = await searchResp.json();
+                const candidates = (searchData.results ?? []).filter(
+                  (r: any) => r.media_type === searchType
+                );
+                const primaryHit = candidates.reduce((best: any, r: any) => {
+                  if (!best) return r;
+                  return (r.vote_count ?? 0) > (best.vote_count ?? 0) ? r : best;
+                }, null as any);
+                // If there's a more-established film (higher vote_count) with the same
+                // title that ISN'T us, this stream belongs to that other film — remove it.
+                if (
+                  primaryHit &&
+                  primaryHit.id !== tmdbId &&
+                  (primaryHit.vote_count ?? 0) > myVoteCount
+                ) {
+                  setR2Items((prev) => prev.filter((i) => !i.id.startsWith("flix2-auto-")));
+                  return;
+                }
+              }
+            } catch {}
+          }
+        }
+        // ── End ownership validation ────────────────────────────────────────────
+
         const corrected = await r2Route<{ found: boolean; item: any }>(
           `/flix2/lookup?tmdbId=${tmdbId}&type=${flix2Type}&title=${encodeURIComponent(lookupTitle)}&year=${detYear}`
         );
