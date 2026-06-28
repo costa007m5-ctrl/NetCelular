@@ -295,21 +295,15 @@ export default function DetailScreen() {
   const localProgressRef = useRef<typeof localProgress>(null);
   React.useEffect(() => { localProgressRef.current = localProgress; }, [localProgress]);
 
-  // Set banner video URL from: R2 signed URL (priority 1) or Flix2 stream (priority 2)
+  // Set banner video URL from: R2 server-proxy (priority 1) or Flix2 stream (priority 2)
   React.useEffect(() => {
     if (!r2Items.length) return;
-    // Priority 1: R2 bucket items — use signed URL directly
+    // Priority 1: R2 bucket items — proxy through API server (no R2 keys needed in app)
     const r2Item = r2Items.find((i) => !isDriveItem(i) && !isFlixItem(i) && i.r2Key);
     if (r2Item) {
-      let cancelled = false;
-      (async () => {
-        try {
-          const { apiSignedUrl } = await import("@/lib/r2-direct");
-          const { url } = await apiSignedUrl(r2Item.r2Key, 7200);
-          if (!cancelled) setBannerVideoUrl(url);
-        } catch {}
-      })();
-      return () => { cancelled = true; };
+      const streamUrl = `${getApiBase()}/r2/stream?key=${encodeURIComponent(r2Item.r2Key)}`;
+      setBannerVideoUrl(streamUrl);
+      return;
     }
     // Priority 1b: Drive items — build the stream URL from the item's stored path/URL.
     // Movie: item with no episode. Series: prefer continue-watching episode, then S01E01.
