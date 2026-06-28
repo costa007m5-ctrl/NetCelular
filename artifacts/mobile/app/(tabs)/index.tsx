@@ -2668,19 +2668,26 @@ export default function HomeScreen() {
     const seriesAndMovieIds = new Set([...m, ...s].map((i) => i.id));
     const aDeduped = a.filter((i) => !seriesAndMovieIds.has(i.id));
 
+    // Helper: sort catalog by rating DESC, using year as tiebreaker
+    const byRating = <T extends { rating?: number; year?: number }>(arr: T[]): T[] =>
+      [...arr].sort((a, b) => {
+        const rd = (b.rating ?? 0) - (a.rating ?? 0);
+        return rd !== 0 ? rd : (b.year ?? 0) - (a.year ?? 0);
+      });
+
     if (m.length) {
       setMovies(m);
       setHeroItems(m.filter((x) => x.backdropPath || x.posterPath).slice(0, 6));
-      setTop10Movies(m.slice(0, 10));
+      setTop10Movies(byRating(m).slice(0, 10));
       setTotals((t) => ({ ...t, movies: m.length }));
     }
     if (s.length) {
       setSeries(s);
-      setTop10Series(s.slice(0, 10));
+      setTop10Series(byRating(s).slice(0, 10));
       setTotals((t) => ({ ...t, series: s.length }));
     }
 
-    // Async: reorder Top 10 using TMDB weekly trending so rankings actually change
+    // Async: reorder Top 10 using TMDB weekly trending + real play counts
     if (m.length > 0 || s.length > 0) {
       (async () => {
         try {
@@ -2703,35 +2710,69 @@ export default function HomeScreen() {
           const realMovieIds: number[] = (realMovieData.items ?? []).map((i: any) => i.tmdbId);
           const realTvIds: number[]    = (realTvData.items ?? []).map((i: any) => i.tmdbId);
 
-          // Helper: blend [real views] + [trending] + [catalog fallback] → top 10
-          function blendTop10<T extends { tmdbId?: number | null }>(
+          // Normalize title for fuzzy matching (lowercase, remove accents, punctuation)
+          const normTitle = (t: string) =>
+            t.toLowerCase()
+              .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+              .replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim();
+
+          // Helper: blend [real views] + [TMDB trending by title] + [rating-sorted fallback]
+          function blendTop10<T extends { tmdbId?: number | null; title?: string; rating?: number; year?: number }>(
             catalog: T[],
             priorityIds: number[],
-            fillIds: number[]
+            fillIds: number[],
+            trendTitles: string[]
           ): T[] {
-            const itemMap = new Map(catalog.map((i) => [i.tmdbId, i]));
+            const ratedCatalog = byRating(catalog);
+            // Build lookup maps
+            const idMap = new Map<number, T>();
+            const titleMap = new Map<string, T>();
+            for (const item of ratedCatalog) {
+              if ((item.tmdbId ?? 0) > 0 && !idMap.has(item.tmdbId!)) idMap.set(item.tmdbId!, item);
+              const nt = normTitle(item.title ?? "");
+              if (nt && !titleMap.has(nt)) titleMap.set(nt, item);
+            }
+
             const result: T[] = [];
-            const used = new Set<number | null | undefined>();
-            for (const id of [...priorityIds, ...fillIds]) {
-              if (used.has(id)) continue;
-              used.add(id);
-              const item = itemMap.get(id);
-              if (item) result.push(item);
+            const usedItems = new Set<T>();
+
+            // 1. Priority: real view counts (by tmdbId)
+            for (const id of priorityIds) {
+              const item = idMap.get(id);
+              if (item && !usedItems.has(item)) { result.push(item); usedItems.add(item); }
               if (result.length >= 10) return result;
             }
-            for (const item of catalog) {
-              if (!used.has(item.tmdbId)) result.push(item);
+
+            // 2. Fill: TMDB trending matched by tmdbId first, then by title
+            for (const id of fillIds) {
+              const byId = idMap.get(id);
+              if (byId && !usedItems.has(byId)) { result.push(byId); usedItems.add(byId); }
+              if (result.length >= 10) return result;
+            }
+            for (const title of trendTitles) {
+              const nt = normTitle(title);
+              const byTitle = titleMap.get(nt);
+              if (byTitle && !usedItems.has(byTitle)) { result.push(byTitle); usedItems.add(byTitle); }
+              if (result.length >= 10) return result;
+            }
+
+            // 3. Fallback: rating-sorted catalog items
+            for (const item of ratedCatalog) {
+              if (!usedItems.has(item)) { result.push(item); usedItems.add(item); }
               if (result.length >= 10) return result;
             }
             return result;
           }
 
+          const trendMovieTitles: string[] = (Array.isArray(trendData.movies) ? trendData.movies : []).map((i: any) => i.title ?? i.name ?? "");
+          const trendTvTitles: string[]    = (Array.isArray(trendData.tv)     ? trendData.tv     : []).map((i: any) => i.name ?? i.title ?? "");
+
           if (m.length > 0) {
-            const top10M = blendTop10(m, realMovieIds, trendMovieIds);
+            const top10M = blendTop10(m, realMovieIds, trendMovieIds, trendMovieTitles);
             if (top10M.length > 0) setTop10Movies(top10M.slice(0, 10));
           }
           if (s.length > 0) {
-            const top10S = blendTop10(s, realTvIds, trendTvIds);
+            const top10S = blendTop10(s, realTvIds, trendTvIds, trendTvTitles);
             if (top10S.length > 0) setTop10Series(top10S.slice(0, 10));
           }
         } catch {}
