@@ -28,6 +28,7 @@ import {
   Animated,
   Dimensions,
   Modal,
+  PanResponder,
   Platform,
   Pressable,
   ScrollView,
@@ -262,6 +263,13 @@ export default function Flix2PlayerScreen() {
   const hasStartedPlayingRef = useRef(false);
   const lockAnim = useRef(new Animated.Value(1)).current;
   const sleepCheckRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // ── Swipe-to-seek ─────────────────────────────────────────────────────────
+  const [isSwipeSeeking, setIsSwipeSeeking] = useState(false);
+  const [swipeSeekDisplay, setSwipeSeekDisplay] = useState(0);
+  const swipeGestureActive = useRef(false);
+  const swipeDeltaSec = useRef(0);
+  const seekByRef = useRef<(ms: number) => void>(() => {});
 
   const progress = durationMs > 0 ? positionMs / durationMs : 0;
   const positionSec = Math.floor(positionMs / 1000);
@@ -976,6 +984,45 @@ export default function Flix2PlayerScreen() {
     loadVideoUrl();
   }, [loadVideoUrl, haptic]);
 
+  // ── Keep seekByRef fresh for PanResponder closures ───────────────────────────
+  useEffect(() => { seekByRef.current = seekBy; }, [seekBy]);
+
+  // ── Swipe-to-seek PanResponder ─────────────────────────────────────────────
+  const bodySwipePan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onStartShouldSetPanResponderCapture: () => false,
+      onMoveShouldSetPanResponder: (_, gs) =>
+        !swipeGestureActive.current
+          ? Math.abs(gs.dx) > 14 && Math.abs(gs.dx) > Math.abs(gs.dy) * 1.5
+          : true,
+      onMoveShouldSetPanResponderCapture: () => false,
+      onPanResponderGrant: () => { swipeGestureActive.current = true; },
+      onPanResponderMove: (_, gs) => {
+        const deltaSec = Math.round((gs.dx / W) * 120);
+        swipeDeltaSec.current = deltaSec;
+        setSwipeSeekDisplay(deltaSec);
+        setIsSwipeSeeking(true);
+      },
+      onPanResponderRelease: () => {
+        if (swipeGestureActive.current && swipeDeltaSec.current !== 0) {
+          seekByRef.current(swipeDeltaSec.current * 1000);
+          try { Vibration.vibrate(30); } catch {}
+        }
+        swipeGestureActive.current = false;
+        swipeDeltaSec.current = 0;
+        setSwipeSeekDisplay(0);
+        setIsSwipeSeeking(false);
+      },
+      onPanResponderTerminate: () => {
+        swipeGestureActive.current = false;
+        swipeDeltaSec.current = 0;
+        setSwipeSeekDisplay(0);
+        setIsSwipeSeeking(false);
+      },
+    })
+  ).current;
+
   // ── Double-tap seek detection ─────────────────────────────────────────────────
   const handleTap = useCallback((x: number) => {
     const now = Date.now();
@@ -1381,6 +1428,17 @@ export default function Flix2PlayerScreen() {
       <SeekFlash side="left" anim={seekFlashLeft} />
       <SeekFlash side="right" anim={seekFlashRight} />
 
+      {/* ── Swipe-to-seek indicator ─────────────────────────────────────────── */}
+      {isSwipeSeeking && (
+        <View style={styles.swipeSeekIndicator} pointerEvents="none">
+          <Feather name={swipeSeekDisplay >= 0 ? "fast-forward" : "rewind"} size={28} color="#fff" />
+          <Text style={styles.swipeSeekDelta}>{swipeSeekDisplay > 0 ? "+" : ""}{swipeSeekDisplay}s</Text>
+          <Text style={styles.swipeSeekTarget}>
+            {formatTime(Math.max(0, Math.min(durationMs, positionMs + swipeSeekDisplay * 1000)))}
+          </Text>
+        </View>
+      )}
+
       {/* ── Speed boost badge ──────────────────────────────────────────────── */}
       {isSpeedBoost && (
         <View style={styles.speedBoostBadge} pointerEvents="none">
@@ -1467,6 +1525,8 @@ export default function Flix2PlayerScreen() {
       {phase === "ready" && !showEpisodes && !isLocked && (
         <>
           <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+            {/* Swipe-to-seek gesture layer — must be below Pressable so taps still fire */}
+            <View style={StyleSheet.absoluteFill} {...bodySwipePan.panHandlers} pointerEvents="box-none" />
             <Pressable
               style={StyleSheet.absoluteFill}
               onPress={(e) => handleTap(e.nativeEvent.pageX)}
@@ -1886,6 +1946,11 @@ const styles = StyleSheet.create({
   // Quality option badge
   qualityOptionBadge: { backgroundColor: "rgba(229,9,20,0.25)", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, marginRight: 8 },
   qualityOptionBadgeText: { color: RED, fontSize: 11, fontWeight: "800", letterSpacing: 0.5 },
+
+  // Swipe-to-seek indicator
+  swipeSeekIndicator: { position: "absolute", top: "50%", left: "50%", transform: [{ translateX: -70 }, { translateY: -45 }], alignItems: "center", gap: 4, backgroundColor: "rgba(0,0,0,0.75)", borderRadius: 16, paddingHorizontal: 24, paddingVertical: 16, borderWidth: 1, borderColor: "rgba(255,255,255,0.15)" },
+  swipeSeekDelta: { color: "#fff", fontSize: 26, fontWeight: "800" },
+  swipeSeekTarget: { color: "rgba(255,255,255,0.65)", fontSize: 14, fontWeight: "600" },
 
   // Session modal
   sessionModal: { flex: 1, backgroundColor: "rgba(0,0,0,0.85)", justifyContent: "center", alignItems: "center" },

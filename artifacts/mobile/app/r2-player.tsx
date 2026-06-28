@@ -6,6 +6,7 @@ import {
   AppState,
   Linking,
   Modal,
+  PanResponder,
   Platform,
   Pressable,
   ScrollView,
@@ -256,6 +257,13 @@ export default function R2PlayerScreen() {
   const [fromCache, setFromCache] = useState(false);
   const [videoResolution, setVideoResolution] = useState<string | null>(null);
   const [showQualityPanel, setShowQualityPanel] = useState(false);
+
+  // ── Swipe-to-seek ─────────────────────────────────────────────────────────
+  const [isSwipeSeeking, setIsSwipeSeeking] = useState(false);
+  const [swipeSeekDisplay, setSwipeSeekDisplay] = useState(0);
+  const swipeGestureActive = useRef(false);
+  const swipeDeltaSec = useRef(0);
+  const seekByRef = useRef<(ms: number) => void>(() => {});
   const activeKeyRef = useRef<string>(params.key ?? "");
   // ── TeraBox quality picker state ────────────────────────────────────────────
   const [teraboxQualities, setTeraboxQualities] = useState<Record<string, string>>({});
@@ -1146,6 +1154,45 @@ export default function R2PlayerScreen() {
     goToNextEpisode();
   }, [goToNextEpisode, haptic]);
 
+  // ── Keep seekByRef fresh for PanResponder closures ───────────────────────────
+  useEffect(() => { seekByRef.current = seekBy; }, [seekBy]);
+
+  // ── Swipe-to-seek PanResponder ─────────────────────────────────────────────
+  const bodySwipePan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onStartShouldSetPanResponderCapture: () => false,
+      onMoveShouldSetPanResponder: (_, gs) =>
+        !swipeGestureActive.current
+          ? Math.abs(gs.dx) > 14 && Math.abs(gs.dx) > Math.abs(gs.dy) * 1.5
+          : true,
+      onMoveShouldSetPanResponderCapture: () => false,
+      onPanResponderGrant: () => { swipeGestureActive.current = true; },
+      onPanResponderMove: (_, gs) => {
+        const deltaSec = Math.round((gs.dx / 360) * 120);
+        swipeDeltaSec.current = deltaSec;
+        setSwipeSeekDisplay(deltaSec);
+        setIsSwipeSeeking(true);
+      },
+      onPanResponderRelease: () => {
+        if (swipeGestureActive.current && swipeDeltaSec.current !== 0) {
+          seekByRef.current(swipeDeltaSec.current * 1000);
+          try { Vibration.vibrate(30); } catch {}
+        }
+        swipeGestureActive.current = false;
+        swipeDeltaSec.current = 0;
+        setSwipeSeekDisplay(0);
+        setIsSwipeSeeking(false);
+      },
+      onPanResponderTerminate: () => {
+        swipeGestureActive.current = false;
+        swipeDeltaSec.current = 0;
+        setSwipeSeekDisplay(0);
+        setIsSwipeSeeking(false);
+      },
+    })
+  ).current;
+
   // ── Tap handler: single vs double tap ────────────────────────────────────────
   const handleTap = useCallback((px: number) => {
     const now = Date.now();
@@ -1716,6 +1763,17 @@ export default function R2PlayerScreen() {
         <SeekFlash side="left" anim={seekFlashLeft} />
         <SeekFlash side="right" anim={seekFlashRight} />
 
+        {/* ── Swipe-to-seek indicator ───────────────────────────────────────── */}
+        {isSwipeSeeking && (
+          <View style={styles.swipeSeekIndicator} pointerEvents="none">
+            <Feather name={swipeSeekDisplay >= 0 ? "fast-forward" : "rewind"} size={28} color="#fff" />
+            <Text style={styles.swipeSeekDelta}>{swipeSeekDisplay > 0 ? "+" : ""}{swipeSeekDisplay}s</Text>
+            <Text style={styles.swipeSeekTarget}>
+              {formatTime(Math.max(0, Math.min(durationMs, positionMs + swipeSeekDisplay * 1000)))}
+            </Text>
+          </View>
+        )}
+
         {/* ── Speed boost indicator ─────────────────────────────────────────── */}
         {isSpeedBoost && (
           <View style={styles.speedBoostBadge} pointerEvents="none">
@@ -1803,6 +1861,8 @@ export default function R2PlayerScreen() {
           <>
             {/* Tap zones for double-tap seek + single-tap toggle */}
             <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+              {/* Swipe-to-seek gesture layer */}
+              <View style={StyleSheet.absoluteFill} {...bodySwipePan.panHandlers} pointerEvents="box-none" />
               <Pressable
                 style={[StyleSheet.absoluteFill]}
                 onPress={(e) => handleTap(e.nativeEvent.pageX)}
@@ -2277,6 +2337,11 @@ const styles = StyleSheet.create({
   panelEpRow: { flexDirection: "row", alignItems: "flex-start", gap: 9, paddingHorizontal: 10, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "#1a1a1a" },
   panelEpRowActive: { backgroundColor: "rgba(229,9,20,0.08)" },
   panelEpThumb: { width: 76, height: 48, borderRadius: 5, overflow: "hidden", backgroundColor: "#1a1a1a", position: "relative", flexShrink: 0 },
+  // Swipe-to-seek indicator
+  swipeSeekIndicator: { position: "absolute", top: "50%", left: "50%", transform: [{ translateX: -70 }, { translateY: -45 }], alignItems: "center", gap: 4, backgroundColor: "rgba(0,0,0,0.75)", borderRadius: 16, paddingHorizontal: 24, paddingVertical: 16, borderWidth: 1, borderColor: "rgba(255,255,255,0.15)" },
+  swipeSeekDelta: { color: "#fff", fontSize: 26, fontWeight: "800" },
+  swipeSeekTarget: { color: "rgba(255,255,255,0.65)", fontSize: 14, fontWeight: "600" },
+
   panelEpThumbFallback: { alignItems: "center", justifyContent: "center", backgroundColor: "#1a1a1a" },
   panelEpPlayOverlay: { ...StyleSheet.absoluteFillObject as any, backgroundColor: "rgba(229,9,20,0.4)", alignItems: "center", justifyContent: "center" },
   panelEpWatchedBadge: { position: "absolute", bottom: 3, right: 3, width: 16, height: 16, borderRadius: 8, backgroundColor: "#4ade80", alignItems: "center", justifyContent: "center" },
