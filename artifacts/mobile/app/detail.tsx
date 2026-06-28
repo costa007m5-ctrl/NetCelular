@@ -272,6 +272,15 @@ export default function DetailScreen() {
   const [trailerPlaying, setTrailerPlaying] = useState(true);
   const [bannerMuted, setBannerMuted] = useState(true);
   const [bannerPreviewActive, setBannerPreviewActive] = useState(false);
+  const bannerPreviewStarted = React.useRef(false);
+
+  // Auto-start banner preview as soon as trailerKey is available (first time only)
+  React.useEffect(() => {
+    if (trailerKey && !bannerPreviewStarted.current) {
+      bannerPreviewStarted.current = true;
+      setBannerPreviewActive(true);
+    }
+  }, [trailerKey]);
   const [showAddSrcModal, setShowAddSrcModal] = useState(false);
   const [addSrcUrl, setAddSrcUrl] = useState("");
   const [addSrcBusy, setAddSrcBusy] = useState(false);
@@ -3570,20 +3579,38 @@ export default function DetailScreen() {
           {/* Background: video preview (muted autoplay) or static image */}
           {trailerKey && bannerPreviewActive ? (
             Platform.OS === "web" ? (
-              <iframe
-                src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${bannerMuted ? 1 : 0}&rel=0&controls=0&showinfo=0&modestbranding=1&loop=1&playlist=${trailerKey}&playsinline=1&iv_load_policy=3`}
-                style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", border: "none", objectFit: "cover" } as any}
-                allow="autoplay; fullscreen"
-                allowFullScreen
-              />
+              // Oversized + clipped iframe to crop out all YouTube UI bars
+              <View style={[StyleSheet.absoluteFill, { overflow: "hidden" as any }]}>
+                <iframe
+                  src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${bannerMuted ? 1 : 0}&rel=0&controls=0&showinfo=0&modestbranding=1&loop=1&playlist=${trailerKey}&playsinline=1&iv_load_policy=3&disablekb=1&fs=0&cc_load_policy=0`}
+                  style={{
+                    position: "absolute",
+                    top: "-12%",
+                    left: "-5%",
+                    width: "110%",
+                    height: "130%",
+                    border: "none",
+                    pointerEvents: "none",
+                  } as any}
+                  allow="autoplay"
+                />
+              </View>
             ) : WebView ? (
               <WebView
-                source={{ uri: `https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${bannerMuted ? 1 : 0}&rel=0&controls=0&showinfo=0&modestbranding=1&loop=1&playlist=${trailerKey}&playsinline=1&iv_load_policy=3` }}
+                source={{ uri: `https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=${bannerMuted ? 1 : 0}&rel=0&controls=0&showinfo=0&modestbranding=1&loop=1&playlist=${trailerKey}&playsinline=1&iv_load_policy=3&disablekb=1&fs=0&cc_load_policy=0` }}
                 style={[StyleSheet.absoluteFill, { backgroundColor: "#000" }]}
                 mediaPlaybackRequiresUserAction={false}
                 javaScriptEnabled
                 scrollEnabled={false}
-                injectedJavaScript={`document.body.style.overflow='hidden';document.documentElement.style.overflow='hidden';true;`}
+                injectedJavaScript={`
+                  (function(){
+                    var s=document.createElement('style');
+                    s.textContent='.ytp-chrome-top,.ytp-chrome-bottom,.ytp-watermark,.ytp-youtube-button,.ytp-share-button,.ytp-watch-later-button,.ytp-title,.ytp-title-channel-logo,.ytp-channel-name,.ytp-gradient-top,.ytp-gradient-bottom,.ytp-cards-button,.ytp-ce-element,.ytp-endscreen-element,.ytp-pause-overlay,.ytp-cued-thumbnail-overlay,.iv-branding,.ytp-logo,.ytp-spinner,.ytp-big-mode .ytp-button{display:none!important}body,html{overflow:hidden;margin:0;padding:0;}';
+                    document.head.appendChild(s);
+                    document.body.style.background='#000';
+                    document.documentElement.style.background='#000';
+                  })();true;
+                `}
               />
             ) : null
           ) : backdropUri && !imgError ? (
@@ -3603,49 +3630,32 @@ export default function DetailScreen() {
             style={[StyleSheet.absoluteFill]}
           />
 
-          {/* Top bar: back + actions */}
+          {/* Top bar: back + share */}
           <View style={[styles.topBar, { paddingTop: topPad + 8 }]}>
             <Pressable onPress={() => router.back()} style={styles.circleBtn}>
               <Feather name="arrow-left" size={20} color="#fff" />
             </Pressable>
-            <View style={{ flexDirection: "row", gap: 10 }}>
-              {/* Preview toggle — only show when trailer exists */}
-              {trailerKey && (
-                <Pressable
-                  style={styles.circleBtn}
-                  onPress={() => {
-                    if (bannerPreviewActive) {
-                      setBannerPreviewActive(false);
-                    } else {
-                      setBannerPreviewActive(true);
-                      setBannerMuted(true);
-                    }
-                  }}
-                >
-                  <Feather name={bannerPreviewActive ? "image" : "film"} size={18} color="#fff" />
-                </Pressable>
-              )}
-              {/* Mute toggle — only when preview is active */}
-              {trailerKey && bannerPreviewActive && (
-                <Pressable style={styles.circleBtn} onPress={() => setBannerMuted((m) => !m)}>
-                  <Feather name={bannerMuted ? "volume-x" : "volume-2"} size={18} color="#fff" />
-                </Pressable>
-              )}
-              <Pressable onPress={handleShare} style={styles.circleBtn}>
-                <Feather name="share-2" size={20} color="#fff" />
-              </Pressable>
-            </View>
+            <Pressable onPress={handleShare} style={styles.circleBtn}>
+              <Feather name="share-2" size={20} color="#fff" />
+            </Pressable>
           </View>
 
-          {/* Preview badge shown at bottom of banner */}
-          {trailerKey && !bannerPreviewActive && (
-            <Pressable
-              onPress={() => { setBannerPreviewActive(true); setBannerMuted(true); }}
-              style={{ position: "absolute", bottom: 16, right: 16, flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(0,0,0,0.65)", borderRadius: 20, paddingVertical: 6, paddingHorizontal: 12, borderWidth: 1, borderColor: "rgba(255,255,255,0.18)" }}
-            >
-              <Feather name="play-circle" size={14} color="#fff" />
-              <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>Prévia</Text>
-            </Pressable>
+          {/* Mute/unmute pill — bottom right when preview playing */}
+          {trailerKey && bannerPreviewActive && (
+            <View style={{ position: "absolute", bottom: 14, right: 14, flexDirection: "row", gap: 8 }}>
+              <Pressable
+                onPress={() => setBannerMuted((m) => !m)}
+                style={{ flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "rgba(0,0,0,0.60)", borderRadius: 20, paddingVertical: 5, paddingHorizontal: 11, borderWidth: 1, borderColor: "rgba(255,255,255,0.15)" }}
+              >
+                <Feather name={bannerMuted ? "volume-x" : "volume-2"} size={13} color="#fff" />
+              </Pressable>
+              <Pressable
+                onPress={() => setBannerPreviewActive(false)}
+                style={{ flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "rgba(0,0,0,0.60)", borderRadius: 20, paddingVertical: 5, paddingHorizontal: 11, borderWidth: 1, borderColor: "rgba(255,255,255,0.15)" }}
+              >
+                <Feather name="x" size={13} color="#fff" />
+              </Pressable>
+            </View>
           )}
         </View>
 
