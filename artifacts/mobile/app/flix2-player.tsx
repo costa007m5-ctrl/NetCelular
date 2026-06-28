@@ -946,19 +946,32 @@ export default function Flix2PlayerScreen() {
   // When tmdbId is 0 (Flix 2.0 item without a TMDB ID in the catalog),
   // use the /flix2/lookup endpoint — it has year-qualified title matching,
   // so "One Piece 1999" won't be confused with "One Piece 2023 (Netflix)".
+  // Fallback: if lookup also returns tmdb_id=0, search TMDB directly by title
+  // so the episode panel can show real names, stills, and descriptions.
   useEffect(() => {
     if (!isTV) return;
     if (tmdbId && tmdbId > 0) { setResolvedTmdbId(tmdbId); return; }
     if (!title) return;
     let cancelled = false;
-    // getApiBase() is synchronous — returns a string, not a Promise.
     const apiBase = getApiBase();
     fetch(`${apiBase}/flix2/lookup?title=${encodeURIComponent(title)}&type=serie`)
       .then((r) => r.json())
-      .then((fi: any) => {
-        if (!cancelled && fi?.tmdb_id && Number(fi.tmdb_id) > 0) {
+      .then(async (fi: any) => {
+        if (cancelled) return;
+        if (fi?.tmdb_id && Number(fi.tmdb_id) > 0) {
           setResolvedTmdbId(Number(fi.tmdb_id));
+          return;
         }
+        // Fallback: busca direta no TMDB pelo título para obter o ID da série
+        try {
+          const sr = await fetch(
+            `${apiBase}/tmdb/search?q=${encodeURIComponent(title)}&type=tv`
+          ).then((r) => r.json());
+          const firstId = sr?.results?.[0]?.id;
+          if (!cancelled && firstId && Number(firstId) > 0) {
+            setResolvedTmdbId(Number(firstId));
+          }
+        } catch {}
       })
       .catch(() => {});
     return () => { cancelled = true; };
