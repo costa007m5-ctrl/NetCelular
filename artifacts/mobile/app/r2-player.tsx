@@ -24,6 +24,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { apiList, apiSignedUrl, r2Route, drivePlayDirect } from "@/lib/r2-direct";
+import { recordContentView } from "@/lib/view-tracker";
 import { saveLocalProgress } from "@/hooks/useWatchProgress";
 import { getApiBase } from "@/lib/api";
 import { TeraboxWebViewResolver } from "@/lib/terabox-webview-resolver";

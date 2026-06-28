@@ -43,6 +43,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { getApiBase } from "@/lib/api";
+import { recordContentView } from "@/lib/view-tracker";
 import { appLog } from "@/lib/app-logger";
 import { getProxiedStreamUrl } from "@/lib/gdrive-index";
 import { useAuth } from "@/lib/auth-context";

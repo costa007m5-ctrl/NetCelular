@@ -2685,47 +2685,53 @@ export default function HomeScreen() {
       (async () => {
         try {
           const { getApiBase } = await import("@/lib/api");
-          const ctrl = new AbortController();
-          setTimeout(() => ctrl.abort(), 7000);
-          const res = await fetch(`${getApiBase()}/tmdb/trending`, { signal: ctrl.signal });
-          if (!res.ok) return;
-          const data = await res.json();
-          const trendMovieIds: number[] = (Array.isArray(data.movies) ? data.movies : (data.movies?.results ?? [])).map((i: any) => i.id);
-          const trendTvIds: number[]    = (Array.isArray(data.tv)     ? data.tv     : (data.tv?.results ?? [])).map((i: any) => i.id);
+          const base = getApiBase();
 
-          if (m.length > 0 && trendMovieIds.length > 0) {
-            const movieMap = new Map(m.map((i) => [i.tmdbId, i]));
-            const top10M: typeof m = [];
-            for (const id of trendMovieIds) {
-              const item = movieMap.get(id);
-              if (item) top10M.push(item);
-              if (top10M.length >= 10) break;
+          // Fetch TMDB trending + real play counts in parallel
+          const [trendRes, realMovieRes, realTvRes] = await Promise.allSettled([
+            fetch(`${base}/tmdb/trending`, { signal: (() => { const c = new AbortController(); setTimeout(() => c.abort(), 7000); return c.signal; })() }),
+            fetch(`${base}/content/top10?type=movie&days=7`, { signal: (() => { const c = new AbortController(); setTimeout(() => c.abort(), 7000); return c.signal; })() }),
+            fetch(`${base}/content/top10?type=tv&days=7`, { signal: (() => { const c = new AbortController(); setTimeout(() => c.abort(), 7000); return c.signal; })() }),
+          ]);
+
+          const trendData = trendRes.status === "fulfilled" && trendRes.value.ok ? await trendRes.value.json().catch(() => ({})) : {};
+          const realMovieData = realMovieRes.status === "fulfilled" && realMovieRes.value.ok ? await realMovieRes.value.json().catch(() => ({})) : {};
+          const realTvData = realTvRes.status === "fulfilled" && realTvRes.value.ok ? await realTvRes.value.json().catch(() => ({})) : {};
+
+          const trendMovieIds: number[] = (Array.isArray(trendData.movies) ? trendData.movies : (trendData.movies?.results ?? [])).map((i: any) => i.id);
+          const trendTvIds: number[]    = (Array.isArray(trendData.tv)     ? trendData.tv     : (trendData.tv?.results ?? [])).map((i: any) => i.id);
+          const realMovieIds: number[] = (realMovieData.items ?? []).map((i: any) => i.tmdbId);
+          const realTvIds: number[]    = (realTvData.items ?? []).map((i: any) => i.tmdbId);
+
+          // Helper: blend [real views] + [trending] + [catalog fallback] → top 10
+          function blendTop10<T extends { tmdbId?: number | null }>(
+            catalog: T[],
+            priorityIds: number[],
+            fillIds: number[]
+          ): T[] {
+            const itemMap = new Map(catalog.map((i) => [i.tmdbId, i]));
+            const result: T[] = [];
+            const used = new Set<number | null | undefined>();
+            for (const id of [...priorityIds, ...fillIds]) {
+              if (used.has(id)) continue;
+              used.add(id);
+              const item = itemMap.get(id);
+              if (item) result.push(item);
+              if (result.length >= 10) return result;
             }
-            if (top10M.length < 10) {
-              const used = new Set(top10M.map((i) => i.tmdbId));
-              for (const item of m) {
-                if (!used.has(item.tmdbId)) top10M.push(item);
-                if (top10M.length >= 10) break;
-              }
+            for (const item of catalog) {
+              if (!used.has(item.tmdbId)) result.push(item);
+              if (result.length >= 10) return result;
             }
-            if (top10M.length > 0) setTop10Movies(top10M.slice(0, 10));
+            return result;
           }
 
-          if (s.length > 0 && trendTvIds.length > 0) {
-            const seriesMap = new Map(s.map((i) => [i.tmdbId, i]));
-            const top10S: typeof s = [];
-            for (const id of trendTvIds) {
-              const item = seriesMap.get(id);
-              if (item) top10S.push(item);
-              if (top10S.length >= 10) break;
-            }
-            if (top10S.length < 10) {
-              const used = new Set(top10S.map((i) => i.tmdbId));
-              for (const item of s) {
-                if (!used.has(item.tmdbId)) top10S.push(item);
-                if (top10S.length >= 10) break;
-              }
-            }
+          if (m.length > 0) {
+            const top10M = blendTop10(m, realMovieIds, trendMovieIds);
+            if (top10M.length > 0) setTop10Movies(top10M.slice(0, 10));
+          }
+          if (s.length > 0) {
+            const top10S = blendTop10(s, realTvIds, trendTvIds);
             if (top10S.length > 0) setTop10Series(top10S.slice(0, 10));
           }
         } catch {}

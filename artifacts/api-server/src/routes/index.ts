@@ -14,6 +14,7 @@ import shortsRouter from "./shorts";
 import shortsCommentsRouter from "./shorts-comments";
 import tvmazeRouter from "./tvmaze";
 import geminiRouter from "./gemini";
+import viewsRouter from "./views";
 
 const router: IRouter = Router();
 
@@ -32,5 +33,6 @@ router.use(shortsRouter);
 router.use(shortsCommentsRouter);
 router.use(tvmazeRouter);
 router.use(geminiRouter);
+router.use(viewsRouter);
 
 export default router;

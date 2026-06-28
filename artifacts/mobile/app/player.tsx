@@ -27,6 +27,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useColors } from "@/hooks/useColors";
 import { api, TMDB_IMG, getApiBase } from "@/lib/api";
+import { recordContentView } from "@/lib/view-tracker";
 import { CastModal } from "@/components/CastModal";
 import { useAuth } from "@/lib/auth-context";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
