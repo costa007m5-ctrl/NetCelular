@@ -273,6 +273,7 @@ export default function DetailScreen() {
   const [bannerMuted, setBannerMuted] = useState(true);
   const [bannerVideoUrl, setBannerVideoUrl] = useState<string | null>(null);
   const bannerVideoRef = useRef<any>(null);
+  const bannerTrailerRef = useRef<any>(null);
 
   const [r2Items, setR2Items] = useState<RegistryItem[]>([]);
   // Episode numbers (parsed from R2 filenames) for the current season's folder item
@@ -3606,7 +3607,7 @@ export default function DetailScreen() {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
         {/* Backdrop / Banner Preview */}
         <View style={{ height: BACKDROP_H + topPad }}>
-          {/* Background: actual content video preview or static image */}
+          {/* Background: R2 video > YouTube trailer > static backdrop > gradient */}
           {bannerVideoUrl ? (
             Platform.OS === "web" ? (
               <video
@@ -3623,6 +3624,39 @@ export default function DetailScreen() {
                 } as any}
               />
             ) : null
+          ) : trailerKey ? (
+            Platform.OS === "web" ? (
+              <iframe
+                ref={bannerTrailerRef}
+                src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=1&loop=1&playlist=${trailerKey}&controls=0&showinfo=0&rel=0&modestbranding=1&iv_load_policy=3&disablekb=1&fs=0&playsinline=1&enablejsapi=1`}
+                style={{
+                  position: "absolute", top: "-10%", left: "-5%",
+                  width: "110%", height: "120%",
+                  border: "none", pointerEvents: "none",
+                } as any}
+                allow="autoplay; encrypted-media"
+              />
+            ) : WebView ? (
+              <View style={StyleSheet.absoluteFill} pointerEvents="none">
+                <WebView
+                  ref={bannerTrailerRef}
+                  source={{ uri: `https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=1&loop=1&playlist=${trailerKey}&controls=0&showinfo=0&rel=0&modestbranding=1&iv_load_policy=3&disablekb=1&fs=0&playsinline=1` }}
+                  style={StyleSheet.absoluteFill}
+                  allowsInlineMediaPlayback
+                  mediaPlaybackRequiresUserAction={false}
+                  scrollEnabled={false}
+                />
+              </View>
+            ) : backdropUri && !imgError ? (
+              <Image
+                source={{ uri: backdropUri }}
+                style={[StyleSheet.absoluteFill, { height: BACKDROP_H + topPad }]}
+                resizeMode="cover"
+                onError={() => setImgError(true)}
+              />
+            ) : (
+              <LinearGradient colors={["#1a0000", "#141414"]} style={[StyleSheet.absoluteFill]} />
+            )
           ) : backdropUri && !imgError ? (
             <Image
               source={{ uri: backdropUri }}
@@ -3650,13 +3684,28 @@ export default function DetailScreen() {
             </Pressable>
           </View>
 
-          {/* Mute/unmute pill — bottom right when video is playing */}
-          {bannerVideoUrl && Platform.OS === "web" && (
+          {/* Mute/unmute pill — bottom right when video or trailer is playing */}
+          {(bannerVideoUrl || trailerKey) && (
             <Pressable
               onPress={() => {
                 const newMuted = !bannerMuted;
                 setBannerMuted(newMuted);
-                if (bannerVideoRef.current) bannerVideoRef.current.muted = newMuted;
+                if (bannerVideoUrl && bannerVideoRef.current) {
+                  bannerVideoRef.current.muted = newMuted;
+                } else if (trailerKey) {
+                  if (Platform.OS === "web" && bannerTrailerRef.current) {
+                    // YouTube IFrame API postMessage
+                    const cmd = newMuted ? "mute" : "unMute";
+                    bannerTrailerRef.current.contentWindow?.postMessage(
+                      JSON.stringify({ event: "command", func: cmd, args: "" }), "*"
+                    );
+                  } else if (bannerTrailerRef.current?.injectJavaScript) {
+                    // Native WebView — directly mute/unmute the video element
+                    bannerTrailerRef.current.injectJavaScript(
+                      `(function(){ var v=document.querySelector('video'); if(v) v.muted=${newMuted}; })(); true;`
+                    );
+                  }
+                }
               }}
               style={{ position: "absolute", bottom: 14, right: 14, flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "rgba(0,0,0,0.60)", borderRadius: 20, paddingVertical: 6, paddingHorizontal: 12, borderWidth: 1, borderColor: "rgba(255,255,255,0.15)" }}
             >
