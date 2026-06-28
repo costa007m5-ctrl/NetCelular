@@ -10,6 +10,7 @@
  *   ref.playAsync()
  *   ref.pauseAsync()
  *   ref.setRateAsync(rate)
+ *   ref.captureFrame(ms)  — captura frame real do vídeo via canvas (para seek thumbnails)
  *
  * IMPORTANTE: o prop `baseUrl` deve bater com a origem do vídeo para evitar
  * bloqueio CORS do elemento <video>. Ex:
@@ -26,6 +27,7 @@ export interface WebViewVideoPlayerRef {
   pauseAsync: () => Promise<void>;
   setRateAsync: (rate: number, _pitchCorrect?: boolean) => Promise<void>;
   setVolumeAsync: (volume: number) => Promise<void>;
+  captureFrame: (ms: number) => void;
 }
 
 export interface PlaybackStatus {
@@ -49,6 +51,7 @@ interface Props {
   onLoad?: (status: { durationMillis: number }) => void;
   onPlaybackStatusUpdate?: (status: PlaybackStatus) => void;
   onError?: (error: string) => void;
+  onPreviewFrame?: (dataUrl: string | null) => void;
   progressUpdateIntervalMillis?: number;
 }
 
@@ -63,14 +66,23 @@ function buildHtml(uri: string, _headers: Record<string, string>, intervalMs: nu
 <style>
 *{margin:0;padding:0;box-sizing:border-box;background:#000}
 html,body{width:100%;height:100%;overflow:hidden}
-video{width:100%;height:100%;object-fit:contain;display:block}
+video#v{width:100%;height:100%;object-fit:contain;display:block}
+video#pv{display:none;position:absolute;width:1px;height:1px;opacity:0}
+canvas#pc{display:none;position:absolute;width:1px;height:1px;opacity:0}
 </style>
 </head>
 <body>
 <video id="v" playsinline webkit-playsinline preload="auto"></video>
+<video id="pv" playsinline webkit-playsinline preload="auto" muted crossorigin="anonymous"></video>
+<canvas id="pc"></canvas>
 <script>
 (function(){
   var v = document.getElementById('v');
+  var pv = document.getElementById('pv');
+  var pc = document.getElementById('pc');
+  pc.width = 320; pc.height = 180;
+  var pctx = pc.getContext('2d');
+
   var progressTimer = null;
   var lastPos = -1;
   var lastPlaying = false;
@@ -78,6 +90,9 @@ video{width:100%;height:100%;object-fit:contain;display:block}
   var lastDuration = 0;
   var rn = window.ReactNativeWebView;
   var INTERVAL_S = ${intervalS};
+
+  var pvSeeking = false;
+  var pvReady = false;
 
   function send(msg) {
     try { rn.postMessage(JSON.stringify(msg)); } catch(e){}
@@ -131,6 +146,28 @@ video{width:100%;height:100%;object-fit:contain;display:block}
   v.addEventListener('seeked', function() { sendProgress(true); });
   v.addEventListener('ratechange', function() { sendProgress(true); });
 
+  // ── Preview video (seek thumbnails) ─────────────────────────────────────────
+  // A second hidden video element seeks to preview positions and draws to canvas.
+  // We use crossOrigin="anonymous" — if the CDN blocks CORS the canvas taint
+  // causes toDataURL() to throw; we catch it and send null so the caller falls
+  // back to a TMDB still image.
+  pv.addEventListener('loadedmetadata', function() { pvReady = true; });
+  pv.addEventListener('seeked', function() {
+    if (!pvSeeking) return;
+    pvSeeking = false;
+    try {
+      pctx.drawImage(pv, 0, 0, pc.width, pc.height);
+      var dataUrl = pc.toDataURL('image/jpeg', 0.75);
+      send({type:'preview_frame', dataUrl: dataUrl});
+    } catch(e) {
+      send({type:'preview_frame', dataUrl: null});
+    }
+  });
+  pv.addEventListener('error', function() {
+    pvSeeking = false;
+    send({type:'preview_frame', dataUrl: null});
+  });
+
   function handleCmd(e) {
     try {
       var cmd = JSON.parse(typeof e === 'string' ? e : (e.data || e));
@@ -142,8 +179,16 @@ video{width:100%;height:100%;object-fit:contain;display:block}
       else if (cmd.type === 'src') {
         stopTimer();
         v.src = cmd.url;
+        pv.src = cmd.url;
+        pvReady = false;
         v.load();
+        pv.load();
         v.play().catch(function(){});
+      }
+      else if (cmd.type === 'preview_seek') {
+        if (!pvReady && !pv.src) return;
+        pvSeeking = true;
+        pv.currentTime = cmd.position / 1000;
       }
     } catch(ex){}
   }
@@ -153,10 +198,10 @@ video{width:100%;height:100%;object-fit:contain;display:block}
 
   // Load source directly — the WebView userAgent prop already sends a browser UA
   // for all requests (including <video> element fetches), so no blob trick needed.
-  // Blob approach caused MEDIA_ELEMENT_ERROR: Format error on production APKs because
-  // Android system WebView doesn't support seeking in blob-backed video URLs.
   v.src = '${escapedUri}';
+  pv.src = '${escapedUri}';
   v.load();
+  pv.load();
   v.play().catch(function(){});
 })();
 </script>
@@ -175,6 +220,7 @@ const WebViewVideoPlayer = forwardRef<WebViewVideoPlayerRef, Props>(function Web
     onLoad,
     onPlaybackStatusUpdate,
     onError,
+    onPreviewFrame,
     progressUpdateIntervalMillis = 1000,
   },
   ref
@@ -195,6 +241,7 @@ const WebViewVideoPlayer = forwardRef<WebViewVideoPlayerRef, Props>(function Web
     pauseAsync: async () => { injectCmd({ type: "pause" }); },
     setRateAsync: async (r: number) => { injectCmd({ type: "rate", value: r }); },
     setVolumeAsync: async (v: number) => { injectCmd({ type: "volume", value: v }); },
+    captureFrame: (ms: number) => { injectCmd({ type: "preview_seek", position: ms }); },
   }), [injectCmd]);
 
   const onMessage = useCallback((event: any) => {
@@ -226,9 +273,11 @@ const WebViewVideoPlayer = forwardRef<WebViewVideoPlayerRef, Props>(function Web
         });
       } else if (msg.type === "error") {
         onError?.(msg.message ?? "Erro no player WebView");
+      } else if (msg.type === "preview_frame") {
+        onPreviewFrame?.(msg.dataUrl ?? null);
       }
     } catch {}
-  }, [onLoad, onPlaybackStatusUpdate, onError, rate]);
+  }, [onLoad, onPlaybackStatusUpdate, onError, onPreviewFrame, rate]);
 
   const html = buildHtml(uri, headers, progressUpdateIntervalMillis);
 

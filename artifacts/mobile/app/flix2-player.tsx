@@ -220,8 +220,11 @@ export default function Flix2PlayerScreen() {
   const [panelLoading, setPanelLoading] = useState(false);
   const panelAnim = useRef(new Animated.Value(0)).current;
 
-  // ── Seek thumbnail (TMDB still / backdrop shown during scrub) ─────────────────
+  // ── Seek thumbnail — TMDB fallback (static, loaded on mount) ─────────────────
   const [seekThumbnailUrl, setSeekThumbnailUrl] = useState<string | null>(null);
+  // Real video frame captured from the WebView during scrubbing (base64 JPEG)
+  const [seekFrameUrl, setSeekFrameUrl] = useState<string | null>(null);
+  const captureThrottleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Loading screen state ─────────────────────────────────────────────────────
   const loadProgress = useRef(new Animated.Value(0)).current;
@@ -1159,12 +1162,22 @@ export default function Flix2PlayerScreen() {
   }, [durationMs, showControls]);
 
   const onSeekMove = useCallback((x: number) => {
-    setScrubPosition(Math.max(0, Math.min(durationMs, (x / seekBarWidthRef.current) * durationMs)));
-  }, [durationMs]);
+    const pos = Math.max(0, Math.min(durationMs, (x / seekBarWidthRef.current) * durationMs));
+    setScrubPosition(pos);
+    // Throttle real-frame capture to ~150ms — avoids flooding the WebView
+    if (useWebViewPlayer && videoRef.current && (videoRef.current as any).captureFrame) {
+      if (captureThrottleRef.current) clearTimeout(captureThrottleRef.current);
+      captureThrottleRef.current = setTimeout(() => {
+        (videoRef.current as any).captureFrame(pos);
+      }, 150);
+    }
+  }, [durationMs, useWebViewPlayer]);
 
   const onSeekEnd = useCallback((x: number) => {
     const pos = Math.max(0, Math.min(durationMs, (x / seekBarWidthRef.current) * durationMs));
     setIsScrubbing(false);
+    setSeekFrameUrl(null);
+    if (captureThrottleRef.current) { clearTimeout(captureThrottleRef.current); captureThrottleRef.current = null; }
     videoRef.current?.setPositionAsync(pos).catch(() => {});
   }, [durationMs]);
 
@@ -1387,6 +1400,9 @@ export default function Flix2PlayerScreen() {
               setErrorMsg(errStr);
               phaseRef.current = "error";
             }
+          }}
+          onPreviewFrame={(dataUrl) => {
+            if (dataUrl) setSeekFrameUrl(dataUrl);
           }}
           progressUpdateIntervalMillis={1000}
         />
@@ -1790,9 +1806,9 @@ export default function Flix2PlayerScreen() {
                     return (
                       <View style={[styles.seekThumbnail, { left: clampedLeft, width: THUMB_W, height: THUMB_H + 22 }]}>
                         <View style={[styles.seekThumbnailImgBox, { width: THUMB_W, height: THUMB_H }]}>
-                          {seekThumbnailUrl ? (
+                          {(seekFrameUrl || seekThumbnailUrl) ? (
                             <Image
-                              source={{ uri: seekThumbnailUrl }}
+                              source={{ uri: seekFrameUrl || seekThumbnailUrl! }}
                               style={StyleSheet.absoluteFill}
                               contentFit="cover"
                             />
