@@ -2679,6 +2679,58 @@ export default function HomeScreen() {
       setTop10Series(s.slice(0, 10));
       setTotals((t) => ({ ...t, series: s.length }));
     }
+
+    // Async: reorder Top 10 using TMDB weekly trending so rankings actually change
+    if (m.length > 0 || s.length > 0) {
+      (async () => {
+        try {
+          const { getApiBase } = await import("@/lib/api");
+          const ctrl = new AbortController();
+          setTimeout(() => ctrl.abort(), 7000);
+          const res = await fetch(`${getApiBase()}/tmdb/trending`, { signal: ctrl.signal });
+          if (!res.ok) return;
+          const data = await res.json();
+          const trendMovieIds: number[] = (data.movies?.results ?? []).map((i: any) => i.id);
+          const trendTvIds: number[]    = (data.tv?.results ?? []).map((i: any) => i.id);
+
+          if (m.length > 0 && trendMovieIds.length > 0) {
+            const movieMap = new Map(m.map((i) => [i.tmdbId, i]));
+            const top10M: typeof m = [];
+            for (const id of trendMovieIds) {
+              const item = movieMap.get(id);
+              if (item) top10M.push(item);
+              if (top10M.length >= 10) break;
+            }
+            if (top10M.length < 10) {
+              const used = new Set(top10M.map((i) => i.tmdbId));
+              for (const item of m) {
+                if (!used.has(item.tmdbId)) top10M.push(item);
+                if (top10M.length >= 10) break;
+              }
+            }
+            if (top10M.length > 0) setTop10Movies(top10M.slice(0, 10));
+          }
+
+          if (s.length > 0 && trendTvIds.length > 0) {
+            const seriesMap = new Map(s.map((i) => [i.tmdbId, i]));
+            const top10S: typeof s = [];
+            for (const id of trendTvIds) {
+              const item = seriesMap.get(id);
+              if (item) top10S.push(item);
+              if (top10S.length >= 10) break;
+            }
+            if (top10S.length < 10) {
+              const used = new Set(top10S.map((i) => i.tmdbId));
+              for (const item of s) {
+                if (!used.has(item.tmdbId)) top10S.push(item);
+                if (top10S.length >= 10) break;
+              }
+            }
+            if (top10S.length > 0) setTop10Series(top10S.slice(0, 10));
+          }
+        } catch {}
+      })();
+    }
     if (aDeduped.length) {
       setAnimes(aDeduped);
       setTotals((t) => ({ ...t, animes: aDeduped.length }));

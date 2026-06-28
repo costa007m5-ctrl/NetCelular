@@ -5680,4 +5680,33 @@ export function isFlixCacheWarm(): boolean {
   return FLIX2_INDEX_CACHE.size > 0;
 }
 
+/**
+ * Batch-check which TMDB IDs are available in the Flix 2.0 catalog.
+ * Used by the mobile app to filter "Related" results to only show
+ * content that actually exists in the streaming catalog.
+ *
+ * GET /flix2/check-ids?ids=12345,67890,...
+ * Response: { available: number[] }
+ */
+router.get("/flix2/check-ids", (req: any, res: any) => {
+  try {
+    const idsParam = String(req.query.ids ?? "");
+    const ids = idsParam.split(",").map((s: string) => parseInt(s, 10)).filter((n: number) => n > 0 && !isNaN(n));
+    if (!ids.length) return res.json({ available: [] });
+
+    const types = ["movies", "series", "animes"];
+    const available: number[] = [];
+    for (const id of ids) {
+      for (const t of types) {
+        const cached = FLIX2_INDEX_CACHE.get(t);
+        if (!cached) continue;
+        if (cached.index[String(id)]) { available.push(id); break; }
+      }
+    }
+    res.json({ available, cacheWarm: FLIX2_INDEX_CACHE.size > 0 });
+  } catch {
+    res.json({ available: [], cacheWarm: false });
+  }
+});
+
 export default router;

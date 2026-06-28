@@ -229,6 +229,30 @@ type DetailsCache = { details: TmdbItem; similar: any[]; seasons: any[]; provide
 const _detailsCache = new Map<string, DetailsCache>();
 const DETAILS_CACHE_TTL = 5 * 60 * 1000;
 
+/**
+ * Filters a list of TMDB "similar" content items to only those
+ * available in the Flix 2.0 catalog. Falls back to the original list
+ * if the cache is not warm yet or fewer than 3 results remain.
+ */
+async function filterSimByAvailability(items: ContentItem[]): Promise<ContentItem[]> {
+  try {
+    const ids = items.map((i) => i.tmdbId).filter((id) => id && id > 0).join(",");
+    if (!ids) return items;
+    const ctrl = new AbortController();
+    setTimeout(() => ctrl.abort(), 5000);
+    const res = await fetch(`${getApiBase()}/r2/flix2/check-ids?ids=${ids}`, { signal: ctrl.signal });
+    if (!res.ok) return items;
+    const data = await res.json();
+    if (!data.cacheWarm) return items;
+    const available = new Set<number>(data.available ?? []);
+    if (available.size === 0) return items;
+    const filtered = items.filter((i) => i.tmdbId && available.has(i.tmdbId));
+    return filtered.length >= 3 ? filtered : items;
+  } catch {
+    return items;
+  }
+}
+
 export default function DetailScreen() {
   const colors = useColors();
   const router = useRouter();
@@ -1195,7 +1219,9 @@ export default function DetailScreen() {
                 : tmdbApi.tmdb.tvSimilar(hit.id),
             ]);
             setDetails(det);
-            setSimilar(sim.map(tmdbItemToContent));
+            const simItems0 = sim.map(tmdbItemToContent);
+            setSimilar(simItems0);
+            filterSimByAvailability(simItems0).then((f) => setSimilar(f)).catch(() => {});
             // Propagate the resolved TMDB ID so episodes/seasons effects can run
             setResolvedTmdbId(hit.id);
             setResolvedType(hitType);
@@ -1327,9 +1353,11 @@ export default function DetailScreen() {
             } catch {}
           }
           setDetails(detWithOverview);
-          setSimilar(sim.map(tmdbItemToContent));
+          const simItemsM = sim.map(tmdbItemToContent);
+          setSimilar(simItemsM);
+          filterSimByAvailability(simItemsM).then((f) => setSimilar(f)).catch(() => {});
           setProviders(prov?.flatrate ?? []);
-          _detailsCache.set(cacheKey, { details: detWithOverview, similar: sim.map(tmdbItemToContent), seasons: [], providers: prov?.flatrate ?? [], ts: Date.now() });
+          _detailsCache.set(cacheKey, { details: detWithOverview, similar: simItemsM, seasons: [], providers: prov?.flatrate ?? [], ts: Date.now() });
           const colId = (det as any)?.belongs_to_collection?.id;
           if (colId) {
             setLoadingCollection(true);
@@ -1373,7 +1401,9 @@ export default function DetailScreen() {
             } catch {}
           }
           setDetails(detWithOverview);
-          setSimilar(sim.map(tmdbItemToContent));
+          const simItemsTV = sim.map(tmdbItemToContent);
+          setSimilar(simItemsTV);
+          filterSimByAvailability(simItemsTV).then((f) => setSimilar(f)).catch(() => {});
           setProviders(prov?.flatrate ?? []);
           const numSeasons = (det as any).number_of_seasons ?? 1;
           const tmdbSeasons: any[] = (det as any).seasons ?? [];
@@ -3729,8 +3759,20 @@ export default function DetailScreen() {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
         {/* Backdrop / Banner Preview */}
         <View style={{ height: BACKDROP_H + topPad }}>
-          {/* Background: stream video (R2 or Flix2) > static backdrop > gradient */}
-          {bannerVideoUrl ? (
+          {/* Layer 1: Static backdrop/gradient — always visible, prevents black flash */}
+          {backdropUri && !imgError ? (
+            <Image
+              source={{ uri: backdropUri }}
+              style={[StyleSheet.absoluteFill, { height: BACKDROP_H + topPad }]}
+              resizeMode="cover"
+              onError={() => setImgError(true)}
+            />
+          ) : (
+            <LinearGradient colors={["#1a0000", "#141414"]} style={[StyleSheet.absoluteFill]} />
+          )}
+
+          {/* Layer 2: Stream video — overlays backdrop once buffered, no black flash */}
+          {bannerVideoUrl && (
             Platform.OS === "web" ? (
               <video
                 ref={bannerVideoRef}
@@ -3752,24 +3794,16 @@ export default function DetailScreen() {
                 <WebView
                   ref={bannerVideoRef}
                   source={{
-                    html: `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>*{margin:0;padding:0;background:#000;overflow:hidden}html,body{width:100%;height:100%}video{width:100%;height:100%;object-fit:cover}</style></head><body><video src="${bannerVideoUrl.replace(/"/g, "&quot;")}" autoplay muted playsinline loop preload="auto"></video></body></html>`,
+                    html: `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>*{margin:0;padding:0;background:transparent;overflow:hidden}html,body{width:100%;height:100%;background:transparent}video{width:100%;height:100%;object-fit:cover}</style></head><body><video src="${bannerVideoUrl.replace(/"/g, "&quot;")}" autoplay muted playsinline loop preload="auto"></video></body></html>`,
                   }}
                   style={StyleSheet.absoluteFill}
                   allowsInlineMediaPlayback
                   mediaPlaybackRequiresUserAction={false}
                   scrollEnabled={false}
+                  backgroundColor="transparent"
                 />
               </View>
             ) : null
-          ) : backdropUri && !imgError ? (
-            <Image
-              source={{ uri: backdropUri }}
-              style={[StyleSheet.absoluteFill, { height: BACKDROP_H + topPad }]}
-              resizeMode="cover"
-              onError={() => setImgError(true)}
-            />
-          ) : (
-            <LinearGradient colors={["#1a0000", "#141414"]} style={[StyleSheet.absoluteFill]} />
           )}
 
           {/* Gradient overlay */}
