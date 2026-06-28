@@ -37,6 +37,7 @@ import {
   Text,
   Vibration,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { Image } from "expo-image";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -153,6 +154,8 @@ export default function Flix2PlayerScreen() {
   const insets = useSafeAreaInsets();
   const topPad = insets.top;
   const { user } = useAuth();
+  // Use live window dimensions so the panel width is correct after rotation.
+  const { width: winW } = useWindowDimensions();
 
   const title = params.title ?? "Assistindo";
   const episodeName = params.episodeName ?? "";
@@ -926,7 +929,7 @@ export default function Flix2PlayerScreen() {
     setPanelSeason(season ?? 1);
     Animated.parallel([
       Animated.spring(panelAnim, { toValue: 1, useNativeDriver: false, tension: 70, friction: 12 }),
-      Animated.spring(videoRightAnim, { toValue: W * 0.5, useNativeDriver: false, tension: 70, friction: 12 }),
+      Animated.spring(videoRightAnim, { toValue: winW * 0.5, useNativeDriver: false, tension: 70, friction: 12 }),
     ]).start();
     showControls();
   }, [season, showControls]);
@@ -1935,7 +1938,7 @@ export default function Flix2PlayerScreen() {
       {/* ── Episodes panel — right half of screen with backdrop wallpaper ─── */}
       <Animated.View
         style={[styles.episodesPanel, {
-          width: panelAnim.interpolate({ inputRange: [0, 1], outputRange: [0, W * 0.5] }),
+          width: panelAnim.interpolate({ inputRange: [0, 1], outputRange: [0, winW * 0.5] }),
           opacity: panelAnim.interpolate({ inputRange: [0, 0.2, 1], outputRange: [0, 0.5, 1] }),
         }]}
         pointerEvents={showEpisodes ? "auto" : "none"}
@@ -1992,7 +1995,7 @@ export default function Flix2PlayerScreen() {
               <Text style={styles.panelEmpty}>Carregando...</Text>
             </View>
           ) : (() => {
-            const cardW = W * 0.5 - 20;
+            const cardW = winW * 0.5 - 20;
             const thumbH = Math.round(cardW * (9 / 16));
 
             const seasonFlix2 = flix2Items
