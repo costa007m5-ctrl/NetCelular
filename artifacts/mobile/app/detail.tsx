@@ -284,11 +284,6 @@ export default function DetailScreen() {
   // Tracks if the background Flix 2.0 lookup is still running (separate from r2Loading)
   const [flix2Loading, setFlix2Loading] = useState(false);
 
-  // Reset banner video when navigating to a different title
-  React.useEffect(() => {
-    setBannerVideoUrl(null);
-  }, [contentKey]);
-
   // Set banner video URL from: R2 signed URL (priority 1) or Flix2 stream (priority 2)
   React.useEffect(() => {
     if (!r2Items.length) return;
@@ -372,6 +367,11 @@ export default function DetailScreen() {
   // Unique key for this piece of content used to store/retrieve admin overrides
   const normalizedTitleKey = `title_${(params.title ?? "").toLowerCase().replace(/[^a-z0-9]/g, "_").slice(0, 80)}`;
   const contentKey = tmdbId ? `${type}_${tmdbId}` : normalizedTitleKey;
+
+  // Reset banner video when navigating to a different title
+  React.useEffect(() => {
+    setBannerVideoUrl(null);
+  }, [contentKey]);
 
   // Admin content override state
   const [contentOverride, setContentOverride] = useState<ContentOverride | null>(null);
