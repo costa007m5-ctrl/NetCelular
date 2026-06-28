@@ -229,7 +229,9 @@ export default function Flix2PlayerScreen() {
   // ── Similar movies panel (movies only, last 10 min) ───────────────────────────
   const [similarMovies, setSimilarMovies] = useState<any[]>([]);
   const [showSimilarPanel, setShowSimilarPanel] = useState(false);
+  const [similarShowButtons, setSimilarShowButtons] = useState(false);
   const similarShownThisSession = useRef(false);
+  const similarNeverShowRef = useRef(false);
 
   // ── Loading screen state ─────────────────────────────────────────────────────
   const loadProgress = useRef(new Animated.Value(0)).current;
@@ -437,12 +439,31 @@ export default function Flix2PlayerScreen() {
 
   // ── Similar panel trigger — show when 10 min remain in a movie ───────────────
   useEffect(() => {
-    if (isTV || phase !== "ready" || durationSec === 0 || similarDismissedRef.current) return;
+    if (isTV || phase !== "ready" || durationSec === 0 || similarNeverShowRef.current) return;
     if (remainingSec > 0 && remainingSec <= 600 && !showSimilarPanel && !similarShownThisSession.current) {
       similarShownThisSession.current = true;
+      setSimilarShowButtons(false);
       setShowSimilarPanel(true);
     }
   }, [remainingSec, isTV, phase, durationSec, showSimilarPanel]);
+
+  // ── Similar panel dismiss handlers ────────────────────────────────────────────
+  const dismissSimilarPanel = useCallback((neverShow: boolean) => {
+    setShowSimilarPanel(false);
+    if (neverShow) {
+      similarNeverShowRef.current = true;
+      if (similarReminderRef.current) { clearTimeout(similarReminderRef.current); similarReminderRef.current = null; }
+      return;
+    }
+    // Schedule re-show in 1.5 min with action buttons
+    if (similarReminderRef.current) clearTimeout(similarReminderRef.current);
+    similarReminderRef.current = setTimeout(() => {
+      if (!similarNeverShowRef.current) {
+        setSimilarShowButtons(true);
+        setShowSimilarPanel(true);
+      }
+    }, 90000);
+  }, []);
 
   // ── TMDB tips ────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -1892,24 +1913,34 @@ export default function Flix2PlayerScreen() {
 
       {/* Dim overlay when episodes panel open */}
       {showEpisodes && (
-        <Pressable style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.45)" }]} onPress={closeEpisodesPanel} />
+        <Pressable style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.55)" }]} onPress={closeEpisodesPanel} />
       )}
 
-      {/* ── Episodes panel ─────────────────────────────────────────────────── */}
+      {/* ── Episodes panel — right half of screen with backdrop wallpaper ─── */}
       <Animated.View
         style={[styles.episodesPanel, {
           width: panelAnim.interpolate({ inputRange: [0, 1], outputRange: [0, W * 0.5] }),
-          opacity: panelAnim.interpolate({ inputRange: [0, 0.25, 1], outputRange: [0, 0.6, 1] }),
+          opacity: panelAnim.interpolate({ inputRange: [0, 0.2, 1], outputRange: [0, 0.5, 1] }),
         }]}
         pointerEvents={showEpisodes ? "auto" : "none"}
       >
-        {/* Header */}
+        {/* Backdrop wallpaper fills the entire panel */}
+        {backdropUri ? (
+          <Image source={{ uri: backdropUri }} style={StyleSheet.absoluteFill} contentFit="cover" blurRadius={10} />
+        ) : null}
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(5,5,5,0.87)" }]} pointerEvents="none" />
+
+        {/* Header — shows backdrop image clearly */}
         <View style={styles.panelHeader}>
+          {backdropUri ? (
+            <Image source={{ uri: backdropUri }} style={StyleSheet.absoluteFill} contentFit="cover" />
+          ) : null}
+          <View style={styles.panelBackdropGrad} />
           <View style={styles.panelHeaderRow}>
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={styles.panelTitle} numberOfLines={1}>{title}</Text>
               {season != null && episode != null && (
-                <Text style={styles.panelCurrentEp}>T{season} · Ep {episode}</Text>
+                <Text style={styles.panelCurrentEp}>Assistindo: T{season} · Ep {episode}</Text>
               )}
             </View>
             <Pressable style={styles.panelCloseBtn} onPress={closeEpisodesPanel}>
@@ -1922,7 +1953,7 @@ export default function Flix2PlayerScreen() {
         <Pressable style={styles.panelAutoPlayRow} onPress={() => setContinuousPlay(!continuousPlay)}>
           <Feather name="repeat" size={13} color={continuousPlay ? RED : "#555"} />
           <Text style={[styles.panelAutoPlayText, continuousPlay && { color: "#ddd" }]}>
-            {continuousPlay ? "Contínua ativada" : "Contínua desativada"}
+            Reprodução contínua {continuousPlay ? "ativada" : "desativada"}
           </Text>
           <View style={[styles.panelAutoPlayToggle, continuousPlay && { backgroundColor: RED }]}>
             <View style={[styles.panelAutoPlayKnob, continuousPlay && { marginLeft: 14 }]} />
@@ -1939,42 +1970,84 @@ export default function Flix2PlayerScreen() {
           </ScrollView>
         )}
 
-        <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 10, gap: 10 }}>
+        <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 10, paddingVertical: 10, gap: 14 }}>
           {panelLoading ? (
             <View style={{ padding: 24, alignItems: "center" }}>
               <Text style={styles.panelEmpty}>Carregando...</Text>
             </View>
           ) : (() => {
             const cardW = W * 0.5 - 20;
-            const thumbH = Math.round(cardW / (16 / 9));
+            const thumbH = Math.round(cardW * (9 / 16));
+
             const seasonFlix2 = flix2Items
               .filter((i) => i.season === panelSeason && i.episode != null)
               .sort((a, b) => (a.episode ?? 0) - (b.episode ?? 0));
 
-            if (seasonFlix2.length === 0 && panelEpisodes.length > 0) {
-              return panelEpisodes.map((tmdbEp: any) => (
-                <View key={tmdbEp.episode_number} style={styles.panelEpCard}>
-                  {/* Thumbnail */}
+            const renderEpCard = (item: Flix2Item | null, tmdbEp: any, key: string | number) => {
+              const isCurrentEp = item ? (item.season === season && item.episode === episode) : false;
+              const epNum = item?.episode ?? tmdbEp?.episode_number;
+              const epName = tmdbEp?.name ?? item?.label ?? "";
+              const stillUri = tmdbEp?.still_path ? TMDB_IMG(tmdbEp.still_path, "w300") : null;
+              const runtime = tmdbEp?.runtime;
+              const overview = tmdbEp?.overview ?? "";
+              const rating = tmdbEp?.vote_average;
+              return (
+                <Pressable
+                  key={key}
+                  style={[styles.panelEpCard, isCurrentEp && styles.panelEpCardActive]}
+                  onPress={() => { if (item) { haptic(20); goToEpisode(item); } }}
+                >
+                  {/* 16:9 thumbnail */}
                   <View style={[styles.panelEpCardThumb, { height: thumbH }]}>
-                    {tmdbEp.still_path ? (
-                      <Image source={{ uri: TMDB_IMG(tmdbEp.still_path, "w300") ?? "" }} style={StyleSheet.absoluteFill} contentFit="cover" />
+                    {stillUri ? (
+                      <Image source={{ uri: stillUri }} style={StyleSheet.absoluteFill} contentFit="cover" />
                     ) : (
                       <View style={[StyleSheet.absoluteFill, styles.panelEpThumbFallback]}>
-                        <Feather name="film" size={22} color="#444" />
+                        <Feather name="film" size={26} color="#333" />
                       </View>
                     )}
+                    <View style={styles.panelEpThumbGrad} pointerEvents="none" />
+                    {isCurrentEp && (
+                      <View style={styles.panelEpPlayOverlay}>
+                        <View style={styles.panelEpPlayCircle}>
+                          <Feather name="pause" size={20} color="#fff" />
+                        </View>
+                      </View>
+                    )}
+                    <View style={styles.panelEpNumBadge}>
+                      <Text style={styles.panelEpNumBadgeText}>
+                        {`T${item?.season ?? panelSeason} · E${epNum}`}
+                      </Text>
+                    </View>
+                    {runtime ? (
+                      <View style={styles.panelEpRuntimeBadge}>
+                        <Text style={styles.panelEpRuntimeBadgeText}>{runtime}min</Text>
+                      </View>
+                    ) : null}
                   </View>
-                  {/* Info */}
+                  {/* Info below thumbnail */}
                   <View style={styles.panelEpCardInfo}>
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                      <Text style={styles.panelEpNum}>T{panelSeason} · Ep {tmdbEp.episode_number}</Text>
-                      {tmdbEp.runtime ? <Text style={styles.panelEpRuntime}>{tmdbEp.runtime}min</Text> : null}
+                      {isCurrentEp && <View style={styles.panelEpActiveDot} />}
+                      <Text style={[styles.panelEpName, isCurrentEp && { color: RED }]} numberOfLines={2}>
+                        {epName || `Episódio ${epNum}`}
+                      </Text>
                     </View>
-                    <Text style={styles.panelEpName} numberOfLines={2}>{tmdbEp.name}</Text>
-                    {tmdbEp.overview ? <Text style={styles.panelEpOverview} numberOfLines={3}>{tmdbEp.overview}</Text> : null}
+                    {rating && rating > 0 ? (
+                      <Text style={styles.panelEpRating}>⭐ {(rating as number).toFixed(1)}</Text>
+                    ) : null}
+                    {overview ? (
+                      <Text style={styles.panelEpOverview} numberOfLines={3}>{overview}</Text>
+                    ) : null}
                   </View>
-                </View>
-              ));
+                </Pressable>
+              );
+            };
+
+            if (seasonFlix2.length === 0 && panelEpisodes.length > 0) {
+              return panelEpisodes.map((tmdbEp: any) =>
+                renderEpCard(null, tmdbEp, tmdbEp.episode_number)
+              );
             }
 
             if (seasonFlix2.length === 0) {
@@ -1982,41 +2055,70 @@ export default function Flix2PlayerScreen() {
             }
 
             return seasonFlix2.map((item) => {
-              const isCurrentEp = item.season === season && item.episode === episode;
               const tmdbEp = panelEpisodes.find((e: any) => e.episode_number === item.episode);
-              return (
-                <Pressable
-                  key={item.id}
-                  style={[styles.panelEpRow, isCurrentEp && styles.panelEpRowActive]}
-                  onPress={() => { haptic(20); goToEpisode(item); }}
-                >
-                  <View style={styles.panelEpThumb}>
-                    {tmdbEp?.still_path ? (
-                      <Image source={{ uri: TMDB_IMG(tmdbEp.still_path, "w300") ?? "" }} style={StyleSheet.absoluteFill} contentFit="cover" />
-                    ) : (
-                      <View style={[StyleSheet.absoluteFill, styles.panelEpThumbFallback]}>
-                        <Feather name="film" size={16} color="#555" />
-                      </View>
-                    )}
-                    {isCurrentEp && <View style={styles.panelEpPlayOverlay}><Feather name="pause" size={18} color="#fff" /></View>}
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                      <Text style={[styles.panelEpNum, isCurrentEp && { color: RED }]}>T{item.season} · Ep {item.episode}</Text>
-                      {isCurrentEp && <Text style={[styles.panelEpWatchedTxt, { color: RED }]}>Em andamento</Text>}
-                      {tmdbEp?.runtime && <Text style={styles.panelEpRuntime}>{tmdbEp.runtime}min</Text>}
-                    </View>
-                    <Text style={styles.panelEpName} numberOfLines={2}>{tmdbEp?.name ?? item.label}</Text>
-                    {tmdbEp?.overview ? (
-                      <Text style={styles.panelEpOverview} numberOfLines={2}>{tmdbEp.overview}</Text>
-                    ) : null}
-                  </View>
-                </Pressable>
-              );
+              return renderEpCard(item, tmdbEp, item.id);
             });
           })()}
         </ScrollView>
       </Animated.View>
+
+      {/* ── Similar movies panel (movies only, last 10 min) ─────────────── */}
+      {showSimilarPanel && !isTV && similarMovies.length > 0 && (
+        <View style={styles.similarPanel} pointerEvents="box-none">
+          {(backdropPath || posterPath) ? (
+            <Image
+              source={{ uri: TMDB_IMG(backdropPath ?? posterPath, "w780") ?? "" }}
+              style={StyleSheet.absoluteFill}
+              contentFit="cover"
+              blurRadius={22}
+            />
+          ) : null}
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.8)" }]} pointerEvents="none" />
+          <View style={styles.similarPanelInner} pointerEvents="box-none">
+            <View style={styles.similarHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.similarTitle}>Você também pode gostar</Text>
+                <Text style={styles.similarSubtitle}>Faltam menos de 10 min para o fim</Text>
+              </View>
+              <Pressable style={styles.panelCloseBtn} onPress={() => dismissSimilarPanel(false)}>
+                <Feather name="x" size={18} color="#fff" />
+              </Pressable>
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.similarScroll}>
+              {similarMovies.map((m: any) => (
+                <Pressable key={m.id} style={styles.similarCard} onPress={() => dismissSimilarPanel(false)}>
+                  {m.poster_path ? (
+                    <Image source={{ uri: `https://image.tmdb.org/t/p/w342${m.poster_path}` }} style={styles.similarCardImg} contentFit="cover" />
+                  ) : (
+                    <View style={[styles.similarCardImg, styles.panelEpThumbFallback]}>
+                      <Feather name="film" size={24} color="#333" />
+                    </View>
+                  )}
+                  <View style={styles.similarCardOverlay} />
+                  {m.vote_average > 0 && (
+                    <View style={styles.similarCardBadge}>
+                      <Text style={styles.similarCardBadgeText}>⭐ {(m.vote_average as number).toFixed(1)}</Text>
+                    </View>
+                  )}
+                  <Text style={styles.similarCardTitle} numberOfLines={2}>{m.title ?? m.name}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+            {similarShowButtons && (
+              <View style={styles.similarBtnsRow}>
+                <Pressable style={styles.similarBtnRemind} onPress={() => dismissSimilarPanel(false)}>
+                  <Feather name="clock" size={13} color="#fff" />
+                  <Text style={styles.similarBtnRemindText}>Mostrar em 1min30s</Text>
+                </Pressable>
+                <Pressable style={styles.similarBtnNever} onPress={() => dismissSimilarPanel(true)}>
+                  <Feather name="x-circle" size={13} color="#e50914" />
+                  <Text style={styles.similarBtnNeverText}>Não mostrar mais</Text>
+                </Pressable>
+              </View>
+            )}
+          </View>
+        </View>
+      )}
 
       {/* ── Sting overlay ───────────────────────────────────────────────────── */}
       {showSting && (
@@ -2203,30 +2305,57 @@ const styles = StyleSheet.create({
   sessionBtnText: { color: "#fff", fontSize: 14, fontWeight: "700" },
 
   // Episodes panel
-  episodesPanel: { position: "absolute", top: 0, right: 0, bottom: 0, backgroundColor: "rgba(10,10,10,0.98)", borderLeftWidth: 1, borderLeftColor: "rgba(255,255,255,0.1)", overflow: "hidden" },
-  panelHeader: { height: 130, overflow: "hidden", position: "relative" },
-  panelBackdropGrad: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.65)" },
-  panelHeaderRow: { position: "absolute", bottom: 0, left: 0, right: 0, flexDirection: "row", alignItems: "flex-end", paddingHorizontal: 16, paddingBottom: 14, gap: 10 },
-  panelTitle: { color: "#fff", fontSize: 16, fontWeight: "800", lineHeight: 20 },
-  panelCurrentEp: { color: "rgba(255,255,255,0.55)", fontSize: 12, marginTop: 3 },
-  panelCloseBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.12)", justifyContent: "center", alignItems: "center", flexShrink: 0 },
-  panelAutoPlayRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.08)" },
-  panelAutoPlayText: { color: "#888", fontSize: 12, fontWeight: "600", flex: 1 },
+  episodesPanel: { position: "absolute", top: 0, right: 0, bottom: 0, borderLeftWidth: 1, borderLeftColor: "rgba(255,255,255,0.08)", overflow: "hidden" },
+  panelHeader: { height: 140, overflow: "hidden", position: "relative" },
+  panelBackdropGrad: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.72)" },
+  panelHeaderRow: { position: "absolute", bottom: 0, left: 0, right: 0, flexDirection: "row", alignItems: "flex-end", paddingHorizontal: 14, paddingBottom: 14, gap: 10 },
+  panelTitle: { color: "#fff", fontSize: 15, fontWeight: "800", lineHeight: 19 },
+  panelCurrentEp: { color: "rgba(255,255,255,0.6)", fontSize: 11, marginTop: 3 },
+  panelCloseBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.14)", justifyContent: "center", alignItems: "center", flexShrink: 0 },
+  panelAutoPlayRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.07)" },
+  panelAutoPlayText: { color: "#888", fontSize: 11, fontWeight: "600", flex: 1 },
   panelAutoPlayToggle: { width: 34, height: 20, backgroundColor: "rgba(255,255,255,0.12)", borderRadius: 10, flexShrink: 0 },
   panelAutoPlayKnob: { width: 16, height: 16, backgroundColor: "#fff", borderRadius: 8, marginTop: 2, marginLeft: 2 },
-  panelSeasonRow: { paddingHorizontal: 12, paddingVertical: 10, maxHeight: 52 },
-  panelSeasonBtn: { paddingHorizontal: 16, paddingVertical: 7, borderRadius: 12, borderWidth: 1, borderColor: "rgba(255,255,255,0.15)", marginRight: 8 },
-  panelSeasonText: { color: "rgba(255,255,255,0.65)", fontSize: 13, fontWeight: "700" },
+  panelSeasonRow: { paddingHorizontal: 10, paddingVertical: 8, maxHeight: 50 },
+  panelSeasonBtn: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 12, borderWidth: 1, borderColor: "rgba(255,255,255,0.15)", marginRight: 6 },
+  panelSeasonText: { color: "rgba(255,255,255,0.65)", fontSize: 12, fontWeight: "700" },
   panelEmpty: { color: "rgba(255,255,255,0.35)", fontSize: 13 },
-  panelEpRow: { flexDirection: "row", gap: 12, paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)" },
-  panelEpRowActive: { backgroundColor: "rgba(229,9,20,0.12)", borderLeftWidth: 3, borderLeftColor: RED },
-  panelEpThumb: { width: 106, height: 62, borderRadius: 8, backgroundColor: "#1e1e1e", overflow: "hidden", flexShrink: 0 },
-  panelEpThumbFallback: { justifyContent: "center", alignItems: "center" },
-  panelEpPlayOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(229,9,20,0.45)", justifyContent: "center", alignItems: "center" },
-  panelEpNum: { color: "rgba(255,255,255,0.55)", fontSize: 11, fontWeight: "700" },
-  panelEpName: { color: "#fff", fontSize: 13, fontWeight: "600", marginTop: 3 },
-  panelEpRuntime: { color: "rgba(255,255,255,0.4)", fontSize: 11, marginTop: 2 },
-  panelEpOverview: { color: "rgba(255,255,255,0.45)", fontSize: 11, marginTop: 4, lineHeight: 15 },
+
+  // Episode card (full-width, stacked: image top + info bottom)
+  panelEpCard: { borderRadius: 12, overflow: "hidden", backgroundColor: "rgba(255,255,255,0.05)", borderWidth: 1, borderColor: "rgba(255,255,255,0.07)" },
+  panelEpCardActive: { borderColor: RED, borderWidth: 1.5, backgroundColor: "rgba(229,9,20,0.08)" },
+  panelEpCardThumb: { width: "100%", backgroundColor: "#111", overflow: "hidden" },
+  panelEpThumbFallback: { justifyContent: "center", alignItems: "center", backgroundColor: "#111" },
+  panelEpThumbGrad: { position: "absolute", bottom: 0, left: 0, right: 0, height: 40, backgroundColor: "rgba(0,0,0,0.5)" },
+  panelEpPlayOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "center", alignItems: "center" },
+  panelEpPlayCircle: { width: 52, height: 52, borderRadius: 26, backgroundColor: "rgba(229,9,20,0.85)", justifyContent: "center", alignItems: "center", borderWidth: 2, borderColor: "#fff" },
+  panelEpNumBadge: { position: "absolute", top: 8, left: 8, backgroundColor: "rgba(0,0,0,0.72)", borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3 },
+  panelEpNumBadgeText: { color: "#fff", fontSize: 10, fontWeight: "700" },
+  panelEpRuntimeBadge: { position: "absolute", top: 8, right: 8, backgroundColor: "rgba(0,0,0,0.72)", borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3 },
+  panelEpRuntimeBadgeText: { color: "rgba(255,255,255,0.75)", fontSize: 10, fontWeight: "600" },
+  panelEpCardInfo: { padding: 10, gap: 4 },
+  panelEpActiveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: RED, flexShrink: 0 },
+  panelEpName: { color: "#fff", fontSize: 13, fontWeight: "700", lineHeight: 17, flex: 1 },
+  panelEpRating: { color: "rgba(255,255,255,0.5)", fontSize: 10, fontWeight: "600" },
+  panelEpOverview: { color: "rgba(255,255,255,0.45)", fontSize: 11, lineHeight: 15, marginTop: 2 },
   panelEpWatchedTxt: { color: RED, fontSize: 10, fontWeight: "700" },
-  panelEpWatchedBadge: { position: "absolute", bottom: 4, right: 4, backgroundColor: "rgba(229,9,20,0.8)", borderRadius: 10, width: 16, height: 16, justifyContent: "center", alignItems: "center" },
+
+  // Similar movies panel (movies only, last 10 min)
+  similarPanel: { position: "absolute", bottom: 0, left: 0, right: 0, overflow: "hidden", borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.1)" },
+  similarPanelInner: { paddingTop: 14, paddingBottom: 16 },
+  similarHeader: { flexDirection: "row", alignItems: "flex-start", paddingHorizontal: 16, marginBottom: 12 },
+  similarTitle: { color: "#fff", fontSize: 14, fontWeight: "800" },
+  similarSubtitle: { color: "rgba(255,255,255,0.5)", fontSize: 11, marginTop: 2 },
+  similarScroll: { paddingHorizontal: 14, gap: 10 },
+  similarCard: { width: 100, borderRadius: 10, overflow: "hidden", backgroundColor: "#111" },
+  similarCardImg: { width: 100, height: 150, borderRadius: 10 },
+  similarCardOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.2)" },
+  similarCardBadge: { position: "absolute", top: 6, left: 6, backgroundColor: "rgba(0,0,0,0.72)", borderRadius: 5, paddingHorizontal: 5, paddingVertical: 2 },
+  similarCardBadgeText: { color: "#fff", fontSize: 9, fontWeight: "700" },
+  similarCardTitle: { position: "absolute", bottom: 0, left: 0, right: 0, color: "#fff", fontSize: 10, fontWeight: "700", paddingHorizontal: 6, paddingBottom: 6, paddingTop: 20, backgroundColor: "rgba(0,0,0,0.55)" },
+  similarBtnsRow: { flexDirection: "row", gap: 10, paddingHorizontal: 14, marginTop: 12 },
+  similarBtnRemind: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, backgroundColor: "rgba(255,255,255,0.12)", borderRadius: 10, paddingVertical: 10 },
+  similarBtnRemindText: { color: "#fff", fontSize: 12, fontWeight: "600" },
+  similarBtnNever: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, backgroundColor: "rgba(229,9,20,0.12)", borderRadius: 10, paddingVertical: 10, borderWidth: 1, borderColor: "rgba(229,9,20,0.3)" },
+  similarBtnNeverText: { color: "#e50914", fontSize: 12, fontWeight: "600" },
 });
