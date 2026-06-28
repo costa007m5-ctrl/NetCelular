@@ -3134,7 +3134,7 @@ export default function DetailScreen() {
             style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.80)", justifyContent: "flex-end" }}
             onPress={() => setShowEditModal(false)}
           >
-            <Pressable onPress={(e) => e.stopPropagation()}>
+            <Pressable onPress={(e) => e.stopPropagation()} style={{ maxHeight: "92%" }}>
               <ScrollView
                 style={{ backgroundColor: "#111", borderTopLeftRadius: 20, borderTopRightRadius: 20, borderWidth: 1, borderBottomWidth: 0, borderColor: "rgba(234,179,8,0.25)" }}
                 contentContainerStyle={{ padding: 20, gap: 14, paddingBottom: 36 }}

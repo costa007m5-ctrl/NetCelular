@@ -40,6 +40,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { Image } from "expo-image";
+import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
@@ -285,6 +286,7 @@ export default function Flix2PlayerScreen() {
   const sleepCheckRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Episode panel: animates video right edge to shrink the video to the left half
   const videoRightAnim = useRef(new Animated.Value(0)).current;
+  const panelScrollY   = useRef(new Animated.Value(0)).current;
   // Similar movies (movies only, last 10 min)
   const similarDismissedRef = useRef(false);
   const similarReminderRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1940,7 +1942,7 @@ export default function Flix2PlayerScreen() {
         <Pressable style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.55)" }]} onPress={closeEpisodesPanel} />
       )}
 
-      {/* ── Episodes panel — right half of screen with backdrop wallpaper ─── */}
+      {/* ── Episodes panel — right half of screen ──────────────────────────── */}
       <Animated.View
         style={[styles.episodesPanel, {
           width: panelAnim.interpolate({ inputRange: [0, 1], outputRange: [0, winW * 0.5] }),
@@ -1948,60 +1950,78 @@ export default function Flix2PlayerScreen() {
         }]}
         pointerEvents={showEpisodes ? "auto" : "none"}
       >
-        {/* Backdrop wallpaper fills the entire panel */}
+        {/* Full-panel blurred background */}
         {backdropUri ? (
-          <Image source={{ uri: backdropUri }} style={StyleSheet.absoluteFill} contentFit="cover" blurRadius={10} />
+          <Image source={{ uri: backdropUri }} style={StyleSheet.absoluteFill} contentFit="cover" blurRadius={20} />
         ) : null}
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(5,5,5,0.87)" }]} pointerEvents="none" />
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(4,4,4,0.85)" }]} pointerEvents="none" />
 
-        {/* Header — shows backdrop image clearly */}
-        <View style={styles.panelHeader}>
+        {/* Floating X — always visible even when header fades */}
+        <Pressable style={styles.panelFloatClose} onPress={closeEpisodesPanel}>
+          <Feather name="x" size={18} color="#fff" />
+        </Pressable>
+
+        {/* ── Collapsible header: fades + collapses as list scrolls ── */}
+        <Animated.View style={[styles.panelHeader, {
+          opacity: panelScrollY.interpolate({ inputRange: [0, 80], outputRange: [1, 0], extrapolate: "clamp" }),
+          height: panelScrollY.interpolate({ inputRange: [0, 120], outputRange: [120, 0], extrapolate: "clamp" }),
+        }]}>
           {backdropUri ? (
             <Image source={{ uri: backdropUri }} style={StyleSheet.absoluteFill} contentFit="cover" />
           ) : null}
-          <View style={styles.panelBackdropGrad} />
-          <View style={styles.panelHeaderRow}>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={styles.panelTitle} numberOfLines={1}>{title}</Text>
-              {season != null && episode != null && (
-                <Text style={styles.panelCurrentEp}>Assistindo: T{season} · Ep {episode}</Text>
-              )}
+          <LinearGradient
+            colors={["transparent", "rgba(0,0,0,0.7)", "rgba(4,4,4,0.97)"]}
+            style={StyleSheet.absoluteFill}
+          />
+          <View style={styles.panelHeaderContent}>
+            <Text style={styles.panelTitle} numberOfLines={1}>{title}</Text>
+            {season != null && episode != null && (
+              <Text style={styles.panelCurrentEp}>Assistindo: T{season} · Ep {episode}</Text>
+            )}
+          </View>
+          <Pressable style={styles.panelAutoPlayRow} onPress={() => setContinuousPlay(!continuousPlay)}>
+            <Feather name="repeat" size={12} color={continuousPlay ? RED : "#555"} />
+            <Text style={[styles.panelAutoPlayText, continuousPlay && { color: "#ddd" }]}>
+              Reprodução contínua
+            </Text>
+            <View style={{ flex: 1 }} />
+            <View style={[styles.panelAutoPlayToggle, continuousPlay && { backgroundColor: RED }]}>
+              <View style={[styles.panelAutoPlayKnob, continuousPlay && { marginLeft: 14 }]} />
             </View>
-            <Pressable style={styles.panelCloseBtn} onPress={closeEpisodesPanel}>
-              <Feather name="x" size={20} color="#fff" />
-            </Pressable>
-          </View>
-        </View>
+          </Pressable>
+        </Animated.View>
 
-        {/* Continuous play toggle */}
-        <Pressable style={styles.panelAutoPlayRow} onPress={() => setContinuousPlay(!continuousPlay)}>
-          <Feather name="repeat" size={13} color={continuousPlay ? RED : "#555"} />
-          <Text style={[styles.panelAutoPlayText, continuousPlay && { color: "#ddd" }]}>
-            Reprodução contínua {continuousPlay ? "ativada" : "desativada"}
-          </Text>
-          <View style={[styles.panelAutoPlayToggle, continuousPlay && { backgroundColor: RED }]}>
-            <View style={[styles.panelAutoPlayKnob, continuousPlay && { marginLeft: 14 }]} />
-          </View>
-        </Pressable>
-
+        {/* ── Sticky season tabs bar ── */}
         {displaySeasons.length > 1 && (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.panelSeasonRow} contentContainerStyle={{ paddingHorizontal: 10, gap: 6 }}>
-            {displaySeasons.map((s) => (
-              <Pressable key={s} onPress={() => { haptic(20); setPanelSeason(s); }} style={[styles.panelSeasonBtn, panelSeason === s && { backgroundColor: RED, borderColor: RED }]}>
-                <Text style={[styles.panelSeasonText, panelSeason === s && { color: "#fff" }]}>T{s}</Text>
-              </Pressable>
-            ))}
-          </ScrollView>
+          <View style={styles.panelSeasonBar}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 12, gap: 6 }}>
+              {displaySeasons.map((s) => (
+                <Pressable key={s} onPress={() => { haptic(20); setPanelSeason(s); }} style={[styles.panelSeasonBtn, panelSeason === s && { backgroundColor: RED, borderColor: RED }]}>
+                  <Text style={[styles.panelSeasonText, panelSeason === s && { color: "#fff" }]}>T{s}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
         )}
 
-        <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 10, paddingVertical: 10, gap: 14 }}>
+        {/* ── Episode list — compact horizontal cards ── */}
+        <Animated.ScrollView
+          style={{ flex: 1 }}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingHorizontal: 10, paddingTop: 8, paddingBottom: 24, gap: 6 }}
+          onScroll={Animated.event(
+            [{ nativeEvent: { contentOffset: { y: panelScrollY } } }],
+            { useNativeDriver: false }
+          )}
+          scrollEventThrottle={16}
+        >
           {panelLoading ? (
-            <View style={{ padding: 24, alignItems: "center" }}>
-              <Text style={styles.panelEmpty}>Carregando...</Text>
+            <View style={{ padding: 32, alignItems: "center" }}>
+              <Text style={styles.panelEmpty}>Carregando episódios…</Text>
             </View>
           ) : (() => {
-            const cardW = winW * 0.5 - 20;
-            const thumbH = Math.round(cardW * (9 / 16));
+            const THUMB_W = Math.round((winW * 0.5 - 20) * 0.38);
+            const THUMB_H = Math.round(THUMB_W * (9 / 16));
 
             const seasonFlix2 = flix2Items
               .filter((i) => i.season === panelSeason && i.episode != null)
@@ -2021,49 +2041,48 @@ export default function Flix2PlayerScreen() {
                   style={[styles.panelEpCard, isCurrentEp && styles.panelEpCardActive]}
                   onPress={() => { if (item) { haptic(20); goToEpisode(item); } }}
                 >
-                  {/* 16:9 thumbnail */}
-                  <View style={[styles.panelEpCardThumb, { height: thumbH }]}>
+                  {/* Compact horizontal: thumbnail left */}
+                  <View style={[styles.panelEpThumb, { width: THUMB_W, height: THUMB_H }]}>
                     {stillUri ? (
                       <Image source={{ uri: stillUri }} style={StyleSheet.absoluteFill} contentFit="cover" />
                     ) : (
                       <View style={[StyleSheet.absoluteFill, styles.panelEpThumbFallback]}>
-                        <Feather name="film" size={26} color="#333" />
+                        <Feather name="film" size={18} color="#2a2a2a" />
                       </View>
                     )}
-                    <View style={styles.panelEpThumbGrad} pointerEvents="none" />
                     {isCurrentEp && (
                       <View style={styles.panelEpPlayOverlay}>
                         <View style={styles.panelEpPlayCircle}>
-                          <Feather name="pause" size={20} color="#fff" />
+                          <Feather name="pause" size={14} color="#fff" />
                         </View>
                       </View>
                     )}
-                    <View style={styles.panelEpNumBadge}>
-                      <Text style={styles.panelEpNumBadgeText}>
-                        {`T${item?.season ?? panelSeason} · E${epNum}`}
-                      </Text>
-                    </View>
-                    {runtime ? (
-                      <View style={styles.panelEpRuntimeBadge}>
-                        <Text style={styles.panelEpRuntimeBadgeText}>{runtime}min</Text>
-                      </View>
-                    ) : null}
                   </View>
-                  {/* Info below thumbnail */}
-                  <View style={styles.panelEpCardInfo}>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                      {isCurrentEp && <View style={styles.panelEpActiveDot} />}
-                      <Text style={[styles.panelEpName, isCurrentEp && { color: RED }]} numberOfLines={2}>
-                        {epName || `Episódio ${epNum}`}
+
+                  {/* Info right side */}
+                  <View style={styles.panelEpInfo}>
+                    {/* Episode number + runtime on same row */}
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                      <Text style={[styles.panelEpNum, isCurrentEp && { color: RED }]}>
+                        {`E${epNum}`}
                       </Text>
+                      {runtime ? (
+                        <Text style={styles.panelEpRuntime}>{runtime} min</Text>
+                      ) : null}
+                      {rating && rating > 0 ? (
+                        <Text style={styles.panelEpRating}>· ⭐ {(rating as number).toFixed(1)}</Text>
+                      ) : null}
                     </View>
-                    {rating && rating > 0 ? (
-                      <Text style={styles.panelEpRating}>⭐ {(rating as number).toFixed(1)}</Text>
-                    ) : null}
+                    <Text style={[styles.panelEpName, isCurrentEp && { color: "#fff" }]} numberOfLines={2}>
+                      {epName || `Episódio ${epNum}`}
+                    </Text>
                     {overview ? (
-                      <Text style={styles.panelEpOverview} numberOfLines={3}>{overview}</Text>
+                      <Text style={styles.panelEpOverview} numberOfLines={2}>{overview}</Text>
                     ) : null}
                   </View>
+
+                  {/* Active indicator — left edge bar */}
+                  {isCurrentEp && <View style={styles.panelEpActiveBar} />}
                 </Pressable>
               );
             };
@@ -2075,7 +2094,12 @@ export default function Flix2PlayerScreen() {
             }
 
             if (seasonFlix2.length === 0) {
-              return <View style={{ padding: 24, alignItems: "center" }}><Text style={styles.panelEmpty}>Nenhum episódio disponível</Text></View>;
+              return (
+                <View style={{ padding: 32, alignItems: "center", gap: 8 }}>
+                  <Feather name="inbox" size={28} color="rgba(255,255,255,0.2)" />
+                  <Text style={styles.panelEmpty}>Nenhum episódio disponível</Text>
+                </View>
+              );
             }
 
             return seasonFlix2.map((item) => {
@@ -2083,7 +2107,7 @@ export default function Flix2PlayerScreen() {
               return renderEpCard(item, tmdbEp, item.id);
             });
           })()}
-        </ScrollView>
+        </Animated.ScrollView>
       </Animated.View>
 
       {/* ── Similar movies panel (movies only, last 10 min) ─────────────── */}
