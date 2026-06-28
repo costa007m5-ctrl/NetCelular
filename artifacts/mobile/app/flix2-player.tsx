@@ -942,18 +942,23 @@ export default function Flix2PlayerScreen() {
   }, []);
 
   // When tmdbId is 0 (Flix 2.0 item without a TMDB ID in the catalog),
-  // search TMDB by title so the episode panel can show rich info.
+  // use the /flix2/lookup endpoint — it has year-qualified title matching,
+  // so "One Piece 1999" won't be confused with "One Piece 2023 (Netflix)".
   useEffect(() => {
     if (!isTV) return;
     if (tmdbId && tmdbId > 0) { setResolvedTmdbId(tmdbId); return; }
     if (!title) return;
     let cancelled = false;
-    api.tmdb.search(title, "tv", 1)
-      .then((results: any) => {
-        const first = Array.isArray(results) ? results[0] : (results?.results ?? [])[0];
-        if (!cancelled && first?.id) setResolvedTmdbId(first.id);
-      })
-      .catch(() => {});
+    getApiBase().then((apiBase) => {
+      return fetch(
+        `${apiBase}/api/flix2/lookup?title=${encodeURIComponent(title)}&type=serie`,
+        { signal: AbortSignal.timeout ? undefined : undefined }
+      ).then((r) => r.json());
+    }).then((fi: any) => {
+      if (!cancelled && fi?.tmdb_id && Number(fi.tmdb_id) > 0) {
+        setResolvedTmdbId(Number(fi.tmdb_id));
+      }
+    }).catch(() => {});
     return () => { cancelled = true; };
   }, [tmdbId, title, isTV]);
 

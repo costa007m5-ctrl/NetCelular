@@ -2660,8 +2660,8 @@ export default function HomeScreen() {
     // tmdb_id=0 means Flix 2.0 doesn't have the TMDB mapping yet — content is still playable.
     const hasId = (i: any) => i.tmdb_id > 0 || (i.id != null && String(i.id).length > 0);
     const m = raw.movies.filter((i: any) => hasId(i) && i.poster && i.title).map(flix2ToContent);
-    const s = raw.series.filter((i: any) => hasId(i) && i.title).map(flix2ToContent);
-    const a = raw.animes.filter((i: any) => hasId(i) && i.title).map(flix2ToContent);
+    const s = raw.series.filter((i: any) => hasId(i) && i.poster && i.title).map(flix2ToContent);
+    const a = raw.animes.filter((i: any) => hasId(i) && i.poster && i.title).map(flix2ToContent);
 
     // Deduplicate: remove from animes any item already in movies or series
     // (Xtream APIs often have the same title in multiple categories)
