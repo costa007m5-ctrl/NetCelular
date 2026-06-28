@@ -274,6 +274,15 @@ export default function DetailScreen() {
   const [bannerVideoUrl, setBannerVideoUrl] = useState<string | null>(null);
   const bannerVideoRef = useRef<any>(null);
 
+  const [r2Items, setR2Items] = useState<RegistryItem[]>([]);
+  // Episode numbers (parsed from R2 filenames) for the current season's folder item
+  const [r2EpisodeNums, setR2EpisodeNums] = useState<Set<number>>(new Set());
+  const [srcSettings, setSrcSettings] = useState<SourceSettings>(DEFAULT_SRC);
+  // Tracks if the R2/Flix2 lookup is still in progress (to avoid race on ASSISTIR AGORA)
+  const [r2Loading, setR2Loading] = useState(true);
+  // Tracks if the background Flix 2.0 lookup is still running (separate from r2Loading)
+  const [flix2Loading, setFlix2Loading] = useState(false);
+
   // Fetch actual R2 video URL for banner preview when sources load
   React.useEffect(() => {
     if (!r2Items.length) return;
@@ -367,15 +376,6 @@ export default function DetailScreen() {
   const [driveMatches, setDriveMatches] = useState<DriveMatch[]>([]);
   const [driveEpisodeMap, setDriveEpisodeMap] = useState<Record<number, DriveItem>>({});
   const [driveSeasonItems, setDriveSeasonItems] = useState<DriveItem[]>([]);
-
-  const [r2Items, setR2Items] = useState<RegistryItem[]>([]);
-  // Episode numbers (parsed from R2 filenames) for the current season's folder item
-  const [r2EpisodeNums, setR2EpisodeNums] = useState<Set<number>>(new Set());
-  const [srcSettings, setSrcSettings] = useState<SourceSettings>(DEFAULT_SRC);
-  // Tracks if the R2/Flix2 lookup is still in progress (to avoid race on ASSISTIR AGORA)
-  const [r2Loading, setR2Loading] = useState(true);
-  // Tracks if the background Flix 2.0 lookup is still running (separate from r2Loading)
-  const [flix2Loading, setFlix2Loading] = useState(false);
   // Synopsis from Flix 2.0 catalog item — used as fallback when TMDB overview is empty
   const [flix2Synopsis, setFlix2Synopsis] = useState("");
   // Guards against running the year-correction lookup more than once
