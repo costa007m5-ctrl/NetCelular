@@ -284,6 +284,11 @@ export default function DetailScreen() {
   // Tracks if the background Flix 2.0 lookup is still running (separate from r2Loading)
   const [flix2Loading, setFlix2Loading] = useState(false);
 
+  // Reset banner video when navigating to a different title
+  React.useEffect(() => {
+    setBannerVideoUrl(null);
+  }, [contentKey]);
+
   // Set banner video URL from: R2 signed URL (priority 1) or Flix2 stream (priority 2)
   React.useEffect(() => {
     if (!r2Items.length) return;
@@ -300,11 +305,23 @@ export default function DetailScreen() {
       })();
       return () => { cancelled = true; };
     }
-    // Priority 2: Flix2 stream — movie items, or S01E01 for series
-    const flix2Item = r2Items.find((i) => isFlixItem(i) && i.flix2Url && !i.episode)
-      ?? r2Items.find((i) => isFlixItem(i) && i.flix2Url && i.season === 1 && i.episode === 1)
-      ?? r2Items.find((i) => isFlixItem(i) && i.flix2Url && i.season === 1)
-      ?? r2Items.find((i) => isFlixItem(i) && !!i.flix2Url);
+    // Priority 2: Flix2 stream
+    // For movies: item with no episode number
+    // For series: prefer the episode matching localProgress (continue watching),
+    //             then fall back to S01E01, then first episode of S1
+    const progressSeason = localProgress?.season;
+    const progressEpisode = localProgress?.episode;
+    const flix2Item =
+      // Movie-level item (no episode)
+      r2Items.find((i) => isFlixItem(i) && i.flix2Url && !i.episode) ??
+      // Continue watching: episode matching saved progress
+      (progressSeason != null && progressEpisode != null
+        ? r2Items.find((i) => isFlixItem(i) && i.flix2Url && i.season === progressSeason && i.episode === progressEpisode)
+        : undefined) ??
+      // Default: S01E01
+      r2Items.find((i) => isFlixItem(i) && i.flix2Url && i.season === 1 && i.episode === 1) ??
+      // Fallback: first episode of season 1
+      r2Items.find((i) => isFlixItem(i) && i.flix2Url && i.season === 1);
     if (flix2Item?.flix2Url) {
       if (Platform.OS === "web") {
         // Web: proxy the stream to avoid CORS issues
@@ -315,7 +332,7 @@ export default function DetailScreen() {
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [r2Items.map((i) => i.id).join(",")]);
+  }, [r2Items.map((i) => i.id).join(","), localProgress?.season, localProgress?.episode]);
 
   // Try to go fullscreen on the banner video; falls back to a navigation call.
   // Web:    uses requestFullscreen() on the <video> element directly — no reload.
