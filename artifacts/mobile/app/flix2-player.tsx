@@ -220,6 +220,9 @@ export default function Flix2PlayerScreen() {
   const [panelLoading, setPanelLoading] = useState(false);
   const panelAnim = useRef(new Animated.Value(0)).current;
 
+  // ── Seek thumbnail (TMDB still / backdrop shown during scrub) ─────────────────
+  const [seekThumbnailUrl, setSeekThumbnailUrl] = useState<string | null>(null);
+
   // ── Loading screen state ─────────────────────────────────────────────────────
   const loadProgress = useRef(new Animated.Value(0)).current;
   const fakeAnim = useRef<Animated.CompositeAnimation | null>(null);
@@ -356,6 +359,51 @@ export default function Flix2PlayerScreen() {
       .catch(() => {});
     return () => ctrl.abort();
   }, [tmdbId, contentType]);
+
+  // ── Seek thumbnail — fetch TMDB episode still (TV) or use backdrop (movie) ────
+  // For TV: GET /tv/{id}/season/{s}/episode/{e} and grab still_path.
+  // For movie: use backdropPath directly.
+  // Result is stored in seekThumbnailUrl and shown during scrubbing.
+  useEffect(() => {
+    // For movies: use the backdrop/poster immediately — no fetch needed.
+    if (!isTV) {
+      const fallback = backdropPath
+        ? `https://image.tmdb.org/t/p/w780${backdropPath}`
+        : posterPath
+        ? `https://image.tmdb.org/t/p/w342${posterPath}`
+        : null;
+      setSeekThumbnailUrl(fallback);
+      return;
+    }
+    // For TV: try to fetch the current episode's still image.
+    if (!tmdbId || season == null || episode == null) {
+      setSeekThumbnailUrl(
+        backdropPath ? `https://image.tmdb.org/t/p/w780${backdropPath}` : null
+      );
+      return;
+    }
+    const ctrl = new AbortController();
+    fetch(
+      `https://api.themoviedb.org/3/tv/${tmdbId}/season/${season}/episode/${episode}?api_key=${TMDB_KEY}`,
+      { signal: ctrl.signal }
+    )
+      .then((r) => r.json())
+      .then((data) => {
+        if (data?.still_path) {
+          setSeekThumbnailUrl(`https://image.tmdb.org/t/p/w780${data.still_path}`);
+        } else {
+          setSeekThumbnailUrl(
+            backdropPath ? `https://image.tmdb.org/t/p/w780${backdropPath}` : null
+          );
+        }
+      })
+      .catch(() => {
+        setSeekThumbnailUrl(
+          backdropPath ? `https://image.tmdb.org/t/p/w780${backdropPath}` : null
+        );
+      });
+    return () => ctrl.abort();
+  }, [tmdbId, isTV, season, episode, backdropPath, posterPath]);
 
   // ── TMDB tips ────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -1734,11 +1782,33 @@ export default function Flix2PlayerScreen() {
                     <View style={[styles.seekFill, { width: `${displayProgress * 100}%` as any }]} />
                     <View style={[styles.seekThumb, { left: `${displayProgress * 100}%` as any, width: isScrubbing ? 18 : 14, height: isScrubbing ? 18 : 14, marginLeft: isScrubbing ? -9 : -7, top: isScrubbing ? (6 - 18) / 2 : (4 - 14) / 2 }]} />
                   </View>
-                  {isScrubbing && (
-                    <View style={[styles.seekTooltip, { left: Math.max(24, Math.min(seekBarWidthRef.current - 40, displayProgress * seekBarWidthRef.current - 24)) }]}>
-                      <Text style={styles.seekTooltipText}>{formatTime(scrubPosition)}</Text>
-                    </View>
-                  )}
+                  {isScrubbing && (() => {
+                    const THUMB_W = 140;
+                    const THUMB_H = 79; // 16:9
+                    const rawLeft = displayProgress * seekBarWidthRef.current - THUMB_W / 2;
+                    const clampedLeft = Math.max(0, Math.min(seekBarWidthRef.current - THUMB_W, rawLeft));
+                    return (
+                      <View style={[styles.seekThumbnail, { left: clampedLeft, width: THUMB_W, height: THUMB_H + 22 }]}>
+                        <View style={[styles.seekThumbnailImgBox, { width: THUMB_W, height: THUMB_H }]}>
+                          {seekThumbnailUrl ? (
+                            <Image
+                              source={{ uri: seekThumbnailUrl }}
+                              style={StyleSheet.absoluteFill}
+                              contentFit="cover"
+                            />
+                          ) : (
+                            <View style={[StyleSheet.absoluteFill, { backgroundColor: "#1a1a1a", justifyContent: "center", alignItems: "center" }]}>
+                              <Feather name="film" size={22} color="#444" />
+                            </View>
+                          )}
+                          <View style={styles.seekThumbnailImgDim} />
+                        </View>
+                        <View style={styles.seekThumbnailTimeRow}>
+                          <Text style={styles.seekThumbnailTime}>{formatTime(scrubPosition)}</Text>
+                        </View>
+                      </View>
+                    );
+                  })()}
                 </View>
                 <Text style={styles.timeText}>{formatTime(durationMs)}</Text>
                 <Pressable
@@ -1998,6 +2068,11 @@ const styles = StyleSheet.create({
   seekThumb: { position: "absolute", backgroundColor: "#fff", borderRadius: 10 },
   seekTooltip: { position: "absolute", bottom: 28, backgroundColor: "rgba(0,0,0,0.75)", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
   seekTooltipText: { color: "#fff", fontSize: 11, fontWeight: "700" },
+  seekThumbnail: { position: "absolute", bottom: 26, overflow: "hidden", borderRadius: 8, borderWidth: 1.5, borderColor: "rgba(255,255,255,0.18)", shadowColor: "#000", shadowOpacity: 0.7, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 10 },
+  seekThumbnailImgBox: { overflow: "hidden", borderTopLeftRadius: 6, borderTopRightRadius: 6 },
+  seekThumbnailImgDim: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.12)" },
+  seekThumbnailTimeRow: { backgroundColor: "rgba(15,15,15,0.95)", alignItems: "center", justifyContent: "center", height: 22 },
+  seekThumbnailTime: { color: "#fff", fontSize: 12, fontWeight: "800", letterSpacing: 0.3 },
 
   // Seek flash
   seekFlash: { position: "absolute", top: 0, bottom: 0, width: W * 0.3, backgroundColor: "rgba(255,255,255,0.18)", justifyContent: "center", alignItems: "center", gap: 8 },
