@@ -453,35 +453,38 @@ export default function ListScreen() {
 
   const loadData = useCallback(async () => {
     setLoading(true);
+
+    // 1. Load local AsyncStorage data immediately (fast, no auth needed)
+    let localMap = new Map<string, number>();
     try {
-      // Build progress map from local AsyncStorage first (fast, no auth needed)
       const localEntries = await getAllLocalProgress();
-      const map = new Map<string, number>();
       for (const e of localEntries) {
-        map.set(e.contentId, e.progress);
+        localMap.set(e.contentId, e.progress);
       }
-      if (map.size > 0) setProgressMap(new Map(map));
+      if (localMap.size > 0) setProgressMap(new Map(localMap));
+    } catch {}
 
-      if (!user?.id || !isSupabaseConfigured) return;
+    // 2. Stop spinner as soon as local data is ready — don't wait for Supabase
+    setLoading(false);
 
+    // 3. Load Supabase in background (non-blocking — spinner already gone)
+    if (!user?.id || !isSupabaseConfigured) return;
+    try {
       const [wl, pr] = await Promise.all([
         db.watchlist.getAll(user.id),
         db.progress.getAll(user.id),
       ]);
       setWatchlist(wl);
 
-      // Merge cloud progress into map (cloud wins — cross-device sync)
+      // Merge cloud progress — cloud wins for cross-device sync
+      const mergedMap = new Map(localMap);
       for (const p of pr) {
         const cid = `${p.type}_${p.tmdb_id}`;
-        map.set(cid, p.progress ?? 0);
+        mergedMap.set(cid, p.progress ?? 0);
       }
-      setProgressMap(new Map(map));
+      setProgressMap(mergedMap);
       setProgress(pr);
-    } catch {
-      // silently ignore — show whatever data was loaded so far
-    } finally {
-      setLoading(false);
-    }
+    } catch {}
   }, [user?.id]);
 
   // Only useFocusEffect — fires on mount AND whenever the tab regains focus

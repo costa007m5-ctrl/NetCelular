@@ -3843,9 +3843,6 @@ export default function DetailScreen() {
                 const resumeS = (type === "tv" && watchProgress?.season) ? watchProgress.season : 1;
                 const resumeE = (type === "tv" && watchProgress?.episode) ? watchProgress.episode : 1;
 
-                // ── Local progress helpers ──────────────────────────────────
-                const hasLocalProgress = !!localProgress && localProgress.progress > 0.02 && localProgress.progress < 0.95;
-
                 function fmtMs(ms: number): string {
                   if (!ms || ms < 1000) return "";
                   const totalSec = Math.floor(ms / 1000);
@@ -3921,6 +3918,70 @@ export default function DetailScreen() {
                 ].filter(Boolean) as { id: string; press: () => void; pressWith: (r?: number) => void }[];
 
                 const primaryPress = sources[0]?.press;
+
+                // ── Continue watching shown FIRST, before any source-loading spinners ──
+                // This ensures the CONTINUAR button is visible even while R2/Flix2 loads.
+                const hasLocalProgress = !!localProgress && localProgress.progress > 0.02 && localProgress.progress < 0.95;
+                if (hasLocalProgress) {
+                  const watchedMs = localProgress!.positionMs ?? 0;
+                  const totalMs   = localProgress!.durationMs ?? 0;
+                  const remainMs  = Math.max(0, totalMs - watchedMs);
+                  const sourcesReady = !r2Loading && sources.length > 0;
+                  return (
+                    <View style={{ marginBottom: 4 }}>
+                      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                        <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 12 }}>
+                          {localProgress!.season != null && localProgress!.episode != null
+                            ? `T${localProgress!.season}·E${localProgress!.episode}  •  ${fmtMs(watchedMs) || `${Math.round(localProgress!.progress * 100)}%`} assistidos`
+                            : `${fmtMs(watchedMs) || `${Math.round(localProgress!.progress * 100)}%`} assistidos`}
+                        </Text>
+                        {remainMs > 0 && (
+                          <Text style={{ color: "rgba(255,255,255,0.65)", fontSize: 12, fontWeight: "600" }}>
+                            {fmtMs(remainMs)} restantes
+                          </Text>
+                        )}
+                      </View>
+                      <View style={{ height: 2, borderRadius: 1, backgroundColor: "rgba(255,255,255,0.12)", overflow: "hidden", marginBottom: 14 }}>
+                        <View style={{ height: 2, borderRadius: 1, backgroundColor: "#e50914", width: `${Math.min((localProgress!.progress) * 100, 100)}%` as any }} />
+                      </View>
+                      {sourcesReady ? (
+                        <>
+                          <Pressable
+                            style={({ pressed }) => [styles.watchBtn, { backgroundColor: colors.primary, marginBottom: 10 }, pressed && { opacity: 0.85 }]}
+                            onPress={() => tryBannerFullscreen(localProgress!.progress, () => sources[0]?.pressWith(localProgress!.progress))}
+                          >
+                            <Feather name="play" size={18} color="#fff" />
+                            <Text style={styles.watchBtnText}>CONTINUAR</Text>
+                          </Pressable>
+                          <Pressable
+                            style={({ pressed }) => [{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 8, marginBottom: 8 }, pressed && { opacity: 0.6 }]}
+                            onPress={() => {
+                              clearLocalProgress(`${type}_${tmdbId}`);
+                              setLocalProgress(null);
+                              tryBannerFullscreen(0, () => sources[0]?.pressWith(0));
+                            }}
+                          >
+                            <Feather name="rotate-ccw" size={13} color="rgba(255,255,255,0.45)" />
+                            <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 13, fontWeight: "600" }}>Começar do início</Text>
+                          </Pressable>
+                        </>
+                      ) : (
+                        <View style={{ height: 48, borderRadius: 10, backgroundColor: "rgba(229,9,20,0.08)", borderWidth: 1, borderColor: "rgba(229,9,20,0.2)", justifyContent: "center", alignItems: "center", flexDirection: "row", gap: 8 }}>
+                          <ActivityIndicator size="small" color="#e50914" />
+                          <Text style={{ color: "rgba(229,9,20,0.7)", fontSize: 12, fontWeight: "500" }}>
+                            {flix2Loading ? "Buscando fonte para continuar…" : "Verificando fontes…"}
+                          </Text>
+                        </View>
+                      )}
+                      {flix2Loading && !hasFlix && (
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 20, backgroundColor: "rgba(139,92,246,0.10)", borderWidth: 1, borderColor: "rgba(139,92,246,0.25)", alignSelf: "flex-start", marginTop: 8 }}>
+                          <ActivityIndicator size={10} color="#8b5cf6" />
+                          <Text style={{ color: "#a78bfa", fontSize: 11, fontWeight: "600" }}>Flix 2.0 buscando…</Text>
+                        </View>
+                      )}
+                    </View>
+                  );
+                }
 
                 if (r2Loading) {
                   return (
@@ -4037,61 +4098,6 @@ export default function DetailScreen() {
                     <Text style={{ color: "#a78bfa", fontSize: 11, fontWeight: "600" }}>Flix 2.0 buscando…</Text>
                   </View>
                 ) : null;
-
-                // ── Continue watching card (shown when local progress exists) ──
-                const continueWatchingUI = hasLocalProgress && sources.length > 0 ? (
-                  <View style={{ marginBottom: 4 }}>
-                    {/* Compact progress info row */}
-                    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                      <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 12 }}>
-                        {localProgress!.season != null && localProgress!.episode != null
-                          ? `T${localProgress!.season}·E${localProgress!.episode}  •  ${fmtMs(watchedMs) || `${Math.round(localProgress!.progress * 100)}%`} assistidos`
-                          : `${fmtMs(watchedMs) || `${Math.round(localProgress!.progress * 100)}%`} assistidos`}
-                      </Text>
-                      {remainMs > 0 && (
-                        <Text style={{ color: "rgba(255,255,255,0.65)", fontSize: 12, fontWeight: "600" }}>
-                          {fmtMs(remainMs)} restantes
-                        </Text>
-                      )}
-                    </View>
-
-                    {/* Thin progress bar */}
-                    <View style={{ height: 2, borderRadius: 1, backgroundColor: "rgba(255,255,255,0.12)", overflow: "hidden", marginBottom: 14 }}>
-                      <View style={{ height: 2, borderRadius: 1, backgroundColor: "#e50914", width: `${Math.min((localProgress!.progress) * 100, 100)}%` as any }} />
-                    </View>
-
-                    {/* CONTINUAR button */}
-                    <Pressable
-                      style={({ pressed }) => [styles.watchBtn, { backgroundColor: colors.primary, marginBottom: 10 }, pressed && { opacity: 0.85 }]}
-                      onPress={() => tryBannerFullscreen(localProgress!.progress, () => sources[0]?.pressWith(localProgress!.progress))}
-                    >
-                      <Feather name="play" size={18} color="#fff" />
-                      <Text style={styles.watchBtnText}>CONTINUAR</Text>
-                    </Pressable>
-
-                    {/* COMEÇAR DO INÍCIO — compact text link */}
-                    <Pressable
-                      style={({ pressed }) => [{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 8, marginBottom: 8 }, pressed && { opacity: 0.6 }]}
-                      onPress={() => {
-                        clearLocalProgress(`${type}_${tmdbId}`);
-                        setLocalProgress(null);
-                        tryBannerFullscreen(0, () => sources[0]?.pressWith(0));
-                      }}
-                    >
-                      <Feather name="rotate-ccw" size={13} color="rgba(255,255,255,0.45)" />
-                      <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 13, fontWeight: "600" }}>Começar do início</Text>
-                    </Pressable>
-                  </View>
-                ) : null;
-
-                if (continueWatchingUI) {
-                  return (
-                    <>
-                      {continueWatchingUI}
-                      {flix2SearchingBadge}
-                    </>
-                  );
-                }
 
                 if (sources.length === 1) {
                   // Single source — show as "ASSISTIR AGORA"
