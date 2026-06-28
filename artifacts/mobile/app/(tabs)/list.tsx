@@ -14,7 +14,7 @@ import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
 import { Image } from "expo-image";
 import { Feather } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/lib/auth-context";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
@@ -135,14 +135,32 @@ const sh = StyleSheet.create({
   seeAll: { fontSize: 12, color: "rgba(255,255,255,0.35)", fontWeight: "600" },
 });
 
+function formatRemaining(posMsRaw?: number | null, durMsRaw?: number | null, pct?: number): string {
+  const posMs = posMsRaw ?? 0;
+  const durMs = durMsRaw ?? 0;
+  if (durMs > 0 && posMs > 0) {
+    const remainSec = Math.round((durMs - posMs) / 1000);
+    if (remainSec <= 0) return "Concluído";
+    const h = Math.floor(remainSec / 3600);
+    const m = Math.floor((remainSec % 3600) / 60);
+    if (h > 0) return `${h}h ${m}min restantes`;
+    if (m > 0) return `${m} min restantes`;
+    return `${remainSec}s restantes`;
+  }
+  const p = pct ?? 0;
+  return p > 0 ? `${Math.round(100 - p)}% restante` : "";
+}
+
 function ContinueCard({ item, onPress }: { item: WatchProgress; onPress: () => void }) {
-  const pct = Math.min(Math.max(item.progress ?? 0, 0), 100);
+  // progress is stored as 0–1 ratio; convert to percentage for display
+  const pct = Math.min(Math.max((item.progress ?? 0) * 100, 0), 100);
   const isLive = item.type === "tv" && item.season == null && item.episode == null;
   const imgUri = item.backdrop_path
     ? `${TMDB}/w780${item.backdrop_path}`
     : item.poster_path
     ? `${TMDB}/w342${item.poster_path}`
     : null;
+  const remainText = formatRemaining((item as any).position_ms, (item as any).duration_ms, pct);
 
   return (
     <Pressable onPress={onPress} style={cc.wrap}>
@@ -169,9 +187,9 @@ function ContinueCard({ item, onPress }: { item: WatchProgress; onPress: () => v
             <Text style={cc.sub}>T{item.season} · E{item.episode ?? 1}</Text>
           )}
           <View style={cc.progressBg}>
-            <View style={[cc.progressBar, { width: `${pct}%` }]} />
+            <View style={[cc.progressBar, { width: `${pct}%` as any }]} />
           </View>
-          <Text style={cc.remaining}>{100 - pct}% restante</Text>
+          {remainText ? <Text style={cc.remaining}>{remainText}</Text> : null}
         </View>
       </View>
     </Pressable>
@@ -466,9 +484,10 @@ export default function ListScreen() {
     setLoading(false);
   }, [user?.id]);
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  useEffect(() => { loadData(); }, [loadData]);
+
+  // Reload whenever the tab gains focus (e.g. returning from a player)
+  useFocusEffect(useCallback(() => { loadData(); }, [loadData]));
 
   const removeWatchlist = async (item: WatchlistItem) => {
     if (!user?.id) return;
