@@ -1582,6 +1582,10 @@ export default function DetailScreen() {
     });
   }, [r2Items, selectedSeason, resolvedType]);
 
+  // Declaradas cedo pois são usadas em toggleList, handleShare e callbacks abaixo
+  const effectivePosterPath = details?.poster_path ?? contentOverride?.poster_path ?? overridePoster ?? null;
+  const effectiveBackdropPath = details?.backdrop_path ?? contentOverride?.backdrop_path ?? overrideBackdrop ?? null;
+
   const toggleList = async () => {
     if (!userId || !details) return;
     if (inList) {
@@ -2514,9 +2518,7 @@ export default function DetailScreen() {
   const genreStr = details?.genres?.map((g) => g.name).join(" • ") ?? "";
   const runtime = (details as any)?.runtime;
   const numSeasons = (details as any)?.number_of_seasons ?? contentOverride?.number_of_seasons ?? null;
-  // Poster e backdrop efetivos: prefere TMDB, cai no override salvo pelo admin, depois no override fetchado direto
-  const effectivePosterPath = details?.poster_path ?? contentOverride?.poster_path ?? overridePoster ?? null;
-  const effectiveBackdropPath = details?.backdrop_path ?? contentOverride?.backdrop_path ?? overrideBackdrop ?? null;
+  // effectivePosterPath e effectiveBackdropPath declaradas acima (antes de toggleList)
   // Fallback chain: manual override → TMDB overview → Flix2 synopsis (for shows with no PT-BR translation yet)
   const overview = contentOverride?.overview_mode === "manual"
     ? (contentOverride?.custom_overview ?? details?.overview ?? flix2Synopsis)
