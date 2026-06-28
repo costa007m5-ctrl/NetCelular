@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/lib/auth-context";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
 import type { WatchlistItem, WatchProgress } from "@/lib/supabase";
+import { getAllLocalProgress } from "@/hooks/useWatchProgress";
 
 const { width: SW } = Dimensions.get("window");
 const TMDB = "https://image.tmdb.org/t/p";
@@ -226,14 +227,17 @@ const cc = StyleSheet.create({
 
 function FavoriteCard({
   item,
+  progress,
   onPress,
   onRemove,
 }: {
   item: WatchlistItem;
+  progress?: number;
   onPress: () => void;
   onRemove: () => void;
 }) {
   const imgUri = item.poster_path ? `${TMDB}/w342${item.poster_path}` : null;
+  const pct = Math.min(Math.max((progress ?? 0) * 100, 0), 100);
 
   return (
     <Pressable onPress={onPress} style={fv.wrap}>
@@ -256,6 +260,11 @@ function FavoriteCard({
         </View>
         <View style={fv.bottom}>
           <Text style={fv.title} numberOfLines={2}>{item.title}</Text>
+          {pct > 2 && pct < 96 && (
+            <View style={fv.progressBg}>
+              <View style={[fv.progressBar, { width: `${pct}%` as any }]} />
+            </View>
+          )}
         </View>
       </View>
     </Pressable>
@@ -299,20 +308,32 @@ const fv = StyleSheet.create({
     borderColor: GLASS_BORDER,
   },
   badgeText: { fontSize: 8, fontWeight: "800", color: "rgba(255,255,255,0.6)", letterSpacing: 0.8 },
-  bottom: { padding: 10 },
+  bottom: { padding: 10, gap: 4 },
   title: { fontSize: 12, fontWeight: "700", color: "#fff", lineHeight: 16 },
+  progressBg: {
+    height: 2,
+    backgroundColor: "rgba(255,255,255,0.15)",
+    borderRadius: 1,
+    overflow: "hidden",
+    marginTop: 2,
+  },
+  progressBar: { height: 2, backgroundColor: RED, borderRadius: 1 },
 });
 
 function SavedRow({
   item,
+  progress,
   onPress,
   onRemove,
 }: {
   item: WatchlistItem;
+  progress?: number;
   onPress: () => void;
   onRemove: () => void;
 }) {
   const imgUri = item.poster_path ? `${TMDB}/w185${item.poster_path}` : null;
+  const pct = Math.min(Math.max((progress ?? 0) * 100, 0), 100);
+  const hasProgress = pct > 2 && pct < 96;
 
   return (
     <Pressable onPress={onPress} style={sr.row}>
@@ -329,9 +350,12 @@ function SavedRow({
       </View>
       <View style={sr.info}>
         <Text style={sr.title} numberOfLines={1}>{item.title}</Text>
-        <Text style={sr.meta}>{item.type === "movie" ? "Filme" : "Série"}</Text>
+        <Text style={sr.meta}>
+          {item.type === "movie" ? "Filme" : "Série"}
+          {hasProgress ? `  ·  ${Math.round(100 - pct)}% restante` : ""}
+        </Text>
         <View style={sr.progressBg}>
-          <View style={[sr.progressBar, { width: "0%" }]} />
+          <View style={[sr.progressBar, { width: `${hasProgress ? pct : 0}%` as any }]} />
         </View>
       </View>
       <View style={sr.actions}>
@@ -405,20 +429,39 @@ export default function ListScreen() {
 
   const [watchlist, setWatchlist] = useState<WatchlistItem[]>([]);
   const [progress, setProgress] = useState<WatchProgress[]>([]);
+  const [progressMap, setProgressMap] = useState<Map<string, number>>(new Map());
   const [activeFilter, setActiveFilter] = useState<Filter>("Todos");
   const [loading, setLoading] = useState(true);
 
   const loadData = useCallback(async () => {
+    setLoading(true);
+
+    // Build progress map from local AsyncStorage first (fast, no auth needed)
+    const localEntries = await getAllLocalProgress();
+    const map = new Map<string, number>();
+    for (const e of localEntries) {
+      map.set(e.contentId, e.progress);
+    }
+    if (map.size > 0) setProgressMap(new Map(map));
+
     if (!user?.id || !isSupabaseConfigured) {
       setLoading(false);
       return;
     }
-    setLoading(true);
+
     const [wl, pr] = await Promise.all([
       db.watchlist.getAll(user.id),
       db.progress.getAll(user.id),
     ]);
     setWatchlist(wl);
+
+    // Merge cloud progress into map (prefer whichever has latest data)
+    for (const p of pr) {
+      const cid = `${p.type}_${p.tmdb_id}`;
+      // Cloud has a timestamp; local doesn't — cloud wins if present
+      map.set(cid, p.progress ?? 0);
+    }
+    setProgressMap(new Map(map));
     setProgress(pr);
     setLoading(false);
   }, [user?.id]);
@@ -559,6 +602,7 @@ export default function ListScreen() {
                     <FavoriteCard
                       key={`${item.tmdb_id}-${item.type}`}
                       item={item}
+                      progress={progressMap.get(`${item.type}_${item.tmdb_id}`)}
                       onPress={() => navigate(item.tmdb_id, item.type, item.title)}
                       onRemove={() => removeWatchlist(item)}
                     />
@@ -575,6 +619,7 @@ export default function ListScreen() {
                   <SavedRow
                     key={`${item.tmdb_id}-${item.type}-row`}
                     item={item}
+                    progress={progressMap.get(`${item.type}_${item.tmdb_id}`)}
                     onPress={() => navigate(item.tmdb_id, item.type, item.title)}
                     onRemove={() => removeWatchlist(item)}
                   />
