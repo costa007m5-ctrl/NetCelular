@@ -908,6 +908,14 @@ export default function Flix2PlayerScreen() {
     else videoRef.current.playAsync().catch(() => {});
   }, [isPlaying, showControls]);
 
+  // Web: Chrome's autoplay policy blocks shouldPlay after a client-side navigation
+  // (router.push changes the URL, making Chrome treat the new page as a fresh load).
+  // When isPlaying becomes true, explicitly call playAsync() to bypass the block.
+  useEffect(() => {
+    if (Platform.OS !== "web" || !isPlaying || !videoRef.current) return;
+    try { (videoRef.current as any).playAsync?.(); } catch {}
+  }, [isPlaying]);
+
   const seekBy = useCallback((deltaMs: number) => {
     if (!videoRef.current || durationMs <= 0) return;
     haptic(20);

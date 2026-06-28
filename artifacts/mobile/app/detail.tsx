@@ -223,6 +223,12 @@ function EpisodeRow({
   );
 }
 
+// Module-level cache — survives component unmount/remount on web (router.push → back).
+// Keyed by "${type}_${tmdbId}". TTL of 5 minutes keeps data fresh enough.
+type DetailsCache = { details: TmdbItem; similar: any[]; seasons: any[]; providers: any[]; ts: number };
+const _detailsCache = new Map<string, DetailsCache>();
+const DETAILS_CACHE_TTL = 5 * 60 * 1000;
+
 export default function DetailScreen() {
   const colors = useColors();
   const router = useRouter();
@@ -1216,6 +1222,21 @@ export default function DetailScreen() {
         .finally(() => setLoading(false));
       return;
     }
+    // On web, expo-router unmounts this screen on router.push (e.g. to flix2-player).
+    // On router.back() the component re-mounts and all effects run again, causing a
+    // full reload. The module-level cache avoids this: if we have fresh data for this
+    // content, apply it immediately without showing the loading spinner.
+    const cacheKey = `${type}_${tmdbId}`;
+    const cachedEntry = _detailsCache.get(cacheKey);
+    if (cachedEntry && Date.now() - cachedEntry.ts < DETAILS_CACHE_TTL) {
+      setDetails(cachedEntry.details);
+      setSimilar(cachedEntry.similar);
+      setSeasons(cachedEntry.seasons);
+      setProviders(cachedEntry.providers);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     setLogoUrl(null);
     const fetchAll = async () => {
@@ -1269,6 +1290,7 @@ export default function DetailScreen() {
           setDetails(detWithOverview);
           setSimilar(sim.map(tmdbItemToContent));
           setProviders(prov?.flatrate ?? []);
+          _detailsCache.set(cacheKey, { details: detWithOverview, similar: sim.map(tmdbItemToContent), seasons: [], providers: prov?.flatrate ?? [], ts: Date.now() });
           const colId = (det as any)?.belongs_to_collection?.id;
           if (colId) {
             setLoadingCollection(true);
@@ -1329,6 +1351,7 @@ export default function DetailScreen() {
             };
           });
           setSeasons(seasonList);
+          _detailsCache.set(cacheKey, { details: detWithOverview, similar: sim.map(tmdbItemToContent), seasons: seasonList, providers: prov?.flatrate ?? [], ts: Date.now() });
         }
         await imagesPromise;
       } catch (e) {
