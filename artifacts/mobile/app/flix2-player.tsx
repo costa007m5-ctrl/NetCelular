@@ -226,6 +226,11 @@ export default function Flix2PlayerScreen() {
   const [seekFrameUrl, setSeekFrameUrl] = useState<string | null>(null);
   const captureThrottleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // ── Similar movies panel (movies only, last 10 min) ───────────────────────────
+  const [similarMovies, setSimilarMovies] = useState<any[]>([]);
+  const [showSimilarPanel, setShowSimilarPanel] = useState(false);
+  const similarShownThisSession = useRef(false);
+
   // ── Loading screen state ─────────────────────────────────────────────────────
   const loadProgress = useRef(new Animated.Value(0)).current;
   const fakeAnim = useRef<Animated.CompositeAnimation | null>(null);
@@ -270,6 +275,11 @@ export default function Flix2PlayerScreen() {
   const hasStartedPlayingRef = useRef(false);
   const lockAnim = useRef(new Animated.Value(1)).current;
   const sleepCheckRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Episode panel: animates video right edge to shrink the video to the left half
+  const videoRightAnim = useRef(new Animated.Value(0)).current;
+  // Similar movies (movies only, last 10 min)
+  const similarDismissedRef = useRef(false);
+  const similarReminderRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Swipe-to-seek ─────────────────────────────────────────────────────────
   const [isSwipeSeeking, setIsSwipeSeeking] = useState(false);
@@ -407,6 +417,32 @@ export default function Flix2PlayerScreen() {
       });
     return () => ctrl.abort();
   }, [tmdbId, isTV, season, episode, backdropPath, posterPath]);
+
+  // ── Similar movies fetch (movies only) — used by the "watch next" panel ──────
+  useEffect(() => {
+    if (isTV || !tmdbId) return;
+    const ctrl = new AbortController();
+    fetch(
+      `https://api.themoviedb.org/3/movie/${tmdbId}/similar?api_key=${TMDB_KEY}&language=pt-BR&page=1`,
+      { signal: ctrl.signal }
+    )
+      .then((r) => r.json())
+      .then((data) => {
+        const results = (data?.results ?? []).filter((m: any) => m.poster_path || m.backdrop_path);
+        setSimilarMovies(results.slice(0, 10));
+      })
+      .catch(() => {});
+    return () => ctrl.abort();
+  }, [tmdbId, isTV]);
+
+  // ── Similar panel trigger — show when 10 min remain in a movie ───────────────
+  useEffect(() => {
+    if (isTV || phase !== "ready" || durationSec === 0 || similarDismissedRef.current) return;
+    if (remainingSec > 0 && remainingSec <= 600 && !showSimilarPanel && !similarShownThisSession.current) {
+      similarShownThisSession.current = true;
+      setShowSimilarPanel(true);
+    }
+  }, [remainingSec, isTV, phase, durationSec, showSimilarPanel]);
 
   // ── TMDB tips ────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -864,12 +900,18 @@ export default function Flix2PlayerScreen() {
   const openEpisodesPanel = useCallback(() => {
     setShowEpisodes(true);
     setPanelSeason(season ?? 1);
-    Animated.timing(panelAnim, { toValue: 1, duration: 280, useNativeDriver: false }).start();
+    Animated.parallel([
+      Animated.spring(panelAnim, { toValue: 1, useNativeDriver: false, tension: 70, friction: 12 }),
+      Animated.spring(videoRightAnim, { toValue: W * 0.5, useNativeDriver: false, tension: 70, friction: 12 }),
+    ]).start();
     showControls();
   }, [season, showControls]);
 
   const closeEpisodesPanel = useCallback(() => {
-    Animated.timing(panelAnim, { toValue: 0, duration: 250, useNativeDriver: false }).start(() => setShowEpisodes(false));
+    Animated.parallel([
+      Animated.spring(panelAnim, { toValue: 0, useNativeDriver: false, tension: 80, friction: 14 }),
+      Animated.spring(videoRightAnim, { toValue: 0, useNativeDriver: false, tension: 80, friction: 14 }),
+    ]).start(() => setShowEpisodes(false));
   }, []);
 
   // Pre-fetch TMDB episodes — eager on mount so names/stills are ready when
@@ -1365,17 +1407,23 @@ export default function Flix2PlayerScreen() {
         </Pressable>
       </Modal>
 
+      {/* ── Backdrop wallpaper — fills black bars behind the video ──────────── */}
+      {(backdropPath || posterPath) ? (
+        <Image
+          source={{ uri: TMDB_IMG(backdropPath ?? posterPath, "w780") ?? "" }}
+          style={StyleSheet.absoluteFill}
+          contentFit="cover"
+          blurRadius={14}
+        />
+      ) : null}
+      {(backdropPath || posterPath) ? (
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.62)" }]} pointerEvents="none" />
+      ) : null}
+
       {/* ── Video player ────────────────────────────────────────────────────── */}
-      {/* IMPORTANT: mount as soon as videoUrl is set (not only when ready).
-          Mounting only on "ready" creates a deadlock: onLoad/onPlaybackStatusUpdate
-          never fire → transitionToReady never called → stuck at 80% forever.
-          We hide the video visually during loading; it becomes visible once ready.
-          
-          Two player modes:
-          • WebViewVideoPlayer — ALL native (Android/iOS) Flix2 URLs.
-            Chrome handles HTTPS→HTTP redirect, IP-bound tokens (request comes from
-            device IP so token matches), special chars like @@ in URL, mixed content.
-          • expo-av Video — web (proxied URL). */}
+      {/* Wrapped in Animated.View so the right edge shrinks when the episode
+          panel opens — the video occupies the left half of the screen.        */}
+      <Animated.View style={{ position: "absolute", top: 0, left: 0, bottom: 0, right: videoRightAnim }}>
       {videoUrl && useWebViewPlayer ? (
         <WebViewVideoPlayer
           ref={videoRef}
@@ -1445,6 +1493,7 @@ export default function Flix2PlayerScreen() {
           shouldCorrectPitch={true}
         />
       ) : null}
+      </Animated.View>
 
       {/* ── Scrub overlay — hide video frames while dragging the seek bar ── */}
       {isScrubbing && (
@@ -1849,25 +1898,18 @@ export default function Flix2PlayerScreen() {
       {/* ── Episodes panel ─────────────────────────────────────────────────── */}
       <Animated.View
         style={[styles.episodesPanel, {
-          width: panelAnim.interpolate({ inputRange: [0, 1], outputRange: [0, W * 0.62] }),
-          opacity: panelAnim.interpolate({ inputRange: [0, 0.3, 1], outputRange: [0, 0.5, 1] }),
+          width: panelAnim.interpolate({ inputRange: [0, 1], outputRange: [0, W * 0.5] }),
+          opacity: panelAnim.interpolate({ inputRange: [0, 0.25, 1], outputRange: [0, 0.6, 1] }),
         }]}
         pointerEvents={showEpisodes ? "auto" : "none"}
       >
-        {/* Header with backdrop */}
+        {/* Header */}
         <View style={styles.panelHeader}>
-          {backdropPath ? (
-            <Image source={{ uri: TMDB_IMG(backdropPath, "w780") ?? "" }} style={StyleSheet.absoluteFill} contentFit="cover" />
-          ) : posterPath ? (
-            <Image source={{ uri: TMDB_IMG(posterPath, "w342") ?? "" }} style={StyleSheet.absoluteFill} contentFit="cover" />
-          ) : null}
-          <View style={styles.panelBackdropGrad} />
-          {/* Title row */}
           <View style={styles.panelHeaderRow}>
             <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={styles.panelTitle} numberOfLines={1}>{title}</Text>
               {season != null && episode != null && (
-                <Text style={styles.panelCurrentEp}>Assistindo: T{season} · Ep {episode}</Text>
+                <Text style={styles.panelCurrentEp}>T{season} · Ep {episode}</Text>
               )}
             </View>
             <Pressable style={styles.panelCloseBtn} onPress={closeEpisodesPanel}>
@@ -1878,9 +1920,9 @@ export default function Flix2PlayerScreen() {
 
         {/* Continuous play toggle */}
         <Pressable style={styles.panelAutoPlayRow} onPress={() => setContinuousPlay(!continuousPlay)}>
-          <Feather name="repeat" size={15} color={continuousPlay ? RED : "#777"} />
-          <Text style={[styles.panelAutoPlayText, continuousPlay && { color: "#fff" }]}>
-            {continuousPlay ? "Reprodução contínua ativada" : "Reprodução contínua desativada"}
+          <Feather name="repeat" size={13} color={continuousPlay ? RED : "#555"} />
+          <Text style={[styles.panelAutoPlayText, continuousPlay && { color: "#ddd" }]}>
+            {continuousPlay ? "Contínua ativada" : "Contínua desativada"}
           </Text>
           <View style={[styles.panelAutoPlayToggle, continuousPlay && { backgroundColor: RED }]}>
             <View style={[styles.panelAutoPlayKnob, continuousPlay && { marginLeft: 14 }]} />
@@ -1888,7 +1930,7 @@ export default function Flix2PlayerScreen() {
         </Pressable>
 
         {displaySeasons.length > 1 && (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.panelSeasonRow}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.panelSeasonRow} contentContainerStyle={{ paddingHorizontal: 10, gap: 6 }}>
             {displaySeasons.map((s) => (
               <Pressable key={s} onPress={() => { haptic(20); setPanelSeason(s); }} style={[styles.panelSeasonBtn, panelSeason === s && { backgroundColor: RED, borderColor: RED }]}>
                 <Text style={[styles.panelSeasonText, panelSeason === s && { color: "#fff" }]}>T{s}</Text>
@@ -1897,37 +1939,39 @@ export default function Flix2PlayerScreen() {
           </ScrollView>
         )}
 
-        <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+        <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 10, gap: 10 }}>
           {panelLoading ? (
             <View style={{ padding: 24, alignItems: "center" }}>
-              <Text style={styles.panelEmpty}>Carregando episódios...</Text>
+              <Text style={styles.panelEmpty}>Carregando...</Text>
             </View>
           ) : (() => {
+            const cardW = W * 0.5 - 20;
+            const thumbH = Math.round(cardW / (16 / 9));
             const seasonFlix2 = flix2Items
               .filter((i) => i.season === panelSeason && i.episode != null)
               .sort((a, b) => (a.episode ?? 0) - (b.episode ?? 0));
 
             if (seasonFlix2.length === 0 && panelEpisodes.length > 0) {
               return panelEpisodes.map((tmdbEp: any) => (
-                <View key={tmdbEp.episode_number} style={styles.panelEpRow}>
-                  <View style={styles.panelEpThumb}>
+                <View key={tmdbEp.episode_number} style={styles.panelEpCard}>
+                  {/* Thumbnail */}
+                  <View style={[styles.panelEpCardThumb, { height: thumbH }]}>
                     {tmdbEp.still_path ? (
                       <Image source={{ uri: TMDB_IMG(tmdbEp.still_path, "w300") ?? "" }} style={StyleSheet.absoluteFill} contentFit="cover" />
-                    ) : ( // fallback icon
+                    ) : (
                       <View style={[StyleSheet.absoluteFill, styles.panelEpThumbFallback]}>
-                        <Feather name="film" size={16} color="#555" />
+                        <Feather name="film" size={22} color="#444" />
                       </View>
                     )}
                   </View>
-                  <View style={{ flex: 1 }}>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                  {/* Info */}
+                  <View style={styles.panelEpCardInfo}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                       <Text style={styles.panelEpNum}>T{panelSeason} · Ep {tmdbEp.episode_number}</Text>
                       {tmdbEp.runtime ? <Text style={styles.panelEpRuntime}>{tmdbEp.runtime}min</Text> : null}
                     </View>
                     <Text style={styles.panelEpName} numberOfLines={2}>{tmdbEp.name}</Text>
-                    {tmdbEp.overview ? (
-                      <Text style={styles.panelEpOverview} numberOfLines={2}>{tmdbEp.overview}</Text>
-                    ) : null}
+                    {tmdbEp.overview ? <Text style={styles.panelEpOverview} numberOfLines={3}>{tmdbEp.overview}</Text> : null}
                   </View>
                 </View>
               ));
