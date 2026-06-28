@@ -1060,19 +1060,40 @@ export default function DetailScreen() {
     }
   }, [userId, tmdbId, type]);
 
-  // Load local AsyncStorage progress every time this screen gains focus
+  // Load local AsyncStorage progress every time this screen gains focus.
+  // Strategy: try "${type}_${tmdbId}" first (normal case). If not found (or tmdbId=0),
+  // fall back to params.flix2Id which carries the raw contentId when navigating
+  // from the Continue Watching row (goTo sends flix2Id = item.id = e.contentId).
   useFocusEffect(
     useCallback(() => {
-      if (!tmdbId) return;
-      const contentId = `${type}_${tmdbId}`;
-      getLocalProgress(contentId).then((entry) => {
-        if (entry && entry.progress > 0.02 && entry.progress < 0.95) {
-          setLocalProgress(entry);
-        } else {
-          setLocalProgress(null);
+      const isValidEntry = (e: WatchEntry | null): e is WatchEntry =>
+        !!e && e.progress > 0.02 && e.progress < 0.95;
+
+      const primaryId = tmdbId ? `${type}_${tmdbId}` : null;
+      // flix2Id holds e.contentId (e.g. "tv_100240") when coming from Continue Watching
+      const fallbackId = (() => {
+        const f = String(params.flix2Id ?? "");
+        return f && f !== "undefined" && f.includes("_") ? f : null;
+      })();
+
+      if (!primaryId && !fallbackId) {
+        setLocalProgress(null);
+        return;
+      }
+
+      (async () => {
+        if (primaryId) {
+          const entry = await getLocalProgress(primaryId);
+          if (isValidEntry(entry)) { setLocalProgress(entry); return; }
         }
-      });
-    }, [type, tmdbId])
+        // Primary not found (or tmdbId=0) — try fallback contentId
+        if (fallbackId && fallbackId !== primaryId) {
+          const entry = await getLocalProgress(fallbackId);
+          if (isValidEntry(entry)) { setLocalProgress(entry); return; }
+        }
+        setLocalProgress(null);
+      })();
+    }, [type, tmdbId, params.flix2Id])
   );
 
   // Load content override (applies to ALL users; only admins can edit it)
@@ -3956,7 +3977,7 @@ export default function DetailScreen() {
                           <Pressable
                             style={({ pressed }) => [{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 8, marginBottom: 8 }, pressed && { opacity: 0.6 }]}
                             onPress={() => {
-                              clearLocalProgress(`${type}_${tmdbId}`);
+                              clearLocalProgress(localProgress!.contentId);
                               setLocalProgress(null);
                               tryBannerFullscreen(0, () => sources[0]?.pressWith(0));
                             }}
