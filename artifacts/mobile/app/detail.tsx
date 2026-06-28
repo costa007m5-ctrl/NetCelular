@@ -486,6 +486,28 @@ export default function DetailScreen() {
           );
         }
 
+        // Guard: quando tmdbId=0 (conteúdo Flix2-only sem TMDB ID), o filtro acima
+        // retorna TODOS os itens com tmdbId=0 — inclusive itens genéricos como
+        // "Dublado HD" que foram salvos sem TMDB ID e contaminam TODOS os conteúdos
+        // sem ID. Aplica sub-filtro por título para manter só itens que realmente
+        // pertencem a este conteúdo.
+        if (tmdbId === 0 && registryItems.length > 0 && (params.title ?? "").length >= 3) {
+          const t0Norm = cleanTitle(String(params.title ?? "")).toLowerCase().replace(/[^a-z0-9]/g, "");
+          const t0Words = t0Norm.match(/[a-z0-9]{5,}/g) ?? [];
+          const matched = registryItems.filter((i: RegistryItem) => {
+            const iNorm = cleanTitle(i.title ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+            if (!iNorm || iNorm.length < 3) return false;
+            if (iNorm === t0Norm) return true;
+            const minLen = Math.min(iNorm.length, t0Norm.length, 8);
+            if (minLen >= 6 && iNorm.slice(0, minLen) === t0Norm.slice(0, minLen)) return true;
+            const iWords = iNorm.match(/[a-z0-9]{5,}/g) ?? [];
+            return t0Words.length > 0 && t0Words.some((w) => iWords.includes(w));
+          });
+          // Só aplica o sub-filtro se encontrou algum item com título correspondente.
+          // Caso contrário mantém todos (conteúdo pode não ter título disponível ainda).
+          if (matched.length > 0) registryItems = matched;
+        }
+
         // Fallback 2: busca por título quando o tmdbId buscado é diferente do registrado
         // (acontece quando a home retorna tmdbId X mas o admin registrou com tmdbId Y)
         // Ex.: home usa ID 31499 mas admin registrou "A Lenda de Tarzan" como ID 2395.
