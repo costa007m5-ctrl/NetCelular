@@ -660,10 +660,53 @@ export default function DetailScreen() {
           );
           if (cancelled) return;
 
+          // ── Title-ownership guard ─────────────────────────────────────────────
+          // The catalog has tmdb_id=0 for all items, so flix2 matches by TITLE.
+          // When two TMDB films share the same title (e.g. "Mestres do Universo" 1987
+          // vs 2026), the same catalog stream is returned for both. Guard: for films
+          // with a known tmdbId, verify we are the highest-vote_count TMDB result for
+          // this title. If not, treat flix2 as not-found → fall through to Veo/Phase 3.
+          let flix2Authoritative = flix2Raw.found;
+          if (flix2Authoritative && tmdbId > 0) {
+            try {
+              // Use type=multi so results always include the media_type field.
+              // type=movie / type=tv endpoints return results WITHOUT media_type,
+              // making it impossible to filter by type after the fact.
+              const expectedMediaType = type === "movie" ? "movie" : "tv";
+              const ownerResp = await fetch(
+                `${getApiBase()}/tmdb/search?q=${encodeURIComponent(lookupTitle)}&type=multi`
+              );
+              if (ownerResp.ok) {
+                const ownerData = await ownerResp.json();
+                const candidates: any[] = (ownerData.results ?? []).filter(
+                  (r: any) => r.media_type === expectedMediaType
+                );
+                const myResult = candidates.find((r: any) => r.id === tmdbId);
+                if (myResult) {
+                  const primaryHit = candidates.reduce((best: any, r: any) => {
+                    if (!best) return r;
+                    return (r.vote_count ?? 0) > (best.vote_count ?? 0) ? r : best;
+                  }, null as any);
+                  // If another film with more ratings is the canonical version of
+                  // this title, the stream belongs to that other film — not us.
+                  if (
+                    primaryHit &&
+                    primaryHit.id !== tmdbId &&
+                    (primaryHit.vote_count ?? 0) > (myResult.vote_count ?? 0)
+                  ) {
+                    flix2Authoritative = false;
+                  }
+                }
+              }
+            } catch { /* keep flix2Authoritative=true on errors */ }
+          }
+          if (cancelled) return;
+          // ── End title-ownership guard ─────────────────────────────────────────
+
           // ── Fase 3: Veo Play fallback ─────────────────────────────────────────
-          // Se Flix 2.0 não encontrou nada, tenta Veo como fonte auxiliar.
+          // Se Flix 2.0 não encontrou nada (ou o match não é deste filme), tenta Veo.
           // Só mostra conteúdo que resolve para vod99.cineveo.lat (não fontedecanais).
-          if (!flix2Raw.found) {
+          if (!flix2Authoritative) {
             try {
               const veoType = type === "movie" ? "movies" : "all";
               const veoRaw = await r2Route<{ found: boolean; item: any; contentType: string }>(
@@ -833,8 +876,10 @@ export default function DetailScreen() {
     const releaseDate = (details as any)?.release_date ?? (details as any)?.first_air_date ?? "";
     const detYear = parseInt(releaseDate.substring(0, 4)) || 0;
     if (!detYear) return;
-    const hasFlixItems = r2Items.some((i) => i.flix2Url);
-    if (!hasFlixItems) return; // Lookup still running — correction not needed yet
+    // Only run year-correction when flix2-auto items are present.
+    // veo-auto items also have flix2Url but are already correct — don't overwrite them.
+    const hasFlix2AutoItems = r2Items.some((i) => i.id.startsWith("flix2-auto-"));
+    if (!hasFlix2AutoItems) return;
 
     flix2YearCorrectedRef.current = true;
 
