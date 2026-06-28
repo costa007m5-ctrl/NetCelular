@@ -419,6 +419,85 @@ router.get("/find/:imdb_id", handle(async (req) => {
   return r.json();
 }));
 
+// IMDB ID → TMDB lookup (used by admin edit modal)
+router.get("/find/:imdbId", handle(async (req) => {
+  const imdbId = String(req.params.imdbId);
+  const key = getKey();
+  const lang = String(req.query.language ?? "pt-BR");
+  const r = await fetch(
+    `https://api.themoviedb.org/3/find/${imdbId}?api_key=${key}&external_source=imdb_id&language=${lang}`
+  );
+  if (!r.ok) throw new Error(`TMDB find ${r.status}`);
+  return r.json();
+}));
+
+// TV season in specific language — en-US fallback for episode names/overviews
+router.get("/tv/:id/season/:season/lang/:lang", handle(async (req) => {
+  const id = Number(req.params.id);
+  const season = Number(req.params.season);
+  const lang = String(req.params.lang);
+  const key = getKey();
+  const r = await fetch(
+    `https://api.themoviedb.org/3/tv/${id}/season/${season}?api_key=${key}&language=${lang}`
+  );
+  if (!r.ok) throw new Error(`TMDB season lang ${r.status}`);
+  return r.json();
+}));
+
+// Episode stills — thumbnail images for episodes missing still_path
+router.get("/tv/:id/season/:season/episode/:ep/images", handle(async (req) => {
+  const id = Number(req.params.id);
+  const season = Number(req.params.season);
+  const ep = Number(req.params.ep);
+  const key = getKey();
+  const r = await fetch(
+    `https://api.themoviedb.org/3/tv/${id}/season/${season}/episode/${ep}/images?api_key=${key}`
+  );
+  if (!r.ok) throw new Error(`TMDB episode images ${r.status}`);
+  return r.json();
+}));
+
+// Videos proxy — trailers for detail screen (avoids exposing TMDB key in mobile)
+router.get("/:mediaType/:id/videos", handle(async (req) => {
+  const mediaType = String(req.params.mediaType);
+  if (!["movie", "tv"].includes(mediaType)) throw new Error("Invalid media type");
+  const id = Number(req.params.id);
+  const key = getKey();
+  const lang = String(req.query.language ?? "pt-BR");
+  const r = await fetch(
+    `https://api.themoviedb.org/3/${mediaType}/${id}/videos?api_key=${key}&language=${lang}`
+  );
+  if (!r.ok) throw new Error(`TMDB videos ${r.status}`);
+  return r.json();
+}));
+
+// Images/logos proxy — logos for detail screen header
+router.get("/:mediaType/:id/images", handle(async (req) => {
+  const mediaType = String(req.params.mediaType);
+  if (!["movie", "tv", "collection"].includes(mediaType)) throw new Error("Invalid media type");
+  const id = Number(req.params.id);
+  const key = getKey();
+  const r = await fetch(
+    `https://api.themoviedb.org/3/${mediaType}/${id}/images?api_key=${key}&include_image_language=pt,en,null`
+  );
+  if (!r.ok) throw new Error(`TMDB images ${r.status}`);
+  return r.json();
+}));
+
+// Language-specific details — en-US overview fallback when pt-BR overview is empty
+router.get("/:mediaType/:id/lang/:lang", handle(async (req) => {
+  const mediaType = String(req.params.mediaType);
+  if (!["movie", "tv"].includes(mediaType)) throw new Error("Invalid media type");
+  const id = Number(req.params.id);
+  const lang = String(req.params.lang);
+  const key = getKey();
+  const r = await fetch(
+    `https://api.themoviedb.org/3/${mediaType}/${id}?api_key=${key}&language=${lang}`
+  );
+  if (!r.ok) throw new Error(`TMDB details lang ${r.status}`);
+  return r.json();
+}));
+
 router.get("/redeflix/url", (req, res) => {
   const type = String(req.query.type ?? "movie");
   const id = String(req.query.id ?? "");

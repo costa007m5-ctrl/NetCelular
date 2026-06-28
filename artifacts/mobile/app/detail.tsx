@@ -31,7 +31,7 @@ import { getLocalProgress, clearLocalProgress } from "@/hooks/useWatchProgress";
 import type { WatchEntry } from "@/hooks/useWatchProgress";
 import { useColors } from "@/hooks/useColors";
 import { ContentCard } from "@/components/ContentCard";
-import { api as tmdbApi, TMDB_IMG, tmdbItemToContent } from "@/lib/api";
+import { api as tmdbApi, TMDB_IMG, tmdbItemToContent, getApiBase } from "@/lib/api";
 import type { TmdbItem, TmdbEpisode, TmdbSeason } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
@@ -1041,14 +1041,12 @@ export default function DetailScreen() {
     }).catch(() => {});
   }, [contentKey, normalizedTitleKey]);
 
-  // When override has a tmdb_id, fetch poster+backdrop directly from TMDB (bypasses server proxy).
-  // This works even if poster_path/backdrop_path columns don't yet exist in content_overrides.
+  // When override has a tmdb_id, fetch poster+backdrop via server proxy.
   useEffect(() => {
     const id = contentOverride?.tmdb_id;
     if (!id) { setOverridePoster(null); setOverrideBackdrop(null); return; }
     const mediaType: string = contentOverride?.tmdb_type ?? (type === "movie" ? "movie" : "tv");
-    const TMDB_KEY = "8f0beb08cf016ec8de49e454e09879ec";
-    fetch(`https://api.themoviedb.org/3/${mediaType}/${id}?api_key=${TMDB_KEY}&language=pt-BR`)
+    fetch(`${getApiBase()}/tmdb/${mediaType}/${id}/lang/pt-BR`)
       .then((r) => r.json())
       .then((d) => {
         setOverridePoster(d?.poster_path ?? null);
@@ -1072,10 +1070,9 @@ export default function DetailScreen() {
       if (!titleQ) { setLoading(false); return; }
       setLoading(true);
       setLogoUrl(null);
-      const TMDB_KEY = "8f0beb08cf016ec8de49e454e09879ec";
       const mediaType = type === "movie" ? "movie" : "tv";
       fetch(
-        `https://api.themoviedb.org/3/search/multi?query=${encodeURIComponent(titleQ)}&api_key=${TMDB_KEY}&language=pt-BR`
+        `${getApiBase()}/tmdb/search?q=${encodeURIComponent(titleQ)}&type=multi`
       )
         .then((r) => r.json())
         .then(async (data) => {
@@ -1117,10 +1114,8 @@ export default function DetailScreen() {
                 };
               }));
             }
-            // Also grab logo + trailer with found id
-            fetch(
-              `https://api.themoviedb.org/3/${hitType}/${hit.id}/images?api_key=${TMDB_KEY}&include_image_language=pt,en,null`
-            )
+            // Also grab logo + trailer with found id (via server proxy)
+            fetch(`${getApiBase()}/tmdb/${hitType}/${hit.id}/images`)
               .then((r) => r.json())
               .then((img) => {
                 const logos: any[] = img.logos ?? [];
@@ -1133,20 +1128,29 @@ export default function DetailScreen() {
                   setLogoUrl(`https://image.tmdb.org/t/p/w500${best.file_path}`);
               })
               .catch(() => {});
-            fetch(
-              `https://api.themoviedb.org/3/${hitType}/${hit.id}/videos?api_key=${TMDB_KEY}&language=pt-BR`
-            )
-              .then((r) => r.json())
-              .then((vd) => {
-                const vids: any[] = vd.results ?? [];
-                const trailer =
-                  vids.find((v) => v.site === "YouTube" && v.type === "Trailer" && v.official) ??
-                  vids.find((v) => v.site === "YouTube" && v.type === "Trailer") ??
-                  vids.find((v) => v.site === "YouTube" && v.type === "Teaser") ??
-                  vids.find((v) => v.site === "YouTube");
-                if (trailer?.key) setTrailerKey(trailer.key);
-              })
-              .catch(() => {});
+            // Extract trailer from det.videos (already included via append_to_response)
+            const detVids: any[] = (det as any).videos?.results ?? [];
+            const detTrailer =
+              detVids.find((v) => v.site === "YouTube" && v.type === "Trailer" && v.official) ??
+              detVids.find((v) => v.site === "YouTube" && v.type === "Trailer") ??
+              detVids.find((v) => v.site === "YouTube" && v.type === "Teaser") ??
+              detVids.find((v) => v.site === "YouTube");
+            if (detTrailer?.key) setTrailerKey(detTrailer.key);
+            // Fallback: fetch videos separately if det had none
+            if (!detTrailer) {
+              fetch(`${getApiBase()}/tmdb/${hitType}/${hit.id}/videos`)
+                .then((r) => r.json())
+                .then((vd) => {
+                  const vids: any[] = vd.results ?? [];
+                  const trailer =
+                    vids.find((v) => v.site === "YouTube" && v.type === "Trailer" && v.official) ??
+                    vids.find((v) => v.site === "YouTube" && v.type === "Trailer") ??
+                    vids.find((v) => v.site === "YouTube" && v.type === "Teaser") ??
+                    vids.find((v) => v.site === "YouTube");
+                  if (trailer?.key) setTrailerKey(trailer.key);
+                })
+                .catch(() => {});
+            }
           } catch (e) {
             console.warn("[detail] TMDB title search fallback error:", e);
           }
@@ -1157,12 +1161,10 @@ export default function DetailScreen() {
     }
     setLoading(true);
     setLogoUrl(null);
-    const TMDB_KEY = "8f0beb08cf016ec8de49e454e09879ec";
     const fetchAll = async () => {
       try {
-        const imagesPromise = fetch(
-          `https://api.themoviedb.org/3/${type}/${tmdbId}/images?api_key=${TMDB_KEY}&include_image_language=pt,en,null`
-        )
+        // Fetch logos via server proxy (no TMDB key in mobile)
+        const imagesPromise = fetch(`${getApiBase()}/tmdb/${type}/${tmdbId}/images`)
           .then((r) => r.json())
           .then((data) => {
             const logos: any[] = data.logos ?? [];
@@ -1173,34 +1175,34 @@ export default function DetailScreen() {
           })
           .catch(() => {});
 
-        const videosPromise = fetch(
-          `https://api.themoviedb.org/3/${type}/${tmdbId}/videos?api_key=${TMDB_KEY}&language=pt-BR`
-        )
-          .then((r) => r.json())
-          .then((vd) => {
-            const results: any[] = vd.results ?? [];
-            const trailer =
-              results.find((v) => v.site === "YouTube" && v.type === "Trailer" && v.official) ??
-              results.find((v) => v.site === "YouTube" && v.type === "Trailer") ??
-              results.find((v) => v.site === "YouTube" && v.type === "Teaser") ??
-              results.find((v) => v.site === "YouTube");
-            if (trailer?.key) setTrailerKey(trailer.key);
-          })
-          .catch(() => {});
+        // Helper: pick best YouTube trailer from a videos result array
+        const pickTrailer = (vids: any[]): any =>
+          vids.find((v) => v.site === "YouTube" && v.type === "Trailer" && v.official) ??
+          vids.find((v) => v.site === "YouTube" && v.type === "Trailer") ??
+          vids.find((v) => v.site === "YouTube" && v.type === "Teaser") ??
+          vids.find((v) => v.site === "YouTube") ??
+          null;
 
         if (type === "movie") {
           const [det, sim, prov] = await Promise.all([
             tmdbApi.tmdb.movie(tmdbId),
             tmdbApi.tmdb.movieSimilar(tmdbId),
             tmdbApi.tmdb.providers("movie", tmdbId),
-            videosPromise,
           ]);
+          // Extract trailer from det.videos (server already appends it via append_to_response)
+          const trailer = pickTrailer((det as any).videos?.results ?? []);
+          if (trailer?.key) setTrailerKey(trailer.key);
+          // Fallback: fetch separately if det had no videos
+          if (!trailer) {
+            fetch(`${getApiBase()}/tmdb/movie/${tmdbId}/videos`)
+              .then((r) => r.json())
+              .then((vd) => { const t = pickTrailer(vd.results ?? []); if (t?.key) setTrailerKey(t.key); })
+              .catch(() => {});
+          }
           let detWithOverview = det;
           if (!det.overview) {
             try {
-              const enRes = await fetch(
-                `https://api.themoviedb.org/3/movie/${tmdbId}?api_key=8f0beb08cf016ec8de49e454e09879ec&language=en-US`
-              );
+              const enRes = await fetch(`${getApiBase()}/tmdb/movie/${tmdbId}/lang/en-US`);
               if (enRes.ok) {
                 const enDet = await enRes.json();
                 if (enDet.overview) detWithOverview = { ...det, overview: enDet.overview };
@@ -1213,7 +1215,7 @@ export default function DetailScreen() {
           const colId = (det as any)?.belongs_to_collection?.id;
           if (colId) {
             setLoadingCollection(true);
-            fetch(`https://api.themoviedb.org/3/collection/${colId}?api_key=8f0beb08cf016ec8de49e454e09879ec&language=pt-BR`)
+            fetch(`${getApiBase()}/tmdb/collection/${colId}`)
               .then((r) => r.json())
               .then((d) => {
                 const parts = (d.parts ?? []).sort((a: any, b: any) => {
@@ -1231,15 +1233,21 @@ export default function DetailScreen() {
             tmdbApi.tmdb.tv(tmdbId),
             tmdbApi.tmdb.tvSimilar(tmdbId),
             tmdbApi.tmdb.providers("tv", tmdbId),
-            videosPromise,
           ]);
-          // If pt-BR overview is empty, fetch en-US and use it as fallback
+          // Extract trailer from det.videos (server already appends it via append_to_response)
+          const trailer = pickTrailer((det as any).videos?.results ?? []);
+          if (trailer?.key) setTrailerKey(trailer.key);
+          if (!trailer) {
+            fetch(`${getApiBase()}/tmdb/tv/${tmdbId}/videos`)
+              .then((r) => r.json())
+              .then((vd) => { const t = pickTrailer(vd.results ?? []); if (t?.key) setTrailerKey(t.key); })
+              .catch(() => {});
+          }
+          // If pt-BR overview is empty, fetch en-US via server proxy
           let detWithOverview = det;
           if (!det.overview) {
             try {
-              const enRes = await fetch(
-                `https://api.themoviedb.org/3/tv/${tmdbId}?api_key=8f0beb08cf016ec8de49e454e09879ec&language=en-US`
-              );
+              const enRes = await fetch(`${getApiBase()}/tmdb/tv/${tmdbId}/lang/en-US`);
               if (enRes.ok) {
                 const enDet = await enRes.json();
                 if (enDet.overview) detWithOverview = { ...det, overview: enDet.overview };
@@ -1310,17 +1318,16 @@ export default function DetailScreen() {
   useEffect(() => {
     if (resolvedType !== "tv" || !resolvedTmdbId) return;
     setLoadingEpisodes(true);
-    const TMDB_KEY_LOCAL = "8f0beb08cf016ec8de49e454e09879ec";
 
     const loadEps = async () => {
       try {
         // Always fetch both locales in parallel — en-US needed for still_path + real names
         // tvSeason is wrapped in .catch so a server error does NOT reject the whole Promise.all
-        // (en-US direct fetch acts as final fallback in that case)
+        // (en-US server proxy acts as final fallback in that case)
         const [ptData, enRes] = await Promise.all([
           tmdbApi.tmdb.tvSeason(resolvedTmdbId, selectedSeason).catch(() => ({ episodes: [] } as any)),
           fetch(
-            `https://api.themoviedb.org/3/tv/${resolvedTmdbId}/season/${selectedSeason}?api_key=${TMDB_KEY_LOCAL}&language=en-US`
+            `${getApiBase()}/tmdb/tv/${resolvedTmdbId}/season/${selectedSeason}/lang/en-US`
           ).catch(() => null),
         ]);
 
@@ -1409,7 +1416,7 @@ export default function DetailScreen() {
           const stillResults = await Promise.allSettled(
             needsStills.map((ep: any) =>
               fetch(
-                `https://api.themoviedb.org/3/tv/${resolvedTmdbId}/season/${selectedSeason}/episode/${ep.episode_number}/images?api_key=${TMDB_KEY_LOCAL}`
+                `${getApiBase()}/tmdb/tv/${resolvedTmdbId}/season/${selectedSeason}/episode/${ep.episode_number}/images`
               )
                 .then((r) => (r.ok ? r.json() : null))
                 .catch(() => null)
@@ -1698,7 +1705,6 @@ export default function DetailScreen() {
   };
 
   // ─── Admin content-override handlers ───────────────────────────────────────
-  const TMDB_KEY_EDIT = "8f0beb08cf016ec8de49e454e09879ec";
 
   const openEditModal = () => {
     const existingId = contentOverride?.tmdb_id?.toString() ?? (tmdbId ? String(tmdbId) : "");
@@ -1738,9 +1744,7 @@ export default function DetailScreen() {
     setFetchingAutoOverview(true);
     try {
       const mediaType = forceType ?? editSearchType;
-      const r = await fetch(
-        `https://api.themoviedb.org/3/${mediaType}/${id}?api_key=${TMDB_KEY_EDIT}&language=pt-BR`
-      );
+      const r = await fetch(`${getApiBase()}/tmdb/${mediaType}/${id}/lang/pt-BR`);
       const data = r.ok ? await r.json() : null;
       if (data) {
         setAutoOverview((data.overview as string) ?? "");
@@ -1765,7 +1769,7 @@ export default function DetailScreen() {
     setEditSearchLoading(true);
     setEditSearchResults([]);
     try {
-      const base = `https://api.themoviedb.org/3/search/${editSearchType}?api_key=${TMDB_KEY_EDIT}&language=pt-BR&query=${encodeURIComponent(q)}`;
+      const base = `${getApiBase()}/tmdb/search?q=${encodeURIComponent(q)}&type=${editSearchType}`;
       const [r1, r2] = await Promise.all([fetch(`${base}&page=1`), fetch(`${base}&page=2`)]);
       const [d1, d2] = await Promise.all([r1.ok ? r1.json() : null, r2.ok ? r2.json() : null]);
       const combined = [...(d1?.results ?? []), ...(d2?.results ?? [])].slice(0, 40);
@@ -1847,8 +1851,7 @@ export default function DetailScreen() {
     setEditErr(null);
     setImdbFoundResult(null);
     try {
-      const base = `https://api.themoviedb.org/3/find/${imdbId}?api_key=${TMDB_KEY_EDIT}&external_source=imdb_id&language=pt-BR`;
-      const r = await fetch(base);
+      const r = await fetch(`${getApiBase()}/tmdb/find/${imdbId}`);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const data = await r.json();
       const movieHit = (data.movie_results ?? [])[0];
