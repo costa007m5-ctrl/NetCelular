@@ -22,6 +22,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { apiList, apiSignedUrl, r2Route, drivePlayDirect } from "@/lib/r2-direct";
+import { saveLocalProgress } from "@/hooks/useWatchProgress";
 import { getApiBase } from "@/lib/api";
 import { TeraboxWebViewResolver } from "@/lib/terabox-webview-resolver";
 import { downloadsManager } from "@/lib/downloads";
@@ -1026,12 +1027,30 @@ export default function R2PlayerScreen() {
     if (dur <= 0 || pos <= 0) return;
     const ratio = Math.min(1, pos / dur);
     if (ratio < 0.02) return;
+    // Save locally (always, regardless of auth)
+    saveLocalProgress({
+      contentId: `${contentType}_${tmdbId}`,
+      tmdbId: String(tmdbId),
+      type: contentType as "movie" | "tv",
+      title,
+      posterPath: posterPath ? `https://image.tmdb.org/t/p/w500${posterPath}` : "",
+      backdropPath: backdropPath ? `https://image.tmdb.org/t/p/w1280${backdropPath}` : "",
+      progress: ratio,
+      positionMs: pos,
+      durationMs: dur,
+      season: isTV && season != null ? season : undefined,
+      episode: isTV && episode != null ? episode : undefined,
+    }).catch(() => {});
+    // Sync to Supabase cloud
+    if (!user?.id || !isSupabaseConfigured) return;
     try {
       await db.progress.upsert({
         user_id: user.id, tmdb_id: tmdbId, type: contentType as "movie" | "tv",
         title, poster_path: posterPath ? `https://image.tmdb.org/t/p/w500${posterPath}` : "",
         backdrop_path: backdropPath ? `https://image.tmdb.org/t/p/w1280${backdropPath}` : "",
         progress: ratio,
+        position_ms: pos,
+        duration_ms: dur,
         ...(isTV && season != null ? { season } : {}),
         ...(isTV && episode != null ? { episode } : {}),
       });

@@ -1044,6 +1044,8 @@ export default function PlayerScreen() {
         poster_path: TMDB_IMG(posterPath || null, "w500") ?? posterPath,
         backdrop_path: TMDB_IMG(backdropPath || null, "w1280") ?? undefined,
         progress: positionRatioRef.current,
+        position_ms: positionMsRef.current,
+        duration_ms: durationMsRef.current,
         ...(type === "tv" ? { season, episode } : {}),
       });
     } catch (e) { setProgressSaved(false); }

@@ -134,6 +134,8 @@ export type WatchProgress = {
   poster_path: string;
   backdrop_path?: string;
   progress: number;
+  position_ms?: number;
+  duration_ms?: number;
   season?: number;
   episode?: number;
   updated_at?: string;
@@ -345,6 +347,12 @@ export const db = {
 
     deleteAll: async (userId: string): Promise<boolean> => {
       const { error } = await supabase.from("watch_progress").delete().eq("user_id", userId);
+      return !error;
+    },
+
+    deleteOne: async (userId: string, tmdbId: number, type: "movie" | "tv"): Promise<boolean> => {
+      const { error } = await supabase.from("watch_progress").delete()
+        .eq("user_id", userId).eq("tmdb_id", tmdbId).eq("type", type);
       return !error;
     },
   },

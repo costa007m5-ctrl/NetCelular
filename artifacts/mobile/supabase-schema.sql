@@ -54,11 +54,17 @@ CREATE TABLE IF NOT EXISTS public.watch_progress (
   poster_path   TEXT,
   backdrop_path TEXT,
   progress      FLOAT       NOT NULL DEFAULT 0,
+  position_ms   BIGINT,
+  duration_ms   BIGINT,
   season        INTEGER,
   episode       INTEGER,
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CONSTRAINT watch_progress_unique UNIQUE (user_id, tmdb_id, type)
 );
+
+-- Add position_ms and duration_ms to existing watch_progress tables (idempotent)
+ALTER TABLE public.watch_progress ADD COLUMN IF NOT EXISTS position_ms BIGINT;
+ALTER TABLE public.watch_progress ADD COLUMN IF NOT EXISTS duration_ms BIGINT;
 
 CREATE TABLE IF NOT EXISTS public.ratings (
   id      UUID    PRIMARY KEY DEFAULT gen_random_uuid(),

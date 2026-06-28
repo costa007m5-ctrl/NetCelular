@@ -2574,48 +2574,73 @@ export default function HomeScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeCategory]);
 
-  // ── continue watching — load from local AsyncStorage (always works) ────────
+  // ── continue watching — merge local AsyncStorage + Supabase cloud ─────────
   const loadContinueItems = useCallback(async () => {
-    const entries = await getAllLocalProgress();
-    if (!entries.length) {
-      // fallback: try Supabase if logged in
-      if (user?.id && isSupabaseConfigured) {
-        db.progress.getAll(user.id).then((items: any[]) =>
-          setContinueItems(items.map((p) => ({
-            id: String(p.tmdb_id),
-            contentId: `${p.type}_${p.tmdb_id}`,
-            tmdbId: p.tmdb_id,
-            title: p.title ?? "Sem título",
-            year: 2024, rating: 0,
-            posterPath: p.poster_path ?? "",
-            backdropPath: p.backdrop_path ?? "",
-            description: "", genres: [],
-            type: p.type === "movie" ? ("movie" as const) : ("series" as const),
-            mediaType: p.type,
-            progress: p.progress ?? 0,
-            positionMs: 0, durationMs: 0,
-          })))
-        ).catch(() => {});
-      }
-      return;
+    // Always load local immediately (fast, no auth needed)
+    const localEntries = await getAllLocalProgress();
+
+    // Build a map keyed by contentId for dedup/merge
+    const map = new Map<string, ContinueItem>();
+
+    for (const e of localEntries) {
+      map.set(e.contentId, {
+        id: e.contentId,
+        contentId: e.contentId,
+        tmdbId: Number(e.tmdbId),
+        title: e.title,
+        year: 2024, rating: 0,
+        posterPath: e.posterPath,
+        backdropPath: e.backdropPath,
+        description: "", genres: [],
+        type: e.type === "tv" ? ("series" as const) : ("movie" as const),
+        mediaType: e.type,
+        progress: e.progress,
+        positionMs: e.positionMs,
+        durationMs: e.durationMs,
+        episodeSeason: e.season,
+        episodeNum: e.episode,
+      });
     }
-    setContinueItems(entries.map((e) => ({
-      id: e.contentId,
-      contentId: e.contentId,
-      tmdbId: Number(e.tmdbId),
-      title: e.title,
-      year: 2024, rating: 0,
-      posterPath: e.posterPath,
-      backdropPath: e.backdropPath,
-      description: "", genres: [],
-      type: e.type === "tv" ? ("series" as const) : ("movie" as const),
-      mediaType: e.type,
-      progress: e.progress,
-      positionMs: e.positionMs,
-      durationMs: e.durationMs,
-      episodeSeason: e.season,
-      episodeNum: e.episode,
-    })));
+
+    // Render local immediately so the row appears without waiting for Supabase
+    if (map.size > 0) setContinueItems(Array.from(map.values()));
+
+    // Merge Supabase data if logged in (may have entries from other devices)
+    if (user?.id && isSupabaseConfigured) {
+      try {
+        const cloudItems = await db.progress.getAll(user.id);
+        for (const p of cloudItems) {
+          const cid = `${p.type}_${p.tmdb_id}`;
+          const existing = map.get(cid);
+          const cloudUpdated = p.updated_at ? new Date(p.updated_at).getTime() : 0;
+          const localUpdated = existing?.positionMs ? (existing as any)._updatedAt ?? 0 : 0;
+          // Prefer the entry with the more recent timestamp
+          if (!existing || cloudUpdated > localUpdated) {
+            map.set(cid, {
+              id: cid,
+              contentId: cid,
+              tmdbId: p.tmdb_id,
+              title: p.title ?? "Sem título",
+              year: 2024, rating: 0,
+              posterPath: p.poster_path ?? "",
+              backdropPath: p.backdrop_path ?? "",
+              description: "", genres: [],
+              type: p.type === "movie" ? ("movie" as const) : ("series" as const),
+              mediaType: p.type,
+              progress: p.progress ?? 0,
+              positionMs: (p as any).position_ms ?? 0,
+              durationMs: (p as any).duration_ms ?? 0,
+              episodeSeason: p.season,
+              episodeNum: p.episode,
+            });
+          }
+        }
+        // Sort merged results by updatedAt descending
+        const merged = Array.from(map.values())
+          .filter((i) => (i.progress ?? 0) > 0.02 && (i.progress ?? 1) < 0.95);
+        setContinueItems(merged);
+      } catch { /* keep local data on cloud error */ }
+    }
   }, [user?.id]);
 
   useEffect(() => { loadContinueItems(); }, [loadContinueItems]);
@@ -3011,7 +3036,7 @@ export default function HomeScreen() {
                   <ScrollView horizontal showsHorizontalScrollIndicator={false}
                     removeClippedSubviews={Platform.OS !== "web"}
                     contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }} decelerationRate="fast">
-                    {continueItems.slice(0, 4).map((item) => (
+                    {continueItems.slice(0, 8).map((item) => (
                       <ContinueCard
                         key={item.id}
                         item={item}
@@ -3019,6 +3044,11 @@ export default function HomeScreen() {
                         onRemove={() => {
                           if (item.contentId) {
                             clearLocalProgress(item.contentId);
+                          }
+                          // Also remove from Supabase cloud (cross-device sync)
+                          if (user?.id && isSupabaseConfigured && item.tmdbId) {
+                            const t = item.mediaType === "movie" ? "movie" : "tv";
+                            db.progress.deleteOne(user.id, item.tmdbId, t as "movie" | "tv").catch(() => {});
                           }
                           setContinueItems((prev) =>
                             prev.filter((i) => i.id !== item.id)

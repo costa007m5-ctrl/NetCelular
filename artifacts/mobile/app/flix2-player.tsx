@@ -878,6 +878,9 @@ export default function Flix2PlayerScreen() {
     if (!tmdbId || !positionMsRef.current || !durationMsRef.current) return;
     const ratio = positionMsRef.current / durationMsRef.current;
     if (ratio < 0.02 || ratio > 0.97) return;
+    const pos = positionMsRef.current;
+    const dur = durationMsRef.current;
+    // Save locally (always works, no auth needed)
     await saveLocalProgress({
       contentId: `${contentType}_${tmdbId}`,
       tmdbId: String(tmdbId),
@@ -886,12 +889,28 @@ export default function Flix2PlayerScreen() {
       posterPath: posterPath ?? "",
       backdropPath: backdropPath ?? "",
       progress: ratio,
-      positionMs: positionMsRef.current,
-      durationMs: durationMsRef.current,
+      positionMs: pos,
+      durationMs: dur,
       season: isTV ? (season ?? undefined) : undefined,
       episode: isTV ? (episode ?? undefined) : undefined,
     });
-  }, [tmdbId, contentType, title, posterPath, backdropPath, season, episode, isTV]);
+    // Also sync to Supabase for cross-device Continue Watching
+    if (user?.id && isSupabaseConfigured) {
+      db.progress.upsert({
+        user_id: user.id,
+        tmdb_id: tmdbId,
+        type: contentType,
+        title,
+        poster_path: posterPath ? `https://image.tmdb.org/t/p/w500${posterPath}` : "",
+        backdrop_path: backdropPath ? `https://image.tmdb.org/t/p/w1280${backdropPath}` : undefined,
+        progress: ratio,
+        position_ms: pos,
+        duration_ms: dur,
+        ...(isTV && season != null ? { season } : {}),
+        ...(isTV && episode != null ? { episode } : {}),
+      }).catch(() => {});
+    }
+  }, [tmdbId, contentType, title, posterPath, backdropPath, season, episode, isTV, user]);
 
   useEffect(() => {
     if (!tmdbId) return;
