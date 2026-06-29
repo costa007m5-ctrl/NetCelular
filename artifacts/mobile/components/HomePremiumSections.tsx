@@ -6,6 +6,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
+  Dimensions,
   Platform,
   Pressable,
   ScrollView,
@@ -1337,6 +1338,856 @@ const psc = StyleSheet.create({
   iconCircle: { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   name: { fontSize: 10, fontWeight: "800", textAlign: "center" },
 });
+
+// ─── 30. SpotlightCarousel ───────────────────────────────────────────────────
+const { width: SPOT_W } = Dimensions.get("window");
+const SPOT_CARD_W = SPOT_W - 64;
+
+export function SpotlightCarousel({ items, onPress }: { items: ContentItem[]; onPress: (i: ContentItem) => void }) {
+  const scrollX = useRef(new Animated.Value(0)).current;
+  const [idx, setIdx] = useState(0);
+  const flatRef = useRef<any>(null);
+  if (!items.length) return null;
+  const onMomentum = (e: any) => {
+    const newIdx = Math.round(e.nativeEvent.contentOffset.x / (SPOT_CARD_W + 16));
+    setIdx(newIdx);
+  };
+  return (
+    <View style={{ marginBottom: 28 }}>
+      <Animated.FlatList
+        ref={flatRef}
+        data={items.slice(0, 8)}
+        horizontal
+        pagingEnabled={false}
+        snapToInterval={SPOT_CARD_W + 16}
+        decelerationRate="fast"
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ paddingHorizontal: 16, gap: 16 }}
+        onScroll={Animated.event([{ nativeEvent: { contentOffset: { x: scrollX } } }], { useNativeDriver: true })}
+        onMomentumScrollEnd={onMomentum}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item, index }) => {
+          const inputRange = [
+            (index - 1) * (SPOT_CARD_W + 16),
+            index * (SPOT_CARD_W + 16),
+            (index + 1) * (SPOT_CARD_W + 16),
+          ];
+          const scale = scrollX.interpolate({ inputRange, outputRange: [0.91, 1, 0.91], extrapolate: "clamp" });
+          const opacity = scrollX.interpolate({ inputRange, outputRange: [0.55, 1, 0.55], extrapolate: "clamp" });
+          return (
+            <SpotlightCard key={item.id} item={item} scale={scale} opacity={opacity} onPress={() => onPress(item)} />
+          );
+        }}
+      />
+      <View style={{ flexDirection: "row", justifyContent: "center", gap: 5, marginTop: 10 }}>
+        {items.slice(0, 8).map((_, i) => (
+          <View key={i} style={{
+            width: i === idx ? 20 : 6, height: 4, borderRadius: 2,
+            backgroundColor: i === idx ? C.red : "rgba(255,255,255,0.18)",
+          }} />
+        ))}
+      </View>
+    </View>
+  );
+}
+function SpotlightCard({ item, scale, opacity, onPress }: { item: ContentItem; scale: any; opacity: any; onPress: () => void }) {
+  const [err, setErr] = useState(false);
+  const { scale: sc, pi, po } = usePressAnim(0.97);
+  return (
+    <Pressable onPress={onPress} onPressIn={pi} onPressOut={po}>
+      <Animated.View style={{ width: SPOT_CARD_W, height: 220, borderRadius: 20, overflow: "hidden", transform: [{ scale: Animated.multiply(scale, sc) }], opacity,
+        ...Platform.select({ ios: { shadowColor: "#000", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.5, shadowRadius: 20 }, android: { elevation: 14 } }) }}>
+        {!err && item.backdropPath
+          ? <Image source={{ uri: item.backdropPath }} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" onError={() => setErr(true)} />
+          : <LinearGradient colors={["#1a0a14","#08060e"]} style={StyleSheet.absoluteFill} />}
+        <LinearGradient colors={["rgba(0,0,0,0.05)","rgba(0,0,0,0.38)","rgba(0,0,0,0.95)"]} locations={[0,0.45,1]} style={StyleSheet.absoluteFill} />
+        <LinearGradient colors={["rgba(0,0,0,0.5)","transparent"]} start={{ x:0,y:0 }} end={{ x:0.4,y:0 }} style={StyleSheet.absoluteFill} />
+        <View style={{ position:"absolute", bottom:0, left:0, right:0, padding:18, gap:8 }}>
+          {item.rating > 0 && (
+            <View style={{ flexDirection:"row", alignItems:"center", gap:4, alignSelf:"flex-start", backgroundColor:"rgba(245,158,11,0.18)", borderRadius:6, paddingHorizontal:7, paddingVertical:3, borderWidth:1, borderColor:"rgba(245,158,11,0.45)" }}>
+              <Text style={{ color:"#f59e0b", fontSize:9, fontWeight:"900" }}>★ {item.rating.toFixed(1)}</Text>
+            </View>
+          )}
+          <Text style={{ color:"#fff", fontSize:20, fontWeight:"900", letterSpacing:-0.5, lineHeight:24 }} numberOfLines={2}>{item.title}</Text>
+          <View style={{ flexDirection:"row", gap:8 }}>
+            <Pressable onPress={onPress} style={{ flexDirection:"row", alignItems:"center", gap:7, backgroundColor:"#e50914", borderRadius:10, paddingHorizontal:16, paddingVertical:10 }}>
+              <Feather name="play" size={14} color="#fff" />
+              <Text style={{ color:"#fff", fontSize:13, fontWeight:"800" }}>Assistir</Text>
+            </Pressable>
+            <View style={{ flexDirection:"row", alignItems:"center", gap:7, backgroundColor:"rgba(255,255,255,0.12)", borderRadius:10, paddingHorizontal:14, paddingVertical:10, borderWidth:1, borderColor:"rgba(255,255,255,0.15)" }}>
+              <Feather name="info" size={14} color="rgba(255,255,255,0.75)" />
+              <Text style={{ color:"rgba(255,255,255,0.75)", fontSize:13, fontWeight:"700" }}>Detalhes</Text>
+            </View>
+          </View>
+        </View>
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+// ─── 31. NeonGenreGrid ────────────────────────────────────────────────────────
+export function NeonGenreGrid({ genres, onPress }: {
+  genres: { id: number; label: string; icon: keyof typeof Feather.glyphMap; color: string }[];
+  onPress: (g: { id: number; label: string }) => void;
+}) {
+  const rows: typeof genres[] = [];
+  for (let i = 0; i < genres.length; i += 2) rows.push(genres.slice(i, i + 2));
+  return (
+    <View style={{ paddingHorizontal: 16, gap: 10, marginBottom: 24 }}>
+      {rows.map((row, ri) => (
+        <View key={ri} style={{ flexDirection: "row", gap: 10 }}>
+          {row.map((g) => <NeonGenreCell key={g.id} g={g} onPress={() => onPress(g)} />)}
+        </View>
+      ))}
+    </View>
+  );
+}
+function NeonGenreCell({ g, onPress }: { g: { id: number; label: string; icon: keyof typeof Feather.glyphMap; color: string }; onPress: () => void }) {
+  const { scale, pi, po } = usePressAnim(0.93);
+  const glow = useShimmer();
+  return (
+    <Pressable onPress={onPress} onPressIn={pi} onPressOut={po} style={{ flex: 1 }}>
+      <Animated.View style={{ flex:1, height:54, borderRadius:14, overflow:"hidden", borderWidth:1, borderColor:`${g.color}44`, transform:[{scale}],
+        ...Platform.select({ ios:{ shadowColor:g.color, shadowOffset:{width:0,height:4}, shadowOpacity:0.45, shadowRadius:10 }, android:{ elevation:6 } }) }}>
+        <LinearGradient colors={[`${g.color}22`, `${g.color}08`, "transparent"]} start={{x:0,y:0}} end={{x:1,y:1}} style={StyleSheet.absoluteFill} />
+        <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor:`${g.color}0a`, opacity:glow }]} />
+        <View style={{ flex:1, flexDirection:"row", alignItems:"center", gap:10, paddingHorizontal:14 }}>
+          <View style={{ width:32, height:32, borderRadius:9, backgroundColor:`${g.color}25`, alignItems:"center", justifyContent:"center" }}>
+            <Feather name={g.icon} size={14} color={g.color} />
+          </View>
+          <Text style={{ color:"#fff", fontSize:13, fontWeight:"800" }}>{g.label}</Text>
+          <Feather name="chevron-right" size={12} color={`${g.color}99`} style={{ marginLeft:"auto" }} />
+        </View>
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+// ─── 32. HotRightNowBanner ────────────────────────────────────────────────────
+export function HotRightNowBanner({ item, viewers = "12.4K", onPress }: {
+  item: ContentItem; viewers?: string; onPress: () => void;
+}) {
+  const { scale, pi, po } = usePressAnim(0.97);
+  const pulse = usePulse(600);
+  const [err, setErr] = useState(false);
+  return (
+    <Pressable onPress={onPress} onPressIn={pi} onPressOut={po} style={{ marginHorizontal:16, marginBottom:24 }}>
+      <Animated.View style={{ borderRadius:18, overflow:"hidden", transform:[{scale}],
+        ...Platform.select({ ios:{ shadowColor:C.red, shadowOffset:{width:0,height:8}, shadowOpacity:0.5, shadowRadius:18 }, android:{ elevation:12 } }) }}>
+        {!err && item.backdropPath
+          ? <Image source={{ uri:item.backdropPath }} style={{ width:"100%", height:180 }} contentFit="cover" cachePolicy="memory-disk" onError={() => setErr(true)} />
+          : <LinearGradient colors={["#2a0a0a","#0a0308"]} style={{ height:180 }} />}
+        <LinearGradient colors={["rgba(0,0,0,0.0)","rgba(0,0,0,0.88)"]} locations={[0.25,1]} style={StyleSheet.absoluteFill} />
+        <LinearGradient colors={[`${C.red}18`,"transparent"]} start={{x:1,y:1}} end={{x:0,y:0}} style={StyleSheet.absoluteFill} />
+        <View style={{ position:"absolute", top:12, left:12, flexDirection:"row", alignItems:"center", gap:6,
+          backgroundColor:"rgba(229,9,20,0.22)", borderRadius:8, paddingHorizontal:10, paddingVertical:5, borderWidth:1, borderColor:"rgba(229,9,20,0.5)" }}>
+          <Animated.View style={{ width:7, height:7, borderRadius:4, backgroundColor:C.red, opacity:pulse }} />
+          <Text style={{ color:"#fff", fontSize:10, fontWeight:"900", letterSpacing:1 }}>EM ALTA AGORA</Text>
+        </View>
+        <View style={{ position:"absolute", top:12, right:12, flexDirection:"row", alignItems:"center", gap:5,
+          backgroundColor:"rgba(0,0,0,0.6)", borderRadius:8, paddingHorizontal:9, paddingVertical:5 }}>
+          <Feather name="users" size={10} color="rgba(255,255,255,0.75)" />
+          <Text style={{ color:"rgba(255,255,255,0.75)", fontSize:10, fontWeight:"700" }}>{viewers} assistindo</Text>
+        </View>
+        <View style={{ position:"absolute", bottom:0, left:0, right:0, padding:16, gap:8 }}>
+          <Text style={{ color:"#fff", fontSize:20, fontWeight:"900", letterSpacing:-0.5 }} numberOfLines={1}>{item.title}</Text>
+          <Pressable onPress={onPress} style={{ flexDirection:"row", alignItems:"center", gap:7, backgroundColor:"#e50914", borderRadius:10, paddingHorizontal:16, paddingVertical:9, alignSelf:"flex-start" }}>
+            <Feather name="play" size={13} color="#fff" />
+            <Text style={{ color:"#fff", fontSize:13, fontWeight:"800" }}>Assistir Agora</Text>
+          </Pressable>
+        </View>
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+// ─── 33. MasonryRow ───────────────────────────────────────────────────────────
+export function MasonryRow({ items, onPress }: { items: ContentItem[]; onPress: (i: ContentItem) => void }) {
+  const slice = items.slice(0, 4);
+  if (slice.length < 2) return null;
+  return (
+    <View style={{ flexDirection:"row", paddingHorizontal:16, gap:10, marginBottom:24 }}>
+      {/* Left column: 1 big card */}
+      <MasonryCard item={slice[0]} onPress={() => onPress(slice[0])} tall />
+      {/* Right column: 2 small stacked */}
+      <View style={{ flex:1, gap:10 }}>
+        {slice.slice(1, 3).map((it) => (
+          <MasonryCard key={it.id} item={it} onPress={() => onPress(it)} />
+        ))}
+      </View>
+    </View>
+  );
+}
+function MasonryCard({ item, onPress, tall }: { item: ContentItem; onPress: () => void; tall?: boolean }) {
+  const { scale, pi, po } = usePressAnim(0.94);
+  const [err, setErr] = useState(false);
+  const h = tall ? 218 : 104;
+  return (
+    <Pressable onPress={onPress} onPressIn={pi} onPressOut={po} style={tall ? { flex:1 } : { flex:1 }}>
+      <Animated.View style={{ flex:tall?undefined:1, height:h, borderRadius:14, overflow:"hidden", transform:[{scale}],
+        ...Platform.select({ ios:{ shadowColor:"#000", shadowOffset:{width:0,height:5}, shadowOpacity:0.45, shadowRadius:10 }, android:{ elevation:7 } }) }}>
+        {!err && (tall ? item.posterPath : item.backdropPath)
+          ? <Image source={{ uri:(tall ? item.posterPath : item.backdropPath) ?? "" }} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" onError={() => setErr(true)} />
+          : <LinearGradient colors={["#1a0a14","#08060e"]} style={StyleSheet.absoluteFill} />}
+        <LinearGradient colors={["transparent","rgba(0,0,0,0.9)"]} locations={[0.4,1]} style={StyleSheet.absoluteFill} />
+        <View style={{ position:"absolute", bottom:0, left:0, right:0, padding:10, gap:3 }}>
+          <Text style={{ color:"#fff", fontSize:tall?13:11, fontWeight:"800", lineHeight:tall?17:14 }} numberOfLines={tall?2:1}>{item.title}</Text>
+          <Text style={{ color:"rgba(255,255,255,0.45)", fontSize:9 }}>{item.year} · {item.type==="series"?"Série":"Filme"}</Text>
+        </View>
+        {item.rating > 0 && (
+          <View style={{ position:"absolute", top:8, left:8, flexDirection:"row", alignItems:"center", gap:3, backgroundColor:"rgba(0,0,0,0.65)", borderRadius:5, paddingHorizontal:5, paddingVertical:2 }}>
+            <Text style={{ color:"#f59e0b", fontSize:9, fontWeight:"800" }}>★ {item.rating.toFixed(1)}</Text>
+          </View>
+        )}
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+// ─── 34. ImmersiveHeroCard ────────────────────────────────────────────────────
+export function ImmersiveHeroCard({ item, accent = C.red, label, onPress }: {
+  item: ContentItem; accent?: string; label?: string; onPress: () => void;
+}) {
+  const { scale, pi, po } = usePressAnim(0.97);
+  const [err, setErr] = useState(false);
+  const shine = useShimmer();
+  return (
+    <Pressable onPress={onPress} onPressIn={pi} onPressOut={po} style={{ marginHorizontal:16, marginBottom:28 }}>
+      <Animated.View style={{ height:260, borderRadius:22, overflow:"hidden", transform:[{scale}],
+        ...Platform.select({ ios:{ shadowColor:accent, shadowOffset:{width:0,height:10}, shadowOpacity:0.55, shadowRadius:22 }, android:{ elevation:16 } }) }}>
+        {!err && item.backdropPath
+          ? <Image source={{ uri:item.backdropPath }} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" onError={() => setErr(true)} />
+          : <LinearGradient colors={["#1a0a14","#08060e"]} style={StyleSheet.absoluteFill} />}
+        <LinearGradient colors={["rgba(0,0,0,0.0)","rgba(0,0,0,0.4)","rgba(0,0,0,0.97)"]} locations={[0.2,0.55,1]} style={StyleSheet.absoluteFill} />
+        <LinearGradient colors={[`${accent}22`,"transparent"]} start={{x:1,y:1}} end={{x:0,y:0}} style={StyleSheet.absoluteFill} />
+        <Animated.View style={[StyleSheet.absoluteFill, { opacity:shine }]}>
+          <LinearGradient colors={["transparent",`${accent}10`,"transparent"]} start={{x:0,y:0}} end={{x:1,y:1}} style={StyleSheet.absoluteFill} />
+        </Animated.View>
+        <View style={{ position:"absolute", bottom:0, left:0, right:0, padding:20, gap:10 }}>
+          {label && (
+            <View style={{ flexDirection:"row", alignItems:"center", gap:5, alignSelf:"flex-start", backgroundColor:`${accent}22`, borderRadius:7, paddingHorizontal:10, paddingVertical:4, borderWidth:1, borderColor:`${accent}55` }}>
+              <Feather name="star" size={9} color={accent} />
+              <Text style={{ color:accent, fontSize:9, fontWeight:"900", letterSpacing:1 }}>{label}</Text>
+            </View>
+          )}
+          <Text style={{ color:"#fff", fontSize:24, fontWeight:"900", letterSpacing:-0.7, lineHeight:28 }} numberOfLines={2}>{item.title}</Text>
+          <View style={{ flexDirection:"row", alignItems:"center", gap:8 }}>
+            {item.rating > 0 && <Text style={{ color:"#f59e0b", fontSize:13, fontWeight:"800" }}>★ {item.rating.toFixed(1)}</Text>}
+            <Text style={{ color:"rgba(255,255,255,0.45)", fontSize:12 }}>{item.year}</Text>
+            <Text style={{ color:"rgba(255,255,255,0.35)", fontSize:12 }}>·</Text>
+            <Text style={{ color:"rgba(255,255,255,0.45)", fontSize:12 }}>{item.type==="series"?"Série":"Filme"}</Text>
+          </View>
+          {item.description ? <Text style={{ color:"rgba(255,255,255,0.45)", fontSize:12, lineHeight:17 }} numberOfLines={2}>{item.description}</Text> : null}
+          <View style={{ flexDirection:"row", gap:10 }}>
+            <Pressable onPress={onPress} style={{ flexDirection:"row", alignItems:"center", gap:8, backgroundColor:accent, borderRadius:12, paddingHorizontal:18, paddingVertical:11 }}>
+              <Feather name="play" size={14} color="#fff" />
+              <Text style={{ color:"#fff", fontSize:13, fontWeight:"900" }}>Assistir Agora</Text>
+            </Pressable>
+            <Pressable onPress={onPress} style={{ flexDirection:"row", alignItems:"center", gap:8, backgroundColor:"rgba(255,255,255,0.1)", borderRadius:12, paddingHorizontal:14, paddingVertical:11, borderWidth:1, borderColor:"rgba(255,255,255,0.18)" }}>
+              <Feather name="plus" size={14} color="rgba(255,255,255,0.7)" />
+              <Text style={{ color:"rgba(255,255,255,0.7)", fontSize:13, fontWeight:"800" }}>Minha Lista</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+// ─── 35. GlowPosterRow ────────────────────────────────────────────────────────
+export function GlowPosterRow({ items, onPress, accent = C.purple }: {
+  items: ContentItem[]; onPress: (i: ContentItem) => void; accent?: string;
+}) {
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal:16, gap:12 }} decelerationRate="fast">
+      {items.slice(0, 8).map((item) => <GlowPosterCard key={item.id} item={item} accent={accent} onPress={() => onPress(item)} />)}
+    </ScrollView>
+  );
+}
+function GlowPosterCard({ item, accent, onPress }: { item: ContentItem; accent: string; onPress: () => void }) {
+  const { scale, pi, po } = usePressAnim(0.92);
+  const [err, setErr] = useState(false);
+  return (
+    <Pressable onPress={onPress} onPressIn={pi} onPressOut={po}>
+      <Animated.View style={{ width:110, transform:[{scale}] }}>
+        <View style={{ width:110, height:162, borderRadius:14, overflow:"hidden",
+          ...Platform.select({ ios:{ shadowColor:accent, shadowOffset:{width:0,height:6}, shadowOpacity:0.55, shadowRadius:14 }, android:{ elevation:10 } }) }}>
+          {!err && item.posterPath
+            ? <Image source={{ uri:item.posterPath }} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" onError={() => setErr(true)} />
+            : <LinearGradient colors={[`${accent}44`,"#08060e"]} style={StyleSheet.absoluteFill} />}
+          <LinearGradient colors={["transparent",`${accent}18`,"rgba(0,0,0,0.85)"]} locations={[0.4,0.7,1]} style={StyleSheet.absoluteFill} />
+          <View style={{ position:"absolute", bottom:0, left:0, right:0, height:3, backgroundColor:`${accent}66`, borderBottomLeftRadius:14, borderBottomRightRadius:14 }} />
+        </View>
+        <Text style={{ color:"rgba(255,255,255,0.75)", fontSize:10, fontWeight:"700", marginTop:6, lineHeight:13 }} numberOfLines={2}>{item.title}</Text>
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+// ─── 36. MiniBannerTriple ─────────────────────────────────────────────────────
+export function MiniBannerTriple({ banners, onPress }: {
+  banners: { label: string; sub: string; icon: keyof typeof Feather.glyphMap; color: string }[];
+  onPress: (idx: number) => void;
+}) {
+  return (
+    <View style={{ flexDirection:"row", paddingHorizontal:16, gap:10, marginBottom:24 }}>
+      {banners.slice(0, 3).map((b, i) => (
+        <MiniBannerCell key={b.label} b={b} onPress={() => onPress(i)} />
+      ))}
+    </View>
+  );
+}
+function MiniBannerCell({ b, onPress }: { b: { label: string; sub: string; icon: keyof typeof Feather.glyphMap; color: string }; onPress: () => void }) {
+  const { scale, pi, po } = usePressAnim(0.93);
+  return (
+    <Pressable onPress={onPress} onPressIn={pi} onPressOut={po} style={{ flex:1 }}>
+      <Animated.View style={{ flex:1, height:88, borderRadius:14, overflow:"hidden", borderWidth:1, borderColor:`${b.color}33`, transform:[{scale}] }}>
+        <LinearGradient colors={[`${b.color}22`,`${b.color}08`,"transparent"]} style={StyleSheet.absoluteFill} />
+        <View style={{ flex:1, alignItems:"center", justifyContent:"center", gap:5, padding:8 }}>
+          <View style={{ width:32, height:32, borderRadius:9, backgroundColor:`${b.color}25`, alignItems:"center", justifyContent:"center" }}>
+            <Feather name={b.icon} size={14} color={b.color} />
+          </View>
+          <Text style={{ color:"#fff", fontSize:10, fontWeight:"800", textAlign:"center" }}>{b.label}</Text>
+          <Text style={{ color:"rgba(255,255,255,0.4)", fontSize:8, textAlign:"center" }}>{b.sub}</Text>
+        </View>
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+// ─── 37. RatingLeaderboard ────────────────────────────────────────────────────
+export function RatingLeaderboard({ items, onPress, accent = C.amber }: {
+  items: ContentItem[]; onPress: (i: ContentItem) => void; accent?: string;
+}) {
+  return (
+    <View style={{ paddingHorizontal:16, marginBottom:24, gap:2 }}>
+      {items.slice(0, 6).map((item, i) => (
+        <RatingLeaderboardRow key={item.id} item={item} rank={i+1} accent={accent} onPress={() => onPress(item)} last={i===5} />
+      ))}
+    </View>
+  );
+}
+function RatingLeaderboardRow({ item, rank, accent, onPress, last }: { item: ContentItem; rank: number; accent: string; onPress: () => void; last?: boolean }) {
+  const { scale, pi, po } = usePressAnim(0.97);
+  const [err, setErr] = useState(false);
+  const maxRating = 10;
+  const pct = Math.min((item.rating / maxRating) * 100, 100);
+  const rankColor = rank === 1 ? "#FFD700" : rank === 2 ? "#C0C0C0" : rank === 3 ? "#CD7F32" : accent;
+  return (
+    <Pressable onPress={onPress} onPressIn={pi} onPressOut={po}>
+      <Animated.View style={{ flexDirection:"row", alignItems:"center", gap:12, paddingVertical:10, borderBottomWidth:last?0:1, borderBottomColor:"rgba(255,255,255,0.05)", transform:[{scale}] }}>
+        <Text style={{ fontSize:16, fontWeight:"900", width:26, color:rankColor, textAlign:"center" }}>{rank}</Text>
+        <View style={{ width:44, height:44, borderRadius:10, overflow:"hidden", flexShrink:0 }}>
+          {!err && item.posterPath
+            ? <Image source={{ uri:item.posterPath }} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" onError={() => setErr(true)} />
+            : <LinearGradient colors={["#1a1530","#0a0814"]} style={StyleSheet.absoluteFill} />}
+        </View>
+        <View style={{ flex:1, gap:4 }}>
+          <Text style={{ color:"#fff", fontSize:13, fontWeight:"700" }} numberOfLines={1}>{item.title}</Text>
+          <View style={{ height:4, backgroundColor:"rgba(255,255,255,0.1)", borderRadius:2, overflow:"hidden" }}>
+            <View style={{ height:4, width:`${pct}%` as any, backgroundColor:rankColor, borderRadius:2 }} />
+          </View>
+          <Text style={{ color:"rgba(255,255,255,0.4)", fontSize:10 }}>{item.year} · ★ {item.rating.toFixed(1)}</Text>
+        </View>
+        <Feather name="chevron-right" size={14} color="rgba(255,255,255,0.2)" />
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+// ─── 38. CountdownLaunchCard ──────────────────────────────────────────────────
+export function CountdownLaunchCard({ title, daysLeft, accentColor = C.orange, onNotify }: {
+  title: string; daysLeft: number; accentColor?: string; onNotify?: () => void;
+}) {
+  const [notified, setNotified] = useState(false);
+  const days = Math.max(0, daysLeft);
+  const h = days * 24;
+  return (
+    <View style={{ marginHorizontal:16, marginBottom:24, borderRadius:18, overflow:"hidden", borderWidth:1, borderColor:`${accentColor}33`,
+      ...Platform.select({ ios:{ shadowColor:accentColor, shadowOffset:{width:0,height:6}, shadowOpacity:0.4, shadowRadius:14 }, android:{ elevation:9 } }) }}>
+      <LinearGradient colors={[`${accentColor}18`,`${accentColor}08`,"transparent"]} style={StyleSheet.absoluteFill} />
+      <View style={{ flexDirection:"row", alignItems:"center", justifyContent:"space-between", padding:18, gap:12 }}>
+        <View style={{ flex:1, gap:8 }}>
+          <View style={{ flexDirection:"row", alignItems:"center", gap:5, alignSelf:"flex-start", backgroundColor:`${accentColor}22`, borderRadius:6, paddingHorizontal:9, paddingVertical:4, borderWidth:1, borderColor:`${accentColor}44` }}>
+            <Feather name="calendar" size={9} color={accentColor} />
+            <Text style={{ color:accentColor, fontSize:9, fontWeight:"900", letterSpacing:1 }}>EM BREVE</Text>
+          </View>
+          <Text style={{ color:"#fff", fontSize:16, fontWeight:"900", letterSpacing:-0.3 }} numberOfLines={2}>{title}</Text>
+        </View>
+        <View style={{ alignItems:"center", gap:4 }}>
+          <View style={{ borderRadius:12, backgroundColor:`${accentColor}22`, paddingHorizontal:14, paddingVertical:8, borderWidth:1, borderColor:`${accentColor}44` }}>
+            <Text style={{ color:accentColor, fontSize:30, fontWeight:"900", letterSpacing:-1 }}>{days}</Text>
+            <Text style={{ color:`${accentColor}99`, fontSize:9, fontWeight:"700", textAlign:"center" }}>dias</Text>
+          </View>
+        </View>
+      </View>
+      <Pressable onPress={() => { setNotified(true); onNotify?.(); }}
+        style={{ flexDirection:"row", alignItems:"center", justifyContent:"center", gap:7, paddingVertical:12, borderTopWidth:1, borderTopColor:`${accentColor}22`,
+          backgroundColor:notified ? `${accentColor}22` : "transparent" }}>
+        <Feather name={notified?"check":"bell"} size={13} color={notified?"#22c55e":accentColor} />
+        <Text style={{ color:notified?"#22c55e":accentColor, fontSize:12, fontWeight:"800" }}>
+          {notified ? "Notificação ativada!" : "Me avise quando estrear"}
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
+
+// ─── 39. NetflixStyleDualRow ──────────────────────────────────────────────────
+export function NetflixStyleDualRow({ items, onPress }: {
+  items: ContentItem[]; onPress: (i: ContentItem) => void;
+}) {
+  const topRow = items.slice(0, 6);
+  const botRow = items.slice(6, 12);
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal:16, gap:10 }} decelerationRate="fast">
+      {topRow.map((top, i) => {
+        const bot = botRow[i];
+        return (
+          <View key={top.id} style={{ gap:10 }}>
+            <DualCard item={top} onPress={() => onPress(top)} />
+            {bot && <DualCard item={bot} onPress={() => onPress(bot)} />}
+          </View>
+        );
+      })}
+    </ScrollView>
+  );
+}
+function DualCard({ item, onPress }: { item: ContentItem; onPress: () => void }) {
+  const { scale, pi, po } = usePressAnim(0.93);
+  const [err, setErr] = useState(false);
+  return (
+    <Pressable onPress={onPress} onPressIn={pi} onPressOut={po}>
+      <Animated.View style={{ width:160, height:92, borderRadius:12, overflow:"hidden", transform:[{scale}],
+        ...Platform.select({ ios:{ shadowColor:"#000", shadowOffset:{width:0,height:4}, shadowOpacity:0.4, shadowRadius:8 }, android:{ elevation:6 } }) }}>
+        {!err && item.backdropPath
+          ? <Image source={{ uri:item.backdropPath }} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" onError={() => setErr(true)} />
+          : <LinearGradient colors={["#1a0a14","#08060e"]} style={StyleSheet.absoluteFill} />}
+        <LinearGradient colors={["transparent","rgba(0,0,0,0.88)"]} locations={[0.3,1]} style={StyleSheet.absoluteFill} />
+        <View style={{ position:"absolute", bottom:0, left:0, right:0, padding:8 }}>
+          <Text style={{ color:"#fff", fontSize:11, fontWeight:"700" }} numberOfLines={1}>{item.title}</Text>
+          <Text style={{ color:"rgba(255,255,255,0.45)", fontSize:9, marginTop:2 }}>{item.year}</Text>
+        </View>
+        <View style={{ position:"absolute", top:0, left:0, right:0, bottom:0, alignItems:"center", justifyContent:"center" }}>
+          <View style={{ width:28, height:28, borderRadius:14, backgroundColor:"rgba(229,9,20,0.75)", alignItems:"center", justifyContent:"center" }}>
+            <Feather name="play" size={11} color="#fff" />
+          </View>
+        </View>
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+// ─── 40. CuratedPlaylistCard ──────────────────────────────────────────────────
+export function CuratedPlaylistRow({ playlists, onPress }: {
+  playlists: { label: string; count: number; accent: string; icon: keyof typeof Feather.glyphMap; items: ContentItem[] }[];
+  onPress: (p: { label: string; items: ContentItem[] }) => void;
+}) {
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal:16, gap:12 }} decelerationRate="fast">
+      {playlists.map((p) => <CuratedPlaylistCard key={p.label} playlist={p} onPress={() => onPress(p)} />)}
+    </ScrollView>
+  );
+}
+function PlaylistThumbCell({ item, accent, showDivider }: { item: ContentItem; accent: string; showDivider: boolean }) {
+  const [err, setErr] = useState(false);
+  return (
+    <View style={{ flex:1 }}>
+      {!err && item.posterPath
+        ? <Image source={{ uri:item.posterPath }} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" onError={() => setErr(true)} />
+        : <LinearGradient colors={[`${accent}33`,"#0a0814"]} style={StyleSheet.absoluteFill} />}
+      {showDivider && <View style={{ position:"absolute", top:0, right:0, bottom:0, width:1, backgroundColor:"rgba(0,0,0,0.5)" }} />}
+    </View>
+  );
+}
+function CuratedPlaylistCard({ playlist, onPress }: { playlist: { label: string; count: number; accent: string; icon: keyof typeof Feather.glyphMap; items: ContentItem[] }; onPress: () => void }) {
+  const { scale, pi, po } = usePressAnim(0.93);
+  const imgs = playlist.items.slice(0, 3);
+  return (
+    <Pressable onPress={onPress} onPressIn={pi} onPressOut={po}>
+      <Animated.View style={{ width:180, borderRadius:16, overflow:"hidden", transform:[{scale}], borderWidth:1, borderColor:`${playlist.accent}33`,
+        ...Platform.select({ ios:{ shadowColor:playlist.accent, shadowOffset:{width:0,height:5}, shadowOpacity:0.35, shadowRadius:12 }, android:{ elevation:7 } }) }}>
+        <LinearGradient colors={[`${playlist.accent}18`,`${playlist.accent}08`,"transparent"]} style={{ height:10 }} />
+        <View style={{ flexDirection:"row", height:100 }}>
+          {imgs.map((item, i) => (
+            <PlaylistThumbCell key={item.id} item={item} accent={playlist.accent} showDivider={i < imgs.length - 1} />
+          ))}
+        </View>
+        <View style={{ padding:12, gap:5 }}>
+          <View style={{ flexDirection:"row", alignItems:"center", gap:6 }}>
+            <View style={{ width:24, height:24, borderRadius:7, backgroundColor:`${playlist.accent}22`, alignItems:"center", justifyContent:"center" }}>
+              <Feather name={playlist.icon} size={11} color={playlist.accent} />
+            </View>
+            <Text style={{ color:"#fff", fontSize:12, fontWeight:"800", flex:1 }} numberOfLines={1}>{playlist.label}</Text>
+          </View>
+          <Text style={{ color:"rgba(255,255,255,0.4)", fontSize:10 }}>{playlist.count} títulos</Text>
+        </View>
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+// ─── 41. CategoryShowcaseCard ─────────────────────────────────────────────────
+export function CategoryShowcaseCard({ item, categoryLabel, accent = C.blue, onPress }: {
+  item: ContentItem; categoryLabel: string; accent?: string; onPress: () => void;
+}) {
+  const { scale, pi, po } = usePressAnim(0.97);
+  const [err, setErr] = useState(false);
+  return (
+    <Pressable onPress={onPress} onPressIn={pi} onPressOut={po} style={{ marginHorizontal:16, marginBottom:24 }}>
+      <Animated.View style={{ height:200, borderRadius:20, overflow:"hidden", flexDirection:"row", transform:[{scale}],
+        ...Platform.select({ ios:{ shadowColor:accent, shadowOffset:{width:0,height:8}, shadowOpacity:0.5, shadowRadius:18 }, android:{ elevation:12 } }) }}>
+        {!err && item.posterPath
+          ? <Image source={{ uri:item.posterPath }} style={{ width:130, height:"100%" as any }} contentFit="cover" cachePolicy="memory-disk" onError={() => setErr(true)} />
+          : <LinearGradient colors={[`${accent}44`,"#0a0814"]} style={{ width:130 }} />}
+        <LinearGradient colors={["transparent","rgba(0,0,0,0.5)"]} start={{x:0,y:0}} end={{x:0.4,y:0}} style={{ position:"absolute", top:0, left:0, bottom:0, width:160 }} />
+        <View style={{ flex:1, padding:16, gap:10, justifyContent:"center", backgroundColor:"rgba(8,6,14,0.92)" }}>
+          <View style={{ flexDirection:"row", alignItems:"center", gap:5, alignSelf:"flex-start", backgroundColor:`${accent}22`, borderRadius:6, paddingHorizontal:8, paddingVertical:4, borderWidth:1, borderColor:`${accent}44` }}>
+            <Text style={{ color:accent, fontSize:9, fontWeight:"900", letterSpacing:0.8 }}>{categoryLabel.toUpperCase()}</Text>
+          </View>
+          <Text style={{ color:"#fff", fontSize:16, fontWeight:"900", letterSpacing:-0.3, lineHeight:20 }} numberOfLines={3}>{item.title}</Text>
+          {item.rating > 0 && <Text style={{ color:"#f59e0b", fontSize:12, fontWeight:"700" }}>★ {item.rating.toFixed(1)}</Text>}
+          {item.description && <Text style={{ color:"rgba(255,255,255,0.4)", fontSize:11, lineHeight:15 }} numberOfLines={2}>{item.description}</Text>}
+          <Pressable onPress={onPress} style={{ flexDirection:"row", alignItems:"center", gap:6, backgroundColor:accent, borderRadius:9, paddingHorizontal:13, paddingVertical:8, alignSelf:"flex-start" }}>
+            <Feather name="play" size={11} color="#fff" />
+            <Text style={{ color:"#fff", fontSize:12, fontWeight:"800" }}>Assistir</Text>
+          </Pressable>
+        </View>
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+// ─── 42. TrendingTickerRow ────────────────────────────────────────────────────
+export function TrendingTickerRow({ items, onPress }: { items: ContentItem[]; onPress: (i: ContentItem) => void }) {
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal:16, gap:8 }} decelerationRate="fast" style={{ marginBottom:24 }}>
+      {items.slice(0, 12).map((item, i) => (
+        <Pressable key={item.id} onPress={() => onPress(item)}>
+          <View style={{ flexDirection:"row", alignItems:"center", gap:8, backgroundColor:"rgba(255,255,255,0.05)", borderRadius:22, paddingHorizontal:12, paddingVertical:7, borderWidth:1, borderColor:"rgba(255,255,255,0.08)" }}>
+            <Text style={{ color:C.red, fontSize:12, fontWeight:"900" }}>#{i+1}</Text>
+            <Text style={{ color:"rgba(255,255,255,0.85)", fontSize:12, fontWeight:"700" }} numberOfLines={1}>{item.title}</Text>
+            <Feather name="trending-up" size={10} color={C.green} />
+          </View>
+        </Pressable>
+      ))}
+    </ScrollView>
+  );
+}
+
+// ─── 43. PremiumStatsBar ──────────────────────────────────────────────────────
+export function PremiumStatsBar({ stats }: {
+  stats: { label: string; value: string; color: string; icon: keyof typeof Feather.glyphMap }[];
+}) {
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal:16, gap:10 }} style={{ marginBottom:24 }}>
+      {stats.map((s, i) => (
+        <View key={i} style={{ flexDirection:"row", alignItems:"center", gap:8, backgroundColor:"rgba(255,255,255,0.04)", borderRadius:12, paddingHorizontal:14, paddingVertical:10, borderWidth:1, borderColor:`${s.color}25` }}>
+          <View style={{ width:28, height:28, borderRadius:8, backgroundColor:`${s.color}18`, alignItems:"center", justifyContent:"center" }}>
+            <Feather name={s.icon} size={12} color={s.color} />
+          </View>
+          <View>
+            <Text style={{ color:"#fff", fontSize:14, fontWeight:"900" }}>{s.value}</Text>
+            <Text style={{ color:"rgba(255,255,255,0.4)", fontSize:9, fontWeight:"500" }}>{s.label}</Text>
+          </View>
+        </View>
+      ))}
+    </ScrollView>
+  );
+}
+
+// ─── 44. NewThisWeekRow ───────────────────────────────────────────────────────
+export function NewThisWeekRow({ items, onPress }: { items: ContentItem[]; onPress: (i: ContentItem) => void }) {
+  const days = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
+  const today = new Date().getDay();
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal:16, gap:12 }} decelerationRate="fast" style={{ marginBottom:24 }}>
+      {items.slice(0, 7).map((item, i) => {
+        const dayIdx = (today + i) % 7;
+        const isToday = i === 0;
+        return <NewThisWeekCard key={item.id} item={item} day={days[dayIdx]} isToday={isToday} onPress={() => onPress(item)} />;
+      })}
+    </ScrollView>
+  );
+}
+function NewThisWeekCard({ item, day, isToday, onPress }: { item: ContentItem; day: string; isToday: boolean; onPress: () => void }) {
+  const { scale, pi, po } = usePressAnim(0.93);
+  const [err, setErr] = useState(false);
+  return (
+    <Pressable onPress={onPress} onPressIn={pi} onPressOut={po}>
+      <Animated.View style={{ width:110, transform:[{scale}] }}>
+        <View style={{ width:110, height:158, borderRadius:14, overflow:"hidden",
+          borderWidth:isToday?2:0, borderColor:isToday?C.red:"transparent",
+          ...Platform.select({ ios:{ shadowColor:isToday?C.red:"#000", shadowOffset:{width:0,height:5}, shadowOpacity:0.5, shadowRadius:10 }, android:{ elevation:8 } }) }}>
+          {!err && item.posterPath
+            ? <Image source={{ uri:item.posterPath }} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" onError={() => setErr(true)} />
+            : <LinearGradient colors={["#1a0a14","#08060e"]} style={StyleSheet.absoluteFill} />}
+          <LinearGradient colors={["transparent","rgba(0,0,0,0.85)"]} locations={[0.45,1]} style={StyleSheet.absoluteFill} />
+          {isToday && (
+            <View style={{ position:"absolute", top:8, right:8, backgroundColor:C.red, borderRadius:5, paddingHorizontal:6, paddingVertical:2 }}>
+              <Text style={{ color:"#fff", fontSize:7, fontWeight:"900", letterSpacing:0.5 }}>HOJE</Text>
+            </View>
+          )}
+          <View style={{ position:"absolute", bottom:0, left:0, right:0, padding:8 }}>
+            <Text style={{ color:"#fff", fontSize:10, fontWeight:"700" }} numberOfLines={1}>{item.title}</Text>
+          </View>
+        </View>
+        <Text style={{ color:isToday?C.red:"rgba(255,255,255,0.4)", fontSize:10, fontWeight:"700", marginTop:6, textAlign:"center" }}>{day}</Text>
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+// ─── 45. WatchedProgressBanner ────────────────────────────────────────────────
+export function WatchedProgressBanner({ watched = 0, total = 100, hoursWatched = 0, streak = 0, accent = C.green }: {
+  watched?: number; total?: number; hoursWatched?: number; streak?: number; accent?: string;
+}) {
+  const pct = Math.min((watched / total) * 100, 100);
+  const fill = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(fill, { toValue: pct, duration: 1000, useNativeDriver: false }).start();
+  }, [pct]);
+  return (
+    <View style={{ marginHorizontal:16, marginBottom:24, borderRadius:16, overflow:"hidden", borderWidth:1, borderColor:`${accent}25` }}>
+      <LinearGradient colors={[`${accent}15`,`${accent}05`,"transparent"]} style={StyleSheet.absoluteFill} />
+      <View style={{ padding:16, gap:12 }}>
+        <View style={{ flexDirection:"row", alignItems:"center", justifyContent:"space-between" }}>
+          <View style={{ flexDirection:"row", alignItems:"center", gap:8 }}>
+            <View style={{ width:32, height:32, borderRadius:9, backgroundColor:`${accent}22`, alignItems:"center", justifyContent:"center" }}>
+              <Feather name="activity" size={14} color={accent} />
+            </View>
+            <Text style={{ color:"#fff", fontSize:14, fontWeight:"800" }}>Seu Progresso</Text>
+          </View>
+          {streak > 0 && (
+            <View style={{ flexDirection:"row", alignItems:"center", gap:4, backgroundColor:"rgba(249,115,22,0.15)", borderRadius:8, paddingHorizontal:9, paddingVertical:4 }}>
+              <Text style={{ fontSize:12 }}>🔥</Text>
+              <Text style={{ color:"#f97316", fontSize:11, fontWeight:"800" }}>{streak} dias</Text>
+            </View>
+          )}
+        </View>
+        <View style={{ gap:6 }}>
+          <View style={{ flexDirection:"row", justifyContent:"space-between" }}>
+            <Text style={{ color:"rgba(255,255,255,0.55)", fontSize:11 }}>Títulos assistidos</Text>
+            <Text style={{ color:accent, fontSize:11, fontWeight:"800" }}>{watched}/{total}</Text>
+          </View>
+          <View style={{ height:6, backgroundColor:"rgba(255,255,255,0.1)", borderRadius:3, overflow:"hidden" }}>
+            <Animated.View style={{ height:6, width:fill.interpolate({ inputRange:[0,100], outputRange:["0%","100%"] }), backgroundColor:accent, borderRadius:3 }} />
+          </View>
+        </View>
+        <View style={{ flexDirection:"row", gap:12 }}>
+          <View style={{ flex:1, alignItems:"center", gap:2, backgroundColor:"rgba(255,255,255,0.04)", borderRadius:10, padding:10 }}>
+            <Text style={{ color:"#fff", fontSize:16, fontWeight:"900" }}>{hoursWatched}h</Text>
+            <Text style={{ color:"rgba(255,255,255,0.4)", fontSize:9 }}>Assistidas</Text>
+          </View>
+          <View style={{ flex:1, alignItems:"center", gap:2, backgroundColor:"rgba(255,255,255,0.04)", borderRadius:10, padding:10 }}>
+            <Text style={{ color:"#fff", fontSize:16, fontWeight:"900" }}>{watched}</Text>
+            <Text style={{ color:"rgba(255,255,255,0.4)", fontSize:9 }}>Completos</Text>
+          </View>
+          <View style={{ flex:1, alignItems:"center", gap:2, backgroundColor:"rgba(255,255,255,0.04)", borderRadius:10, padding:10 }}>
+            <Text style={{ color:"#fff", fontSize:16, fontWeight:"900" }}>{Math.round(pct)}%</Text>
+            <Text style={{ color:"rgba(255,255,255,0.4)", fontSize:9 }}>Progresso</Text>
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+// ─── 46. GenreShowcaseRow (large image genre cards) ───────────────────────────
+export function GenreShowcaseRow({ genres, onPress }: {
+  genres: { id: number; label: string; color: string; imageUrl?: string }[];
+  onPress: (g: { id: number; label: string }) => void;
+}) {
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal:16, gap:12 }} decelerationRate="fast" style={{ marginBottom:24 }}>
+      {genres.map((g) => <GenreShowcaseCard key={g.id} g={g} onPress={() => onPress(g)} />)}
+    </ScrollView>
+  );
+}
+function GenreShowcaseCard({ g, onPress }: { g: { id: number; label: string; color: string; imageUrl?: string }; onPress: () => void }) {
+  const { scale, pi, po } = usePressAnim(0.93);
+  const [err, setErr] = useState(false);
+  return (
+    <Pressable onPress={onPress} onPressIn={pi} onPressOut={po}>
+      <Animated.View style={{ width:140, height:80, borderRadius:14, overflow:"hidden", transform:[{scale}],
+        ...Platform.select({ ios:{ shadowColor:g.color, shadowOffset:{width:0,height:5}, shadowOpacity:0.4, shadowRadius:10 }, android:{ elevation:7 } }) }}>
+        {!err && g.imageUrl
+          ? <Image source={{ uri:g.imageUrl }} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" onError={() => setErr(true)} />
+          : <LinearGradient colors={[`${g.color}44`,`${g.color}18`,"#0a0814"]} style={StyleSheet.absoluteFill} />}
+        <LinearGradient colors={[`${g.color}55`,"rgba(0,0,0,0.75)"]} style={StyleSheet.absoluteFill} />
+        <View style={{ flex:1, alignItems:"center", justifyContent:"center" }}>
+          <Text style={{ color:"#fff", fontSize:14, fontWeight:"900", letterSpacing:-0.2, textShadowColor:"rgba(0,0,0,0.8)", textShadowOffset:{width:0,height:1}, textShadowRadius:4 }}>{g.label}</Text>
+        </View>
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+// ─── 47. NetplayExclusiveRow ──────────────────────────────────────────────────
+export function NetplayExclusiveRow({ items, onPress }: { items: ContentItem[]; onPress: (i: ContentItem) => void }) {
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal:16, gap:12 }} decelerationRate="fast">
+      {items.slice(0, 8).map((item) => <NetplayExclusiveCard key={item.id} item={item} onPress={() => onPress(item)} />)}
+    </ScrollView>
+  );
+}
+function NetplayExclusiveCard({ item, onPress }: { item: ContentItem; onPress: () => void }) {
+  const { scale, pi, po } = usePressAnim(0.93);
+  const [err, setErr] = useState(false);
+  const glow = useShimmer();
+  return (
+    <Pressable onPress={onPress} onPressIn={pi} onPressOut={po}>
+      <Animated.View style={{ width:130, transform:[{scale}] }}>
+        <Animated.View style={{ position:"absolute", top:-2, left:-2, right:-2, bottom:-2, borderRadius:16, backgroundColor:"rgba(229,9,20,0.0)", opacity:glow,
+          ...Platform.select({ ios:{ shadowColor:C.red, shadowOffset:{width:0,height:0}, shadowOpacity:0.8, shadowRadius:12 }, android:{ elevation:0 } }) }} />
+        <View style={{ width:130, height:190, borderRadius:14, overflow:"hidden", borderWidth:1, borderColor:"rgba(229,9,20,0.4)",
+          ...Platform.select({ ios:{ shadowColor:C.red, shadowOffset:{width:0,height:5}, shadowOpacity:0.5, shadowRadius:12 }, android:{ elevation:9 } }) }}>
+          {!err && item.posterPath
+            ? <Image source={{ uri:item.posterPath }} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" onError={() => setErr(true)} />
+            : <LinearGradient colors={["#2a0a0a","#08060e"]} style={StyleSheet.absoluteFill} />}
+          <LinearGradient colors={["transparent","rgba(229,9,20,0.1)","rgba(0,0,0,0.92)"]} locations={[0.4,0.7,1]} style={StyleSheet.absoluteFill} />
+          <View style={{ position:"absolute", top:0, left:0, right:0, height:3, backgroundColor:C.red }} />
+          <View style={{ position:"absolute", top:8, left:8, backgroundColor:"rgba(229,9,20,0.9)", borderRadius:5, paddingHorizontal:6, paddingVertical:2 }}>
+            <Text style={{ color:"#fff", fontSize:7, fontWeight:"900", letterSpacing:0.5 }}>✦ DESTAQUE</Text>
+          </View>
+          <View style={{ position:"absolute", bottom:0, left:0, right:0, padding:9 }}>
+            <Text style={{ color:"#fff", fontSize:11, fontWeight:"800", lineHeight:14 }} numberOfLines={2}>{item.title}</Text>
+          </View>
+        </View>
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+// ─── 48. DuoFeatureBanner (horizontal comparison) ─────────────────────────────
+function DuoFeatureCell({ item, accent, label, onPress }: { item: ContentItem; accent: string; label: string; onPress: () => void }) {
+  const { scale, pi, po } = usePressAnim(0.94);
+  const [err, setErr] = useState(false);
+  return (
+    <Pressable onPress={onPress} onPressIn={pi} onPressOut={po} style={{ flex:1 }}>
+      <Animated.View style={{ height:220, borderRadius:16, overflow:"hidden", transform:[{scale}],
+        borderWidth:1, borderColor:`${accent}33`,
+        ...Platform.select({ ios:{ shadowColor:accent, shadowOffset:{width:0,height:6}, shadowOpacity:0.45, shadowRadius:12 }, android:{ elevation:9 } }) }}>
+        {!err && item.posterPath
+          ? <Image source={{ uri:item.posterPath }} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" onError={() => setErr(true)} />
+          : <LinearGradient colors={[`${accent}44`,"#0a0814"]} style={StyleSheet.absoluteFill} />}
+        <LinearGradient colors={["transparent",`${accent}22`,"rgba(0,0,0,0.95)"]} locations={[0.3,0.65,1]} style={StyleSheet.absoluteFill} />
+        <View style={{ position:"absolute", top:10, left:10, backgroundColor:`${accent}22`, borderRadius:6, paddingHorizontal:8, paddingVertical:4, borderWidth:1, borderColor:`${accent}55` }}>
+          <Text style={{ color:accent, fontSize:8, fontWeight:"900", letterSpacing:0.8 }}>{label}</Text>
+        </View>
+        <View style={{ position:"absolute", bottom:0, left:0, right:0, padding:12, gap:5 }}>
+          <Text style={{ color:"#fff", fontSize:12, fontWeight:"800", lineHeight:16 }} numberOfLines={2}>{item.title}</Text>
+          <Text style={{ color:"rgba(255,255,255,0.45)", fontSize:10 }}>{item.year}</Text>
+          <Pressable onPress={onPress} style={{ flexDirection:"row", alignItems:"center", gap:5, backgroundColor:accent, borderRadius:8, paddingHorizontal:10, paddingVertical:6, alignSelf:"flex-start" }}>
+            <Feather name="play" size={10} color="#fff" />
+            <Text style={{ color:"#fff", fontSize:10, fontWeight:"800" }}>Assistir</Text>
+          </Pressable>
+        </View>
+      </Animated.View>
+    </Pressable>
+  );
+}
+export function DuoFeatureBanner({ items, onPress, labels = ["NOVO","EM ALTA"], accents = [C.red, C.purple] }: {
+  items: [ContentItem, ContentItem]; onPress: (i: ContentItem) => void;
+  labels?: [string, string]; accents?: [string, string];
+}) {
+  return (
+    <View style={{ flexDirection:"row", paddingHorizontal:16, gap:10, marginBottom:24 }}>
+      <DuoFeatureCell item={items[0]} accent={accents[0]} label={labels[0]} onPress={() => onPress(items[0])} />
+      <DuoFeatureCell item={items[1]} accent={accents[1]} label={labels[1]} onPress={() => onPress(items[1])} />
+    </View>
+  );
+}
+
+// ─── 49. SectionHighlightCard ─────────────────────────────────────────────────
+export function SectionHighlightCard({ title, subtitle, icon, accent = C.indigo, onPress }: {
+  title: string; subtitle: string; icon: keyof typeof Feather.glyphMap; accent?: string; onPress?: () => void;
+}) {
+  return (
+    <View style={{ marginHorizontal:16, marginBottom:24, borderRadius:16, overflow:"hidden", borderWidth:1, borderColor:`${accent}25` }}>
+      <LinearGradient colors={[`${accent}15`,`${accent}05`,"transparent"]} start={{x:0,y:0}} end={{x:1,y:0}} style={StyleSheet.absoluteFill} />
+      <View style={{ flexDirection:"row", alignItems:"center", justifyContent:"space-between", padding:16 }}>
+        <View style={{ flexDirection:"row", alignItems:"center", gap:12, flex:1 }}>
+          <View style={{ width:42, height:42, borderRadius:12, backgroundColor:`${accent}22`, alignItems:"center", justifyContent:"center" }}>
+            <Feather name={icon} size={18} color={accent} />
+          </View>
+          <View style={{ flex:1 }}>
+            <Text style={{ color:"#fff", fontSize:15, fontWeight:"900" }}>{title}</Text>
+            <Text style={{ color:"rgba(255,255,255,0.45)", fontSize:11, marginTop:2 }}>{subtitle}</Text>
+          </View>
+        </View>
+        {onPress && (
+          <Pressable onPress={onPress} style={{ flexDirection:"row", alignItems:"center", gap:4, backgroundColor:`${accent}22`, borderRadius:9, paddingHorizontal:11, paddingVertical:7 }}>
+            <Text style={{ color:accent, fontSize:11, fontWeight:"800" }}>Ver</Text>
+            <Feather name="arrow-right" size={11} color={accent} />
+          </Pressable>
+        )}
+      </View>
+    </View>
+  );
+}
+
+// ─── 50. PremiumLargePosterRow ────────────────────────────────────────────────
+export function PremiumLargePosterRow({ items, onPress }: { items: ContentItem[]; onPress: (i: ContentItem) => void }) {
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal:16, gap:14 }} decelerationRate="fast">
+      {items.slice(0, 6).map((item) => <PremiumLargePoster key={item.id} item={item} onPress={() => onPress(item)} />)}
+    </ScrollView>
+  );
+}
+function PremiumLargePoster({ item, onPress }: { item: ContentItem; onPress: () => void }) {
+  const { scale, pi, po } = usePressAnim(0.93);
+  const [err, setErr] = useState(false);
+  return (
+    <Pressable onPress={onPress} onPressIn={pi} onPressOut={po}>
+      <Animated.View style={{ width:145, transform:[{scale}] }}>
+        <View style={{ width:145, height:215, borderRadius:16, overflow:"hidden",
+          ...Platform.select({ ios:{ shadowColor:"#000", shadowOffset:{width:0,height:7}, shadowOpacity:0.55, shadowRadius:14 }, android:{ elevation:10 } }) }}>
+          {!err && item.posterPath
+            ? <Image source={{ uri:item.posterPath }} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" onError={() => setErr(true)} />
+            : <LinearGradient colors={["#1a0a14","#08060e"]} style={StyleSheet.absoluteFill} />}
+          <LinearGradient colors={["transparent","rgba(0,0,0,0.92)"]} locations={[0.55,1]} style={StyleSheet.absoluteFill} />
+          {item.rating > 0 && (
+            <View style={{ position:"absolute", top:8, right:8, backgroundColor:"rgba(0,0,0,0.7)", borderRadius:6, paddingHorizontal:6, paddingVertical:3 }}>
+              <Text style={{ color:"#f59e0b", fontSize:9, fontWeight:"800" }}>★ {item.rating.toFixed(1)}</Text>
+            </View>
+          )}
+          <View style={{ position:"absolute", bottom:0, left:0, right:0, padding:11 }}>
+            <Text style={{ color:"#fff", fontSize:12, fontWeight:"800", lineHeight:16 }} numberOfLines={2}>{item.title}</Text>
+            <Text style={{ color:"rgba(255,255,255,0.4)", fontSize:9, marginTop:3 }}>{item.year}</Text>
+          </View>
+        </View>
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+// ─── 51. FloatingActionPromoBanner ────────────────────────────────────────────
+export function FloatingActionPromoBanner({ title, sub, cta, accent = C.red, icon, onPress }: {
+  title: string; sub: string; cta: string; accent?: string; icon: keyof typeof Feather.glyphMap; onPress?: () => void;
+}) {
+  const { scale, pi, po } = usePressAnim(0.97);
+  const bounce = useBounce();
+  return (
+    <Pressable onPress={onPress} onPressIn={pi} onPressOut={po} style={{ marginHorizontal:16, marginBottom:24 }}>
+      <Animated.View style={{ borderRadius:20, overflow:"hidden", transform:[{scale}],
+        ...Platform.select({ ios:{ shadowColor:accent, shadowOffset:{width:0,height:8}, shadowOpacity:0.6, shadowRadius:18 }, android:{ elevation:12 } }) }}>
+        <LinearGradient colors={[accent,`${accent}cc`,"rgba(0,0,0,0.85)"]} start={{x:0,y:0}} end={{x:1,y:1}} style={{ flexDirection:"row", alignItems:"center", justifyContent:"space-between", padding:18, gap:12 }}>
+          <Animated.View style={{ width:48, height:48, borderRadius:14, backgroundColor:"rgba(255,255,255,0.18)", alignItems:"center", justifyContent:"center", transform:[{translateY:bounce}] }}>
+            <Feather name={icon} size={22} color="#fff" />
+          </Animated.View>
+          <View style={{ flex:1, gap:3 }}>
+            <Text style={{ color:"#fff", fontSize:15, fontWeight:"900", letterSpacing:-0.2 }}>{title}</Text>
+            <Text style={{ color:"rgba(255,255,255,0.7)", fontSize:11 }}>{sub}</Text>
+          </View>
+          <View style={{ backgroundColor:"rgba(255,255,255,0.2)", borderRadius:10, paddingHorizontal:12, paddingVertical:8 }}>
+            <Text style={{ color:"#fff", fontSize:12, fontWeight:"800" }}>{cta}</Text>
+          </View>
+        </LinearGradient>
+      </Animated.View>
+    </Pressable>
+  );
+}
 
 const ac = StyleSheet.create({
   circle: { width: 62, height: 62, borderRadius: 31, overflow: "hidden", alignItems: "center", justifyContent: "center", borderWidth: 2 },

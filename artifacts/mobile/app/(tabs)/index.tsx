@@ -86,6 +86,29 @@ import {
   UpcomingRow,
   PlatformShowcaseRow,
   ScrollProgressBar,
+  // ── Novos componentes premium ──────────────────────────────────────────────
+  SpotlightCarousel,
+  NeonGenreGrid,
+  HotRightNowBanner,
+  MasonryRow,
+  ImmersiveHeroCard,
+  GlowPosterRow,
+  MiniBannerTriple,
+  RatingLeaderboard,
+  CountdownLaunchCard,
+  NetflixStyleDualRow,
+  CuratedPlaylistRow,
+  CategoryShowcaseCard,
+  TrendingTickerRow,
+  PremiumStatsBar,
+  NewThisWeekRow,
+  WatchedProgressBanner,
+  GenreShowcaseRow,
+  NetplayExclusiveRow,
+  DuoFeatureBanner,
+  SectionHighlightCard,
+  PremiumLargePosterRow,
+  FloatingActionPromoBanner,
 } from "@/components/HomePremiumSections";
 
 const TAB_BAR_CLEARANCE = 120;
@@ -718,6 +741,45 @@ const HOT_TAGS = [
   "#Ghibli","#Clássico","#Blockbuster","#Netflix","#Shounen","#Brasil",
 ];
 
+// ── Dados para novos componentes premium ───────────────────────────────────────
+const NEON_GENRES = [
+  { id: 28,    label: "Ação",         icon: "zap"        as const, color: "#f97316" },
+  { id: 27,    label: "Terror",       icon: "eye"        as const, color: "#dc2626" },
+  { id: 35,    label: "Comédia",      icon: "smile"      as const, color: "#22c55e" },
+  { id: 18,    label: "Drama",        icon: "heart"      as const, color: "#ec4899" },
+  { id: 878,   label: "Ficção Cient.",icon: "cpu"        as const, color: "#3b82f6" },
+  { id: 9648,  label: "Mistério",     icon: "search"     as const, color: "#6366f1" },
+  { id: 80,    label: "Crime",        icon: "shield"     as const, color: "#a855f7" },
+  { id: 12,    label: "Aventura",     icon: "compass"    as const, color: "#f59e0b" },
+  { id: 10749, label: "Romance",      icon: "star"       as const, color: "#fb7185" },
+  { id: 99,    label: "Documentário", icon: "camera"     as const, color: "#0891b2" },
+];
+
+const MINI_BANNERS = [
+  { label: "4K Ultra HD",   sub: "Qualidade máxima",  icon: "monitor"    as const, color: "#3b82f6" },
+  { label: "Série Maratona",sub: "Veja tudo hoje",    icon: "play-circle"as const, color: "#e50914" },
+  { label: "Próxima Estreia",sub: "Não perca",         icon: "calendar"   as const, color: "#f97316" },
+];
+
+const PREMIUM_STATS = [
+  { label: "Títulos", value: "50K+",  color: "#e50914", icon: "film"      as const },
+  { label: "Países",  value: "195",   color: "#3b82f6", icon: "globe"     as const },
+  { label: "4K",      value: "12K",   color: "#f59e0b", icon: "monitor"   as const },
+  { label: "Séries",  value: "18K+",  color: "#22c55e", icon: "tv"        as const },
+  { label: "Animes",  value: "8K+",   color: "#8b5cf6", icon: "zap"       as const },
+];
+
+const GENRE_SHOWCASE = [
+  { id: 28,    label: "Ação",         color: "#f97316" },
+  { id: 27,    label: "Terror",       color: "#dc2626" },
+  { id: 35,    label: "Comédia",      color: "#22c55e" },
+  { id: 878,   label: "Ficção",       color: "#3b82f6" },
+  { id: 10751, label: "Família",      color: "#f59e0b" },
+  { id: 80,    label: "Crime",        color: "#8b5cf6" },
+  { id: 14,    label: "Fantasia",     color: "#6366f1" },
+  { id: 10752, label: "Guerra",       color: "#64748b" },
+];
+
 const ACTOR_CATEGORIES = [
   {
     id: "hollywood",
@@ -960,40 +1022,7 @@ function CircleGenreRow({ genres, onPress }: { genres: typeof GENRE_CIRCLES; onP
 }
 
 
-// ── Panoramic card (ultra-wide 2:1) ───────────────────────────────────────────
-function PanoramicCard({ item, onPress }: { item: ContentItem; onPress: () => void }) {
-  const sc = useRef(new Animated.Value(1)).current;
-  const [err, setErr] = useState(false);
-  const pi = () => Animated.spring(sc, { toValue: 0.95, useNativeDriver: true, speed: 28 }).start();
-  const po = () => Animated.spring(sc, { toValue: 1,    useNativeDriver: true, speed: 24 }).start();
-  return (
-    <Pressable onPress={onPress} onPressIn={pi} onPressOut={po}>
-      <Animated.View style={[styles.panoramicCard, { transform: [{ scale: sc }] }]}>
-        {!err && item.backdropPath
-          ? <Image source={{ uri: item.backdropPath }} style={StyleSheet.absoluteFill}
-              contentFit="cover" cachePolicy="memory-disk" onError={() => setErr(true)} />
-          : <LinearGradient colors={["#0d0a1a","#060408"]} style={StyleSheet.absoluteFill} />}
-        <LinearGradient colors={["transparent","rgba(0,0,0,0.88)"]} locations={[0.35,1]}
-          style={StyleSheet.absoluteFill} />
-        <View style={styles.panoramicInfo}>
-          <Text style={styles.panoramicTitle} numberOfLines={1}>{item.title}</Text>
-          <Text style={styles.panoramicMeta}>{item.year} · {item.type === "movie" ? "Filme" : "Série"}</Text>
-        </View>
-        <View style={styles.panoramicPlay}>
-          <Feather name="play" size={14} color="#fff" />
-        </View>
-      </Animated.View>
-    </Pressable>
-  );
-}
-function PanoramicRow({ items, onPress }: { items: ContentItem[]; onPress: (i: ContentItem) => void }) {
-  return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false}
-      contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }} decelerationRate="fast">
-      {items.slice(0, 6).map((item) => <PanoramicCard key={item.id} item={item} onPress={() => onPress(item)} />)}
-    </ScrollView>
-  );
-}
+// PanoramicCard and PanoramicRow are imported from HomePremiumSections
 
 // ── Studio card ───────────────────────────────────────────────────────────────
 function StudioCard({ studio, onPress }: { studio: typeof STUDIOS[0]; onPress: () => void }) {
@@ -3986,6 +4015,395 @@ export default function HomeScreen() {
                     />
                   </View>
                 </>
+              )}
+
+              {/* ════════════════════════════════════════════════════════════════
+                  NOVAS SEÇÕES PREMIUM — Blocos 24–45
+              ════════════════════════════════════════════════════════════════ */}
+
+              {/* ── 24. SPOTLIGHT CAROUSEL ──────────────────────────────────── */}
+              {showAll && movies.length > 0 && (
+                <FadeInSection delay={120}>
+                  <SectionDivider label="EM DESTAQUE" accentColor={INDIGO} />
+                  <GradientSectionHeader
+                    title="Spotlight"
+                    subtitle="Os melhores do momento"
+                    icon="aperture"
+                    accentColor={INDIGO}
+                  />
+                  <SpotlightCarousel
+                    items={movies.slice(0, 8)}
+                    onPress={goTo}
+                  />
+                </FadeInSection>
+              )}
+
+              {/* ── 25. HOT RIGHT NOW BANNER ────────────────────────────────── */}
+              {showAll && (movies[2] || series[0]) && (
+                <FadeInSection delay={140}>
+                  <SectionDivider label="AO VIVO NA PLATAFORMA" accentColor={RED} />
+                  <GradientSectionHeader
+                    title="Em Alta Agora"
+                    subtitle="Mais assistido no momento"
+                    icon="trending-up"
+                    accentColor={RED}
+                  />
+                  <HotRightNowBanner
+                    item={movies[2] ?? series[0]}
+                    viewers={`${Math.floor(Math.random() * 20 + 8)}.${Math.floor(Math.random() * 9)}K`}
+                    onPress={() => goTo(movies[2] ?? series[0])}
+                  />
+                </FadeInSection>
+              )}
+
+              {/* ── 26. TRENDING TICKER ─────────────────────────────────────── */}
+              {showAll && movies.length > 3 && (
+                <FadeInSection delay={100}>
+                  <View style={{ marginBottom: 4 }}>
+                    <SectionHeader title="🔥 Viral Agora" icon="trending-up" accentColor={RED} />
+                  </View>
+                  <TrendingTickerRow
+                    items={[...movies, ...series].slice(0, 14)}
+                    onPress={goTo}
+                  />
+                </FadeInSection>
+              )}
+
+              {/* ── 27. PREMIUM STATS BAR ───────────────────────────────────── */}
+              {showAll && (
+                <FadeInSection delay={100}>
+                  <PremiumStatsBar stats={PREMIUM_STATS} />
+                </FadeInSection>
+              )}
+
+              {/* ── 28. IMERSIVE HERO CARD ──────────────────────────────────── */}
+              {showAll && series.length > 1 && (
+                <FadeInSection delay={130}>
+                  <SectionDivider label="SÉRIE DA SEMANA" accentColor={PURPLE} />
+                  <GradientSectionHeader
+                    title="Série em Destaque"
+                    subtitle="Escolha da equipe NETPLAY"
+                    icon="award"
+                    accentColor={PURPLE}
+                  />
+                  <ImmersiveHeroCard
+                    item={series[1]}
+                    accent={PURPLE}
+                    label="ESCOLHA DOS EDITORES"
+                    onPress={() => goTo(series[1])}
+                  />
+                </FadeInSection>
+              )}
+
+              {/* ── 29. NOVO ESTA SEMANA ─────────────────────────────────────── */}
+              {showAll && movies.length > 4 && (
+                <FadeInSection delay={120}>
+                  <SectionDivider label="NOVIDADES" accentColor={GREEN} />
+                  <GradientSectionHeader
+                    title="Novo Esta Semana"
+                    subtitle="Adicionados recentemente"
+                    icon="calendar"
+                    accentColor={GREEN}
+                    onSeeAll={() => openModal("Novo Esta Semana", [...movies, ...series].slice(0, 20), GREEN)}
+                  />
+                  <NewThisWeekRow
+                    items={[...movies.slice(0, 4), ...series.slice(0, 3)]}
+                    onPress={goTo}
+                  />
+                </FadeInSection>
+              )}
+
+              {/* ── 30. MASONRY GRID ────────────────────────────────────────── */}
+              {showAll && movies.length > 4 && (
+                <FadeInSection delay={120}>
+                  <SectionDivider label="DESCOBERTAS" accentColor={TEAL} />
+                  <GradientSectionHeader
+                    title="Descubra Mais"
+                    subtitle="Seleção especial para você"
+                    icon="grid"
+                    accentColor={TEAL}
+                  />
+                  <MasonryRow
+                    items={movies.slice(4, 8)}
+                    onPress={goTo}
+                  />
+                </FadeInSection>
+              )}
+
+              {/* ── 31. MINI BANNER TRIPLE ──────────────────────────────────── */}
+              {showAll && (
+                <FadeInSection delay={100}>
+                  <MiniBannerTriple
+                    banners={MINI_BANNERS}
+                    onPress={(i) => {
+                      if (i === 0) router.push({ pathname: "/genre-browse", params: { genre_id: "0", type: "movie", title: "4K Ultra HD" } } as any);
+                      else if (i === 1) router.push({ pathname: "/genre-browse", params: { genre_id: "18", type: "tv", title: "Série Maratona" } } as any);
+                      else router.push("/novidades" as any);
+                    }}
+                  />
+                </FadeInSection>
+              )}
+
+              {/* ── 32. GLOW POSTER ROW (Filmes Premiados) ──────────────────── */}
+              {showAll && movies.length > 8 && (
+                <FadeInSection delay={130}>
+                  <SectionDivider label="PREMIADOS" accentColor={AMBER} />
+                  <GradientSectionHeader
+                    title="Filmes Premiados"
+                    subtitle="Oscar, Cannes & mais"
+                    icon="award"
+                    accentColor={AMBER}
+                    onSeeAll={() => openModal("Filmes Premiados", movies.filter(m => m.rating > 7.5).slice(0, 20), AMBER)}
+                  />
+                  <GlowPosterRow
+                    items={movies.filter(m => m.rating > 7.5).slice(0, 8)}
+                    onPress={goTo}
+                    accent={AMBER}
+                  />
+                </FadeInSection>
+              )}
+
+              {/* ── 33. RATING LEADERBOARD ──────────────────────────────────── */}
+              {showAll && (movies.filter(m => m.rating > 7).length >= 4) && (
+                <FadeInSection delay={130}>
+                  <SectionDivider label="OS MELHORES" accentColor={AMBER} />
+                  <GradientSectionHeader
+                    title="Top Avaliados"
+                    subtitle="Segundo a crítica"
+                    icon="bar-chart-2"
+                    accentColor={AMBER}
+                    onSeeAll={() => openModal("Top Avaliados", [...movies, ...series].sort((a,b) => b.rating - a.rating).slice(0, 20), AMBER)}
+                  />
+                  <RatingLeaderboard
+                    items={[...movies, ...series].sort((a,b) => b.rating - a.rating).slice(0, 6)}
+                    onPress={goTo}
+                    accent={AMBER}
+                  />
+                </FadeInSection>
+              )}
+
+              {/* ── 34. DUO FEATURE BANNER ──────────────────────────────────── */}
+              {showAll && movies.length > 6 && series.length > 2 && (
+                <FadeInSection delay={130}>
+                  <SectionDivider label="DESTAQUES" accentColor={PINK} />
+                  <GradientSectionHeader
+                    title="Não Perca"
+                    subtitle="Filme + Série em destaque"
+                    icon="star"
+                    accentColor={PINK}
+                  />
+                  <DuoFeatureBanner
+                    items={[movies[5] ?? movies[0], series[2] ?? series[0]]}
+                    onPress={goTo}
+                    labels={["🎬 FILME", "📺 SÉRIE"]}
+                    accents={[RED, PURPLE]}
+                  />
+                </FadeInSection>
+              )}
+
+              {/* ── 35. NETPLAY EXCLUSIVOS ──────────────────────────────────── */}
+              {showAll && (movies.length > 5 || series.length > 3) && (
+                <FadeInSection delay={140}>
+                  <SectionDivider label="EXCLUSIVOS" accentColor={RED} />
+                  <GradientSectionHeader
+                    title="Destaques NETPLAY"
+                    subtitle="Títulos em evidência"
+                    icon="zap"
+                    accentColor={RED}
+                    onSeeAll={() => openModal("Destaques NETPLAY", [...movies, ...series].slice(0, 16), RED)}
+                  />
+                  <NetplayExclusiveRow
+                    items={[...movies.slice(3, 7), ...series.slice(0, 4)]}
+                    onPress={goTo}
+                  />
+                  <View style={{ height: 20 }} />
+                </FadeInSection>
+              )}
+
+              {/* ── 36. CATEGORY SHOWCASE (Filmes de Ação) ──────────────────── */}
+              {showAll && movies.length > 7 && (
+                <FadeInSection delay={130}>
+                  <CategoryShowcaseCard
+                    item={movies[7]}
+                    categoryLabel="AÇÃO"
+                    accent={ORANGE}
+                    onPress={() => goTo(movies[7])}
+                  />
+                </FadeInSection>
+              )}
+
+              {/* ── 37. NETFLIX STYLE DUAL ROW ──────────────────────────────── */}
+              {showAll && movies.length >= 12 && (
+                <FadeInSection delay={120}>
+                  <SectionDivider label="MELHORES DO ANO" accentColor={BLUE} />
+                  <GradientSectionHeader
+                    title="Grade de Títulos"
+                    subtitle="Dois em um — filmes e séries"
+                    icon="layout"
+                    accentColor={BLUE}
+                    onSeeAll={() => openModal("Grade de Títulos", [...movies, ...series].slice(0, 24), BLUE)}
+                  />
+                  <NetflixStyleDualRow
+                    items={[...movies.slice(0, 6), ...series.slice(0, 6)]}
+                    onPress={goTo}
+                  />
+                  <View style={{ height: 20 }} />
+                </FadeInSection>
+              )}
+
+              {/* ── 38. GENRE NEON GRID ─────────────────────────────────────── */}
+              {showAll && (
+                <FadeInSection delay={120}>
+                  <SectionDivider label="GÊNEROS" accentColor={INDIGO} />
+                  <GradientSectionHeader
+                    title="Explorar por Gênero"
+                    subtitle="Encontre pelo seu humor"
+                    icon="compass"
+                    accentColor={INDIGO}
+                  />
+                  <NeonGenreGrid
+                    genres={NEON_GENRES}
+                    onPress={(g) => router.push({
+                      pathname: "/genre-browse",
+                      params: { genre_id: String(g.id), type: "movie", title: g.label },
+                    })}
+                  />
+                </FadeInSection>
+              )}
+
+              {/* ── 39. GENRE SHOWCASE ROW ──────────────────────────────────── */}
+              {showAll && (
+                <FadeInSection delay={120}>
+                  <GradientSectionHeader
+                    title="Categorias Visuais"
+                    subtitle="Todos os estilos"
+                    icon="grid"
+                    accentColor={TEAL}
+                    onSeeAll={() => router.push({ pathname: "/genre-browse", params: { genre_id: "28", type: "movie", title: "Ação" } } as any)}
+                  />
+                  <GenreShowcaseRow
+                    genres={GENRE_SHOWCASE}
+                    onPress={(g) => router.push({
+                      pathname: "/genre-browse",
+                      params: { genre_id: String(g.id), type: "movie", title: g.label },
+                    })}
+                  />
+                </FadeInSection>
+              )}
+
+              {/* ── 40. PREMIUM LARGE POSTER ROW (Séries Premium) ───────────── */}
+              {showAll && series.length > 4 && (
+                <FadeInSection delay={130}>
+                  <SectionDivider label="SÉRIES PREMIUM" accentColor={PURPLE} />
+                  <GradientSectionHeader
+                    title="Séries Premium"
+                    subtitle="Alta definição, alta qualidade"
+                    icon="tv"
+                    accentColor={PURPLE}
+                    onSeeAll={() => openModal("Séries Premium", series.slice(0, 20), PURPLE)}
+                  />
+                  <PremiumLargePosterRow
+                    items={series.slice(0, 6)}
+                    onPress={goTo}
+                  />
+                  <View style={{ height: 20 }} />
+                </FadeInSection>
+              )}
+
+              {/* ── 41. WATCHED PROGRESS BANNER ─────────────────────────────── */}
+              {showAll && (
+                <FadeInSection delay={110}>
+                  <SectionDivider label="SEU PROGRESSO" accentColor={GREEN} />
+                  <WatchedProgressBanner
+                    watched={watchList.length}
+                    total={50}
+                    hoursWatched={Math.round(watchList.length * 1.8)}
+                    streak={3}
+                    accent={GREEN}
+                  />
+                </FadeInSection>
+              )}
+
+              {/* ── 42. SECTION HIGHLIGHT CARDS ─────────────────────────────── */}
+              {showAll && (
+                <FadeInSection delay={110}>
+                  <SectionHighlightCard
+                    title="Modo Offline"
+                    subtitle="Baixe e assista sem internet"
+                    icon="download"
+                    accent={BLUE}
+                    onPress={() => router.push("/(tabs)/profile" as any)}
+                  />
+                  <SectionHighlightCard
+                    title="4K + Dolby Atmos"
+                    subtitle="Experiência cinematográfica"
+                    icon="monitor"
+                    accent={AMBER}
+                    onPress={() => router.push({ pathname: "/genre-browse", params: { genre_id: "0", type: "movie", title: "4K" } } as any)}
+                  />
+                </FadeInSection>
+              )}
+
+              {/* ── 43. CURATED PLAYLIST ROW ────────────────────────────────── */}
+              {showAll && movies.length >= 9 && (
+                <FadeInSection delay={130}>
+                  <SectionDivider label="PLAYLISTS" accentColor={PINK} />
+                  <GradientSectionHeader
+                    title="Playlists Curadas"
+                    subtitle="Seleções especiais"
+                    icon="list"
+                    accentColor={PINK}
+                  />
+                  <CuratedPlaylistRow
+                    playlists={[
+                      { label: "Noite de Sexta", count: 12, accent: RED,    icon: "moon"         as const, items: movies.slice(0,3) },
+                      { label: "Família 🎉",      count: 8,  accent: AMBER,  icon: "users"        as const, items: movies.slice(3,6) },
+                      { label: "Melhores de 2024",count: 15, accent: PURPLE, icon: "award"        as const, items: movies.slice(6,9) },
+                      { label: "Maratona Crime",  count: 10, accent: INDIGO, icon: "shield"       as const, items: series.slice(0,3) },
+                    ]}
+                    onPress={(p) => openModal(p.label, p.items, RED)}
+                  />
+                  <View style={{ height: 20 }} />
+                </FadeInSection>
+              )}
+
+              {/* ── 44. COUNTDOWN LAUNCH CARD ───────────────────────────────── */}
+              {showAll && (
+                <FadeInSection delay={120}>
+                  <SectionDivider label="EM BREVE" accentColor={ORANGE} />
+                  <GradientSectionHeader
+                    title="Próximas Estreias"
+                    subtitle="Reserve na agenda"
+                    icon="calendar"
+                    accentColor={ORANGE}
+                  />
+                  <CountdownLaunchCard
+                    title="Avengers: Secret Wars"
+                    daysLeft={48}
+                    accentColor={RED}
+                    onNotify={() => {}}
+                  />
+                  <CountdownLaunchCard
+                    title="Dune: Messiah"
+                    daysLeft={120}
+                    accentColor={AMBER}
+                    onNotify={() => {}}
+                  />
+                </FadeInSection>
+              )}
+
+              {/* ── 45. FLOATING PROMO BANNER ───────────────────────────────── */}
+              {showAll && (
+                <FadeInSection delay={100}>
+                  <FloatingActionPromoBanner
+                    title="Assistir em Qualquer Lugar"
+                    sub="Disponível em todos os dispositivos"
+                    cta="Explorar"
+                    accent={PURPLE}
+                    icon="smartphone"
+                    onPress={() => router.push("/(tabs)/profile" as any)}
+                  />
+                </FadeInSection>
               )}
 
               {/* ── GENRE CAROUSELS (quando categoria específica selecionada) ── */}
