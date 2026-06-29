@@ -136,5 +136,44 @@
     "tmdbType": "movie",
     "posterPath": "/xWDC44rdUfeMscDtpFGoylVWM55.jpg",
     "updatedAt": 1782698635096
+  },
+  {
+    "flix2Id": "hubby_ser_2985",
+    "tmdbId": 94997,
+    "tmdbType": "tv",
+    "audioType": "dublado",
+    "posterPath": "/xEC4nyJvcWcOu7QaobLcqz6iRUL.jpg",
+    "updatedAt": 1782702297869
+  },
+  {
+    "flix2Id": "hubby_ser_2986",
+    "tmdbId": 94997,
+    "tmdbType": "tv",
+    "audioType": "legendado",
+    "posterPath": "/xEC4nyJvcWcOu7QaobLcqz6iRUL.jpg",
+    "updatedAt": 1782702304000
+  },
+  {
+    "flix2Id": "hubby_ser_8133",
+    "tmdbId": 232869,
+    "tmdbType": "tv",
+    "posterPath": "/1SCGiyL8wxE6koS7yMw1Iu6qW3H.jpg",
+    "updatedAt": 1782702345911
+  },
+  {
+    "flix2Id": "hubby_ser_1430",
+    "tmdbId": 3934,
+    "tmdbType": "tv",
+    "audioType": "dublado",
+    "posterPath": "/4vNQVFa4icNSphODjw1wFXTfDcJ.jpg",
+    "updatedAt": 1782702330180
+  },
+  {
+    "flix2Id": "hubby_ser_9668",
+    "tmdbId": 259702,
+    "tmdbType": "tv",
+    "audioType": "dublado",
+    "posterPath": "/lzy5lANYtUp24VTnX0NnnwAnvJa.jpg",
+    "updatedAt": 1782702337718
   }
 ]

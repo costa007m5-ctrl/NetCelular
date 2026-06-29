@@ -4850,6 +4850,24 @@ export default function DetailScreen() {
                     const flix2SpecificEps  = r2SpecificEps.filter(isFlixItem);
                     const driveSpecificEps  = r2SpecificEps.filter(isDriveItem);
 
+                    // TMDB sometimes uses absolute episode numbering across seasons
+                    // (e.g. One Piece S2 episodes are numbered 62-77 in TMDB but 1-16 in Xtream).
+                    // Compute cumulative TMDB episode offset for seasons 1..(selectedSeason-1).
+                    const tmdbAbsOffset = selectedSeason > 1
+                      ? seasons.filter((s) => s.season_number > 0 && s.season_number < selectedSeason)
+                               .reduce((acc, s) => acc + (s.episode_count || 0), 0)
+                      : 0;
+                    // Detect mismatch: Xtream episodes are lower than the minimum TMDB episode_number
+                    const flix2MaxEp = flix2SpecificEps.length > 0
+                      ? Math.max(...flix2SpecificEps.map((i) => Number(i.episode)))
+                      : 0;
+                    const tmdbMinEp = episodeList.length > 0
+                      ? Math.min(...episodeList.map((ep) => ep.episode_number))
+                      : 0;
+                    const useAbsOffset = tmdbAbsOffset > 0 && flix2MaxEp > 0 && tmdbMinEp > flix2MaxEp;
+                    // Convert a TMDB absolute episode_number to the Xtream relative episode number
+                    const toFlix2Ep = (tmdbEpNum: number) => useAbsOffset ? tmdbEpNum - tmdbAbsOffset : tmdbEpNum;
+
                     // Season-level registry item (episode=null) — exists when admin
                     // registered the whole season folder (always non-flix2)
                     const r2SeasonItem = r2Items.find(
@@ -4884,7 +4902,7 @@ export default function DetailScreen() {
                       ? (episodeList.length > 0
                           ? episodeList.filter((ep) =>
                               r2OnlySpecificEps.some((i) => Number(i.episode) === ep.episode_number) ||
-                              flix2SpecificEps.some((i) => Number(i.episode) === ep.episode_number) ||
+                              flix2SpecificEps.some((i) => Number(i.episode) === toFlix2Ep(ep.episode_number)) ||
                               driveSpecificEps.some((i) => Number(i.episode) === ep.episode_number) ||
                               (hasFolderScan && r2EpisodeNums.has(ep.episode_number))
                             )
@@ -4914,8 +4932,10 @@ export default function DetailScreen() {
                           : undefined);
 
                       // Per-episode flix/drive match (exact registry entry for this episode)
+                      // toFlix2Ep() converts TMDB absolute ep numbers to Xtream relative numbers
+                      const flix2EpNum = toFlix2Ep(ep.episode_number);
                       const flixEpForRow = r2Items.find(
-                        (i) => isFlixItem(i) && Number(i.season) === selectedSeason && Number(i.episode) === ep.episode_number
+                        (i) => isFlixItem(i) && Number(i.season) === selectedSeason && Number(i.episode) === flix2EpNum
                       );
                       const driveEpForRow = r2Items.find(
                         (i) => isDriveItem(i) && Number(i.season) === selectedSeason && Number(i.episode) === ep.episode_number
@@ -4953,7 +4973,9 @@ export default function DetailScreen() {
                           onR2Press={srcSettings.r2 && r2Ep && !isDriveItem(r2Ep) && !isFlixItem(r2Ep) ? () => goToR2Player(r2Ep, selectedSeason, ep.episode_number) : undefined}
                           onFlixPress={(() => {
                             if (!srcSettings.flix2 || !anyFlixItem) return undefined;
-                            return () => goToFlix2Player(anyFlixItem, selectedSeason, ep.episode_number);
+                            // Use flix2EpNum (relative) so the player finds the right stream;
+                            // for normal series flix2EpNum === ep.episode_number (no offset)
+                            return () => goToFlix2Player(anyFlixItem, selectedSeason, flix2EpNum);
                           })()}
                           onDrivePress={(() => {
                             if (!srcSettings.drive) return undefined;
