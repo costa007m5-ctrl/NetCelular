@@ -11,12 +11,12 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Animated,
   StyleSheet,
   View,
 } from "react-native";
 import StingAnimation from "./StingAnimation";
+import NetplayHeartbeatLoader from "./NetplayHeartbeatLoader";
 
 let AudioModule: any = null;
 try { AudioModule = require("expo-av").Audio; } catch {}
@@ -167,10 +167,10 @@ export default function StingOverlay({ videoReady, onDone, tmdbId, mediaType }: 
       {/* Sting animation */}
       {!animDone && <StingAnimation onEnd={markAnimDone} logoUrl={logoUrl} />}
 
-      {/* Spinner: animation done but video still buffering */}
+      {/* N heartbeat: animation done but video still buffering */}
       {animDone && !doneCalledRef.current && (
         <View style={styles.waitSpinner} pointerEvents="none">
-          <ActivityIndicator size="large" color="#e50914" />
+          <NetplayHeartbeatLoader size={100} />
         </View>
       )}
 

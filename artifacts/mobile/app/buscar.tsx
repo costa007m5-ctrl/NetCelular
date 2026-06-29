@@ -4,6 +4,7 @@ import React, {
   useRef,
   useState,
 } from "react";
+import NetplayHeartbeatLoader from "@/components/NetplayHeartbeatLoader";
 import {
   ActivityIndicator,
   Animated,
@@ -750,7 +751,7 @@ export default function BuscarScreen() {
 
           {loading && expandedItems.length === 0 ? (
             <View style={s.centered}>
-              <ActivityIndicator color={RED} size="large" />
+              <NetplayHeartbeatLoader size={80} />
               <Text style={s.loadingText}>Buscando...</Text>
             </View>
           ) : totalCount === 0 && !flix2Loading ? (

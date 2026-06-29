@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import NetplayHeartbeatLoader from "@/components/NetplayHeartbeatLoader";
 import {
   ActivityIndicator,
   Animated,
@@ -1071,7 +1072,7 @@ export default function CanaisScreen() {
     return (
       <View style={[styles.root, styles.center, { backgroundColor: colors.background }]}>
         <StatusBar style="light" />
-        <ActivityIndicator size="large" color="#e50914" />
+        <NetplayHeartbeatLoader size={80} />
         <Text style={styles.loadingText}>Carregando canais ao vivo…</Text>
       </View>
     );

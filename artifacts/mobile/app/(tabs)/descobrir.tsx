@@ -5,8 +5,8 @@ import React, {
   useRef,
   useState,
 } from "react";
+import NetplayHeartbeatLoader from "@/components/NetplayHeartbeatLoader";
 import {
-  ActivityIndicator,
   Animated,
   Dimensions,
   FlatList,
@@ -599,7 +599,7 @@ export default function LiveTvScreen() {
       {/* ── CONTENT ──────────────────────────────────────────────────────── */}
       {loading ? (
         <View style={st.loadingWrap}>
-          <ActivityIndicator color={RED} size="large" />
+          <NetplayHeartbeatLoader size={80} />
           <Text style={st.loadingT}>Conectando à transmissão...</Text>
           <Text style={st.loadingHint}>Buscando canais ao vivo</Text>
         </View>

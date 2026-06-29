@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import NetplayHeartbeatLoader from "@/components/NetplayHeartbeatLoader";
 import {
-  ActivityIndicator,
   Animated,
   Dimensions,
   Platform,
@@ -561,7 +561,7 @@ export default function ListScreen() {
 
         {loading ? (
           <View style={s.loadingWrap}>
-            <ActivityIndicator size="large" color={RED} />
+            <NetplayHeartbeatLoader size={80} />
           </View>
         ) : (
           <>
