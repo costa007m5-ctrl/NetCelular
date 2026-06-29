@@ -175,5 +175,61 @@
     "audioType": "dublado",
     "posterPath": "/lzy5lANYtUp24VTnX0NnnwAnvJa.jpg",
     "updatedAt": 1782702337718
+  },
+  {
+    "flix2Id": "hubby_ser_2838",
+    "tmdbId": 112836,
+    "tmdbType": "tv",
+    "posterPath": "/kIjuNTP6qYKsw0uRKc7EoBqFYbU.jpg",
+    "updatedAt": 1782703883069
+  },
+  {
+    "flix2Id": "hubby_ser_3001",
+    "tmdbId": 116367,
+    "tmdbType": "tv",
+    "posterPath": "/lxv5kkdj4n2q3VJawZoH9PuBtOk.jpg",
+    "updatedAt": 1782703888143
+  },
+  {
+    "flix2Id": "hubby_ser_1870",
+    "tmdbId": 111474,
+    "tmdbType": "tv",
+    "posterPath": "/6KV0mbZrn197zdQiH7rE65cHvNF.jpg",
+    "updatedAt": 1782703900867
+  },
+  {
+    "flix2Id": "hubby_ser_99",
+    "tmdbId": 71446,
+    "tmdbType": "tv",
+    "posterPath": "/yVUAfbrP5HDJugXraB7KQS0yz6Z.jpg",
+    "updatedAt": 1782703906145
+  },
+  {
+    "flix2Id": "hubby_ser_679",
+    "tmdbId": 92685,
+    "tmdbType": "tv",
+    "posterPath": "/c3ygNz5qEETOUSAWa7v6B7gT8JS.jpg",
+    "updatedAt": 1782703909636
+  },
+  {
+    "flix2Id": "hubby_ser_867",
+    "tmdbId": 42336,
+    "tmdbType": "tv",
+    "posterPath": "/jhMEYknTrAKgjsxQQpSNafKU31V.jpg",
+    "updatedAt": 1782703916927
+  },
+  {
+    "flix2Id": "hubby_ser_2221",
+    "tmdbId": 130232,
+    "tmdbType": "tv",
+    "posterPath": "/1rkg1Ds1oF9CKpBqmcLzB0G6nbh.jpg",
+    "updatedAt": 1782703929396
+  },
+  {
+    "flix2Id": "hubby_ser_361",
+    "tmdbId": 5371,
+    "tmdbType": "tv",
+    "posterPath": "/vX5q7GqGWJOgR2r0kAyWAtGWfD0.jpg",
+    "updatedAt": 1782703971778
   }
 ]

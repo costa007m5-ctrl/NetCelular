@@ -3189,6 +3189,8 @@ async function warmCatalogType(type: string): Promise<void> {
       itemCount: deduped.length, startedAt: getWarmState(type).startedAt, completedAt: Date.now(),
     });
     console.log(`[flix2] cache warm: type=${type} items=${deduped.length}`);
+    // Apply admin patches immediately so edits are visible as soon as cache is ready
+    applyAllPatchesToCache(type);
     // Background: fill in TMDB posters for items the Xtream server left without cover
     setTimeout(() => enrichCatalogPosters(type).catch(() => {}), 3000);
     // Snapshot diff: runs after every warm-up to track new/updated content
@@ -3353,6 +3355,13 @@ export async function warmAllCatalogCaches(): Promise<void> {
     warmTmdb2026(),
   ]);
   await warmCatalogType("animes");
+  // Re-apply all patches now that both catalog AND TMDB_2026_BY_ID are fully populated.
+  // This ensures patched items get the correct TMDB poster/backdrop even if the catalog
+  // warmed before TMDB_2026_BY_ID was ready during the initial parallel warm-up.
+  for (const t of ["movies", "series", "animes"]) applyAllPatchesToCache(t);
+  if (ITEM_PATCHES.size > 0) {
+    console.log(`[flix2-patches] re-applied ${ITEM_PATCHES.size} patches after full warm-up`);
+  }
 }
 
 // ── GET /flix2/warm-status — real-time warm-up progress for admin UI ─────────
@@ -4303,10 +4312,27 @@ function savePatches() {
 }
 
 function applyPatchToItem(item: any, patch: ItemPatch) {
-  if (patch.tmdbId != null) item.tmdb_id = patch.tmdbId;
+  if (patch.tmdbId != null) {
+    item.tmdb_id = patch.tmdbId;
+    // When tmdbId is patched, also update poster/backdrop from TMDB_2026_BY_ID
+    // so the app always shows the correct TMDB artwork instead of broken Flix2 images
+    const t2026 = patch.tmdbId > 0 ? TMDB_2026_BY_ID.get(patch.tmdbId) : undefined;
+    if (t2026) {
+      if (t2026.posterPath)   item.poster   = TMDB_IMG_SRV(t2026.posterPath,   "w342") ?? item.poster;
+      if (t2026.backdropPath) item.backdrop = TMDB_IMG_SRV(t2026.backdropPath, "w780") ?? item.backdrop;
+      if (t2026.title)        item.title    = t2026.title;
+      if (t2026.overview)     item.synopsis = t2026.overview;
+    }
+  }
   if (patch.tmdbType) item._tmdbType = patch.tmdbType;
   if (patch.audioType) item._audioType = patch.audioType;
-  if (patch.posterPath) item.poster = patch.posterPath;
+  // posterPath in patch always wins over TMDB lookup (admin explicitly chose this image).
+  // Admin stores a TMDB relative path (/abc.jpg) — convert to full CDN URL.
+  if (patch.posterPath) {
+    item.poster = patch.posterPath.startsWith("http")
+      ? patch.posterPath
+      : (TMDB_IMG_SRV(patch.posterPath, "w342") ?? patch.posterPath);
+  }
 }
 
 /** Look up patch for an item by its Flix2 stream id and apply in-place. Returns the item. */
