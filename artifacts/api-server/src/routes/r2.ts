@@ -4274,6 +4274,161 @@ router.get("/flix2/debug-url", async (req, res) => {
 const EPISODES_CACHE = new Map<string, { episodes: any[]; cachedAt: number }>();
 const EPISODES_CACHE_TTL_MS = 30 * 60 * 1000;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// FLIX2 ITEM PATCHES — TMDB override + audio type
+// Persisted to data/flix2-patches.json
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface ItemPatch {
+  flix2Id: string;
+  tmdbId?: number;
+  tmdbType?: "movie" | "tv";
+  audioType?: "dublado" | "legendado" | "dual";
+  updatedAt: number;
+}
+
+const PATCHES_FILE = path.join(process.cwd(), "data", "flix2-patches.json");
+const ITEM_PATCHES = new Map<string, ItemPatch>();
+
+(function loadPatches() {
+  try {
+    if (existsSync(PATCHES_FILE)) {
+      const arr: ItemPatch[] = JSON.parse(readFileSync(PATCHES_FILE, "utf-8"));
+      for (const p of arr) ITEM_PATCHES.set(String(p.flix2Id), p);
+      console.log(`[flix2-patches] loaded ${ITEM_PATCHES.size} patches`);
+    }
+  } catch {}
+})();
+
+function savePatches() {
+  try {
+    mkdirSync(path.dirname(PATCHES_FILE), { recursive: true });
+    writeFileSync(PATCHES_FILE, JSON.stringify([...ITEM_PATCHES.values()], null, 2));
+  } catch (e) { console.error("[flix2-patches] save error", e); }
+}
+
+function applyPatchToItem(item: any, patch: ItemPatch) {
+  if (patch.tmdbId != null) item.tmdb_id = patch.tmdbId;
+  if (patch.audioType) item._audioType = patch.audioType;
+}
+
+function applyAllPatchesToCache(type: string) {
+  if (ITEM_PATCHES.size === 0) return;
+  const cache = FULL_CATALOG_CACHE.get(type);
+  if (!cache) return;
+  for (const item of cache.data) {
+    const patch = ITEM_PATCHES.get(String(item.id));
+    if (patch) applyPatchToItem(item, patch);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FLIX2 SERIES MERGES — combine dub + sub series so player shows both
+// Persisted to data/flix2-merges.json
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface SeriesMerge {
+  primaryId: string;
+  secondaryId: string;
+  primaryLabel: string;
+  secondaryLabel: string;
+  createdAt: number;
+}
+
+const MERGES_FILE = path.join(process.cwd(), "data", "flix2-merges.json");
+const SERIES_MERGES = new Map<string, SeriesMerge>(); // indexed by BOTH primaryId and secondaryId
+
+(function loadMerges() {
+  try {
+    if (existsSync(MERGES_FILE)) {
+      const arr: SeriesMerge[] = JSON.parse(readFileSync(MERGES_FILE, "utf-8"));
+      for (const m of arr) {
+        SERIES_MERGES.set(String(m.primaryId), m);
+        SERIES_MERGES.set(String(m.secondaryId), m);
+      }
+      const uniq = new Set([...SERIES_MERGES.values()].map(m => m.primaryId));
+      console.log(`[flix2-merges] loaded ${uniq.size} merges`);
+    }
+  } catch {}
+})();
+
+function saveMerges() {
+  try {
+    const seen = new Set<string>();
+    const uniq: SeriesMerge[] = [];
+    for (const m of SERIES_MERGES.values()) {
+      if (!seen.has(m.primaryId)) { seen.add(m.primaryId); uniq.push(m); }
+    }
+    mkdirSync(path.dirname(MERGES_FILE), { recursive: true });
+    writeFileSync(MERGES_FILE, JSON.stringify(uniq, null, 2));
+  } catch (e) { console.error("[flix2-merges] save error", e); }
+}
+
+// ── Helper: fetch raw episode list for one seriesId (all cache paths + live API) ──
+async function fetchSeriesEpisodesRaw(seriesId: string): Promise<Array<{ season: number; episode: number; stream_url: string; title?: string }>> {
+  const cached = EPISODES_CACHE.get(seriesId);
+  if (cached && cached.episodes.length > 0 && Date.now() - cached.cachedAt < EPISODES_CACHE_TTL_MS) {
+    return cached.episodes;
+  }
+  for (const cType of ["series", "animes"]) {
+    const full = FULL_CATALOG_CACHE.get(cType);
+    if (!full || Date.now() - full.cachedAt >= FULL_CATALOG_TTL_MS) continue;
+    const item = full.data.find((i: any) => String(i.id) === seriesId);
+    if (!item || !Array.isArray(item.episodes)) continue;
+    const eps: Array<{ season: number; episode: number; stream_url: string; title?: string }> = [];
+    for (const ep of item.episodes) {
+      if (!ep?.stream_url) continue;
+      eps.push({ season: Number(ep.season ?? 1), episode: Number(ep.episode ?? ep.episode_number ?? 1), stream_url: ep.stream_url, title: ep.title ?? ep.name });
+    }
+    if (eps.length > 0) {
+      eps.sort((a, b) => a.season - b.season || a.episode - b.episode);
+      EPISODES_CACHE.set(seriesId, { episodes: eps, cachedAt: Date.now() });
+      return eps;
+    }
+  }
+  for (const cType of ["series", "animes"]) {
+    const partial = WARM_PARTIAL_CACHE.get(cType);
+    if (!partial || partial.length === 0) continue;
+    const item = partial.find((i: any) => String(i.id) === seriesId);
+    if (!item || !Array.isArray(item.episodes)) continue;
+    const eps: Array<{ season: number; episode: number; stream_url: string; title?: string }> = [];
+    for (const ep of item.episodes) {
+      if (!ep?.stream_url) continue;
+      eps.push({ season: Number(ep.season ?? 1), episode: Number(ep.episode ?? ep.episode_number ?? 1), stream_url: ep.stream_url, title: ep.title ?? ep.name });
+    }
+    eps.sort((a, b) => a.season - b.season || a.episode - b.episode);
+    if (eps.length > 0) {
+      EPISODES_CACHE.set(seriesId, { episodes: eps, cachedAt: Date.now() });
+      return eps;
+    }
+  }
+  try {
+    const url = `${FLIX2_SERVER}/player_api.php?username=${FLIX2_USER}&password=${FLIX2_PASS}&action=get_series_info&series_id=${seriesId}`;
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 20000);
+    let r: Response;
+    try { r = await fetch(url, { signal: ctrl.signal }); } finally { clearTimeout(tid); }
+    const data = await r.json() as any;
+    const allEpisodes: Array<{ season: number; episode: number; stream_url: string; title?: string }> = [];
+    if (data?.episodes && typeof data.episodes === "object") {
+      for (const [seasonStr, eps] of Object.entries(data.episodes as Record<string, any[]>)) {
+        if (!Array.isArray(eps)) continue;
+        const season = Number(seasonStr);
+        for (const ep of eps) {
+          if (!ep?.id) continue;
+          const ext = ep.container_extension || "mp4";
+          allEpisodes.push({ season, episode: Number(ep.episode_num ?? ep.episode ?? 1), stream_url: `${FLIX2_SERVER}/series/${FLIX2_USER}/${FLIX2_PASS}/${ep.id}.${ext}`, title: ep.title ?? ep.name });
+        }
+      }
+    }
+    allEpisodes.sort((a, b) => a.season - b.season || a.episode - b.episode);
+    if (allEpisodes.length > 0) EPISODES_CACHE.set(seriesId, { episodes: allEpisodes, cachedAt: Date.now() });
+    return allEpisodes;
+  } catch {
+    return [];
+  }
+}
+
 // ── GET /flix2/admin-series-info?seriesId=<id> ────────────────────────────────
 // Raw proxy of Xtream Codes get_series_info for the admin panel.
 // Returns the full Xtream JSON (episodes keyed by season) so the admin UI
@@ -4304,6 +4459,28 @@ router.get("/flix2/admin-series-info", async (req, res) => {
 router.get("/flix2/series-episodes", async (req, res) => {
   const { seriesId } = req.query as Record<string, string>;
   if (!seriesId) { res.status(400).json({ error: "seriesId obrigatório" }); return; }
+
+  // ── Merge check: if this series is part of a merge, combine both ──────────
+  const merge = SERIES_MERGES.get(seriesId);
+  if (merge) {
+    try {
+      const [primaryEps, secondaryEps] = await Promise.allSettled([
+        fetchSeriesEpisodesRaw(merge.primaryId),
+        fetchSeriesEpisodesRaw(merge.secondaryId),
+      ]);
+      const combined: any[] = [];
+      if (primaryEps.status === "fulfilled") {
+        combined.push(...primaryEps.value.map(ep => ({ ...ep, language: merge.primaryLabel })));
+      }
+      if (secondaryEps.status === "fulfilled") {
+        combined.push(...secondaryEps.value.map(ep => ({ ...ep, language: merge.secondaryLabel })));
+      }
+      combined.sort((a, b) => a.season - b.season || a.episode - b.episode);
+      CACHE_STATS.episodes.hits++;
+      res.json({ found: true, episodes: combined, info: null, merged: true, primaryId: merge.primaryId, secondaryId: merge.secondaryId, primaryLabel: merge.primaryLabel, secondaryLabel: merge.secondaryLabel });
+      return;
+    } catch {}
+  }
 
   // ── Path A: serve from episodes cache (instant) ──────────────────────────
   // Only return from cache when episodes are present — an empty cache entry means
@@ -5168,6 +5345,90 @@ router.delete("/flix2/suppress", (req, res) => {
   const existed = FLIX2_SUPPRESSION_MAP.delete(url);
   if (existed) saveSuppressions();
   res.json({ ok: true, removed: existed, url });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FLIX2 ITEM PATCHES CRUD
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.get("/flix2/item-patches", (_req, res) => {
+  const patches = [...ITEM_PATCHES.values()];
+  res.json({ ok: true, count: patches.length, patches });
+});
+
+router.post("/flix2/item-patch", (req, res) => {
+  const { flix2Id, tmdbId, tmdbType, audioType } = req.body ?? {};
+  if (!flix2Id) { res.status(400).json({ ok: false, error: "flix2Id required" }); return; }
+  const existing = ITEM_PATCHES.get(String(flix2Id)) ?? {} as ItemPatch;
+  const patch: ItemPatch = {
+    ...existing,
+    flix2Id: String(flix2Id),
+    ...(tmdbId != null ? { tmdbId: Number(tmdbId), tmdbType: (tmdbType as "movie" | "tv") ?? existing.tmdbType } : {}),
+    ...(audioType !== undefined ? { audioType: audioType as "dublado" | "legendado" | "dual" | undefined } : {}),
+    updatedAt: Date.now(),
+  };
+  ITEM_PATCHES.set(String(flix2Id), patch);
+  savePatches();
+  applyAllPatchesToCache("movies");
+  applyAllPatchesToCache("series");
+  applyAllPatchesToCache("animes");
+  res.json({ ok: true, patch });
+});
+
+router.delete("/flix2/item-patch", (req, res) => {
+  const id = String(req.body?.flix2Id ?? req.query?.id ?? "");
+  if (!id) { res.status(400).json({ ok: false, error: "flix2Id required" }); return; }
+  const existed = ITEM_PATCHES.delete(id);
+  if (existed) savePatches();
+  res.json({ ok: true, removed: existed });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FLIX2 SERIES MERGES CRUD
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.get("/flix2/series-merges", (_req, res) => {
+  const seen = new Set<string>();
+  const merges: SeriesMerge[] = [];
+  for (const m of SERIES_MERGES.values()) {
+    if (!seen.has(m.primaryId)) { seen.add(m.primaryId); merges.push(m); }
+  }
+  res.json({ ok: true, count: merges.length, merges });
+});
+
+router.post("/flix2/series-merge", (req, res) => {
+  const { primaryId, secondaryId, primaryLabel = "Dublado", secondaryLabel = "Legendado" } = req.body ?? {};
+  if (!primaryId || !secondaryId) {
+    res.status(400).json({ ok: false, error: "primaryId e secondaryId obrigatórios" });
+    return;
+  }
+  const merge: SeriesMerge = {
+    primaryId: String(primaryId),
+    secondaryId: String(secondaryId),
+    primaryLabel: String(primaryLabel),
+    secondaryLabel: String(secondaryLabel),
+    createdAt: Date.now(),
+  };
+  SERIES_MERGES.set(String(primaryId), merge);
+  SERIES_MERGES.set(String(secondaryId), merge);
+  saveMerges();
+  EPISODES_CACHE.delete(String(primaryId));
+  EPISODES_CACHE.delete(String(secondaryId));
+  res.json({ ok: true, merge });
+});
+
+router.delete("/flix2/series-merge", (req, res) => {
+  const primaryId = String(req.body?.primaryId ?? req.query?.primaryId ?? "");
+  if (!primaryId) { res.status(400).json({ ok: false, error: "primaryId required" }); return; }
+  const merge = SERIES_MERGES.get(primaryId);
+  if (merge) {
+    SERIES_MERGES.delete(merge.primaryId);
+    SERIES_MERGES.delete(merge.secondaryId);
+    EPISODES_CACHE.delete(merge.primaryId);
+    EPISODES_CACHE.delete(merge.secondaryId);
+    saveMerges();
+  }
+  res.json({ ok: true, removed: !!merge });
 });
 
 // ── GET /flix2/diagnose ────────────────────────────────────────────────────────

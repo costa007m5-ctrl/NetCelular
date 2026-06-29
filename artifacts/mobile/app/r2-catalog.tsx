@@ -7135,6 +7135,9 @@ function Flix2Panel() {
   const [searchQuery, setSearchQuery] = useState(""); // the committed query sent to server
   const [searching, setSearching] = useState(false);  // debounce in-flight indicator
   const [registerTarget, setRegisterTarget] = useState<Flix2Item | null>(null);
+  const [editTarget, setEditTarget] = useState<Flix2Item | null>(null);
+  const [patches, setPatches] = useState<Record<string, { tmdbId?: number; tmdbType?: string; audioType?: AudioType }>>({});
+  const [merges, setMerges] = useState<Record<string, { primaryId: string; secondaryId: string; primaryLabel: string; secondaryLabel: string }>>({});
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [buildJobId, setBuildJobId] = useState<string | null>(null);
   const [buildProgress, setBuildProgress] = useState<{
@@ -7239,6 +7242,30 @@ function Flix2Panel() {
     const id = setInterval(fetchCacheStats, 10_000);
     return () => clearInterval(id);
   }, []);
+
+  const loadPatchesAndMerges = async () => {
+    try {
+      const [pData, mData] = await Promise.allSettled([
+        apiFetch<{ ok: boolean; patches: Array<{ flix2Id: string; tmdbId?: number; tmdbType?: string; audioType?: AudioType }> }>("/flix2/item-patches"),
+        apiFetch<{ ok: boolean; merges: Array<{ primaryId: string; secondaryId: string; primaryLabel: string; secondaryLabel: string }> }>("/flix2/series-merges"),
+      ]);
+      if (pData.status === "fulfilled" && pData.value.ok) {
+        const map: Record<string, any> = {};
+        for (const p of pData.value.patches) map[String(p.flix2Id)] = p;
+        setPatches(map);
+      }
+      if (mData.status === "fulfilled" && mData.value.ok) {
+        const map: Record<string, any> = {};
+        for (const m of mData.value.merges) {
+          map[String(m.primaryId)] = m;
+          map[String(m.secondaryId)] = m;
+        }
+        setMerges(map);
+      }
+    } catch {}
+  };
+
+  useEffect(() => { loadPatchesAndMerges(); }, []);
 
   const startBuild = async () => {
     setBuildProgress(null);
@@ -7694,7 +7721,14 @@ function Flix2Panel() {
             </View>
           ) : (
             filtered.map((item) => (
-              <Flix2Card key={item.id} item={item} onRegister={() => setRegisterTarget(item)} />
+              <Flix2Card
+                key={item.id}
+                item={item}
+                onRegister={() => setRegisterTarget(item)}
+                onEdit={() => setEditTarget(item)}
+                hasPatch={!!patches[String(item.id)]}
+                hasMerge={!!merges[String(item.id)]}
+              />
             ))
           )}
 
@@ -7718,14 +7752,620 @@ function Flix2Panel() {
       {registerTarget && (
         <Flix2RegisterModal item={registerTarget} onClose={() => setRegisterTarget(null)} onDone={() => setRegisterTarget(null)} />
       )}
+
+      {editTarget && (
+        <Flix2ItemEditModal
+          item={editTarget}
+          existingPatch={patches[String(editTarget.id)] ?? null}
+          existingMerge={merges[String(editTarget.id)] ?? null}
+          onClose={() => setEditTarget(null)}
+          onSaved={() => {
+            setEditTarget(null);
+            loadPatchesAndMerges();
+          }}
+        />
+      )}
     </View>
   );
 }
 
-function Flix2Card({ item, onRegister }: { item: Flix2Item; onRegister: () => void }) {
+// ─────────────────────────────────────────────────────────────────────────────
+// FLIX2 ITEM EDIT MODAL — Vincular TMDB + Editar Áudio
+// ─────────────────────────────────────────────────────────────────────────────
+
+type AudioType = "dublado" | "legendado" | "dual" | null;
+
+function detectAudio(title: string): AudioType {
+  const t = title ?? "";
+  if (/\[L\]|\[Leg\]|\[Legendado\]/i.test(t)) return "legendado";
+  if (/\[D\]|\[Dub\]|\[Dublado\]/i.test(t)) return "dublado";
+  if (/\[Dual\]|\[Dual.?[AÁ]udio\]/i.test(t)) return "dual";
+  return null;
+}
+
+interface TmdbHit {
+  id: number;
+  title: string;
+  poster_path: string | null;
+  overview: string;
+  release_date?: string;
+  first_air_date?: string;
+  vote_average: number;
+  media_type: "movie" | "tv";
+}
+
+function Flix2ItemEditModal({
+  item,
+  existingPatch,
+  existingMerge,
+  onClose,
+  onSaved,
+}: {
+  item: Flix2Item;
+  existingPatch: { tmdbId?: number; tmdbType?: string; audioType?: AudioType } | null;
+  existingMerge: { primaryId: string; secondaryId: string; primaryLabel: string; secondaryLabel: string } | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const isMovie = item.type === "filme";
+  const isSeries = !isMovie;
+
+  const [tmdbSearch, setTmdbSearch] = useState(item.title ?? "");
+  const [tmdbResults, setTmdbResults] = useState<TmdbHit[]>([]);
+  const [tmdbLoading, setTmdbLoading] = useState(false);
+  const [selectedTmdb, setSelectedTmdb] = useState<TmdbHit | null>(null);
+
+  const [audioType, setAudioType] = useState<AudioType>(
+    existingPatch?.audioType ?? detectAudio(item.title)
+  );
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState<string | null>(null);
+
+  const [showMergeModal, setShowMergeModal] = useState(false);
+  const [merge, setMerge] = useState(existingMerge);
+
+  const searchTmdb = async (q: string) => {
+    if (!q.trim()) { setTmdbResults([]); return; }
+    setTmdbLoading(true);
+    try {
+      const type = isMovie ? "movie" : "tv";
+      const data = await apiFetch<{ results: TmdbHit[] }>(
+        `/tmdb-search?q=${encodeURIComponent(q)}&type=${type}`
+      );
+      setTmdbResults(data.results ?? []);
+    } catch { setTmdbResults([]); }
+    finally { setTmdbLoading(false); }
+  };
+
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleTmdbSearchChange = (t: string) => {
+    setTmdbSearch(t);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => searchTmdb(t), 600);
+  };
+
+  const savePatch = async () => {
+    setSaving(true);
+    setSaveMsg(null);
+    try {
+      const body: any = { flix2Id: String(item.id) };
+      if (selectedTmdb) { body.tmdbId = selectedTmdb.id; body.tmdbType = selectedTmdb.media_type; }
+      if (audioType !== null) body.audioType = audioType;
+      await apiFetch("/flix2/item-patch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      setSaveMsg("Salvo!");
+      setTimeout(() => { onSaved(); onClose(); }, 800);
+    } catch (e: any) { setSaveMsg("Erro: " + (e.message ?? "falha")); }
+    finally { setSaving(false); }
+  };
+
+  const removeMerge = async () => {
+    if (!merge) return;
+    try {
+      await apiFetch("/flix2/series-merge", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ primaryId: merge.primaryId }),
+      });
+      setMerge(null);
+    } catch {}
+  };
+
+  const AUDIO_OPTIONS: { value: AudioType; label: string; icon: string; color: string }[] = [
+    { value: "dublado", label: "Dublado", icon: "volume-2", color: "#3b82f6" },
+    { value: "legendado", label: "Legendado", icon: "type", color: "#f59e0b" },
+    { value: "dual", label: "Dual Áudio", icon: "headphones", color: "#10b981" },
+  ];
+
+  return (
+    <Modal visible animationType="slide" transparent onRequestClose={onClose}>
+      <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.75)", justifyContent: "flex-end" }}>
+        <View style={{ backgroundColor: "#0f0f18", borderTopLeftRadius: 20, borderTopRightRadius: 20,
+          maxHeight: "92%", borderTopWidth: 1, borderColor: `${FLIX2_COLOR}44` }}>
+          {/* Handle + Header */}
+          <View style={{ alignItems: "center", paddingTop: 10 }}>
+            <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.18)" }} />
+          </View>
+          <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12,
+            borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.07)" }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: FLIX2_COLOR, fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.8 }}>
+                Editar Item Hubby
+              </Text>
+              <Text style={{ color: "#fff", fontSize: 15, fontWeight: "700", marginTop: 2 }} numberOfLines={1}>{item.title}</Text>
+              <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 11, marginTop: 1 }}>
+                ID {item.id} · {isMovie ? "Filme" : "Série"}{item.year ? ` · ${item.year}` : ""}
+              </Text>
+            </View>
+            <Pressable onPress={onClose} style={{ padding: 8, borderRadius: 8, backgroundColor: "rgba(255,255,255,0.06)" }}>
+              <Feather name="x" size={18} color="rgba(255,255,255,0.5)" />
+            </Pressable>
+          </View>
+
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 32 }} keyboardShouldPersistTaps="handled">
+
+            {/* Current TMDB */}
+            {(item.tmdb_id > 0 || existingPatch?.tmdbId) && (
+              <View style={{ backgroundColor: `${FLIX2_COLOR}12`, borderRadius: 10, borderWidth: 1,
+                borderColor: `${FLIX2_COLOR}33`, padding: 10, marginBottom: 14, flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Feather name="link" size={13} color={FLIX2_COLOR} />
+                <Text style={{ color: FLIX2_COLOR, fontSize: 12, fontWeight: "700" }}>
+                  TMDB vinculado: {existingPatch?.tmdbId ?? item.tmdb_id}
+                </Text>
+                {existingPatch?.tmdbId && (
+                  <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 10, flex: 1, textAlign: "right" }}>(patch)</Text>
+                )}
+              </View>
+            )}
+
+            {/* ── Áudio ── */}
+            <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 11, fontWeight: "700",
+              textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 8 }}>
+              Tipo de Áudio
+            </Text>
+            {/\[L\]/i.test(item.title) && (
+              <Text style={{ color: "#f59e0b", fontSize: 10, marginBottom: 6 }}>
+                ⚡ Auto-detectado "[L]" no título → Legendado
+              </Text>
+            )}
+            <View style={{ flexDirection: "row", gap: 8, marginBottom: 16 }}>
+              {AUDIO_OPTIONS.map((opt) => (
+                <Pressable key={opt.value} onPress={() => setAudioType(audioType === opt.value ? null : opt.value)}
+                  style={{ flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5,
+                    paddingVertical: 10, borderRadius: 10,
+                    backgroundColor: audioType === opt.value ? `${opt.color}22` : "rgba(255,255,255,0.04)",
+                    borderWidth: 1, borderColor: audioType === opt.value ? `${opt.color}66` : "rgba(255,255,255,0.1)" }}>
+                  <Feather name={opt.icon as any} size={12} color={audioType === opt.value ? opt.color : "rgba(255,255,255,0.3)"} />
+                  <Text style={{ color: audioType === opt.value ? opt.color : "rgba(255,255,255,0.4)", fontSize: 11,
+                    fontWeight: audioType === opt.value ? "700" : "400" }}>
+                    {opt.label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+
+            {/* ── Vincular TMDB ── */}
+            <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 11, fontWeight: "700",
+              textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 8 }}>
+              Vincular TMDB
+            </Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(255,255,255,0.06)",
+              borderRadius: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", paddingHorizontal: 12,
+              marginBottom: 8 }}>
+              {tmdbLoading
+                ? <ActivityIndicator size="small" color={FLIX2_COLOR} style={{ width: 14 }} />
+                : <Feather name="search" size={13} color="rgba(255,255,255,0.35)" />}
+              <TextInput
+                style={{ flex: 1, color: "#fff", fontSize: 13, paddingVertical: 10 }}
+                placeholder="Buscar no TMDB…"
+                placeholderTextColor="rgba(255,255,255,0.3)"
+                value={tmdbSearch}
+                onChangeText={handleTmdbSearchChange}
+                autoCorrect={false}
+              />
+            </View>
+
+            {selectedTmdb && (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10, padding: 10, borderRadius: 10,
+                backgroundColor: "#10b98120", borderWidth: 1, borderColor: "#10b98144", marginBottom: 10 }}>
+                {selectedTmdb.poster_path && (
+                  <Image source={{ uri: `https://image.tmdb.org/t/p/w92${selectedTmdb.poster_path}` }}
+                    style={{ width: 36, height: 54, borderRadius: 5 }} contentFit="cover" />
+                )}
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: "#10b981", fontWeight: "700", fontSize: 13 }}>{selectedTmdb.title}</Text>
+                  <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 10 }}>
+                    ID {selectedTmdb.id} · {selectedTmdb.media_type === "movie" ? "Filme" : "Série"}
+                    {(selectedTmdb.release_date || selectedTmdb.first_air_date)
+                      ? ` · ${(selectedTmdb.release_date || selectedTmdb.first_air_date)!.slice(0, 4)}`
+                      : ""}
+                  </Text>
+                </View>
+                <Pressable onPress={() => setSelectedTmdb(null)} style={{ padding: 6 }}>
+                  <Feather name="x" size={14} color="rgba(255,255,255,0.4)" />
+                </Pressable>
+              </View>
+            )}
+
+            {/* TMDB results list */}
+            {tmdbResults.length > 0 && !selectedTmdb && (
+              <View style={{ borderRadius: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.08)", overflow: "hidden", marginBottom: 14 }}>
+                {tmdbResults.map((hit, i) => (
+                  <Pressable key={hit.id} onPress={() => { setSelectedTmdb(hit); setTmdbResults([]); }}
+                    style={{ flexDirection: "row", alignItems: "center", gap: 10, padding: 10,
+                      backgroundColor: "rgba(255,255,255,0.02)",
+                      borderTopWidth: i > 0 ? 1 : 0, borderTopColor: "rgba(255,255,255,0.06)" }}>
+                    {hit.poster_path ? (
+                      <Image source={{ uri: `https://image.tmdb.org/t/p/w92${hit.poster_path}` }}
+                        style={{ width: 32, height: 48, borderRadius: 4 }} contentFit="cover" />
+                    ) : (
+                      <View style={{ width: 32, height: 48, borderRadius: 4, backgroundColor: "#1a1a2a",
+                        alignItems: "center", justifyContent: "center" }}>
+                        <Feather name="film" size={14} color="rgba(255,255,255,0.2)" />
+                      </View>
+                    )}
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: "#fff", fontWeight: "600", fontSize: 13 }} numberOfLines={1}>{hit.title}</Text>
+                      <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 10, marginTop: 2 }}>
+                        ID {hit.id} · {hit.media_type === "movie" ? "Filme" : "Série"}
+                        {(hit.release_date || hit.first_air_date)
+                          ? ` · ${(hit.release_date || hit.first_air_date)!.slice(0, 4)}`
+                          : ""}
+                        {hit.vote_average > 0 ? ` · ★ ${hit.vote_average.toFixed(1)}` : ""}
+                      </Text>
+                      {hit.overview ? (
+                        <Text style={{ color: "rgba(255,255,255,0.25)", fontSize: 10, marginTop: 2 }} numberOfLines={2}>{hit.overview}</Text>
+                      ) : null}
+                    </View>
+                    <Feather name="check-circle" size={16} color={`${FLIX2_COLOR}60`} />
+                  </Pressable>
+                ))}
+              </View>
+            )}
+
+            {/* ── Fundir séries ── */}
+            {isSeries && (
+              <>
+                <View style={{ height: 1, backgroundColor: "rgba(255,255,255,0.07)", marginVertical: 12 }} />
+                <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 11, fontWeight: "700",
+                  textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 8 }}>
+                  Fundir Séries
+                </Text>
+                {merge ? (
+                  <View style={{ backgroundColor: "#8b5cf612", borderRadius: 10, borderWidth: 1,
+                    borderColor: `${FLIX2_COLOR}33`, padding: 12 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                      <Feather name="git-merge" size={13} color={FLIX2_COLOR} />
+                      <Text style={{ color: FLIX2_COLOR, fontWeight: "700", fontSize: 12 }}>Fusão ativa</Text>
+                    </View>
+                    <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 11 }}>
+                      Principal ({merge.primaryLabel}): ID {merge.primaryId}
+                    </Text>
+                    <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 11, marginTop: 2 }}>
+                      Secundária ({merge.secondaryLabel}): ID {merge.secondaryId}
+                    </Text>
+                    <Pressable onPress={removeMerge}
+                      style={{ marginTop: 10, flexDirection: "row", alignItems: "center", gap: 6,
+                        paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8,
+                        backgroundColor: "rgba(248,113,113,0.12)", borderWidth: 1, borderColor: "rgba(248,113,113,0.3)",
+                        alignSelf: "flex-start" }}>
+                      <Feather name="trash-2" size={12} color="#f87171" />
+                      <Text style={{ color: "#f87171", fontSize: 12, fontWeight: "700" }}>Remover fusão</Text>
+                    </Pressable>
+                  </View>
+                ) : (
+                  <Pressable onPress={() => setShowMergeModal(true)}
+                    style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 12, paddingHorizontal: 14,
+                      borderRadius: 10, backgroundColor: `${FLIX2_COLOR}10`, borderWidth: 1, borderColor: `${FLIX2_COLOR}33`,
+                      borderStyle: "dashed" }}>
+                    <Feather name="git-merge" size={14} color={FLIX2_COLOR} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: FLIX2_COLOR, fontWeight: "700", fontSize: 13 }}>Fundir com outra série</Text>
+                      <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 10, marginTop: 1 }}>
+                        Combina ep. dublados e legendados no mesmo player
+                      </Text>
+                    </View>
+                    <Feather name="chevron-right" size={14} color={`${FLIX2_COLOR}60`} />
+                  </Pressable>
+                )}
+              </>
+            )}
+
+            {/* Save message */}
+            {saveMsg && (
+              <View style={{ marginTop: 12, padding: 10, borderRadius: 8,
+                backgroundColor: saveMsg.startsWith("Erro") ? "rgba(248,113,113,0.12)" : "rgba(34,197,94,0.12)",
+                borderWidth: 1, borderColor: saveMsg.startsWith("Erro") ? "rgba(248,113,113,0.3)" : "rgba(34,197,94,0.3)" }}>
+                <Text style={{ color: saveMsg.startsWith("Erro") ? "#f87171" : "#22c55e", fontSize: 12, fontWeight: "700" }}>
+                  {saveMsg}
+                </Text>
+              </View>
+            )}
+
+            {/* Save button */}
+            <Pressable onPress={savePatch} disabled={saving || (!selectedTmdb && audioType === (existingPatch?.audioType ?? detectAudio(item.title)))}
+              style={{ marginTop: 16, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+                paddingVertical: 14, borderRadius: 12,
+                backgroundColor: FLIX2_COLOR,
+                opacity: (saving || (!selectedTmdb && audioType === (existingPatch?.audioType ?? detectAudio(item.title)))) ? 0.4 : 1 }}>
+              {saving ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="save" size={16} color="#fff" />}
+              <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15 }}>
+                {saving ? "Salvando…" : "Salvar alterações"}
+              </Text>
+            </Pressable>
+          </ScrollView>
+        </View>
+      </View>
+
+      {/* Merge sub-modal */}
+      {showMergeModal && (
+        <Flix2SeriesMergeModal
+          item={item}
+          onClose={() => setShowMergeModal(false)}
+          onMerged={(m) => { setMerge(m); setShowMergeModal(false); }}
+        />
+      )}
+    </Modal>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FLIX2 SERIES MERGE MODAL — Fundir duas séries
+// ─────────────────────────────────────────────────────────────────────────────
+
+function Flix2SeriesMergeModal({
+  item,
+  onClose,
+  onMerged,
+}: {
+  item: Flix2Item;
+  onClose: () => void;
+  onMerged: (merge: { primaryId: string; secondaryId: string; primaryLabel: string; secondaryLabel: string }) => void;
+}) {
+  const [searchQ, setSearchQ] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [results, setResults] = useState<Flix2Item[]>([]);
+  const [selected, setSelected] = useState<Flix2Item | null>(null);
+  const [primaryLabel, setPrimaryLabel] = useState("Dublado");
+  const [secondaryLabel, setSecondaryLabel] = useState("Legendado");
+  const [merging, setMerging] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const searchSeries = async (q: string) => {
+    if (!q.trim()) { setResults([]); return; }
+    setSearching(true);
+    try {
+      const catalogType = item.type === "anime" ? "animes" : "series";
+      const data = await apiFetch<{ results: Flix2Item[] }>(
+        `/flix2/search?q=${encodeURIComponent(q)}&type=${catalogType}&limit=20&maxPages=30`
+      );
+      setResults((data.results ?? []).filter((r) => String(r.id) !== String(item.id)));
+    } catch { setResults([]); }
+    finally { setSearching(false); }
+  };
+
+  const handleSearch = (t: string) => {
+    setSearchQ(t);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => searchSeries(t), 600);
+  };
+
+  const doMerge = async () => {
+    if (!selected) return;
+    setMerging(true);
+    setError(null);
+    try {
+      const body = {
+        primaryId: String(item.id),
+        secondaryId: String(selected.id),
+        primaryLabel,
+        secondaryLabel,
+      };
+      await apiFetch("/flix2/series-merge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      onMerged(body);
+    } catch (e: any) { setError(e.message ?? "Erro ao fundir"); }
+    finally { setMerging(false); }
+  };
+
+  const LABEL_PRESETS = [
+    { primary: "Dublado", secondary: "Legendado" },
+    { primary: "Legendado", secondary: "Dublado" },
+    { primary: "PT-BR", secondary: "PT-PT" },
+  ];
+
+  return (
+    <Modal visible animationType="slide" transparent onRequestClose={onClose}>
+      <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.85)", justifyContent: "flex-end" }}>
+        <View style={{ backgroundColor: "#0f0f18", borderTopLeftRadius: 20, borderTopRightRadius: 20,
+          maxHeight: "88%", borderTopWidth: 1, borderColor: `${FLIX2_COLOR}44` }}>
+          <View style={{ alignItems: "center", paddingTop: 10 }}>
+            <View style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.18)" }} />
+          </View>
+          <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingTop: 10, paddingBottom: 12,
+            borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.07)" }}>
+            <Feather name="git-merge" size={16} color={FLIX2_COLOR} style={{ marginRight: 8 }} />
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: FLIX2_COLOR, fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.8 }}>Fundir Séries</Text>
+              <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 11, marginTop: 2 }} numberOfLines={1}>
+                Principal: {item.title}
+              </Text>
+            </View>
+            <Pressable onPress={onClose} style={{ padding: 8, borderRadius: 8, backgroundColor: "rgba(255,255,255,0.06)" }}>
+              <Feather name="x" size={18} color="rgba(255,255,255,0.5)" />
+            </Pressable>
+          </View>
+
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 32 }} keyboardShouldPersistTaps="handled">
+
+            {/* Label presets */}
+            <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 11, fontWeight: "700",
+              textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 8 }}>
+              Labels de áudio
+            </Text>
+            <View style={{ flexDirection: "row", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+              {LABEL_PRESETS.map((p) => {
+                const isActive = primaryLabel === p.primary && secondaryLabel === p.secondary;
+                return (
+                  <Pressable key={p.primary + p.secondary}
+                    onPress={() => { setPrimaryLabel(p.primary); setSecondaryLabel(p.secondary); }}
+                    style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8,
+                      backgroundColor: isActive ? `${FLIX2_COLOR}22` : "rgba(255,255,255,0.05)",
+                      borderWidth: 1, borderColor: isActive ? `${FLIX2_COLOR}55` : "rgba(255,255,255,0.1)" }}>
+                    <Text style={{ color: isActive ? FLIX2_COLOR : "rgba(255,255,255,0.45)", fontSize: 11, fontWeight: isActive ? "700" : "400" }}>
+                      {p.primary} + {p.secondary}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <View style={{ flexDirection: "row", gap: 8, marginBottom: 14 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 10, marginBottom: 4 }}>Label principal (esta série)</Text>
+                <TextInput style={{ backgroundColor: "rgba(255,255,255,0.06)", borderRadius: 8, borderWidth: 1,
+                  borderColor: "rgba(255,255,255,0.12)", color: "#fff", fontSize: 13, paddingHorizontal: 10, paddingVertical: 8 }}
+                  value={primaryLabel} onChangeText={setPrimaryLabel} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 10, marginBottom: 4 }}>Label secundária (a fundir)</Text>
+                <TextInput style={{ backgroundColor: "rgba(255,255,255,0.06)", borderRadius: 8, borderWidth: 1,
+                  borderColor: "rgba(255,255,255,0.12)", color: "#fff", fontSize: 13, paddingHorizontal: 10, paddingVertical: 8 }}
+                  value={secondaryLabel} onChangeText={setSecondaryLabel} />
+              </View>
+            </View>
+
+            {/* Search for secondary series */}
+            <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 11, fontWeight: "700",
+              textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 8 }}>
+              Buscar série secundária
+            </Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(255,255,255,0.06)",
+              borderRadius: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", paddingHorizontal: 12, marginBottom: 10 }}>
+              {searching
+                ? <ActivityIndicator size="small" color={FLIX2_COLOR} style={{ width: 14 }} />
+                : <Feather name="search" size={13} color="rgba(255,255,255,0.35)" />}
+              <TextInput style={{ flex: 1, color: "#fff", fontSize: 13, paddingVertical: 10 }}
+                placeholder="Nome da série a fundir…"
+                placeholderTextColor="rgba(255,255,255,0.3)"
+                value={searchQ} onChangeText={handleSearch} autoCorrect={false} />
+            </View>
+
+            {selected && (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10, padding: 10, borderRadius: 10,
+                backgroundColor: "#10b98120", borderWidth: 1, borderColor: "#10b98144", marginBottom: 10 }}>
+                {selected.poster ? (
+                  <Image source={{ uri: selected.poster }} style={{ width: 32, height: 48, borderRadius: 4 }} contentFit="cover" />
+                ) : (
+                  <View style={{ width: 32, height: 48, borderRadius: 4, backgroundColor: "#1a1a2a",
+                    alignItems: "center", justifyContent: "center" }}>
+                    <Feather name="tv" size={14} color="rgba(255,255,255,0.2)" />
+                  </View>
+                )}
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: "#10b981", fontWeight: "700", fontSize: 13 }}>{selected.title}</Text>
+                  <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 10 }}>ID {selected.id}{selected.year ? ` · ${selected.year}` : ""}</Text>
+                </View>
+                <Pressable onPress={() => setSelected(null)} style={{ padding: 6 }}>
+                  <Feather name="x" size={14} color="rgba(255,255,255,0.4)" />
+                </Pressable>
+              </View>
+            )}
+
+            {results.length > 0 && !selected && (
+              <View style={{ borderRadius: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.08)", overflow: "hidden", marginBottom: 14 }}>
+                {results.slice(0, 10).map((r, i) => (
+                  <Pressable key={r.id} onPress={() => { setSelected(r); setResults([]); }}
+                    style={{ flexDirection: "row", alignItems: "center", gap: 10, padding: 10,
+                      backgroundColor: "rgba(255,255,255,0.02)",
+                      borderTopWidth: i > 0 ? 1 : 0, borderTopColor: "rgba(255,255,255,0.06)" }}>
+                    {r.poster ? (
+                      <Image source={{ uri: r.poster }} style={{ width: 28, height: 42, borderRadius: 3 }} contentFit="cover" />
+                    ) : (
+                      <View style={{ width: 28, height: 42, borderRadius: 3, backgroundColor: "#1a1a2a",
+                        alignItems: "center", justifyContent: "center" }}>
+                        <Feather name="tv" size={12} color="rgba(255,255,255,0.2)" />
+                      </View>
+                    )}
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: "#fff", fontWeight: "600", fontSize: 12 }} numberOfLines={1}>{r.title}</Text>
+                      <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 10 }}>ID {r.id}{r.year ? ` · ${r.year}` : ""}</Text>
+                    </View>
+                    <Feather name="plus-circle" size={16} color={`${FLIX2_COLOR}70`} />
+                  </Pressable>
+                ))}
+              </View>
+            )}
+
+            {error && (
+              <View style={{ padding: 10, borderRadius: 8, backgroundColor: "rgba(248,113,113,0.12)",
+                borderWidth: 1, borderColor: "rgba(248,113,113,0.3)", marginBottom: 12 }}>
+                <Text style={{ color: "#f87171", fontSize: 12 }}>{error}</Text>
+              </View>
+            )}
+
+            {/* Preview of merge */}
+            {selected && (
+              <View style={{ padding: 12, borderRadius: 10, backgroundColor: `${FLIX2_COLOR}0a`,
+                borderWidth: 1, borderColor: `${FLIX2_COLOR}22`, marginBottom: 14 }}>
+                <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 10, marginBottom: 6, fontWeight: "700" }}>RESULTADO DA FUSÃO</Text>
+                <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 11 }}>
+                  Ao abrir qualquer uma das séries no player, os episódios vão aparecer com as tags:
+                </Text>
+                <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
+                  <View style={{ flex: 1, padding: 8, borderRadius: 8, backgroundColor: "#3b82f622",
+                    borderWidth: 1, borderColor: "#3b82f644", alignItems: "center" }}>
+                    <Text style={{ color: "#3b82f6", fontWeight: "700", fontSize: 12 }}>{primaryLabel}</Text>
+                    <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 10, marginTop: 2 }}>{item.title}</Text>
+                  </View>
+                  <Feather name="plus" size={16} color="rgba(255,255,255,0.3)" style={{ alignSelf: "center" }} />
+                  <View style={{ flex: 1, padding: 8, borderRadius: 8, backgroundColor: "#f59e0b22",
+                    borderWidth: 1, borderColor: "#f59e0b44", alignItems: "center" }}>
+                    <Text style={{ color: "#f59e0b", fontWeight: "700", fontSize: 12 }}>{secondaryLabel}</Text>
+                    <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 10, marginTop: 2 }}>{selected.title}</Text>
+                  </View>
+                </View>
+              </View>
+            )}
+
+            <Pressable onPress={doMerge} disabled={!selected || merging}
+              style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+                paddingVertical: 14, borderRadius: 12, backgroundColor: FLIX2_COLOR,
+                opacity: (!selected || merging) ? 0.4 : 1 }}>
+              {merging ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="git-merge" size={16} color="#fff" />}
+              <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15 }}>
+                {merging ? "Fundindo…" : "Confirmar fusão"}
+              </Text>
+            </Pressable>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function Flix2Card({
+  item,
+  onRegister,
+  onEdit,
+  hasPatch,
+  hasMerge,
+}: {
+  item: Flix2Item;
+  onRegister: () => void;
+  onEdit: () => void;
+  hasPatch?: boolean;
+  hasMerge?: boolean;
+}) {
   const router = useRouter();
   const isMovie = item.type === "filme";
   const hasStream = !!item.stream_url;
+  const audioType = (item as any)._audioType as AudioType | undefined;
+
+  const AUDIO_COLOR: Record<string, string> = { dublado: "#3b82f6", legendado: "#f59e0b", dual: "#10b981" };
+  const AUDIO_LABEL: Record<string, string> = { dublado: "DUB", legendado: "LEG", dual: "DUAL" };
 
   const playDirect = () => {
     if (!item.stream_url) return;
@@ -7744,7 +8384,7 @@ function Flix2Card({ item, onRegister }: { item: Flix2Item; onRegister: () => vo
     <View style={{ flexDirection: "row", gap: 12, paddingVertical: 12,
       borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.06)", alignItems: "flex-start" }}>
       {/* Poster */}
-      <View style={{ width: 64, height: 96, borderRadius: 8, overflow: "hidden", backgroundColor: "#1a1a1a", flexShrink: 0 }}>
+      <Pressable onPress={onEdit} style={{ width: 64, height: 96, borderRadius: 8, overflow: "hidden", backgroundColor: "#1a1a1a", flexShrink: 0 }}>
         {item.poster ? (
           <Image source={{ uri: item.poster }} style={{ width: 64, height: 96 }} contentFit="cover" />
         ) : (
@@ -7752,12 +8392,19 @@ function Flix2Card({ item, onRegister }: { item: Flix2Item; onRegister: () => vo
             <Feather name={isMovie ? "film" : "tv"} size={24} color="rgba(255,255,255,0.2)" />
           </View>
         )}
-      </View>
+        {/* Patch/Merge indicator overlay */}
+        {(hasPatch || hasMerge) && (
+          <View style={{ position: "absolute", top: 4, right: 4, flexDirection: "row", gap: 3 }}>
+            {hasPatch && <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: FLIX2_COLOR }} />}
+            {hasMerge && <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: "#10b981" }} />}
+          </View>
+        )}
+      </Pressable>
 
       {/* Info */}
       <View style={{ flex: 1 }}>
         <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14, lineHeight: 19 }} numberOfLines={2}>{item.title}</Text>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 3 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 3, flexWrap: "wrap" }}>
           {item.year ? <Text style={{ color: FLIX2_COLOR, fontSize: 11, fontWeight: "700" }}>{item.year}</Text> : null}
           {item.year ? <View style={{ width: 3, height: 3, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.2)" }} /> : null}
           <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 11 }}>
@@ -7775,6 +8422,18 @@ function Flix2Card({ item, onRegister }: { item: Flix2Item; onRegister: () => vo
               <Text style={{ color: "#22c55e", fontSize: 10, fontWeight: "700" }}>hubby.cx</Text>
             </>
           )}
+          {audioType && (
+            <View style={{ paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4,
+              backgroundColor: `${AUDIO_COLOR[audioType]}22`, borderWidth: 1, borderColor: `${AUDIO_COLOR[audioType]}44` }}>
+              <Text style={{ color: AUDIO_COLOR[audioType], fontSize: 9, fontWeight: "700" }}>{AUDIO_LABEL[audioType]}</Text>
+            </View>
+          )}
+          {hasMerge && (
+            <View style={{ paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4,
+              backgroundColor: "rgba(16,185,129,0.12)", borderWidth: 1, borderColor: "rgba(16,185,129,0.3)" }}>
+              <Text style={{ color: "#10b981", fontSize: 9, fontWeight: "700" }}>FUNDIDA</Text>
+            </View>
+          )}
         </View>
         {item.genres ? (
           <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 11, marginTop: 4 }} numberOfLines={1}>{item.genres}</Text>
@@ -7784,22 +8443,29 @@ function Flix2Card({ item, onRegister }: { item: Flix2Item; onRegister: () => vo
         ) : null}
 
         {/* Action buttons */}
-        <View style={{ flexDirection: "row", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+        <View style={{ flexDirection: "row", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
           {/* Play button — only for movies (VOD with direct stream_url) */}
           {isMovie && hasStream && (
             <Pressable onPress={playDirect}
-              style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 7,
+              style={{ flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, paddingVertical: 6,
                 borderRadius: 8, backgroundColor: "#22c55e20", borderWidth: 1, borderColor: "#22c55e44" }}>
-              <Feather name="play" size={13} color="#22c55e" />
-              <Text style={{ color: "#22c55e", fontSize: 12, fontWeight: "700" }}>Assistir</Text>
+              <Feather name="play" size={12} color="#22c55e" />
+              <Text style={{ color: "#22c55e", fontSize: 11, fontWeight: "700" }}>Assistir</Text>
             </Pressable>
           )}
+          {/* Edit button */}
+          <Pressable onPress={onEdit}
+            style={{ flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, paddingVertical: 6,
+              borderRadius: 8, backgroundColor: "rgba(255,255,255,0.06)", borderWidth: 1, borderColor: "rgba(255,255,255,0.12)" }}>
+            <Feather name="edit-2" size={12} color="rgba(255,255,255,0.5)" />
+            <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 11, fontWeight: "600" }}>Editar</Text>
+          </Pressable>
           {/* Register button — always visible for registration into R2 registry */}
           <Pressable onPress={onRegister}
-            style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, paddingVertical: 7,
+            style={{ flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, paddingVertical: 6,
               borderRadius: 8, backgroundColor: `${FLIX2_COLOR}20`, borderWidth: 1, borderColor: `${FLIX2_COLOR}44` }}>
-            <Feather name="plus-circle" size={13} color={FLIX2_COLOR} />
-            <Text style={{ color: FLIX2_COLOR, fontSize: 12, fontWeight: "700" }}>
+            <Feather name="plus-circle" size={12} color={FLIX2_COLOR} />
+            <Text style={{ color: FLIX2_COLOR, fontSize: 11, fontWeight: "700" }}>
               {isMovie ? "Registrar" : `Registrar (${item.episodes_count ?? "?"} ep)`}
             </Text>
           </Pressable>
