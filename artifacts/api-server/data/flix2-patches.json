@@ -31,5 +31,110 @@
     "tmdbType": "tv",
     "posterPath": "/t3yVaAlmCLBwbqTrKGcWHwuCmkh.jpg",
     "updatedAt": 1782698425333
+  },
+  {
+    "flix2Id": "hubby_ser_30",
+    "tmdbId": 42009,
+    "tmdbType": "tv",
+    "posterPath": "/aCTL24B8ZuiI2osMwoUI5rqBXoF.jpg",
+    "updatedAt": 1782698440440
+  },
+  {
+    "flix2Id": "hubby_ser_31",
+    "tmdbId": 62710,
+    "tmdbType": "tv",
+    "posterPath": "/pYyKZZlb3nd5ASbiuIxva718bp2.jpg",
+    "updatedAt": 1782698447354
+  },
+  {
+    "flix2Id": "hubby_ser_34",
+    "tmdbId": 1911,
+    "tmdbType": "tv",
+    "posterPath": "/rElaRnNez2dXBCMv1THHdVcroFY.jpg",
+    "updatedAt": 1782698452769
+  },
+  {
+    "flix2Id": "hubby_vod_644204",
+    "tmdbId": 1016767,
+    "tmdbType": "movie",
+    "posterPath": "/bawj0qlu7msZUIvnxk8yGnL5SdD.jpg",
+    "updatedAt": 1782698551428
+  },
+  {
+    "flix2Id": "hubby_vod_644362",
+    "tmdbId": 985939,
+    "tmdbType": "movie",
+    "posterPath": "/ey5j9PzI1S0jsMPuN8H9ldrGzuX.jpg",
+    "updatedAt": 1782698577775
+  },
+  {
+    "flix2Id": "hubby_vod_644364",
+    "tmdbId": 664422,
+    "tmdbType": "movie",
+    "posterPath": "/orXhDQCtC086ccqUdkwOwZqN0kQ.jpg",
+    "updatedAt": 1782698582861
+  },
+  {
+    "flix2Id": "hubby_vod_644365",
+    "tmdbId": 954382,
+    "tmdbType": "movie",
+    "posterPath": "/p4ck2CY4r01FXkOXz4TwJcaSiPf.jpg",
+    "updatedAt": 1782698587214
+  },
+  {
+    "flix2Id": "hubby_vod_644366",
+    "tmdbId": 40823,
+    "tmdbType": "movie",
+    "posterPath": "/4cIYQaLos5CoBm03xpfBBgHmYMh.jpg",
+    "updatedAt": 1782698591015
+  },
+  {
+    "flix2Id": "hubby_vod_644367",
+    "tmdbId": 934861,
+    "tmdbType": "movie",
+    "posterPath": "/1Dk3lqCcOesF4Qr9ptHDB1zjIX1.jpg",
+    "updatedAt": 1782698596486
+  },
+  {
+    "flix2Id": "hubby_vod_644368",
+    "tmdbId": 58496,
+    "tmdbType": "movie",
+    "posterPath": "/j0DbcqFzXB6Bk9fqvgcp1iZG8wj.jpg",
+    "updatedAt": 1782698606872
+  },
+  {
+    "flix2Id": "hubby_vod_644370",
+    "tmdbId": 769223,
+    "tmdbType": "movie",
+    "posterPath": "/31Mad8qY3gsWYd7OeOgDXqqsUlt.jpg",
+    "updatedAt": 1782698612960
+  },
+  {
+    "flix2Id": "hubby_vod_644372",
+    "tmdbId": 700127,
+    "tmdbType": "movie",
+    "posterPath": "/ztJHKv6KSSgCTWAI2STrX2BeuJZ.jpg",
+    "updatedAt": 1782698618910
+  },
+  {
+    "flix2Id": "hubby_vod_644377",
+    "tmdbId": 836919,
+    "tmdbType": "movie",
+    "posterPath": "/jaqRr7OigmkLE5aV6bit5kVRNPC.jpg",
+    "updatedAt": 1782698624761
+  },
+  {
+    "flix2Id": "hubby_vod_644378",
+    "tmdbId": 865125,
+    "tmdbType": "movie",
+    "posterPath": "/6VqXPjpVgOyGY5OZr1hWGiIxvHT.jpg",
+    "updatedAt": 1782698628497
+  },
+  {
+    "flix2Id": "hubby_vod_644384",
+    "tmdbId": 618087,
+    "tmdbType": "movie",
+    "posterPath": "/xWDC44rdUfeMscDtpFGoylVWM55.jpg",
+    "updatedAt": 1782698635096
   }
 ]

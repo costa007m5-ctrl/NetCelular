@@ -137,6 +137,42 @@ export default function Admin2Screen() {
   type HubbyEditTarget = { kind: "vod"; item: VodItem } | { kind: "series"; item: SeriesItem };
   const [editTarget, setEditTarget] = useState<HubbyEditTarget | null>(null);
   const [patches, setPatches] = useState<Record<string, { tmdbId?: number; tmdbType?: string; audioType?: string; posterPath?: string }>>({});
+
+  // ── Bulk auto-link ───────────────────────────────────────────────────────────
+  const [bulkLink, setBulkLink] = useState<{
+    active: boolean; type: "vod" | "series";
+    done: number; total: number; saved: number; current: string;
+  } | null>(null);
+  const bulkCancelRef = useRef(false);
+
+  const runBulkLink = async (type: "vod" | "series", unlinked: Array<{ id: string | number; name: string; patchId: string }>) => {
+    if (unlinked.length === 0) return;
+    const base = getApiBase();
+    const tmdbType = type === "vod" ? "movie" : "tv";
+    bulkCancelRef.current = false;
+    setBulkLink({ active: true, type, done: 0, total: unlinked.length, saved: 0, current: "" });
+    let saved = 0;
+    for (let i = 0; i < unlinked.length; i++) {
+      if (bulkCancelRef.current) break;
+      const { name, patchId } = unlinked[i];
+      setBulkLink((prev) => prev ? { ...prev, done: i, current: name } : null);
+      try {
+        const res = await fetch(`${base}/r2/tmdb-search?q=${encodeURIComponent(name)}&type=${tmdbType}`);
+        if (res.ok) {
+          const data = await res.json();
+          const hit = data.results?.[0];
+          if (hit) {
+            const body = { flix2Id: patchId, tmdbId: hit.id, tmdbType, ...(hit.poster_path ? { posterPath: hit.poster_path } : {}) };
+            await fetch(`${base}/r2/flix2/item-patch`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+            saved++;
+            setPatches((prev) => ({ ...prev, [patchId]: { ...prev[patchId], tmdbId: hit.id, tmdbType, posterPath: hit.poster_path ?? undefined } }));
+          }
+        }
+      } catch {}
+      await new Promise((r) => setTimeout(r, 280));
+    }
+    setBulkLink((prev) => prev ? { ...prev, active: false, done: unlinked.length, saved } : null);
+  };
   const hubbyPatchId = (t: HubbyEditTarget) =>
     t.kind === "vod" ? `hubby_vod_${t.item.stream_id}` : `hubby_ser_${t.item.series_id}`;
 
@@ -534,10 +570,22 @@ export default function Admin2Screen() {
                     </ScrollView>
                   )}
 
-                  <Text style={[s.countTxt, { color: colors.mutedForeground }]}>
-                    {filteredVod.length.toLocaleString()} resultados
-                    {vodCatFilter ? ` · ${vodCats.find(c => c.category_id === vodCatFilter)?.category_name}` : ""}
-                  </Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 14, paddingVertical: 6 }}>
+                    <Text style={[s.countTxt, { color: colors.mutedForeground, paddingHorizontal: 0, paddingVertical: 0 }]}>
+                      {filteredVod.length.toLocaleString()} resultados
+                      {vodCatFilter ? ` · ${vodCats.find(c => c.category_id === vodCatFilter)?.category_name}` : ""}
+                      {(() => { const n = filteredVod.filter(i => !patches[`hubby_vod_${i.stream_id}`]?.tmdbId).length; return n > 0 ? ` · ${n} sem TMDB` : ""; })()}
+                    </Text>
+                    {!bulkLink?.active && filteredVod.some(i => !patches[`hubby_vod_${i.stream_id}`]?.tmdbId) && (
+                      <Pressable
+                        onPress={() => runBulkLink("vod", filteredVod.filter(i => !patches[`hubby_vod_${i.stream_id}`]?.tmdbId).map(i => ({ id: i.stream_id, name: i.name, patchId: `hubby_vod_${i.stream_id}` })))}
+                        style={{ flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, backgroundColor: "#f59e0b22", borderWidth: 1, borderColor: "#f59e0b55" }}
+                      >
+                        <Feather name="zap" size={11} color="#f59e0b" />
+                        <Text style={{ color: "#f59e0b", fontSize: 11, fontWeight: "700" }}>Vincular Todos</Text>
+                      </Pressable>
+                    )}
+                  </View>
 
                   <FlatList
                     data={vodPageItems}
@@ -578,6 +626,11 @@ export default function Admin2Screen() {
                             onPress={() => setSelectedVod(item)}
                           >
                             <Image source={{ uri: patch?.posterPath ? `https://image.tmdb.org/t/p/w342${patch.posterPath}` : item.stream_icon }} style={s.cardPoster} contentFit="cover" onError={() => {}} />
+                            {!patch?.tmdbId && (
+                              <View style={{ position: "absolute", top: 4, left: 4, backgroundColor: "#f59e0bcc", borderRadius: 4, paddingHorizontal: 3, paddingVertical: 1 }}>
+                                <Text style={{ color: "#000", fontSize: 7, fontWeight: "800" }}>SEM TMDB</Text>
+                              </View>
+                            )}
                             <View style={s.cardInfo}>
                               <Text style={[s.cardTitle, { color: colors.foreground }]} numberOfLines={2}>{item.name}</Text>
                               {patch?.audioType ? (
@@ -673,9 +726,21 @@ export default function Admin2Screen() {
                     </ScrollView>
                   )}
 
-                  <Text style={[s.countTxt, { color: colors.mutedForeground }]}>
-                    {filteredSeries.length.toLocaleString()} resultados
-                  </Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 14, paddingVertical: 6 }}>
+                    <Text style={[s.countTxt, { color: colors.mutedForeground, paddingHorizontal: 0, paddingVertical: 0 }]}>
+                      {filteredSeries.length.toLocaleString()} resultados
+                      {(() => { const n = filteredSeries.filter(i => !patches[`hubby_ser_${i.series_id}`]?.tmdbId).length; return n > 0 ? ` · ${n} sem TMDB` : ""; })()}
+                    </Text>
+                    {!bulkLink?.active && filteredSeries.some(i => !patches[`hubby_ser_${i.series_id}`]?.tmdbId) && (
+                      <Pressable
+                        onPress={() => runBulkLink("series", filteredSeries.filter(i => !patches[`hubby_ser_${i.series_id}`]?.tmdbId).map(i => ({ id: i.series_id, name: i.name, patchId: `hubby_ser_${i.series_id}` })))}
+                        style={{ flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, backgroundColor: "#f59e0b22", borderWidth: 1, borderColor: "#f59e0b55" }}
+                      >
+                        <Feather name="zap" size={11} color="#f59e0b" />
+                        <Text style={{ color: "#f59e0b", fontSize: 11, fontWeight: "700" }}>Vincular Todos</Text>
+                      </Pressable>
+                    )}
+                  </View>
 
                   <FlatList
                     data={seriesPageItems}
@@ -716,6 +781,11 @@ export default function Admin2Screen() {
                             onPress={() => { setSelectedSeries(item); fetchSeriesEpisodes(item.series_id); }}
                           >
                             <Image source={{ uri: patch?.posterPath ? `https://image.tmdb.org/t/p/w342${patch.posterPath}` : item.cover }} style={s.cardPoster} contentFit="cover" onError={() => {}} />
+                            {!patch?.tmdbId && (
+                              <View style={{ position: "absolute", top: 4, left: 4, backgroundColor: "#f59e0bcc", borderRadius: 4, paddingHorizontal: 3, paddingVertical: 1 }}>
+                                <Text style={{ color: "#000", fontSize: 7, fontWeight: "800" }}>SEM TMDB</Text>
+                              </View>
+                            )}
                             <View style={s.cardInfo}>
                               <Text style={[s.cardTitle, { color: colors.foreground }]} numberOfLines={2}>{item.name}</Text>
                               {patch?.audioType ? (
@@ -1214,6 +1284,67 @@ export default function Admin2Screen() {
           onSaved={() => { setEditTarget(null); loadPatches(); }}
         />
       )}
+
+      {/* ── Bulk auto-link progress overlay ─────────────────────────────────── */}
+      <Modal visible={!!bulkLink} transparent animationType="fade" statusBarTranslucent>
+        <View style={{ flex: 1, backgroundColor: "#000000bb", justifyContent: "center", alignItems: "center", padding: 32 }}>
+          <View style={{ width: "100%", backgroundColor: "#1a1a1a", borderRadius: 16, padding: 24, gap: 16, borderWidth: 1, borderColor: "#f59e0b44" }}>
+            {/* Header */}
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+              <Feather name="zap" size={18} color="#f59e0b" />
+              <Text style={{ color: "#fff", fontSize: 16, fontWeight: "800" }}>
+                Vincular ao TMDB — {bulkLink?.type === "vod" ? "Filmes" : "Séries"}
+              </Text>
+            </View>
+
+            {/* Progress bar */}
+            {bulkLink && (
+              <View style={{ gap: 8 }}>
+                <View style={{ height: 6, borderRadius: 3, backgroundColor: "#333", overflow: "hidden" }}>
+                  <View style={{ height: 6, borderRadius: 3, backgroundColor: "#f59e0b", width: `${Math.round((bulkLink.done / Math.max(bulkLink.total, 1)) * 100)}%` }} />
+                </View>
+                <Text style={{ color: "#aaa", fontSize: 12 }}>
+                  {bulkLink.done} / {bulkLink.total} processados · {bulkLink.saved} vinculados
+                </Text>
+                {bulkLink.current.length > 0 && (
+                  <Text style={{ color: "#f59e0b", fontSize: 11 }} numberOfLines={1}>
+                    ⟳ {bulkLink.current}
+                  </Text>
+                )}
+              </View>
+            )}
+
+            {/* Finished state */}
+            {bulkLink && !bulkLink.active && (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#16a34a22", borderRadius: 8, padding: 10 }}>
+                <Feather name="check-circle" size={16} color="#4ade80" />
+                <Text style={{ color: "#4ade80", fontWeight: "700" }}>
+                  Concluído! {bulkLink.saved} itens vinculados.
+                </Text>
+              </View>
+            )}
+
+            {/* Action buttons */}
+            <View style={{ flexDirection: "row", gap: 10 }}>
+              {bulkLink?.active ? (
+                <Pressable
+                  onPress={() => { bulkCancelRef.current = true; }}
+                  style={{ flex: 1, alignItems: "center", paddingVertical: 10, borderRadius: 10, backgroundColor: "#ef444422", borderWidth: 1, borderColor: "#ef444455" }}
+                >
+                  <Text style={{ color: "#ef4444", fontWeight: "700" }}>Cancelar</Text>
+                </Pressable>
+              ) : (
+                <Pressable
+                  onPress={() => setBulkLink(null)}
+                  style={{ flex: 1, alignItems: "center", paddingVertical: 10, borderRadius: 10, backgroundColor: "#f59e0b22", borderWidth: 1, borderColor: "#f59e0b55" }}
+                >
+                  <Text style={{ color: "#f59e0b", fontWeight: "700" }}>Fechar</Text>
+                </Pressable>
+              )}
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
