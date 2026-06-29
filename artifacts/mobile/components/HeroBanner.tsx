@@ -17,9 +17,9 @@ import { useColors } from "@/hooks/useColors";
 import type { ContentItem } from "@/constants/content";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
-const HERO_HEIGHT = 540;
+const HERO_HEIGHT = 560;
 const TMDB_KEY = "8f0beb08cf016ec8de49e454e09879ec";
-const AUTO_ADVANCE_MS = 6000;
+const AUTO_ADVANCE_MS = 7000;
 
 const logoCache = new Map<string, string | null>();
 
@@ -60,12 +60,6 @@ const GENRE_NAMES: Record<number, string> = {
   10765: "Sci-Fi & Fantasia", 10766: "Novela",
 };
 
-const GENRE_COLORS: Record<number, string> = {
-  28: "#e50914", 12: "#f59e0b", 16: "#8b5cf6", 35: "#f97316",
-  80: "#64748b", 18: "#3b82f6", 27: "#6b21a8", 878: "#22d3ee",
-  10749: "#ec4899", 99: "#22c55e", 53: "#ef4444",
-};
-
 interface HeroBannerProps {
   items: ContentItem[];
   onItemPress?: (item: ContentItem) => void;
@@ -84,18 +78,6 @@ interface HeroItemProps {
   screenWidth: number;
 }
 
-function GenreTag({ genreId }: { genreId: number }) {
-  const name = GENRE_NAMES[genreId];
-  if (!name) return null;
-  const color = GENRE_COLORS[genreId] ?? "rgba(255,255,255,0.2)";
-  return (
-    <View style={[heroStyles.genreTag, { backgroundColor: `${color}22`, borderColor: `${color}55` }]}>
-      <View style={[heroStyles.genreDot, { backgroundColor: color }]} />
-      <Text style={[heroStyles.genreTagText, { color: "rgba(255,255,255,0.85)" }]}>{name}</Text>
-    </View>
-  );
-}
-
 function ContentTypeBadge({ type, channel }: { type: string; channel?: string }) {
   if (channel && channel !== "NETPLAY") {
     return (
@@ -108,39 +90,32 @@ function ContentTypeBadge({ type, channel }: { type: string; channel?: string })
   const label = type === "movie" ? "FILME" : "SÉRIE";
   const icon: any = type === "movie" ? "film" : "tv";
   return (
-    <View style={[heroStyles.typeBadge, { backgroundColor: "rgba(229,9,20,0.18)", borderColor: "rgba(229,9,20,0.4)" }]}>
-      <Feather name={icon} size={8} color="#e50914" />
-      <Text style={[heroStyles.typeBadgeText, { color: "#e50914" }]}>{label}</Text>
+    <View style={[heroStyles.typeBadge, { backgroundColor: "rgba(229,9,20,0.22)", borderColor: "rgba(229,9,20,0.55)" }]}>
+      <Feather name={icon} size={9} color="#e50914" />
+      <Text style={[heroStyles.typeBadgeText, { color: "#ff3a46" }]}>{label}</Text>
     </View>
   );
 }
 
-function StarRating({ rating }: { rating: number }) {
-  const stars = Math.round(rating / 2);
+function IMDbBadge({ rating }: { rating: number }) {
   return (
-    <View style={heroStyles.starRow}>
-      {Array.from({ length: 5 }).map((_, i) => (
-        <Feather
-          key={i}
-          name="star"
-          size={10}
-          color={i < stars ? "#f59e0b" : "rgba(255,255,255,0.2)"}
-        />
-      ))}
-      <Text style={heroStyles.ratingNum}>{rating.toFixed(1)}</Text>
+    <View style={heroStyles.imdbBadge}>
+      <Text style={heroStyles.imdbText}>IMDb</Text>
+      <Text style={heroStyles.imdbRating}>{rating.toFixed(1)}</Text>
     </View>
   );
 }
 
-function HeroItem({ item, colors, onWatch, onDetails, onAddToList, isActive, index, screenWidth }: HeroItemProps) {
+function HeroItem({ item, colors, onWatch, onDetails, onAddToList, isActive, screenWidth }: HeroItemProps) {
   const [imgError, setImgError] = useState(false);
   const [logoError, setLogoError] = useState(false);
   const [liked, setLiked] = useState(false);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(30)).current;
-  const scaleAnim = useRef(new Animated.Value(1.04)).current;
+  const slideAnim = useRef(new Animated.Value(28)).current;
+  const scaleAnim = useRef(new Animated.Value(1.06)).current;
   const heartScale = useRef(new Animated.Value(1)).current;
+  const contentFade = useRef(new Animated.Value(0)).current;
 
   const type = item.mediaType === "movie" || item.type === "movie" ? "movie" : "tv";
   const tmdbId = item.tmdbId ? Number(item.tmdbId) : undefined;
@@ -149,28 +124,30 @@ function HeroItem({ item, colors, onWatch, onDetails, onAddToList, isActive, ind
   useEffect(() => {
     if (isActive) {
       Animated.parallel([
-        Animated.timing(fadeAnim, { toValue: 1, duration: 420, useNativeDriver: true }),
-        Animated.spring(slideAnim, { toValue: 0, speed: 14, bounciness: 4, useNativeDriver: true }),
-        Animated.timing(scaleAnim, { toValue: 1, duration: 6000, useNativeDriver: true }),
+        Animated.timing(fadeAnim, { toValue: 1, duration: 500, useNativeDriver: true }),
+        Animated.spring(slideAnim, { toValue: 0, speed: 12, bounciness: 3, useNativeDriver: true }),
+        Animated.timing(scaleAnim, { toValue: 1, duration: 7000, useNativeDriver: true }),
+        Animated.timing(contentFade, { toValue: 1, duration: 700, delay: 150, useNativeDriver: true }),
       ]).start();
     } else {
       fadeAnim.setValue(0);
-      slideAnim.setValue(30);
-      scaleAnim.setValue(1.04);
+      slideAnim.setValue(28);
+      scaleAnim.setValue(1.06);
+      contentFade.setValue(0);
     }
   }, [isActive]);
 
   const handleLike = useCallback(() => {
     setLiked((v) => !v);
     Animated.sequence([
-      Animated.spring(heartScale, { toValue: 1.45, speed: 30, bounciness: 14, useNativeDriver: true }),
-      Animated.spring(heartScale, { toValue: 1, speed: 28, bounciness: 6, useNativeDriver: true }),
+      Animated.spring(heartScale, { toValue: 1.5, speed: 28, bounciness: 16, useNativeDriver: true }),
+      Animated.spring(heartScale, { toValue: 1, speed: 26, bounciness: 5, useNativeDriver: true }),
     ]).start();
   }, [heartScale]);
 
   const displayGenres = useMemo(
     () => Array.isArray(item.genres)
-      ? (item.genres.filter((g: unknown) => typeof g === "number").slice(0, 2) as number[])
+      ? (item.genres.filter((g: unknown) => typeof g === "number").slice(0, 3) as number[])
       : [],
     [item.genres]
   );
@@ -179,11 +156,16 @@ function HeroItem({ item, colors, onWatch, onDetails, onAddToList, isActive, ind
     () => formatRuntime(item.duration ? parseInt(String(item.duration)) : undefined),
     [item.duration]
   );
+
   const HERO_YEAR = new Date().getFullYear();
   const isNew = item.year >= HERO_YEAR - 1;
 
   return (
-    <Pressable style={{ width: screenWidth, height: HERO_HEIGHT, flexShrink: 0, overflow: "hidden" }} onPress={onDetails ?? onWatch}>
+    <Pressable
+      style={{ width: screenWidth, height: HERO_HEIGHT, flexShrink: 0, overflow: "hidden" }}
+      onPress={onDetails ?? onWatch}
+    >
+      {/* Background image */}
       {!imgError && item.backdropPath ? (
         <Animated.View style={[heroStyles.heroImageWrap, { transform: [{ scale: scaleAnim }] }]}>
           <Image
@@ -199,25 +181,40 @@ function HeroItem({ item, colors, onWatch, onDetails, onAddToList, isActive, ind
         <LinearGradient colors={["#1a0a14", "#08060e"]} style={heroStyles.heroImage} />
       )}
 
+      {/* Cinematic left-to-right dark gradient */}
       <LinearGradient
-        colors={["rgba(0,0,0,0)", "rgba(0,0,0,0.08)", "rgba(0,0,0,0.45)", "rgba(5,5,8,0.82)", "rgba(5,5,8,0.98)"]}
-        locations={[0, 0.2, 0.45, 0.72, 1]}
+        colors={["rgba(5,5,8,0.85)", "rgba(5,5,8,0.3)", "transparent"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0.6, y: 0 }}
+        style={StyleSheet.absoluteFill}
+      />
+
+      {/* Bottom gradient */}
+      <LinearGradient
+        colors={["transparent", "rgba(3,3,6,0.55)", "rgba(3,3,6,0.85)", "rgba(3,3,6,0.98)"]}
+        locations={[0.3, 0.58, 0.78, 1]}
         style={heroStyles.gradient}
       />
 
+      {/* Top gradient */}
       <LinearGradient
-        colors={["rgba(5,5,8,0.55)", "rgba(5,5,8,0.1)", "transparent"]}
+        colors={["rgba(3,3,6,0.6)", "transparent"]}
         style={heroStyles.topFade}
       />
 
+      {/* Red accent glow from bottom-left */}
       <LinearGradient
-        colors={["transparent", "transparent", "rgba(229,9,20,0.04)", "transparent"]}
-        style={heroStyles.sideFade}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
+        colors={["rgba(229,9,20,0.06)", "transparent"]}
+        start={{ x: 0, y: 1 }}
+        end={{ x: 0.5, y: 0.4 }}
+        style={StyleSheet.absoluteFill}
+        pointerEvents="none"
       />
 
+      {/* Content */}
       <Animated.View style={[heroStyles.heroContent, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
+
+        {/* Top badges */}
         <View style={heroStyles.badgeRow}>
           <ContentTypeBadge type={type} channel={item.channel} />
           {isNew && (
@@ -233,187 +230,279 @@ function HeroItem({ item, colors, onWatch, onDetails, onAddToList, isActive, ind
           )}
         </View>
 
-        {logoUrl && !logoError ? (
-          <Image
-            source={{ uri: logoUrl }}
-            style={heroStyles.logoImg}
-            contentFit="contain"
-            onError={() => setLogoError(true)}
-          />
-        ) : (
-          <Text style={[heroStyles.heroTitle, { color: "#fff" }]} numberOfLines={2}>
-            {item.title}
-          </Text>
-        )}
-
-        <View style={heroStyles.metaRow}>
-          {item.rating > 0 && <StarRating rating={item.rating} />}
-          <View style={heroStyles.metaDivider} />
-          <Text style={heroStyles.metaYear}>{item.year}</Text>
-          {runtime && (
-            <>
-              <View style={heroStyles.metaDot} />
-              <Text style={heroStyles.metaRuntime}>{runtime}</Text>
-            </>
+        {/* Logo or title */}
+        <Animated.View style={{ opacity: contentFade }}>
+          {logoUrl && !logoError ? (
+            <Image
+              source={{ uri: logoUrl }}
+              style={heroStyles.logoImg}
+              contentFit="contain"
+              onError={() => setLogoError(true)}
+            />
+          ) : (
+            <Text style={heroStyles.heroTitle} numberOfLines={2}>
+              {item.title}
+            </Text>
           )}
-        </View>
+        </Animated.View>
 
+        {/* Genre pills */}
         {displayGenres.length > 0 && (
-          <View style={heroStyles.genreRow}>
-            {displayGenres.map((g) => <GenreTag key={g} genreId={g} />)}
-          </View>
+          <Animated.View style={[heroStyles.genreRow, { opacity: contentFade }]}>
+            {displayGenres.map((g, idx) => {
+              const name = GENRE_NAMES[g];
+              if (!name) return null;
+              return (
+                <React.Fragment key={g}>
+                  {idx > 0 && <View style={heroStyles.genreSep} />}
+                  <Text style={heroStyles.genreText}>{name}</Text>
+                </React.Fragment>
+              );
+            })}
+          </Animated.View>
         )}
 
+        {/* Meta info row */}
+        <Animated.View style={[heroStyles.metaRow, { opacity: contentFade }]}>
+          {item.rating > 0 && <IMDbBadge rating={item.rating} />}
+          <Text style={heroStyles.metaYear}>{item.year}</Text>
+          {runtime && <Text style={heroStyles.metaRuntime}>• {runtime}</Text>}
+        </Animated.View>
+
+        {/* Description */}
         {item.description ? (
-          <Text style={heroStyles.heroDesc} numberOfLines={2}>
+          <Animated.Text style={[heroStyles.heroDesc, { opacity: contentFade }]} numberOfLines={2}>
             {item.description}
-          </Text>
+          </Animated.Text>
         ) : null}
 
-        <View style={heroStyles.actions}>
+        {/* Action buttons */}
+        <Animated.View style={[heroStyles.actions, { opacity: contentFade }]}>
+          {/* Play button */}
           <Pressable
             onPress={onWatch}
-            style={({ pressed }) => [heroStyles.watchBtn, { opacity: pressed ? 0.84 : 1, backgroundColor: colors.primary }]}
+            style={({ pressed }) => [heroStyles.watchBtn, { opacity: pressed ? 0.82 : 1 }]}
           >
-            <View style={heroStyles.watchBtnIcon}>
-              <Feather name="play" size={16} color="#fff" />
-            </View>
-            <Text style={heroStyles.watchBtnText}>Assistir</Text>
+            <LinearGradient
+              colors={["#ff1a26", "#c8000c"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={heroStyles.watchBtnGradient}
+            >
+              <Feather name="play" size={16} color="#fff" style={{ marginLeft: 2 }} />
+              <Text style={heroStyles.watchBtnText}>Assistir</Text>
+            </LinearGradient>
           </Pressable>
 
+          {/* Details button */}
           <Pressable
             onPress={onDetails ?? onWatch}
-            style={({ pressed }) => [heroStyles.detailsBtn, { opacity: pressed ? 0.72 : 1 }]}
+            style={({ pressed }) => [heroStyles.glassBtn, { opacity: pressed ? 0.7 : 1 }]}
           >
-            <Feather name="info" size={14} color="rgba(255,255,255,0.82)" />
-            <Text style={heroStyles.detailsBtnText}>Detalhes</Text>
+            <Feather name="info" size={15} color="rgba(255,255,255,0.9)" />
+            <Text style={heroStyles.glassBtnText}>Detalhes</Text>
           </Pressable>
 
+          {/* Like button */}
           <Animated.View style={{ transform: [{ scale: heartScale }] }}>
             <TouchableOpacity
               onPress={handleLike}
-              style={[heroStyles.iconActionBtn, liked && { backgroundColor: "rgba(229,9,20,0.28)", borderColor: "rgba(229,9,20,0.5)" }]}
+              style={[
+                heroStyles.iconBtn,
+                liked && { backgroundColor: "rgba(229,9,20,0.32)", borderColor: "rgba(229,9,20,0.6)" },
+              ]}
               activeOpacity={0.75}
             >
-              <Feather
-                name={liked ? "heart" : "heart"}
-                size={17}
-                color={liked ? "#e50914" : "rgba(255,255,255,0.7)"}
-              />
+              <Feather name="heart" size={17} color={liked ? "#e50914" : "rgba(255,255,255,0.75)"} />
             </TouchableOpacity>
           </Animated.View>
 
+          {/* Add to list */}
           {onAddToList && (
-            <TouchableOpacity
-              onPress={onAddToList}
-              style={heroStyles.iconActionBtn}
-              activeOpacity={0.75}
-            >
-              <Feather name="plus" size={19} color="rgba(255,255,255,0.7)" />
+            <TouchableOpacity onPress={onAddToList} style={heroStyles.iconBtn} activeOpacity={0.75}>
+              <Feather name="plus" size={19} color="rgba(255,255,255,0.75)" />
             </TouchableOpacity>
           )}
-        </View>
+
+          {/* Download */}
+          <TouchableOpacity style={heroStyles.iconBtn} activeOpacity={0.75}>
+            <Feather name="download" size={17} color="rgba(255,255,255,0.75)" />
+          </TouchableOpacity>
+        </Animated.View>
       </Animated.View>
     </Pressable>
   );
 }
 
-const TimerDot = React.memo(function TimerDot({ active, duration }: { active: boolean; duration: number }) {
-  const progress = useRef(new Animated.Value(active ? 1 : 0)).current;
+/* ─── Animated progress bar for active slide ─── */
+const ProgressBar = React.memo(function ProgressBar({
+  active,
+  duration,
+  index,
+  total,
+  onPress,
+}: {
+  active: boolean;
+  duration: number;
+  index: number;
+  total: number;
+  onPress: () => void;
+}) {
+  const progress = useRef(new Animated.Value(0)).current;
+  const animRef = useRef<Animated.CompositeAnimation | null>(null);
 
   useEffect(() => {
+    if (animRef.current) animRef.current.stop();
     if (active) {
-      progress.setValue(1);
-      Animated.timing(progress, {
-        toValue: 0,
+      progress.setValue(0);
+      animRef.current = Animated.timing(progress, {
+        toValue: 1,
         duration,
-        useNativeDriver: true,
-      }).start();
+        useNativeDriver: false,
+      });
+      animRef.current.start();
     } else {
       progress.setValue(0);
     }
+    return () => { animRef.current?.stop(); };
   }, [active]);
 
-  // Use scaleX instead of width so useNativeDriver: true works
-  const scaleX = progress.interpolate({
-    inputRange: [0, 1],
-    outputRange: [1, 28 / 6],
-  });
-
-  if (!active) {
-    return <View style={heroStyles.dotInactive} />;
-  }
-
   return (
-    <Animated.View
-      style={[heroStyles.dotActive, { transform: [{ scaleX }] }]}
-    />
+    <Pressable onPress={onPress} style={heroStyles.progressBarWrap} hitSlop={10}>
+      <View style={heroStyles.progressTrack}>
+        {active ? (
+          <Animated.View
+            style={[
+              heroStyles.progressFill,
+              { width: progress.interpolate({ inputRange: [0, 1], outputRange: ["0%", "100%"] }) },
+            ]}
+          />
+        ) : (
+          <View style={[heroStyles.progressFill, { width: index < total ? "100%" : "0%" }]} />
+        )}
+      </View>
+    </Pressable>
   );
 });
 
+/* ─── Thumbnail strip item ─── */
+function ThumbItem({
+  item,
+  active,
+  onPress,
+}: {
+  item: ContentItem;
+  active: boolean;
+  onPress: () => void;
+}) {
+  const scaleAnim = useRef(new Animated.Value(active ? 1 : 0.88)).current;
+  const borderAnim = useRef(new Animated.Value(active ? 1 : 0)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.spring(scaleAnim, { toValue: active ? 1 : 0.88, speed: 14, bounciness: 4, useNativeDriver: true }),
+      Animated.timing(borderAnim, { toValue: active ? 1 : 0, duration: 260, useNativeDriver: false }),
+    ]).start();
+  }, [active]);
+
+  const borderColor = borderAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["rgba(255,255,255,0)", "rgba(229,9,20,0.9)"],
+  });
+
+  return (
+    <Pressable onPress={onPress}>
+      <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
+        <Animated.View style={[heroStyles.thumbWrap, { borderColor }]}>
+          {item.posterPath || item.backdropPath ? (
+            <Image
+              source={{ uri: item.posterPath ?? item.backdropPath }}
+              style={heroStyles.thumbImg}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+            />
+          ) : (
+            <LinearGradient colors={["#2a1020", "#0a0810"]} style={heroStyles.thumbImg} />
+          )}
+          {active && (
+            <View style={heroStyles.thumbActiveOverlay}>
+              <Feather name="play" size={12} color="#fff" />
+            </View>
+          )}
+          {!active && (
+            <LinearGradient
+              colors={["transparent", "rgba(0,0,0,0.45)"]}
+              style={StyleSheet.absoluteFill}
+            />
+          )}
+        </Animated.View>
+        {active && <View style={heroStyles.thumbActiveDot} />}
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+/* ─── Skeleton loading state ─── */
 function HeroBannerSkeleton({ width: w }: { width: number }) {
   const pulse = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    if (Platform.OS !== "web") return; // skip skeleton pulse on native
     const anim = Animated.loop(
       Animated.sequence([
-        Animated.timing(pulse, { toValue: 1, duration: 850, useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 0, duration: 850, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 1, duration: 900, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0, duration: 900, useNativeDriver: true }),
       ])
     );
     anim.start();
     return () => anim.stop();
   }, []);
 
-  const opacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.65] });
-
+  const opacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.28, 0.55] });
   const Bone = ({ style }: { style: any }) => (
-    <Animated.View style={[{ backgroundColor: "#2a2040", borderRadius: 6 }, style, { opacity }]} />
+    <Animated.View style={[{ backgroundColor: "#1e1530", borderRadius: 6 }, style, { opacity }]} />
   );
 
   return (
-    <View style={{ height: HERO_HEIGHT, width: w, backgroundColor: "#070510", overflow: "hidden" }}>
-      {/* Image placeholder */}
-      <Animated.View
-        style={{
-          position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
-          backgroundColor: "#130e22", opacity,
-        }}
-      />
-      {/* Bottom gradient overlay skeleton */}
+    <View style={{ height: HERO_HEIGHT, width: w, backgroundColor: "#050308", overflow: "hidden" }}>
+      <Animated.View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: "#0f0a1c", opacity }} />
       <LinearGradient
-        colors={["transparent", "rgba(7,5,16,0.85)", "#070510"]}
-        locations={[0.35, 0.72, 1]}
-        style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: HERO_HEIGHT * 0.65 }}
+        colors={["transparent", "rgba(5,3,8,0.88)", "#050308"]}
+        locations={[0.3, 0.7, 1]}
+        style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: HERO_HEIGHT * 0.7 }}
       />
-      {/* Content skeletons */}
-      <View style={{ position: "absolute", bottom: 88, left: 20, right: 20, gap: 10 }}>
-        {/* Badge */}
-        <Bone style={{ width: 64, height: 18, borderRadius: 4 }} />
-        {/* Title */}
-        <Bone style={{ width: w * 0.72, height: 38, borderRadius: 8 }} />
-        <Bone style={{ width: w * 0.5, height: 34, borderRadius: 8, marginTop: -4 }} />
-        {/* Description */}
-        <Bone style={{ width: w * 0.9, height: 12, borderRadius: 4, marginTop: 4 }} />
-        <Bone style={{ width: w * 0.75, height: 12, borderRadius: 4 }} />
-        {/* Buttons */}
-        <View style={{ flexDirection: "row", gap: 10, marginTop: 6 }}>
-          <Bone style={{ width: 130, height: 44, borderRadius: 10 }} />
-          <Bone style={{ width: 110, height: 44, borderRadius: 10 }} />
-          <Bone style={{ width: 44, height: 44, borderRadius: 10 }} />
+      <View style={{ position: "absolute", bottom: 100, left: 20, right: 20, gap: 11 }}>
+        <Bone style={{ width: 72, height: 20, borderRadius: 5 }} />
+        <Bone style={{ width: w * 0.75, height: 40, borderRadius: 8 }} />
+        <Bone style={{ width: w * 0.55, height: 32, borderRadius: 8, marginTop: -4 }} />
+        <View style={{ flexDirection: "row", gap: 8, marginTop: 2 }}>
+          {[52, 72, 84].map((bw, i) => <Bone key={i} style={{ width: bw, height: 13, borderRadius: 4 }} />)}
+        </View>
+        <Bone style={{ width: w * 0.88, height: 13, borderRadius: 4, marginTop: 2 }} />
+        <Bone style={{ width: w * 0.65, height: 13, borderRadius: 4 }} />
+        <View style={{ flexDirection: "row", gap: 10, marginTop: 8 }}>
+          <Bone style={{ width: 130, height: 48, borderRadius: 14 }} />
+          <Bone style={{ width: 110, height: 48, borderRadius: 14 }} />
+          <Bone style={{ width: 48, height: 48, borderRadius: 14 }} />
+          <Bone style={{ width: 48, height: 48, borderRadius: 14 }} />
         </View>
       </View>
-      {/* Dots skeleton */}
-      <View style={{ position: "absolute", bottom: 60, left: 0, right: 0, flexDirection: "row", justifyContent: "center", gap: 5 }}>
-        {[28, 6, 6, 6, 6].map((boneW, i) => (
-          <Bone key={i} style={{ width: boneW, height: 5, borderRadius: 3 }} />
+      {/* Progress bars skeleton */}
+      <View style={{ position: "absolute", bottom: 60, left: 20, right: 20, flexDirection: "row", gap: 4 }}>
+        {[1, 0, 0, 0, 0].map((full, i) => (
+          <Bone key={i} style={{ flex: 1, height: 3, borderRadius: 2, opacity: full ? undefined : 0.4 }} />
+        ))}
+      </View>
+      {/* Thumbnail strip skeleton */}
+      <View style={{ position: "absolute", bottom: 10, left: 20, flexDirection: "row", gap: 8 }}>
+        {[1, 0.7, 0.7, 0.7, 0.7].map((op, i) => (
+          <Bone key={i} style={{ width: 44, height: 62, borderRadius: 8, opacity: op }} />
         ))}
       </View>
     </View>
   );
 }
 
+/* ─── Main HeroBanner component ─── */
 export function HeroBanner({ items, onItemPress, onDetailsPress, onAddToList }: HeroBannerProps) {
   const colors = useColors();
   const { width: w } = useWindowDimensions();
@@ -423,14 +512,9 @@ export function HeroBanner({ items, onItemPress, onDetailsPress, onAddToList }: 
   const bannerOpacity = useRef(new Animated.Value(0)).current;
   const hasItems = items.length > 0;
 
-  // Fade in the real banner when items arrive
   useEffect(() => {
     if (hasItems) {
-      Animated.timing(bannerOpacity, {
-        toValue: 1,
-        duration: 520,
-        useNativeDriver: true,
-      }).start();
+      Animated.timing(bannerOpacity, { toValue: 1, duration: 550, useNativeDriver: true }).start();
     } else {
       bannerOpacity.setValue(0);
     }
@@ -449,9 +533,15 @@ export function HeroBanner({ items, onItemPress, onDetailsPress, onAddToList }: 
     (fromIdx: number) => {
       clearInterval(timerRef.current);
       if (items.length <= 1) return;
-      timerRef.current = setInterval(() => goTo(fromIdx + 1), AUTO_ADVANCE_MS);
+      timerRef.current = setInterval(() => {
+        setActiveIndex((cur) => {
+          const next = (cur + 1) % items.length;
+          scrollRef.current?.scrollTo({ x: next * w, animated: true });
+          return next;
+        });
+      }, AUTO_ADVANCE_MS);
     },
-    [goTo, items.length]
+    [items.length, w]
   );
 
   useEffect(() => {
@@ -468,12 +558,19 @@ export function HeroBanner({ items, onItemPress, onDetailsPress, onAddToList }: 
     [resetTimer, w]
   );
 
+  const handleThumbPress = useCallback(
+    (idx: number) => {
+      clearInterval(timerRef.current);
+      goTo(idx);
+      resetTimer(idx);
+    },
+    [goTo, resetTimer]
+  );
+
   return (
     <View style={{ height: HERO_HEIGHT, width: w, overflow: "hidden" }}>
-      {/* Skeleton always rendered as base layer */}
       <HeroBannerSkeleton width={w} />
 
-      {/* Real banner fades in on top when items arrive */}
       {hasItems && (
         <Animated.View
           style={{
@@ -483,6 +580,7 @@ export function HeroBanner({ items, onItemPress, onDetailsPress, onAddToList }: 
             opacity: bannerOpacity,
           }}
         >
+          {/* Scroll carousel */}
           <Animated.ScrollView
             ref={scrollRef}
             horizontal
@@ -519,13 +617,48 @@ export function HeroBanner({ items, onItemPress, onDetailsPress, onAddToList }: 
             ))}
           </Animated.ScrollView>
 
+          {/* Bottom overlay: progress bars + thumbnails */}
           {items.length > 1 && (
-            <View style={heroStyles.dotsContainer}>
-              {items.map((_, i) => (
-                <Pressable key={i} onPress={() => goTo(i)} hitSlop={8}>
-                  <TimerDot active={i === activeIndex} duration={AUTO_ADVANCE_MS} />
-                </Pressable>
-              ))}
+            <View style={heroStyles.bottomOverlay}>
+              {/* Progress bars */}
+              <View style={heroStyles.progressRow}>
+                {items.map((_, i) => (
+                  <ProgressBar
+                    key={i}
+                    active={i === activeIndex}
+                    duration={AUTO_ADVANCE_MS}
+                    index={i < activeIndex ? items.length : 0}
+                    total={activeIndex}
+                    onPress={() => handleThumbPress(i)}
+                  />
+                ))}
+              </View>
+
+              {/* Thumbnail strip */}
+              <View style={heroStyles.thumbStrip}>
+                {items.slice(0, 7).map((item, i) => (
+                  <ThumbItem
+                    key={item.id}
+                    item={item}
+                    active={i === activeIndex}
+                    onPress={() => handleThumbPress(i)}
+                  />
+                ))}
+                {items.length > 7 && (
+                  <View style={heroStyles.moreThumb}>
+                    <Text style={heroStyles.moreThumbText}>+{items.length - 7}</Text>
+                  </View>
+                )}
+              </View>
+            </View>
+          )}
+
+          {/* Slide counter top-right */}
+          {items.length > 1 && (
+            <View style={heroStyles.slideCounter}>
+              <Text style={heroStyles.slideCounterText}>
+                {activeIndex + 1}<Text style={heroStyles.slideCounterTotal}>/{items.length}</Text>
+              </Text>
             </View>
           )}
         </Animated.View>
@@ -537,50 +670,35 @@ export function HeroBanner({ items, onItemPress, onDetailsPress, onAddToList }: 
 const heroStyles = StyleSheet.create({
   heroImageWrap: {
     position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+    top: 0, left: 0, right: 0, bottom: 0,
   },
   heroImage: {
     width: "100%",
     height: HERO_HEIGHT,
     position: "absolute",
-    top: 0,
-    left: 0,
+    top: 0, left: 0,
   },
   gradient: {
     position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
+    bottom: 0, left: 0, right: 0,
     height: HERO_HEIGHT,
   },
   topFade: {
     position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 140,
-  },
-  sideFade: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-    left: 0,
-    right: 0,
+    top: 0, left: 0, right: 0,
+    height: 120,
   },
   heroContent: {
     position: "absolute",
-    bottom: 52,
-    left: 22,
-    right: 22,
+    bottom: 110,
+    left: 20,
+    right: 20,
   },
   badgeRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 7,
-    marginBottom: 14,
+    marginBottom: 16,
     flexWrap: "wrap",
   },
   typeBadge: {
@@ -591,20 +709,20 @@ const heroStyles = StyleSheet.create({
     borderRadius: 6,
     paddingHorizontal: 9,
     paddingVertical: 4,
-    backgroundColor: "rgba(255,255,255,0.06)",
-    borderColor: "rgba(255,255,255,0.15)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderColor: "rgba(255,255,255,0.18)",
   },
   typeLiveDot: {
-    width: 5,
-    height: 5,
+    width: 6,
+    height: 6,
     borderRadius: 3,
     backgroundColor: "#22c55e",
   },
   typeBadgeText: {
     fontSize: 9,
     fontWeight: "800",
-    letterSpacing: 1.4,
-    color: "rgba(255,255,255,0.8)",
+    letterSpacing: 1.5,
+    color: "rgba(255,255,255,0.85)",
   },
   newBadge: {
     flexDirection: "row",
@@ -622,9 +740,9 @@ const heroStyles = StyleSheet.create({
     letterSpacing: 1.2,
   },
   exclusiveBadge: {
-    backgroundColor: "rgba(245,158,11,0.18)",
+    backgroundColor: "rgba(245,158,11,0.15)",
     borderWidth: 1,
-    borderColor: "rgba(245,158,11,0.4)",
+    borderColor: "rgba(245,158,11,0.38)",
     borderRadius: 6,
     paddingHorizontal: 9,
     paddingVertical: 4,
@@ -636,90 +754,82 @@ const heroStyles = StyleSheet.create({
     letterSpacing: 1.2,
   },
   logoImg: {
-    width: "60%",
-    height: 80,
-    marginBottom: 14,
+    width: "65%",
+    height: 84,
+    marginBottom: 12,
     alignSelf: "flex-start",
   },
   heroTitle: {
-    fontSize: 34,
+    fontSize: 36,
     fontWeight: "900",
     letterSpacing: -1,
-    lineHeight: 38,
-    marginBottom: 14,
-    textShadowColor: "rgba(0,0,0,0.95)",
+    lineHeight: 40,
+    marginBottom: 12,
+    color: "#fff",
+    textShadowColor: "rgba(0,0,0,0.98)",
     textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 14,
+    textShadowRadius: 16,
+  },
+  genreRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 10,
+    flexWrap: "wrap",
+  },
+  genreText: {
+    fontSize: 12,
+    color: "rgba(255,255,255,0.6)",
+    fontWeight: "500",
+  },
+  genreSep: {
+    width: 3,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: "rgba(255,255,255,0.3)",
   },
   metaRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    marginBottom: 10,
-  },
-  starRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 3,
-  },
-  ratingNum: {
-    color: "#f59e0b",
-    fontSize: 11,
-    fontWeight: "700",
-    marginLeft: 4,
-  },
-  metaDivider: {
-    width: 1,
-    height: 11,
-    backgroundColor: "rgba(255,255,255,0.2)",
-  },
-  metaYear: {
-    color: "rgba(255,255,255,0.6)",
-    fontSize: 12,
-    fontWeight: "500",
-  },
-  metaDot: {
-    width: 3,
-    height: 3,
-    borderRadius: 2,
-    backgroundColor: "rgba(255,255,255,0.25)",
-  },
-  metaRuntime: {
-    color: "rgba(255,255,255,0.6)",
-    fontSize: 12,
-    fontWeight: "400",
-  },
-  genreRow: {
-    flexDirection: "row",
-    gap: 6,
+    gap: 10,
     marginBottom: 11,
-    flexWrap: "wrap",
   },
-  genreTag: {
+  imdbBadge: {
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
-    borderWidth: 1,
-    borderRadius: 6,
-    paddingHorizontal: 9,
-    paddingVertical: 4,
+    backgroundColor: "#f5c518",
+    borderRadius: 5,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
   },
-  genreDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 3,
+  imdbText: {
+    color: "#000",
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 0.5,
   },
-  genreTagText: {
-    fontSize: 10,
-    fontWeight: "700",
-    letterSpacing: 0.2,
+  imdbRating: {
+    color: "#000",
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  metaYear: {
+    color: "rgba(255,255,255,0.55)",
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  metaRuntime: {
+    color: "rgba(255,255,255,0.45)",
+    fontSize: 13,
+    fontWeight: "400",
   },
   heroDesc: {
     fontSize: 13,
     lineHeight: 20,
-    marginBottom: 20,
+    marginBottom: 18,
     fontWeight: "400",
-    color: "rgba(255,255,255,0.62)",
+    color: "rgba(255,255,255,0.58)",
     letterSpacing: 0.1,
   },
   actions: {
@@ -728,99 +838,154 @@ const heroStyles = StyleSheet.create({
     alignItems: "center",
   },
   watchBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 24,
-    paddingVertical: 14,
-    borderRadius: 12,
+    borderRadius: 14,
+    overflow: "hidden",
     ...Platform.select({
       ios: {
         shadowColor: "#e50914",
-        shadowOffset: { width: 0, height: 5 },
-        shadowOpacity: 0.6,
-        shadowRadius: 18,
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.55,
+        shadowRadius: 16,
       },
       android: { elevation: 10 },
     }),
   },
-  watchBtnIcon: { marginLeft: -2 },
+  watchBtnGradient: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 22,
+    paddingVertical: 14,
+  },
   watchBtnText: {
     color: "#fff",
     fontSize: 15,
     fontWeight: "800",
     letterSpacing: 0.2,
   },
-  detailsBtn: {
+  glassBtn: {
     flexDirection: "row",
     alignItems: "center",
     gap: 7,
     paddingHorizontal: 18,
     paddingVertical: 14,
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.22)",
-    backgroundColor: "rgba(255,255,255,0.08)",
+    borderColor: "rgba(255,255,255,0.2)",
+    backgroundColor: "rgba(255,255,255,0.1)",
   },
-  detailsBtnText: {
+  glassBtnText: {
     fontSize: 14,
     fontWeight: "700",
-    color: "rgba(255,255,255,0.82)",
+    color: "rgba(255,255,255,0.88)",
   },
-  iconActionBtn: {
-    width: 46,
-    height: 46,
-    borderRadius: 12,
+  iconBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.18)",
-    backgroundColor: "rgba(255,255,255,0.07)",
+    backgroundColor: "rgba(255,255,255,0.08)",
     alignItems: "center",
     justifyContent: "center",
   },
-  dotsContainer: {
+
+  /* Bottom overlay */
+  bottomOverlay: {
     position: "absolute",
-    bottom: 22,
+    bottom: 0,
     left: 0,
     right: 0,
+    paddingHorizontal: 16,
+    paddingBottom: 10,
+    gap: 10,
+  },
+  progressRow: {
     flexDirection: "row",
-    justifyContent: "center",
+    gap: 4,
     alignItems: "center",
-    gap: 5,
   },
-  dotActive: {
-    width: 6,
-    height: 5,
-    borderRadius: 3,
+  progressBarWrap: {
+    flex: 1,
+    paddingVertical: 6,
+  },
+  progressTrack: {
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: "rgba(255,255,255,0.22)",
+    overflow: "hidden",
+  },
+  progressFill: {
+    height: "100%",
     backgroundColor: "#e50914",
-    opacity: 1,
+    borderRadius: 2,
   },
-  dotInactive: {
-    width: 5,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: "rgba(255,255,255,0.25)",
-    opacity: 0.6,
+  thumbStrip: {
+    flexDirection: "row",
+    gap: 8,
+    alignItems: "center",
   },
-  arrowLeft: {
+  thumbWrap: {
+    width: 46,
+    height: 66,
+    borderRadius: 9,
+    overflow: "hidden",
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0)",
+  },
+  thumbImg: {
+    width: "100%",
+    height: "100%",
+  },
+  thumbActiveOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(229,9,20,0.25)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  thumbActiveDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#e50914",
+    alignSelf: "center",
+    marginTop: 4,
+  },
+  moreThumb: {
+    width: 46,
+    height: 66,
+    borderRadius: 9,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.15)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  moreThumbText: {
+    color: "rgba(255,255,255,0.6)",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+
+  /* Slide counter */
+  slideCounter: {
     position: "absolute",
-    left: 12,
-    top: "50%",
-    marginTop: -20,
-  },
-  arrowRight: {
-    position: "absolute",
-    right: 12,
-    top: "50%",
-    marginTop: -20,
-  },
-  arrowBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    top: 52,
+    right: 16,
     backgroundColor: "rgba(0,0,0,0.45)",
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.12)",
-    alignItems: "center",
-    justifyContent: "center",
+  },
+  slideCounterText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  slideCounterTotal: {
+    color: "rgba(255,255,255,0.45)",
+    fontWeight: "400",
   },
 });
