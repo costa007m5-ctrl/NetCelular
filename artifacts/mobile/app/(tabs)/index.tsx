@@ -2770,12 +2770,41 @@ export default function HomeScreen() {
           const trendMovieTitles: string[] = (Array.isArray(trendData.movies) ? trendData.movies : []).map((i: any) => i.title ?? i.name ?? "");
           const trendTvTitles: string[]    = (Array.isArray(trendData.tv)     ? trendData.tv     : []).map((i: any) => i.name ?? i.title ?? "");
 
+          // Build TMDB poster map (tmdbId → full URL) from trending data.
+          // Same source used by "Estreando na TV" — always valid TMDB CDN URLs.
+          const tmdbPosterMap = new Map<number, string>();
+          const tmdbBackdropMap = new Map<number, string>();
+          for (const ti of [...(Array.isArray(trendData.movies) ? trendData.movies : []), ...(Array.isArray(trendData.tv) ? trendData.tv : [])]) {
+            if (ti.id) {
+              if (ti.poster_path)   tmdbPosterMap.set(ti.id,   `https://image.tmdb.org/t/p/w342${ti.poster_path}`);
+              if (ti.backdrop_path) tmdbBackdropMap.set(ti.id, `https://image.tmdb.org/t/p/w780${ti.backdrop_path}`);
+            }
+          }
+
+          // Enrich Top 10 items: use TMDB poster/backdrop when Flix2 catalog poster is missing or broken
+          function enrichTop10Posters(items: ContentItem[]): ContentItem[] {
+            return items.map((item) => {
+              const hasPoster = item.posterPath && item.posterPath.startsWith("http");
+              const hasBackdrop = item.backdropPath && item.backdropPath.startsWith("http");
+              if (hasPoster && hasBackdrop) return item;
+              const tmdbId = item.tmdbId ?? 0;
+              const tmdbPoster   = tmdbId > 0 ? tmdbPosterMap.get(tmdbId)   : undefined;
+              const tmdbBackdrop = tmdbId > 0 ? tmdbBackdropMap.get(tmdbId) : undefined;
+              if (!tmdbPoster && !tmdbBackdrop) return item;
+              return {
+                ...item,
+                posterPath:   !hasPoster   && tmdbPoster   ? tmdbPoster   : item.posterPath,
+                backdropPath: !hasBackdrop && tmdbBackdrop ? tmdbBackdrop : item.backdropPath,
+              };
+            });
+          }
+
           if (m.length > 0) {
-            const top10M = blendTop10(m, realMovieIds, trendMovieIds, trendMovieTitles);
+            const top10M = enrichTop10Posters(blendTop10(m, realMovieIds, trendMovieIds, trendMovieTitles) as ContentItem[]);
             if (top10M.length > 0) setTop10Movies(top10M.slice(0, 10));
           }
           if (s.length > 0) {
-            const top10S = blendTop10(s, realTvIds, trendTvIds, trendTvTitles);
+            const top10S = enrichTop10Posters(blendTop10(s, realTvIds, trendTvIds, trendTvTitles) as ContentItem[]);
             if (top10S.length > 0) setTop10Series(top10S.slice(0, 10));
           }
         } catch {}
