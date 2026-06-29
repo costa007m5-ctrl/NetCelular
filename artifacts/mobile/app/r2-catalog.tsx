@@ -7844,6 +7844,10 @@ function Flix2ItemEditModal({
     debounceRef.current = setTimeout(() => searchTmdb(t), 600);
   };
 
+  useEffect(() => {
+    if (tmdbSearch.trim()) searchTmdb(tmdbSearch);
+  }, []);
+
   const savePatch = async () => {
     setSaving(true);
     setSaveMsg(null);

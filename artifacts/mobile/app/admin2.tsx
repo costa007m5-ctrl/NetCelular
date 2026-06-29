@@ -1190,6 +1190,7 @@ export default function Admin2Screen() {
           target={editTarget}
           patchId={hubbyPatchId(editTarget)}
           existingPatch={patches[hubbyPatchId(editTarget)] ?? null}
+          seriesItems={seriesItems}
           onClose={() => setEditTarget(null)}
           onSaved={() => { setEditTarget(null); loadPatches(); }}
         />
@@ -1202,16 +1203,18 @@ export default function Admin2Screen() {
 interface TmdbHit { id: number; title?: string; name?: string; poster_path: string | null; release_date?: string; first_air_date?: string; vote_average: number; media_type?: string; }
 
 function HubbyEditModal({
-  target, patchId, existingPatch, onClose, onSaved,
+  target, patchId, existingPatch, seriesItems, onClose, onSaved,
 }: {
   target: { kind: "vod"; item: VodItem } | { kind: "series"; item: SeriesItem };
   patchId: string;
   existingPatch: { tmdbId?: number; tmdbType?: string; audioType?: string } | null;
+  seriesItems?: SeriesItem[];
   onClose: () => void;
   onSaved: () => void;
 }) {
   const itemName = target.kind === "vod" ? target.item.name : target.item.name;
   const isVod = target.kind === "vod";
+  const isSeries = target.kind === "series";
 
   type AudioType = "dublado" | "legendado" | "dual" | null;
   const [audioType, setAudioType] = useState<AudioType>((existingPatch?.audioType as AudioType) ?? null);
@@ -1222,6 +1225,22 @@ function HubbyEditModal({
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const debRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Merge state
+  const [mergeQ, setMergeQ] = useState("");
+  const [mergeSelected, setMergeSelected] = useState<SeriesItem | null>(null);
+  const [mergeLabel1, setMergeLabel1] = useState("Dublado");
+  const [mergeLabel2, setMergeLabel2] = useState("Legendado");
+  const [existingMerge, setExistingMerge] = useState<{ primaryId: string; secondaryId: string; primaryLabel: string; secondaryLabel: string } | null>(null);
+  const [merging, setMerging] = useState(false);
+  const [mergeMsg, setMergeMsg] = useState<string | null>(null);
+
+  const mergeResults = mergeQ.trim()
+    ? (seriesItems ?? []).filter(s =>
+        s.name?.toLowerCase().includes(mergeQ.toLowerCase()) &&
+        String(s.series_id) !== String(target.kind === "series" ? (target.item as SeriesItem).series_id : "")
+      ).slice(0, 10)
+    : [];
 
   const searchTmdb = async (q: string) => {
     if (!q.trim()) { setTmdbResults([]); return; }
@@ -1240,6 +1259,60 @@ function HubbyEditModal({
     setTmdbSearch(t);
     if (debRef.current) clearTimeout(debRef.current);
     debRef.current = setTimeout(() => searchTmdb(t), 600);
+  };
+
+  const loadExistingMerge = async () => {
+    try {
+      const base = getApiBase();
+      const res = await fetch(`${base}/r2/flix2/series-merges`);
+      if (res.ok) {
+        const data = await res.json();
+        const mine = (data.merges ?? []).find((m: any) => m.primaryId === patchId || m.secondaryId === patchId);
+        if (mine) setExistingMerge(mine);
+      }
+    } catch {}
+  };
+
+  useEffect(() => {
+    if (tmdbSearch.trim()) searchTmdb(tmdbSearch);
+    if (isSeries) loadExistingMerge();
+  }, []);
+
+  const doMerge = async () => {
+    if (!mergeSelected) return;
+    setMerging(true); setMergeMsg(null);
+    try {
+      const base = getApiBase();
+      const body = {
+        primaryId: patchId,
+        secondaryId: `hubby_ser_${mergeSelected.series_id}`,
+        primaryLabel: mergeLabel1,
+        secondaryLabel: mergeLabel2,
+      };
+      const res = await fetch(`${base}/r2/flix2/series-merge`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setExistingMerge(body);
+      setMergeMsg("✓ Fundido com sucesso!");
+    } catch (e: any) { setMergeMsg("Erro: " + (e.message ?? "falha")); }
+    finally { setMerging(false); }
+  };
+
+  const removeMerge = async () => {
+    try {
+      const base = getApiBase();
+      await fetch(`${base}/r2/flix2/series-merge`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ primaryId: existingMerge?.primaryId ?? patchId }),
+      });
+      setExistingMerge(null);
+      setMergeSelected(null);
+      setMergeMsg(null);
+    } catch {}
   };
 
   const save = async () => {
@@ -1398,6 +1471,150 @@ function HubbyEditModal({
                 {saving ? "Salvando…" : "Salvar"}
               </Text>
             </Pressable>
+
+            {/* ─── Fundir Séries (apenas séries) ─── */}
+            {isSeries && (
+              <>
+                <View style={{ height: 1, backgroundColor: "rgba(255,255,255,0.07)", marginVertical: 16 }} />
+                <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 10, fontWeight: "700",
+                  textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 10 }}>Fundir Séries</Text>
+
+                {existingMerge ? (
+                  <View style={{ backgroundColor: "#8b5cf612", borderRadius: 12, borderWidth: 1,
+                    borderColor: "#8b5cf633", padding: 12 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                      <Feather name="git-merge" size={12} color="#8b5cf6" />
+                      <Text style={{ color: "#8b5cf6", fontWeight: "700", fontSize: 12 }}>Fusão ativa</Text>
+                    </View>
+                    <Text style={{ color: "rgba(255,255,255,0.55)", fontSize: 11 }}>
+                      Principal ({existingMerge.primaryLabel}): {existingMerge.primaryId}
+                    </Text>
+                    <Text style={{ color: "rgba(255,255,255,0.55)", fontSize: 11, marginTop: 2 }}>
+                      Secundária ({existingMerge.secondaryLabel}): {existingMerge.secondaryId}
+                    </Text>
+                    <Pressable onPress={removeMerge}
+                      style={{ marginTop: 8, flexDirection: "row", alignItems: "center", gap: 5,
+                        paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, alignSelf: "flex-start",
+                        backgroundColor: "rgba(248,113,113,0.1)", borderWidth: 1, borderColor: "rgba(248,113,113,0.25)" }}>
+                      <Feather name="trash-2" size={11} color="#f87171" />
+                      <Text style={{ color: "#f87171", fontSize: 11, fontWeight: "700" }}>Remover fusão</Text>
+                    </Pressable>
+                    {mergeMsg && (
+                      <Text style={{ color: "#22c55e", fontSize: 11, marginTop: 6 }}>{mergeMsg}</Text>
+                    )}
+                  </View>
+                ) : (
+                  <>
+                    {/* Presets de label */}
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+                      {([
+                        { p: "Dublado", s: "Legendado" },
+                        { p: "Legendado", s: "Dublado" },
+                        { p: "PT-BR", s: "PT-PT" },
+                      ] as { p: string; s: string }[]).map(pr => {
+                        const active = mergeLabel1 === pr.p && mergeLabel2 === pr.s;
+                        return (
+                          <Pressable key={pr.p + pr.s}
+                            onPress={() => { setMergeLabel1(pr.p); setMergeLabel2(pr.s); }}
+                            style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, borderWidth: 1,
+                              backgroundColor: active ? "#8b5cf622" : "rgba(255,255,255,0.04)",
+                              borderColor: active ? "#8b5cf655" : "rgba(255,255,255,0.1)" }}>
+                            <Text style={{ color: active ? "#8b5cf6" : "rgba(255,255,255,0.4)",
+                              fontSize: 10, fontWeight: active ? "700" : "400" }}>
+                              {pr.p} + {pr.s}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+
+                    {/* Campo de busca local */}
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8,
+                      backgroundColor: "rgba(255,255,255,0.06)", borderRadius: 10, borderWidth: 1,
+                      borderColor: "rgba(255,255,255,0.12)", paddingHorizontal: 12, marginBottom: 8 }}>
+                      <Feather name="search" size={13} color="rgba(255,255,255,0.35)" />
+                      <TextInput style={{ flex: 1, color: "#fff", fontSize: 13, paddingVertical: 10 }}
+                        placeholder="Buscar série para fundir…" placeholderTextColor="rgba(255,255,255,0.3)"
+                        value={mergeQ} onChangeText={setMergeQ} autoCorrect={false} />
+                      {mergeQ.length > 0 && (
+                        <Pressable onPress={() => setMergeQ("")} style={{ padding: 4 }}>
+                          <Feather name="x" size={13} color="rgba(255,255,255,0.3)" />
+                        </Pressable>
+                      )}
+                    </View>
+
+                    {/* Série selecionada */}
+                    {mergeSelected && (
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 8,
+                        borderRadius: 8, backgroundColor: "#10b98115", borderWidth: 1,
+                        borderColor: "#10b98133", marginBottom: 8 }}>
+                        {mergeSelected.cover ? (
+                          <Image source={{ uri: mergeSelected.cover }}
+                            style={{ width: 28, height: 42, borderRadius: 3 }} contentFit="cover" />
+                        ) : null}
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ color: "#10b981", fontWeight: "700", fontSize: 12 }} numberOfLines={1}>
+                            {mergeSelected.name}
+                          </Text>
+                          <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 10 }}>
+                            ID {mergeSelected.series_id}
+                          </Text>
+                        </View>
+                        <Pressable onPress={() => setMergeSelected(null)} style={{ padding: 4 }}>
+                          <Feather name="x" size={13} color="rgba(255,255,255,0.4)" />
+                        </Pressable>
+                      </View>
+                    )}
+
+                    {/* Lista de resultados locais */}
+                    {mergeResults.length > 0 && !mergeSelected && (
+                      <View style={{ borderRadius: 8, borderWidth: 1, borderColor: "rgba(255,255,255,0.08)",
+                        overflow: "hidden", marginBottom: 8 }}>
+                        {mergeResults.map((r, i) => (
+                          <Pressable key={r.series_id}
+                            onPress={() => { setMergeSelected(r); setMergeQ(""); }}
+                            style={{ flexDirection: "row", alignItems: "center", gap: 8, padding: 8,
+                              backgroundColor: "rgba(255,255,255,0.02)",
+                              borderTopWidth: i > 0 ? 1 : 0, borderTopColor: "rgba(255,255,255,0.06)" }}>
+                            {r.cover ? (
+                              <Image source={{ uri: r.cover }}
+                                style={{ width: 24, height: 36, borderRadius: 3 }} contentFit="cover" />
+                            ) : (
+                              <View style={{ width: 24, height: 36, borderRadius: 3, backgroundColor: "#1a1a2a",
+                                alignItems: "center", justifyContent: "center" }}>
+                                <Feather name="tv" size={10} color="rgba(255,255,255,0.2)" />
+                              </View>
+                            )}
+                            <View style={{ flex: 1 }}>
+                              <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600" }} numberOfLines={1}>{r.name}</Text>
+                              <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 10 }}>
+                                ID {r.series_id}{r.year ? ` · ${r.year}` : ""}
+                              </Text>
+                            </View>
+                            <Feather name="plus-circle" size={14} color="rgba(139,92,246,0.55)" />
+                          </Pressable>
+                        ))}
+                      </View>
+                    )}
+
+                    {mergeMsg && (
+                      <Text style={{ color: "#f87171", fontSize: 11, marginBottom: 8 }}>{mergeMsg}</Text>
+                    )}
+
+                    <Pressable onPress={doMerge} disabled={!mergeSelected || merging}
+                      style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
+                        paddingVertical: 11, borderRadius: 10, borderWidth: 1,
+                        borderColor: "#8b5cf633", backgroundColor: "#8b5cf610",
+                        opacity: (!mergeSelected || merging) ? 0.4 : 1 }}>
+                      {merging
+                        ? <ActivityIndicator color="#8b5cf6" size="small" />
+                        : <Feather name="git-merge" size={13} color="#8b5cf6" />}
+                      <Text style={{ color: "#8b5cf6", fontWeight: "700", fontSize: 13 }}>Confirmar Fusão</Text>
+                    </Pressable>
+                  </>
+                )}
+              </>
+            )}
           </ScrollView>
         </View>
       </View>
