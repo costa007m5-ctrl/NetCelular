@@ -133,6 +133,26 @@ export default function Admin2Screen() {
   const [seriesPage, setSeriesPage] = useState(1);
   const PAGE_SIZE = 60;
 
+  // ── Edit / patches ──────────────────────────────────────────────────────────
+  type HubbyEditTarget = { kind: "vod"; item: VodItem } | { kind: "series"; item: SeriesItem };
+  const [editTarget, setEditTarget] = useState<HubbyEditTarget | null>(null);
+  const [patches, setPatches] = useState<Record<string, { tmdbId?: number; tmdbType?: string; audioType?: string }>>({});
+  const hubbyPatchId = (t: HubbyEditTarget) =>
+    t.kind === "vod" ? `hubby_vod_${t.item.stream_id}` : `hubby_ser_${t.item.series_id}`;
+
+  const loadPatches = async () => {
+    try {
+      const base = getApiBase();
+      const res = await fetch(`${base}/r2/flix2/item-patches`);
+      if (res.ok) {
+        const data = await res.json();
+        const map: Record<string, any> = {};
+        for (const p of (data.patches ?? [])) map[String(p.flix2Id)] = p;
+        setPatches(map);
+      }
+    } catch {}
+  };
+
   // ── Selected item detail ────────────────────────────────────────────────────
   const [selectedVod, setSelectedVod] = useState<VodItem | null>(null);
   const [selectedSeries, setSelectedSeries] = useState<SeriesItem | null>(null);
@@ -237,6 +257,8 @@ export default function Admin2Screen() {
     if (hSection === "filmes" && vodItems.length === 0 && !vodLoading) fetchVod();
     if (hSection === "series" && seriesItems.length === 0 && !seriesLoading) fetchSeries();
   }, [hSection]);
+
+  useEffect(() => { loadPatches(); }, []);
 
   // ─── Filtered lists ─────────────────────────────────────────────────────────
   const filteredVod = vodItems.filter((v) => {
@@ -525,30 +547,44 @@ export default function Admin2Screen() {
                         </Pressable>
                       ) : <View style={{ height: 80 }} />
                     }
-                    renderItem={({ item }) => (
-                      <Pressable
-                        style={[s.card, { backgroundColor: colors.card, borderColor: colors.border }]}
-                        onPress={() => setSelectedVod(item)}
-                      >
-                        <Image
-                          source={{ uri: item.stream_icon }}
-                          style={s.cardPoster}
-                          contentFit="cover"
-                          onError={() => {}}
-                        />
-                        <View style={s.cardInfo}>
-                          <Text style={[s.cardTitle, { color: colors.foreground }]} numberOfLines={2}>
-                            {item.name}
-                          </Text>
-                          {item.rating ? (
-                            <Text style={[s.cardSub, { color: HUBBY_COLOR }]}>⭐ {item.rating}</Text>
-                          ) : null}
-                          <Text style={[s.cardSub, { color: colors.mutedForeground }]} numberOfLines={1}>
-                            ID: {item.stream_id} · {item.container_extension?.toUpperCase()}
-                          </Text>
+                    renderItem={({ item }) => {
+                      const pid = `hubby_vod_${item.stream_id}`;
+                      const patch = patches[pid];
+                      const AC: Record<string, string> = { dublado: "#3b82f6", legendado: "#f59e0b", dual: "#10b981" };
+                      const AL: Record<string, string> = { dublado: "DUB", legendado: "LEG", dual: "DUAL" };
+                      return (
+                        <View style={{ flex: 1, maxWidth: "33%" }}>
+                          <Pressable
+                            style={[s.card, { backgroundColor: colors.card, borderColor: colors.border, maxWidth: "100%", flex: 1 }]}
+                            onPress={() => setSelectedVod(item)}
+                          >
+                            <Image source={{ uri: item.stream_icon }} style={s.cardPoster} contentFit="cover" onError={() => {}} />
+                            <View style={s.cardInfo}>
+                              <Text style={[s.cardTitle, { color: colors.foreground }]} numberOfLines={2}>{item.name}</Text>
+                              {patch?.audioType ? (
+                                <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2 }}>
+                                  <View style={{ paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3,
+                                    backgroundColor: `${AC[patch.audioType] ?? "#888"}22`, borderWidth: 1, borderColor: `${AC[patch.audioType] ?? "#888"}44` }}>
+                                    <Text style={{ color: AC[patch.audioType] ?? "#888", fontSize: 8, fontWeight: "700" }}>{AL[patch.audioType] ?? patch.audioType}</Text>
+                                  </View>
+                                  {patch.tmdbId && <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: "#8b5cf6" }} />}
+                                </View>
+                              ) : item.rating ? (
+                                <Text style={[s.cardSub, { color: HUBBY_COLOR }]}>⭐ {item.rating}</Text>
+                              ) : null}
+                              <Text style={[s.cardSub, { color: colors.mutedForeground }]} numberOfLines={1}>
+                                ID: {item.stream_id} · {item.container_extension?.toUpperCase()}
+                              </Text>
+                            </View>
+                          </Pressable>
+                          <Pressable onPress={() => setEditTarget({ kind: "vod", item })}
+                            style={{ position: "absolute", top: 4, right: 4, width: 22, height: 22, borderRadius: 11,
+                              backgroundColor: "#8b5cf6ee", alignItems: "center", justifyContent: "center" }}>
+                            <Feather name="edit-2" size={10} color="#fff" />
+                          </Pressable>
                         </View>
-                      </Pressable>
-                    )}
+                      );
+                    }}
                   />
                 </>
               )}
@@ -649,33 +685,44 @@ export default function Admin2Screen() {
                         </Pressable>
                       ) : <View style={{ height: 80 }} />
                     }
-                    renderItem={({ item }) => (
-                      <Pressable
-                        style={[s.card, { backgroundColor: colors.card, borderColor: colors.border }]}
-                        onPress={() => {
-                          setSelectedSeries(item);
-                          fetchSeriesEpisodes(item.series_id);
-                        }}
-                      >
-                        <Image
-                          source={{ uri: item.cover }}
-                          style={s.cardPoster}
-                          contentFit="cover"
-                          onError={() => {}}
-                        />
-                        <View style={s.cardInfo}>
-                          <Text style={[s.cardTitle, { color: colors.foreground }]} numberOfLines={2}>
-                            {item.name}
-                          </Text>
-                          {item.rating ? (
-                            <Text style={[s.cardSub, { color: HUBBY_COLOR }]}>⭐ {item.rating}</Text>
-                          ) : null}
-                          {item.year ? (
-                            <Text style={[s.cardSub, { color: colors.mutedForeground }]}>{item.year}</Text>
-                          ) : null}
+                    renderItem={({ item }) => {
+                      const pid = `hubby_ser_${item.series_id}`;
+                      const patch = patches[pid];
+                      const AC: Record<string, string> = { dublado: "#3b82f6", legendado: "#f59e0b", dual: "#10b981" };
+                      const AL: Record<string, string> = { dublado: "DUB", legendado: "LEG", dual: "DUAL" };
+                      return (
+                        <View style={{ flex: 1, maxWidth: "33%" }}>
+                          <Pressable
+                            style={[s.card, { backgroundColor: colors.card, borderColor: colors.border, maxWidth: "100%", flex: 1 }]}
+                            onPress={() => { setSelectedSeries(item); fetchSeriesEpisodes(item.series_id); }}
+                          >
+                            <Image source={{ uri: item.cover }} style={s.cardPoster} contentFit="cover" onError={() => {}} />
+                            <View style={s.cardInfo}>
+                              <Text style={[s.cardTitle, { color: colors.foreground }]} numberOfLines={2}>{item.name}</Text>
+                              {patch?.audioType ? (
+                                <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2 }}>
+                                  <View style={{ paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3,
+                                    backgroundColor: `${AC[patch.audioType] ?? "#888"}22`, borderWidth: 1, borderColor: `${AC[patch.audioType] ?? "#888"}44` }}>
+                                    <Text style={{ color: AC[patch.audioType] ?? "#888", fontSize: 8, fontWeight: "700" }}>{AL[patch.audioType] ?? patch.audioType}</Text>
+                                  </View>
+                                  {patch.tmdbId && <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: "#8b5cf6" }} />}
+                                </View>
+                              ) : item.rating ? (
+                                <Text style={[s.cardSub, { color: HUBBY_COLOR }]}>⭐ {item.rating}</Text>
+                              ) : null}
+                              {item.year ? (
+                                <Text style={[s.cardSub, { color: colors.mutedForeground }]}>{item.year}</Text>
+                              ) : null}
+                            </View>
+                          </Pressable>
+                          <Pressable onPress={() => setEditTarget({ kind: "series", item })}
+                            style={{ position: "absolute", top: 4, right: 4, width: 22, height: 22, borderRadius: 11,
+                              backgroundColor: "#8b5cf6ee", alignItems: "center", justifyContent: "center" }}>
+                            <Feather name="edit-2" size={10} color="#fff" />
+                          </Pressable>
                         </View>
-                      </Pressable>
-                    )}
+                      );
+                    }}
                   />
                 </>
               )}
@@ -1137,7 +1184,224 @@ export default function Admin2Screen() {
           </View>
         </View>
       </Modal>
+
+      {editTarget && (
+        <HubbyEditModal
+          target={editTarget}
+          patchId={hubbyPatchId(editTarget)}
+          existingPatch={patches[hubbyPatchId(editTarget)] ?? null}
+          onClose={() => setEditTarget(null)}
+          onSaved={() => { setEditTarget(null); loadPatches(); }}
+        />
+      )}
     </View>
+  );
+}
+
+// ─── HubbyEditModal — Vincular TMDB + Editar Áudio ───────────────────────────
+interface TmdbHit { id: number; title?: string; name?: string; poster_path: string | null; release_date?: string; first_air_date?: string; vote_average: number; media_type?: string; }
+
+function HubbyEditModal({
+  target, patchId, existingPatch, onClose, onSaved,
+}: {
+  target: { kind: "vod"; item: VodItem } | { kind: "series"; item: SeriesItem };
+  patchId: string;
+  existingPatch: { tmdbId?: number; tmdbType?: string; audioType?: string } | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const itemName = target.kind === "vod" ? target.item.name : target.item.name;
+  const isVod = target.kind === "vod";
+
+  type AudioType = "dublado" | "legendado" | "dual" | null;
+  const [audioType, setAudioType] = useState<AudioType>((existingPatch?.audioType as AudioType) ?? null);
+  const [tmdbSearch, setTmdbSearch] = useState(itemName ?? "");
+  const [tmdbResults, setTmdbResults] = useState<TmdbHit[]>([]);
+  const [tmdbLoading, setTmdbLoading] = useState(false);
+  const [selectedTmdb, setSelectedTmdb] = useState<TmdbHit | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const debRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const searchTmdb = async (q: string) => {
+    if (!q.trim()) { setTmdbResults([]); return; }
+    setTmdbLoading(true);
+    try {
+      const base = getApiBase();
+      const type = isVod ? "movie" : "tv";
+      const res = await fetch(`${base}/r2/tmdb-search?q=${encodeURIComponent(q)}&type=${type}`);
+      const data = await res.json();
+      setTmdbResults(data.results ?? []);
+    } catch { setTmdbResults([]); }
+    finally { setTmdbLoading(false); }
+  };
+
+  const handleSearch = (t: string) => {
+    setTmdbSearch(t);
+    if (debRef.current) clearTimeout(debRef.current);
+    debRef.current = setTimeout(() => searchTmdb(t), 600);
+  };
+
+  const save = async () => {
+    setSaving(true); setMsg(null);
+    try {
+      const base = getApiBase();
+      const body: any = { flix2Id: patchId };
+      if (selectedTmdb) { body.tmdbId = selectedTmdb.id; body.tmdbType = isVod ? "movie" : "tv"; }
+      if (audioType) body.audioType = audioType;
+      const res = await fetch(`${base}/r2/flix2/item-patch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setMsg("✓ Salvo!");
+      setTimeout(() => onSaved(), 700);
+    } catch (e: any) { setMsg("Erro: " + (e.message ?? "falha")); }
+    finally { setSaving(false); }
+  };
+
+  const AUDIO_OPTS: { value: AudioType; label: string; color: string }[] = [
+    { value: "dublado", label: "DUB", color: "#3b82f6" },
+    { value: "legendado", label: "LEG", color: "#f59e0b" },
+    { value: "dual", label: "DUAL", color: "#10b981" },
+  ];
+
+  const hasChange = selectedTmdb !== null || audioType !== (existingPatch?.audioType ?? null);
+
+  return (
+    <Modal visible animationType="slide" transparent onRequestClose={onClose}>
+      <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.7)", justifyContent: "flex-end" }}>
+        <View style={{ backgroundColor: "#0f0f18", borderTopLeftRadius: 20, borderTopRightRadius: 20,
+          maxHeight: "80%", borderTopWidth: 1, borderColor: "#8b5cf644" }}>
+
+          {/* Handle */}
+          <View style={{ alignItems: "center", paddingTop: 8 }}>
+            <View style={{ width: 32, height: 4, borderRadius: 2, backgroundColor: "rgba(255,255,255,0.18)" }} />
+          </View>
+
+          {/* Header */}
+          <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 12,
+            borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.07)" }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: "#8b5cf6", fontSize: 11, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.8 }}>
+                Editar · {isVod ? "Filme" : "Série"}
+              </Text>
+              <Text style={{ color: "#fff", fontSize: 14, fontWeight: "700", marginTop: 1 }} numberOfLines={1}>{itemName}</Text>
+              {existingPatch?.tmdbId && (
+                <Text style={{ color: "#8b5cf6", fontSize: 10, marginTop: 1 }}>TMDB vinculado: {existingPatch.tmdbId}</Text>
+              )}
+            </View>
+            <Pressable onPress={onClose} style={{ padding: 8, borderRadius: 8, backgroundColor: "rgba(255,255,255,0.06)" }}>
+              <Feather name="x" size={17} color="rgba(255,255,255,0.5)" />
+            </Pressable>
+          </View>
+
+          <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 32 }} keyboardShouldPersistTaps="handled">
+            {/* Áudio */}
+            <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 10, fontWeight: "700",
+              textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 8 }}>Tipo de Áudio</Text>
+            <View style={{ flexDirection: "row", gap: 8, marginBottom: 16 }}>
+              {AUDIO_OPTS.map((opt) => (
+                <Pressable key={opt.value} onPress={() => setAudioType(audioType === opt.value ? null : opt.value)}
+                  style={{ flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: "center",
+                    backgroundColor: audioType === opt.value ? `${opt.color}22` : "rgba(255,255,255,0.05)",
+                    borderWidth: 1, borderColor: audioType === opt.value ? `${opt.color}66` : "rgba(255,255,255,0.1)" }}>
+                  <Text style={{ color: audioType === opt.value ? opt.color : "rgba(255,255,255,0.4)",
+                    fontSize: 13, fontWeight: "700" }}>{opt.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+
+            {/* TMDB Search */}
+            <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 10, fontWeight: "700",
+              textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 8 }}>Vincular TMDB</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(255,255,255,0.06)",
+              borderRadius: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", paddingHorizontal: 12, marginBottom: 8 }}>
+              {tmdbLoading
+                ? <ActivityIndicator size="small" color="#8b5cf6" style={{ width: 14 }} />
+                : <Feather name="search" size={13} color="rgba(255,255,255,0.35)" />}
+              <TextInput style={{ flex: 1, color: "#fff", fontSize: 13, paddingVertical: 10 }}
+                placeholder="Buscar no TMDB…" placeholderTextColor="rgba(255,255,255,0.3)"
+                value={tmdbSearch} onChangeText={handleSearch} autoCorrect={false} />
+            </View>
+
+            {selectedTmdb && (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 10, padding: 10, borderRadius: 10,
+                backgroundColor: "#10b98120", borderWidth: 1, borderColor: "#10b98144", marginBottom: 10 }}>
+                {selectedTmdb.poster_path && (
+                  <Image source={{ uri: `https://image.tmdb.org/t/p/w92${selectedTmdb.poster_path}` }}
+                    style={{ width: 36, height: 54, borderRadius: 5 }} contentFit="cover" />
+                )}
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: "#10b981", fontWeight: "700", fontSize: 13 }} numberOfLines={1}>
+                    {selectedTmdb.title ?? selectedTmdb.name}
+                  </Text>
+                  <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 10 }}>
+                    ID {selectedTmdb.id}{(selectedTmdb.release_date || selectedTmdb.first_air_date)
+                      ? ` · ${(selectedTmdb.release_date || selectedTmdb.first_air_date)!.slice(0, 4)}` : ""}
+                    {selectedTmdb.vote_average > 0 ? ` · ★ ${selectedTmdb.vote_average.toFixed(1)}` : ""}
+                  </Text>
+                </View>
+                <Pressable onPress={() => setSelectedTmdb(null)} style={{ padding: 6 }}>
+                  <Feather name="x" size={14} color="rgba(255,255,255,0.4)" />
+                </Pressable>
+              </View>
+            )}
+
+            {tmdbResults.length > 0 && !selectedTmdb && (
+              <View style={{ borderRadius: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.08)", overflow: "hidden", marginBottom: 12 }}>
+                {tmdbResults.slice(0, 8).map((hit, i) => (
+                  <Pressable key={hit.id} onPress={() => { setSelectedTmdb(hit); setTmdbResults([]); }}
+                    style={{ flexDirection: "row", alignItems: "center", gap: 10, padding: 10,
+                      backgroundColor: "rgba(255,255,255,0.02)",
+                      borderTopWidth: i > 0 ? 1 : 0, borderTopColor: "rgba(255,255,255,0.06)" }}>
+                    {hit.poster_path ? (
+                      <Image source={{ uri: `https://image.tmdb.org/t/p/w92${hit.poster_path}` }}
+                        style={{ width: 28, height: 42, borderRadius: 4 }} contentFit="cover" />
+                    ) : (
+                      <View style={{ width: 28, height: 42, borderRadius: 4, backgroundColor: "#1a1a2a",
+                        alignItems: "center", justifyContent: "center" }}>
+                        <Feather name="film" size={12} color="rgba(255,255,255,0.2)" />
+                      </View>
+                    )}
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: "#fff", fontWeight: "600", fontSize: 12 }} numberOfLines={1}>
+                        {hit.title ?? hit.name}
+                      </Text>
+                      <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 10 }}>
+                        ID {hit.id}{(hit.release_date || hit.first_air_date)
+                          ? ` · ${(hit.release_date || hit.first_air_date)!.slice(0, 4)}` : ""}
+                        {hit.vote_average > 0 ? ` · ★ ${hit.vote_average.toFixed(1)}` : ""}
+                      </Text>
+                    </View>
+                    <Feather name="check-circle" size={15} color="rgba(139,92,246,0.5)" />
+                  </Pressable>
+                ))}
+              </View>
+            )}
+
+            {msg && (
+              <View style={{ padding: 10, borderRadius: 8, marginBottom: 10,
+                backgroundColor: msg.startsWith("Erro") ? "rgba(248,113,113,0.12)" : "rgba(34,197,94,0.12)",
+                borderWidth: 1, borderColor: msg.startsWith("Erro") ? "rgba(248,113,113,0.3)" : "rgba(34,197,94,0.3)" }}>
+                <Text style={{ color: msg.startsWith("Erro") ? "#f87171" : "#22c55e", fontSize: 12, fontWeight: "700" }}>{msg}</Text>
+              </View>
+            )}
+
+            <Pressable onPress={save} disabled={saving || !hasChange}
+              style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+                paddingVertical: 13, borderRadius: 12, backgroundColor: "#8b5cf6",
+                opacity: (saving || !hasChange) ? 0.4 : 1 }}>
+              {saving ? <ActivityIndicator color="#fff" size="small" /> : <Feather name="save" size={15} color="#fff" />}
+              <Text style={{ color: "#fff", fontWeight: "700", fontSize: 14 }}>
+                {saving ? "Salvando…" : "Salvar"}
+              </Text>
+            </Pressable>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
