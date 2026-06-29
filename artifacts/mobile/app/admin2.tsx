@@ -136,7 +136,7 @@ export default function Admin2Screen() {
   // ── Edit / patches ──────────────────────────────────────────────────────────
   type HubbyEditTarget = { kind: "vod"; item: VodItem } | { kind: "series"; item: SeriesItem };
   const [editTarget, setEditTarget] = useState<HubbyEditTarget | null>(null);
-  const [patches, setPatches] = useState<Record<string, { tmdbId?: number; tmdbType?: string; audioType?: string }>>({});
+  const [patches, setPatches] = useState<Record<string, { tmdbId?: number; tmdbType?: string; audioType?: string; posterPath?: string }>>({});
   const hubbyPatchId = (t: HubbyEditTarget) =>
     t.kind === "vod" ? `hubby_vod_${t.item.stream_id}` : `hubby_ser_${t.item.series_id}`;
 
@@ -149,6 +149,25 @@ export default function Admin2Screen() {
         const map: Record<string, any> = {};
         for (const p of (data.patches ?? [])) map[String(p.flix2Id)] = p;
         setPatches(map);
+        // Enrich patches that have tmdbId but no posterPath (background, one-time)
+        const toEnrich = (data.patches ?? []).filter((p: any) => p.tmdbId && !p.posterPath);
+        for (const p of toEnrich) {
+          const type = p.tmdbType === "movie" ? "movie" : "tv";
+          fetch(`${base}/tmdb/${type}/${p.tmdbId}`)
+            .then((r) => r.json())
+            .then((d) => {
+              const pp: string | null = d?.poster_path ?? null;
+              if (pp) {
+                setPatches((prev) => ({ ...prev, [String(p.flix2Id)]: { ...prev[String(p.flix2Id)], posterPath: pp } }));
+                fetch(`${base}/r2/flix2/item-patch`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ flix2Id: p.flix2Id, posterPath: pp }),
+                }).catch(() => {});
+              }
+            })
+            .catch(() => {});
+        }
       }
     } catch {}
   };
@@ -558,7 +577,7 @@ export default function Admin2Screen() {
                             style={[s.card, { backgroundColor: colors.card, borderColor: colors.border, maxWidth: "100%", flex: 1 }]}
                             onPress={() => setSelectedVod(item)}
                           >
-                            <Image source={{ uri: item.stream_icon }} style={s.cardPoster} contentFit="cover" onError={() => {}} />
+                            <Image source={{ uri: patch?.posterPath ? `https://image.tmdb.org/t/p/w342${patch.posterPath}` : item.stream_icon }} style={s.cardPoster} contentFit="cover" onError={() => {}} />
                             <View style={s.cardInfo}>
                               <Text style={[s.cardTitle, { color: colors.foreground }]} numberOfLines={2}>{item.name}</Text>
                               {patch?.audioType ? (
@@ -696,7 +715,7 @@ export default function Admin2Screen() {
                             style={[s.card, { backgroundColor: colors.card, borderColor: colors.border, maxWidth: "100%", flex: 1 }]}
                             onPress={() => { setSelectedSeries(item); fetchSeriesEpisodes(item.series_id); }}
                           >
-                            <Image source={{ uri: item.cover }} style={s.cardPoster} contentFit="cover" onError={() => {}} />
+                            <Image source={{ uri: patch?.posterPath ? `https://image.tmdb.org/t/p/w342${patch.posterPath}` : item.cover }} style={s.cardPoster} contentFit="cover" onError={() => {}} />
                             <View style={s.cardInfo}>
                               <Text style={[s.cardTitle, { color: colors.foreground }]} numberOfLines={2}>{item.name}</Text>
                               {patch?.audioType ? (
@@ -1207,7 +1226,7 @@ function HubbyEditModal({
 }: {
   target: { kind: "vod"; item: VodItem } | { kind: "series"; item: SeriesItem };
   patchId: string;
-  existingPatch: { tmdbId?: number; tmdbType?: string; audioType?: string } | null;
+  existingPatch: { tmdbId?: number; tmdbType?: string; audioType?: string; posterPath?: string } | null;
   seriesItems?: SeriesItem[];
   onClose: () => void;
   onSaved: () => void;
@@ -1321,7 +1340,11 @@ function HubbyEditModal({
     try {
       const base = getApiBase();
       const body: any = { flix2Id: patchId };
-      if (selectedTmdb) { body.tmdbId = selectedTmdb.id; body.tmdbType = isVod ? "movie" : "tv"; }
+      if (selectedTmdb) {
+        body.tmdbId = selectedTmdb.id;
+        body.tmdbType = isVod ? "movie" : "tv";
+        if (selectedTmdb.poster_path) body.posterPath = selectedTmdb.poster_path;
+      }
       body.audioType = audioType;
       const res = await fetch(`${base}/r2/flix2/item-patch`, {
         method: "POST",

@@ -7,9 +7,10 @@
   {
     "flix2Id": "hubby_ser_2762",
     "audioType": "dublado",
-    "updatedAt": 1782697754143,
+    "updatedAt": 1782698402743,
     "tmdbId": 37854,
-    "tmdbType": "tv"
+    "tmdbType": "tv",
+    "posterPath": "/9ltisibeD4gzqjM1AzmQwCdyirQ.jpg"
   },
   {
     "flix2Id": "hubby_ser_99999",
@@ -21,6 +22,14 @@
     "tmdbId": 37854,
     "tmdbType": "tv",
     "audioType": "legendado",
-    "updatedAt": 1782697744790
+    "updatedAt": 1782698389941,
+    "posterPath": "/9ltisibeD4gzqjM1AzmQwCdyirQ.jpg"
+  },
+  {
+    "flix2Id": "hubby_ser_9",
+    "tmdbId": 72755,
+    "tmdbType": "tv",
+    "posterPath": "/t3yVaAlmCLBwbqTrKGcWHwuCmkh.jpg",
+    "updatedAt": 1782698425333
   }
 ]

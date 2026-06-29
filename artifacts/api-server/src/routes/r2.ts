@@ -4284,6 +4284,7 @@ interface ItemPatch {
   tmdbId?: number;
   tmdbType?: "movie" | "tv";
   audioType?: "dublado" | "legendado" | "dual";
+  posterPath?: string;
   updatedAt: number;
 }
 
@@ -5357,7 +5358,7 @@ router.get("/flix2/item-patches", (_req, res) => {
 });
 
 router.post("/flix2/item-patch", (req, res) => {
-  const { flix2Id, tmdbId, tmdbType, audioType } = req.body ?? {};
+  const { flix2Id, tmdbId, tmdbType, audioType, posterPath } = req.body ?? {};
   if (!flix2Id) { res.status(400).json({ ok: false, error: "flix2Id required" }); return; }
   const existing = ITEM_PATCHES.get(String(flix2Id)) ?? {} as ItemPatch;
   const patch: ItemPatch = {
@@ -5365,6 +5366,7 @@ router.post("/flix2/item-patch", (req, res) => {
     flix2Id: String(flix2Id),
     ...(tmdbId != null ? { tmdbId: Number(tmdbId), tmdbType: (tmdbType as "movie" | "tv") ?? existing.tmdbType } : {}),
     ...(audioType !== undefined ? { audioType: (audioType ?? undefined) as "dublado" | "legendado" | "dual" | undefined } : {}),
+    ...(posterPath !== undefined ? { posterPath: posterPath ?? undefined } : {}),
     updatedAt: Date.now(),
   };
   ITEM_PATCHES.set(String(flix2Id), patch);
