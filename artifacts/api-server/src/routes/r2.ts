@@ -3728,7 +3728,7 @@ router.get("/flix2/lookup", async (req, res) => {
         const hit = raw.items.find((i: any) => Number(i.stream_id ?? i.id) === streamIdNum);
         if (hit) {
           CACHE_STATS.lookup.hits++;
-          res.json({ found: true, item: hit });
+          res.json({ found: true, item: patchItemInPlace({ ...hit }) });
           return;
         }
       }
@@ -3738,7 +3738,7 @@ router.get("/flix2/lookup", async (req, res) => {
         const hit = full.data.find((i: any) => Number(i.stream_id ?? i.id) === streamIdNum);
         if (hit) {
           CACHE_STATS.lookup.hits++;
-          res.json({ found: true, item: hit });
+          res.json({ found: true, item: patchItemInPlace({ ...hit }) });
           return;
         }
       }
@@ -3836,7 +3836,7 @@ router.get("/flix2/lookup", async (req, res) => {
           const seriesItem = rawCache?.items.find((i: any) => String(i.id ?? i.series_id) === seriesId);
           if (seriesItem) {
             CACHE_STATS.lookup.hits++;
-            res.json({ found: true, item: seriesItem });
+            res.json({ found: true, item: patchItemInPlace({ ...seriesItem }) });
             return;
           }
           // Raw cache not populated yet — fall through to slower paths
@@ -3871,7 +3871,7 @@ router.get("/flix2/lookup", async (req, res) => {
       const rawFallback = XTREAM_RAW_CACHE.get(t);
       if (rawFallback && rawFallback.items.length > 0) {
         const rawHit = rawFallback.items.find((i: any) => matchItem(i));
-        if (rawHit) { CACHE_STATS.lookup.hits++; res.json({ found: true, item: enrichItem(rawHit) }); return; }
+        if (rawHit) { CACHE_STATS.lookup.hits++; res.json({ found: true, item: enrichItem(patchItemInPlace({ ...rawHit })) }); return; }
       }
       // Both caches searched — item genuinely not in catalog for this type.
       continue;
@@ -3896,7 +3896,7 @@ router.get("/flix2/lookup", async (req, res) => {
       const rawCache = XTREAM_RAW_CACHE.get(t);
       if (rawCache && rawCache.items.length > 0) {
         const hit = rawCache.items.find((i: any) => matchItem(i));
-        if (hit) { CACHE_STATS.lookup.hits++; res.json({ found: true, item: enrichItem(hit) }); return; }
+        if (hit) { CACHE_STATS.lookup.hits++; res.json({ found: true, item: enrichItem(patchItemInPlace({ ...hit })) }); return; }
         // All raw items searched — item genuinely not in catalog for this type
         continue;
       }
@@ -4304,7 +4304,19 @@ function savePatches() {
 
 function applyPatchToItem(item: any, patch: ItemPatch) {
   if (patch.tmdbId != null) item.tmdb_id = patch.tmdbId;
+  if (patch.tmdbType) item._tmdbType = patch.tmdbType;
   if (patch.audioType) item._audioType = patch.audioType;
+  if (patch.posterPath) item.poster = patch.posterPath;
+}
+
+/** Look up patch for an item by its Flix2 stream id and apply in-place. Returns the item. */
+function patchItemInPlace(item: any): any {
+  if (!item || ITEM_PATCHES.size === 0) return item;
+  const flix2Id = String(item.stream_id ?? item.id ?? "");
+  if (!flix2Id) return item;
+  const patch = ITEM_PATCHES.get(flix2Id);
+  if (patch) applyPatchToItem(item, patch);
+  return item;
 }
 
 function applyAllPatchesToCache(type: string) {
@@ -4917,7 +4929,11 @@ router.get("/flix2/whats-new", async (req, res) => {
     // Fallback: if FULL_CATALOG_CACHE is empty, try XTREAM_RAW_CACHE (populated by any
     // catalog-full request or xtreamFetchAll call, even if warmCatalogType failed)
     const rawCached = !cached ? XTREAM_RAW_CACHE.get(type) : null;
-    const data = cached?.data ?? rawCached?.items ?? null;
+    // Apply patches to raw cache items so admin edits are reflected in whats-new results
+    const rawItems = rawCached?.items
+      ? rawCached.items.map((i: any) => patchItemInPlace({ ...i }))
+      : null;
+    const data = cached?.data ?? rawItems ?? null;
     if (!data) {
       result[type] = [];
       warming = true;
