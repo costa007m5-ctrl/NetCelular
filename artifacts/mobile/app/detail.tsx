@@ -47,6 +47,7 @@ interface RegistryItem {
   driveFilePath?: string; driveNum?: number;
   tmdbId: number; tmdbType: "movie" | "tv";
   title: string; label: string; season: number | null; episode: number | null;
+  episodeTitle?: string;
   quality?: string;
   exclusive?: boolean;
 }
@@ -824,7 +825,7 @@ export default function DetailScreen() {
             try {
               const epData = await r2Route<{
                 found: boolean;
-                episodes: Array<{ season: number; episode: number; stream_url: string }>;
+                episodes: Array<{ season: number; episode: number; stream_url: string; title?: string }>;
                 tryClientDirect?: boolean;
                 directUrl?: string;
                 streamBase?: string;
@@ -875,6 +876,7 @@ export default function DetailScreen() {
                   flix2Url: ep.stream_url, tmdbId, tmdbType: type,
                   title: fi.title ?? "",
                   label: `T${String(ep.season).padStart(2, "0")} E${String(ep.episode).padStart(2, "0")} · Flix 2.0`,
+                  episodeTitle: ep.title ?? undefined,
                   season: ep.season, episode: ep.episode,
                 });
               }
@@ -1022,7 +1024,7 @@ export default function DetailScreen() {
           const seriesIdForEp = fi?.id ?? fi?.series_id;
           const epData = await r2Route<{
             found: boolean;
-            episodes: Array<{ season: number; episode: number; stream_url: string }>;
+            episodes: Array<{ season: number; episode: number; stream_url: string; title?: string }>;
           }>(`/flix2/series-episodes?seriesId=${seriesIdForEp}`).catch(() => ({ found: false, episodes: [] }));
           for (const ep of (epData.found ? epData.episodes : [])) {
             if (!ep?.stream_url) continue;
@@ -1031,6 +1033,7 @@ export default function DetailScreen() {
               flix2Url: ep.stream_url, tmdbId, tmdbType: type,
               title: fi.title ?? "",
               label: `T${String(ep.season).padStart(2, "0")} E${String(ep.episode).padStart(2, "0")} · Flix 2.0`,
+              episodeTitle: ep.title ?? undefined,
               season: ep.season, episode: ep.episode,
             });
           }
@@ -1118,6 +1121,7 @@ export default function DetailScreen() {
               tmdbType: placeholder.tmdbType,
               title: placeholder.title,
               label: `T${String(ep.season).padStart(2, "0")} E${String(ep.episode).padStart(2, "0")} · Flix 2.0`,
+              episodeTitle: (ep as any).title ?? undefined,
               season: ep.season,
               episode: ep.episode,
             }));
@@ -1802,7 +1806,7 @@ export default function DetailScreen() {
             id: -(selectedSeason * 10000 + epNum), // synthetic negative ID to avoid TMDB clash
             episode_number: epNum,
             season_number: selectedSeason,
-            name: `Episódio ${epNum}`,
+            name: fi.episodeTitle ?? `Episódio ${epNum}`,
             overview: "",
             still_path: null,
             air_date: "",
@@ -4800,9 +4804,47 @@ export default function DetailScreen() {
 
                   {(() => {
                     // Per-episode registry items for this season (explicit entries)
-                    const r2SpecificEps = r2Items.filter(
+                    const r2SpecificEpsRaw = r2Items.filter(
                       (i) => Number(i.season) === selectedSeason && i.episode != null
                     );
+
+                    // Cross-season Flix2 mapping:
+                    // Many IPTV providers store all episodes of a series under season 1.
+                    // When the user selects a season > 1 and no Flix2 items exist for it,
+                    // map season-1 Flix2 episodes to the selected season using cumulative
+                    // episode counts from TMDB season metadata.
+                    const crossSeasonEps: RegistryItem[] = [];
+                    if (
+                      selectedSeason > 1 &&
+                      !r2SpecificEpsRaw.some(isFlixItem) &&
+                      seasons.length > 1
+                    ) {
+                      const flix2S1Eps = r2Items.filter(
+                        (i) => i.flix2Url && Number(i.season) === 1 && i.episode != null
+                      );
+                      if (flix2S1Eps.length > 30) {
+                        const cumBefore = seasons
+                          .filter((s) => s.season_number > 0 && s.season_number < selectedSeason)
+                          .reduce((acc, s) => acc + (s.episode_count || 0), 0);
+                        const thisCount = seasons.find((s) => s.season_number === selectedSeason)?.episode_count ?? 0;
+                        if (thisCount > 0) {
+                          for (const fi of flix2S1Eps) {
+                            const globalEp = Number(fi.episode);
+                            if (globalEp > cumBefore && globalEp <= cumBefore + thisCount) {
+                              crossSeasonEps.push({
+                                ...fi,
+                                id: `${fi.id}-x${selectedSeason}`,
+                                season: selectedSeason,
+                                episode: globalEp - cumBefore,
+                                episodeTitle: fi.episodeTitle,
+                              });
+                            }
+                          }
+                        }
+                      }
+                    }
+
+                    const r2SpecificEps = [...r2SpecificEpsRaw, ...crossSeasonEps];
                     // Separate flix2 from R2/Drive per-episode items
                     const r2OnlySpecificEps = r2SpecificEps.filter((i) => !isFlixItem(i) && !isDriveItem(i));
                     const flix2SpecificEps  = r2SpecificEps.filter(isFlixItem);
@@ -4831,7 +4873,7 @@ export default function DetailScreen() {
                       id: Number(i.episode) || 0,
                       episode_number: Number(i.episode) || 0,
                       season_number: selectedSeason,
-                      name: `Episódio ${i.episode}`,
+                      name: i.episodeTitle ?? `Episódio ${Number(i.episode) || 0}`,
                       overview: "",
                       still_path: null,
                       air_date: "",

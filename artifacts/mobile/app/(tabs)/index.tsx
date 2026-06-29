@@ -78,6 +78,9 @@ function getTimeGreeting(): string {
   return "Boa noite";
 }
 
+const toHttps = (url: string): string =>
+  url ? url.replace(/^http:\/\//i, "https://") : url;
+
 const flix2ToContent = (item: any): ContentItem => {
   const isMovie = item.type === "filme" || item.type === "movie";
   return {
@@ -86,8 +89,8 @@ const flix2ToContent = (item: any): ContentItem => {
     title: item.title ?? "",
     year: Number(item.year) || 2024,
     rating: parseFloat(item.rating ?? "0") || 0,
-    posterPath: item.poster ?? "",
-    backdropPath: item.backdrop ?? item.poster ?? "",
+    posterPath: toHttps(item.poster ?? ""),
+    backdropPath: toHttps(item.backdrop ?? item.poster ?? ""),
     description: item.synopsis ?? "",
     genres: [],
     type: isMovie ? "movie" : "series",
