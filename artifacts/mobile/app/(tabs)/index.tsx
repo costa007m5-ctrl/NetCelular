@@ -56,6 +56,37 @@ import { trackOpen, trackTab, getBehaviorProfile } from "@/lib/ai-behavior-track
 import { geminiPersonalizeHome } from "@/lib/gemini-client";
 import { api, tmdbItemToContent } from "@/lib/api";
 import { getFranchise, type Franchise } from "@/constants/franchises";
+import {
+  CinematicBanner,
+  DailyPickBanner,
+  DoubleFeatureBanner,
+  GlassStatsRow,
+  GlassFeaturedCard,
+  EditorPickBanner,
+  TimeGreetingBanner,
+  NewEpisodeBanner,
+  WeekendPickBanner,
+  BingeWorthyRow,
+  PremiumContinueCard,
+  PanoramicRow,
+  AwardWinnersRow,
+  LeavingSoonRow,
+  QuickPlayRow,
+  TrendingHashtagRow,
+  CompactRankedList,
+  CountryFlagRow,
+  GradientSectionHeader,
+  GenreMatrixRow,
+  OriginalsBanner,
+  PremiumDivider,
+  PremiumSkeleton,
+  SkeletonHeaderLine,
+  FadeInSection,
+  ActorSpotlightRow,
+  UpcomingRow,
+  PlatformShowcaseRow,
+  ScrollProgressBar,
+} from "@/components/HomePremiumSections";
 
 const TAB_BAR_CLEARANCE = 120;
 const { width: W, height: H } = Dimensions.get("window");
@@ -3205,22 +3236,35 @@ export default function HomeScreen() {
             </View>
           ) : (
             <>
-              {/* ── 5. STATS BANNER ──────────────────────────────────────────── */}
+              {/* ── 5. TIME GREETING ─────────────────────────────────────────── */}
               <AnimatedSection anim={s[3]}>
-                <StatsBanner stats={stats} />
+                <TimeGreetingBanner
+                  name={activeProfile?.name ?? user?.name}
+                  accentColor={INDIGO}
+                  timeOfDay={getTimeGreeting()}
+                />
+              </AnimatedSection>
+
+              {/* ── 5.5. GLASS STATS ─────────────────────────────────────────── */}
+              <AnimatedSection anim={s[3]}>
+                <GlassStatsRow stats={stats} />
               </AnimatedSection>
 
               {/* ── 6. CONTINUE ASSISTINDO ───────────────────────────────────── */}
               {continueItems.length > 0 && (
                 <AnimatedSection anim={s[4]}>
-                  <SectionHeader title="Continue Assistindo" icon="play"
-                    accentColor={GREEN} subtitle="Retome de onde parou"
-                    onSeeAll={() => router.push("/(tabs)/list")} />
+                  <GradientSectionHeader
+                    title="Continue Assistindo"
+                    subtitle="Retome de onde parou"
+                    accent={GREEN}
+                    icon="play"
+                    onSeeAll={() => router.push("/(tabs)/list")}
+                  />
                   <ScrollView horizontal showsHorizontalScrollIndicator={false}
                     removeClippedSubviews={Platform.OS !== "web"}
                     contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }} decelerationRate="fast">
                     {continueItems.slice(0, 8).map((item) => (
-                      <ContinueCard
+                      <PremiumContinueCard
                         key={item.id}
                         item={item}
                         onPress={() => goTo(item)}
@@ -3228,7 +3272,6 @@ export default function HomeScreen() {
                           if (item.contentId) {
                             clearLocalProgress(item.contentId);
                           }
-                          // Also remove from Supabase cloud (cross-device sync)
                           if (user?.id && isSupabaseConfigured && item.tmdbId) {
                             const t = item.mediaType === "movie" ? "movie" : "tv";
                             db.progress.deleteOne(user.id, item.tmdbId, t as "movie" | "tv").catch(() => {});
@@ -3541,15 +3584,35 @@ export default function HomeScreen() {
                 </AnimatedSection>
               )}
 
+              {/* ── 6.95 CINEMATIC BANNER ────────────────────────────────────── */}
+              {showAll && movies.length > 3 && (
+                <AnimatedSection anim={s[5]}>
+                  <FadeInSection>
+                    <CinematicBanner items={movies.slice(2, 7)} onPress={goTo} />
+                  </FadeInSection>
+                </AnimatedSection>
+              )}
+
               {/* ── 7. EM ALTA AGORA ─────────────────────────────────────────── */}
               {showMovies && emAltaMovies.length > 0 && (
                 <AnimatedSection anim={s[5]}>
                   <View style={styles.section}>
-                    <SectionHeader title="Em Alta Agora" icon="trending-up"
-                      badge="AO VIVO" accentColor={RED}
-                      onSeeAll={() => browseTo("movies", "Em Alta")} />
+                    <GradientSectionHeader
+                      title="Em Alta Agora"
+                      subtitle="Os mais vistos desta semana"
+                      accent={RED}
+                      icon="trending-up"
+                      onSeeAll={() => browseTo("movies", "Em Alta")}
+                    />
                     <PosterRow items={emAltaMovies} onPress={goTo} />
                   </View>
+                </AnimatedSection>
+              )}
+
+              {/* ── 7.5 DAILY PICK ───────────────────────────────────────────── */}
+              {showAll && movies.length > 5 && (
+                <AnimatedSection anim={s[5]}>
+                  <DailyPickBanner item={movies[5]} onPress={() => goTo(movies[5])} />
                 </AnimatedSection>
               )}
 
@@ -3593,15 +3656,64 @@ export default function HomeScreen() {
               {belowFoldReady && (
               <>
 
+              {/* ── 10.8 ORIGINALS BANNER ────────────────────────────────────── */}
+              {showAll && (
+                <AnimatedSection anim={s[8]}>
+                  <OriginalsBanner onPress={() => router.push("/streamings-all" as any)} accentColor={RED} />
+                </AnimatedSection>
+              )}
+
+              {/* ── 10.9 GLASS FEATURED ──────────────────────────────────────── */}
+              {showAll && movies.length > 8 && (
+                <AnimatedSection anim={s[8]}>
+                  <GlassFeaturedCard
+                    item={movies[7]}
+                    accent={PURPLE}
+                    onPress={() => goTo(movies[7])}
+                  />
+                </AnimatedSection>
+              )}
+
               {/* ── 11. SÉRIES EM ALTA ───────────────────────────────────────── */}
               {showSeries && emAltaSeries.length > 0 && (
                 <AnimatedSection anim={s[9]}>
                   <View style={styles.section}>
-                    <SectionHeader title="Séries em Alta" icon="trending-up"
-                      accentColor={PURPLE}
-                      onSeeAll={() => browseTo("series", "Séries em Alta")} />
+                    <GradientSectionHeader
+                      title="Séries em Alta"
+                      subtitle="Maratone agora"
+                      accent={PURPLE}
+                      icon="trending-up"
+                      onSeeAll={() => browseTo("series", "Séries em Alta")}
+                    />
                     <PosterRow items={emAltaSeries} onPress={goTo} />
                   </View>
+                </AnimatedSection>
+              )}
+
+              {/* ── 11.5 BINGE WORTHY ROW ────────────────────────────────────── */}
+              {(showSeries || showAll) && series.length > 6 && (
+                <AnimatedSection anim={s[9]}>
+                  <View style={styles.section}>
+                    <GradientSectionHeader
+                      title="Para Maratonar"
+                      subtitle="Séries completas esperando por você"
+                      accent={GREEN}
+                      icon="layers"
+                      onSeeAll={() => browseTo("series", "Para Maratonar")}
+                    />
+                    <BingeWorthyRow items={series.slice(0, 8)} onPress={goTo} />
+                  </View>
+                </AnimatedSection>
+              )}
+
+              {/* ── 11.7 EDITOR PICK ─────────────────────────────────────────── */}
+              {showAll && series.length > 4 && (
+                <AnimatedSection anim={s[9]}>
+                  <EditorPickBanner
+                    item={series[4]}
+                    editorName="Curadoria NETPLAY"
+                    onPress={() => goTo(series[4])}
+                  />
                 </AnimatedSection>
               )}
 
@@ -3667,15 +3779,50 @@ export default function HomeScreen() {
                 </>
               )}
 
+              {/* ── 13.8 AWARD WINNERS ROW ───────────────────────────────────── */}
+              {showAll && movies.length > 12 && (
+                <AnimatedSection anim={s[11]}>
+                  <View style={styles.section}>
+                    <GradientSectionHeader
+                      title="Ganhadores do Oscar"
+                      subtitle="Premiados pela academia"
+                      accent={AMBER}
+                      icon="award"
+                      onSeeAll={() => openModal("Ganhadores do Oscar", movies.slice(10, 22), AMBER)}
+                    />
+                    <AwardWinnersRow items={movies.slice(10, 18)} onPress={goTo} award="Oscar" />
+                  </View>
+                </AnimatedSection>
+              )}
+
+              {/* ── 13.9 QUICK PLAY ROW ──────────────────────────────────────── */}
+              {showAll && movies.length > 18 && (
+                <AnimatedSection anim={s[11]}>
+                  <View style={styles.section}>
+                    <GradientSectionHeader
+                      title="Assistir Agora"
+                      subtitle="Aperte play e relaxe"
+                      accent={TEAL}
+                      icon="play-circle"
+                      onSeeAll={() => openModal("Assistir Agora", movies.slice(14, 26), TEAL)}
+                    />
+                    <QuickPlayRow items={movies.slice(14, 20)} onPress={goTo} />
+                  </View>
+                </AnimatedSection>
+              )}
+
               {/* ── 14. CINEMA PELO MUNDO ────────────────────────────────────── */}
               {showAll && (
                 <>
-                  <SectionDivider label="PELO MUNDO" accentColor="#3b82f6" />
+                  <PremiumDivider label="PELO MUNDO" accent={BLUE} icon="globe" />
                   <View style={styles.section}>
-                    <SectionHeader title="Cinema pelo Mundo" icon="globe"
+                    <GradientSectionHeader
+                      title="Cinema pelo Mundo"
                       subtitle="Explore por país de origem"
-                      accentColor="#3b82f6" />
-                    <FilmNationRow
+                      accent={BLUE}
+                      icon="globe"
+                    />
+                    <CountryFlagRow
                       countries={COUNTRIES}
                       onPress={(c) => router.push({
                         pathname: "/country-browse",
