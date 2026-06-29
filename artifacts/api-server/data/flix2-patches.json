@@ -7,8 +7,20 @@
   {
     "flix2Id": "hubby_ser_2762",
     "audioType": "dublado",
-    "updatedAt": 1782695830191,
+    "updatedAt": 1782697754143,
     "tmdbId": 37854,
     "tmdbType": "tv"
+  },
+  {
+    "flix2Id": "hubby_ser_99999",
+    "audioType": "dublado",
+    "updatedAt": 1782696681785
+  },
+  {
+    "flix2Id": "hubby_ser_1693",
+    "tmdbId": 37854,
+    "tmdbType": "tv",
+    "audioType": "legendado",
+    "updatedAt": 1782697744790
   }
 ]

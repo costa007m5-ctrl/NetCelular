@@ -1218,6 +1218,7 @@ function HubbyEditModal({
 
   type AudioType = "dublado" | "legendado" | "dual" | null;
   const [audioType, setAudioType] = useState<AudioType>((existingPatch?.audioType as AudioType) ?? null);
+  const [audioTypeTouched, setAudioTypeTouched] = useState(false);
   const [tmdbSearch, setTmdbSearch] = useState(itemName ?? "");
   const [tmdbResults, setTmdbResults] = useState<TmdbHit[]>([]);
   const [tmdbLoading, setTmdbLoading] = useState(false);
@@ -1321,7 +1322,7 @@ function HubbyEditModal({
       const base = getApiBase();
       const body: any = { flix2Id: patchId };
       if (selectedTmdb) { body.tmdbId = selectedTmdb.id; body.tmdbType = isVod ? "movie" : "tv"; }
-      if (audioType) body.audioType = audioType;
+      body.audioType = audioType;
       const res = await fetch(`${base}/r2/flix2/item-patch`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1340,7 +1341,7 @@ function HubbyEditModal({
     { value: "dual", label: "DUAL", color: "#10b981" },
   ];
 
-  const hasChange = selectedTmdb !== null || audioType !== (existingPatch?.audioType ?? null);
+  const hasChange = selectedTmdb !== null || audioTypeTouched || audioType !== (existingPatch?.audioType ?? null);
 
   return (
     <Modal visible animationType="slide" transparent onRequestClose={onClose}>
@@ -1376,7 +1377,7 @@ function HubbyEditModal({
               textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 8 }}>Tipo de Áudio</Text>
             <View style={{ flexDirection: "row", gap: 8, marginBottom: 16 }}>
               {AUDIO_OPTS.map((opt) => (
-                <Pressable key={opt.value} onPress={() => setAudioType(audioType === opt.value ? null : opt.value)}
+                <Pressable key={opt.value} onPress={() => { setAudioTypeTouched(true); setAudioType(audioType === opt.value ? null : opt.value); }}
                   style={{ flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: "center",
                     backgroundColor: audioType === opt.value ? `${opt.color}22` : "rgba(255,255,255,0.05)",
                     borderWidth: 1, borderColor: audioType === opt.value ? `${opt.color}66` : "rgba(255,255,255,0.1)" }}>

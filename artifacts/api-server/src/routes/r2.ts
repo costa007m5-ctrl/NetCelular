@@ -5364,7 +5364,7 @@ router.post("/flix2/item-patch", (req, res) => {
     ...existing,
     flix2Id: String(flix2Id),
     ...(tmdbId != null ? { tmdbId: Number(tmdbId), tmdbType: (tmdbType as "movie" | "tv") ?? existing.tmdbType } : {}),
-    ...(audioType !== undefined ? { audioType: audioType as "dublado" | "legendado" | "dual" | undefined } : {}),
+    ...(audioType !== undefined ? { audioType: (audioType ?? undefined) as "dublado" | "legendado" | "dual" | undefined } : {}),
     updatedAt: Date.now(),
   };
   ITEM_PATCHES.set(String(flix2Id), patch);
