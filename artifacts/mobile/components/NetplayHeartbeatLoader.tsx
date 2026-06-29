@@ -1,15 +1,17 @@
 /**
- * NetplayHeartbeatLoader
+ * NetplayHeartbeatLoader — Réplica 100% do vídeo de referência
  *
- * Replica do estilo Netflix:
- * – O "N" se desenha em traço (stroke draw) sobre fundo escuro
- * – Depois pulsa com ritmo lub-dub de batimento cardíaco
- * – Sem círculo sólido — só o glow de luz em volta do traço
+ * Sequência exata:
+ * 1. Anéis concêntricos escuros pulsam do centro para fora (loop desde o início)
+ * 2. Traço neon do N se desenha (barra esq. sobe → diagonal → barra dir. sobe) ~950ms
+ * 3. Borda rounded-square neon se desenha simultaneamente ~1100ms
+ * 4. Pulso lub-dub em loop infinito
+ * 5. Estrela sparkle no canto inferior direito
  */
 
 import React, { useEffect, useState } from "react";
 import { View } from "react-native";
-import Svg, { Path } from "react-native-svg";
+import Svg, { Path, Rect, Circle, Polygon } from "react-native-svg";
 import Animated, {
   Easing,
   cancelAnimation,
@@ -23,167 +25,282 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 
-const AnimatedPath = Animated.createAnimatedComponent(Path);
+const AnimatedPath   = Animated.createAnimatedComponent(Path);
+const AnimatedRect   = Animated.createAnimatedComponent(Rect);
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
-const RED      = "#e50914";
-const RED_SOFT = "#ff2a1a";
+// ── Paleta ────────────────────────────────────────────────────────────────────
+const NEON        = "#ff2e12";   // vermelho neon brilhante (linha principal)
+const NEON_BLOOM  = "#ff5535";   // laranja-vermelho para o glow bloom
+const N_BODY      = "#7a0000";   // corpo escuro do N (preenchido)
+const N_SHADE     = "#3d0000";   // sombra mais funda
+const RING_COL    = "#4a0000";   // anéis concêntricos
 
-// ── Forma do "N" ─────────────────────────────────────────────────────────────
-// ViewBox 100 × 120  —  N bem bold, estilo Netflix
-const VB_W  = 100;
-const VB_H  = 120;
-const LX    = 14;   // borda esquerda do traço
-const RX    = 86;   // borda direita do traço
-const TY    = 12;   // topo
-const BY    = 108;  // base
+// ── Geometria ViewBox 200×200 ─────────────────────────────────────────────────
+const VB = 200;
 
-// M baixo-esq → topo-esq → diagonal → topo-dir (igual ao "N" da Netflix)
-const N_PATH = `M ${LX},${BY} L ${LX},${TY} L ${RX},${BY} L ${RX},${TY}`;
+// N preenchido — estilo Netflix
+// Começa no canto inferior-esquerdo para que o traço suba da esq. primeiro
+const N_FILL_D =
+  "M 32,168 L 32,32 L 56,32 L 144,168 L 168,168 L 168,32 L 144,32 L 56,168 Z";
 
-// Comprimento do path  (vertical + diagonal + vertical)
-// seg1: 96  |  seg2: sqrt(72²+96²) ≈ 120  |  seg3: 96  → total ≈ 312
-const PATH_LEN = 316;
+// Neon outline = mesmo path (com fill="none" stroke animado)
+// Perímetro: vertical(136) + topo-esq(24) + diag(169.7) + base-dir(24) +
+//            vertical(136) + topo-dir(24) + diag(169.7) + base-esq(24) ≈ 707
+const N_STROKE_D = N_FILL_D;
+const N_PERIM    = 710;
 
-// ── Durações ─────────────────────────────────────────────────────────────────
-const DRAW_MS     = 800;   // traço se formando
+// Rounded rect (borda ícone de app)
+const RR_X = 16, RR_Y = 16, RR_W = 168, RR_H = 168, RR_RX = 28;
+// Perímetro ≈ 2*(168+168) − 8*28 + 2π*28 ≈ 628
+const RR_PERIM = 630;
 
-// Lub-dub: batida forte + eco
+// ── Timings ───────────────────────────────────────────────────────────────────
+const DRAW_N_MS  = 950;    // duração do draw do N
+const DRAW_RR_MS = 1100;   // borda demora um pouco mais
+
 const LUB_UP   = 85;
 const LUB_DOWN = 65;
-const DUB_UP   = 70;
-const DUB_DOWN = 50;
-const REST     = 820;
+const DUB_UP   = 72;
+const DUB_DOWN = 52;
+const REST_MS  = 880;
 
-interface Props { size?: number }
+const RING_DUR  = 1700;    // duração de cada anel se expandindo
+const RING_STEP = 530;     // delay entre anéis consecutivos
 
-export default function NetplayHeartbeatLoader({ size = 96 }: Props) {
-  const dashOffset  = useSharedValue(PATH_LEN);
-  const scale       = useSharedValue(1);
-  const glowW       = useSharedValue(2);      // strokeWidth do halo
-  const glowAlpha   = useSharedValue(0);      // opacidade do halo
-  const [phase2, setPhase2] = useState(false);
+// ── Anel concêntrico ──────────────────────────────────────────────────────────
+function RippleRing({
+  delay,
+  svgSize,
+}: {
+  delay: number;
+  svgSize: number;
+}) {
+  const cx      = svgSize / 2;
+  const cy      = svgSize / 2;
+  const rStart  = svgSize * 0.22;
+  const rEnd    = svgSize * 0.5;
 
-  // ── Phase 1: desenha o N ──────────────────────────────────────────────────
+  const r       = useSharedValue(rStart);
+  const opacity = useSharedValue(0);
+
   useEffect(() => {
-    dashOffset.value = withTiming(
-      0,
-      { duration: DRAW_MS, easing: Easing.out(Easing.cubic) },
-      (done) => { if (done) runOnJS(setPhase2)(true); }
+    r.value = withDelay(
+      delay,
+      withRepeat(
+        withSequence(
+          withTiming(rStart, { duration: 0 }),
+          withTiming(rEnd, {
+            duration: RING_DUR,
+            easing: Easing.out(Easing.cubic),
+          }),
+        ),
+        -1,
+        false,
+      ),
     );
 
-    // halo faz um bloom suave enquanto desenha
-    glowAlpha.value = withDelay(
-      DRAW_MS * 0.4,
-      withTiming(0.45, { duration: DRAW_MS * 0.6 })
+    opacity.value = withDelay(
+      delay,
+      withRepeat(
+        withSequence(
+          withTiming(0.45, { duration: 80 }),
+          withTiming(0, {
+            duration: RING_DUR - 80,
+            easing: Easing.out(Easing.quad),
+          }),
+        ),
+        -1,
+        false,
+      ),
     );
 
     return () => {
-      cancelAnimation(dashOffset);
-      cancelAnimation(scale);
-      cancelAnimation(glowW);
-      cancelAnimation(glowAlpha);
+      cancelAnimation(r);
+      cancelAnimation(opacity);
     };
   }, []);
 
-  // ── Phase 2: heartbeat lub-dub ────────────────────────────────────────────
+  const props = useAnimatedProps(() => ({
+    r:       r.value,
+    opacity: opacity.value,
+  }));
+
+  return (
+    <AnimatedCircle
+      animatedProps={props}
+      cx={cx}
+      cy={cy}
+      fill="none"
+      stroke={RING_COL}
+      strokeWidth={2}
+    />
+  );
+}
+
+// ── Componente principal ───────────────────────────────────────────────────────
+interface Props {
+  size?: number;
+}
+
+export default function NetplayHeartbeatLoader({ size = 140 }: Props) {
+  const nOffset  = useSharedValue(N_PERIM);
+  const rrOffset = useSharedValue(RR_PERIM);
+  const scale    = useSharedValue(1);
+  const [phase2, setPhase2] = useState(false);
+
+  // ── Phase 1: desenha N + rounded rect ─────────────────────────────────────
+  useEffect(() => {
+    const ease = Easing.out(Easing.cubic);
+
+    nOffset.value = withTiming(
+      0,
+      { duration: DRAW_N_MS, easing: ease },
+      (done) => {
+        if (done) runOnJS(setPhase2)(true);
+      },
+    );
+
+    rrOffset.value = withTiming(0, { duration: DRAW_RR_MS, easing: ease });
+
+    return () => {
+      cancelAnimation(nOffset);
+      cancelAnimation(rrOffset);
+      cancelAnimation(scale);
+    };
+  }, []);
+
+  // ── Phase 2: heartbeat lub-dub ─────────────────────────────────────────────
   useEffect(() => {
     if (!phase2) return;
-
-    // Escala do N inteiro
     scale.value = withRepeat(
       withSequence(
-        withTiming(1.28, { duration: LUB_UP,   easing: Easing.out(Easing.quad) }),
+        withTiming(1.26, { duration: LUB_UP,   easing: Easing.out(Easing.quad) }),
         withTiming(0.96, { duration: LUB_DOWN,  easing: Easing.in(Easing.quad)  }),
         withTiming(1.14, { duration: DUB_UP,    easing: Easing.out(Easing.quad) }),
         withTiming(1.00, { duration: DUB_DOWN,  easing: Easing.in(Easing.quad)  }),
-        withTiming(1.00, { duration: REST }),
+        withTiming(1.00, { duration: REST_MS }),
       ),
-      -1, false,
-    );
-
-    // Halo expande e encolhe em sync com o lub
-    glowW.value = withRepeat(
-      withSequence(
-        withTiming(18, { duration: LUB_UP   }),
-        withTiming(6,  { duration: LUB_DOWN }),
-        withTiming(12, { duration: DUB_UP   }),
-        withTiming(4,  { duration: DUB_DOWN }),
-        withTiming(4,  { duration: REST     }),
-      ),
-      -1, false,
-    );
-
-    glowAlpha.value = withRepeat(
-      withSequence(
-        withTiming(0.55, { duration: LUB_UP   }),
-        withTiming(0.25, { duration: LUB_DOWN }),
-        withTiming(0.40, { duration: DUB_UP   }),
-        withTiming(0.20, { duration: DUB_DOWN }),
-        withTiming(0.20, { duration: REST     }),
-      ),
-      -1, false,
+      -1,
+      false,
     );
   }, [phase2]);
 
   // ── Animated props ────────────────────────────────────────────────────────
-  const mainProps = useAnimatedProps(() => ({
-    strokeDashoffset: dashOffset.value,
-  }));
+  const nProps  = useAnimatedProps(() => ({ strokeDashoffset: nOffset.value }));
+  const rrProps = useAnimatedProps(() => ({ strokeDashoffset: rrOffset.value }));
 
-  const haloProps = useAnimatedProps(() => ({
-    strokeWidth:   glowW.value,
-    strokeOpacity: glowAlpha.value,
-    // halo acompanha o mesmo offset do traço principal
-    strokeDashoffset: dashOffset.value,
-  }));
-
-  const containerStyle = useAnimatedStyle(() => ({
+  const logoStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
   }));
 
-  const strokeW = size * 0.16;   // traço bold ~16% do tamanho
+  // O SVG dos anéis é maior (1.6×) e fica centrado atrás do logo
+  const ringSize = size * 1.6;
+  const logoSize = size;
 
   return (
     <View style={{ alignItems: "center", justifyContent: "center" }}>
-      <Animated.View style={containerStyle}>
+
+      {/* ── Anéis concêntricos (sem escala, ficam fixos atrás) ── */}
+      <View style={{ position: "absolute" }}>
         <Svg
-          width={size}
-          height={size * (VB_H / VB_W)}
-          viewBox={`0 0 ${VB_W} ${VB_H}`}
+          width={ringSize}
+          height={ringSize}
+          viewBox={`0 0 ${ringSize} ${ringSize}`}
         >
-          {/* ── Halo glow (traço bem largo, semi-transparente, mesma forma) ── */}
-          <AnimatedPath
-            animatedProps={haloProps}
-            d={N_PATH}
-            stroke={RED_SOFT}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            fill="none"
-            strokeDasharray={PATH_LEN}
+          <RippleRing delay={0}            svgSize={ringSize} />
+          <RippleRing delay={RING_STEP}    svgSize={ringSize} />
+          <RippleRing delay={RING_STEP * 2} svgSize={ringSize} />
+        </Svg>
+      </View>
+
+      {/* ── Logo animado (com escala heartbeat) ── */}
+      <Animated.View style={logoStyle}>
+        <Svg width={logoSize} height={logoSize} viewBox={`0 0 ${VB} ${VB}`}>
+
+          {/* Fundo escuro translúcido dentro da borda (rounded rect fill) */}
+          <Rect
+            x={RR_X + 3}
+            y={RR_Y + 3}
+            width={RR_W - 6}
+            height={RR_H - 6}
+            rx={RR_RX - 3}
+            fill="rgba(30,0,0,0.6)"
           />
 
-          {/* ── Traço principal animado ─────────────────────────────────── */}
-          <AnimatedPath
-            animatedProps={mainProps}
-            d={N_PATH}
-            stroke={RED}
-            strokeWidth={strokeW}
-            strokeLinecap="round"
-            strokeLinejoin="round"
+          {/* ─ N corpo preenchido (dois layers = sombra + cor) ─ */}
+          <Path d={N_FILL_D} fill={N_SHADE} />
+          <Path d={N_FILL_D} fill={N_BODY}  opacity={0.85} />
+
+          {/* ─ Rounded rect — bloom glow (mais largo, transparente) ─ */}
+          <AnimatedRect
+            animatedProps={rrProps}
+            x={RR_X}
+            y={RR_Y}
+            width={RR_W}
+            height={RR_H}
+            rx={RR_RX}
             fill="none"
-            strokeDasharray={PATH_LEN}
+            stroke={NEON_BLOOM}
+            strokeWidth={14}
+            strokeOpacity={0.22}
+            strokeDasharray={RR_PERIM}
+          />
+          {/* ─ Rounded rect — linha neon fina principal ─ */}
+          <AnimatedRect
+            animatedProps={rrProps}
+            x={RR_X}
+            y={RR_Y}
+            width={RR_W}
+            height={RR_H}
+            rx={RR_RX}
+            fill="none"
+            stroke={NEON}
+            strokeWidth={3.5}
+            strokeDasharray={RR_PERIM}
           />
 
-          {/* ── Brilho no topo do traço (highlight claro) ─────────────── */}
+          {/* ─ N neon — bloom glow externo (grosso, semi-transparente) ─ */}
           <AnimatedPath
-            animatedProps={mainProps}
-            d={N_PATH}
-            stroke="rgba(255,160,140,0.18)"
-            strokeWidth={strokeW * 0.3}
+            animatedProps={nProps}
+            d={N_STROKE_D}
+            fill="none"
+            stroke={NEON_BLOOM}
+            strokeWidth={30}
+            strokeOpacity={0.2}
             strokeLinecap="round"
             strokeLinejoin="round"
+            strokeDasharray={N_PERIM}
+          />
+          {/* ─ N neon — linha principal brilhante ─ */}
+          <AnimatedPath
+            animatedProps={nProps}
+            d={N_STROKE_D}
             fill="none"
-            strokeDasharray={PATH_LEN}
+            stroke={NEON}
+            strokeWidth={14}
+            strokeOpacity={0.95}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeDasharray={N_PERIM}
+          />
+          {/* ─ N neon — highlight central fino (brilho branco suave) ─ */}
+          <AnimatedPath
+            animatedProps={nProps}
+            d={N_STROKE_D}
+            fill="none"
+            stroke="rgba(255,200,180,0.25)"
+            strokeWidth={5}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeDasharray={N_PERIM}
+          />
+
+          {/* ─ Estrela sparkle (canto inferior direito) ─ */}
+          <Polygon
+            points="183,172 184.5,176 188,176 185.5,178.5 186.5,182 183,180 179.5,182 180.5,178.5 178,176 181.5,176"
+            fill="white"
+            opacity={0.75}
           />
         </Svg>
       </Animated.View>
