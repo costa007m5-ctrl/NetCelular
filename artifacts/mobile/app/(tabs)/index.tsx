@@ -2799,13 +2799,65 @@ export default function HomeScreen() {
             });
           }
 
+          // Fetch TMDB poster/backdrop for items that have tmdbId but no valid image.
+          // Uses AbortController (not AbortSignal.timeout — crashes on Hermes/Android).
+          const fetchTmdbPosters = async (items: ContentItem[]): Promise<ContentItem[]> => {
+            const missing = items.filter(
+              (i) => (i.tmdbId ?? 0) > 0 && !(i.posterPath && i.posterPath.startsWith("http"))
+            );
+            if (!missing.length) return items;
+            const patchMap = new Map<number, { posterPath: string; backdropPath?: string }>();
+            await Promise.allSettled(
+              missing.slice(0, 8).map(async (item) => {
+                const ctrl = new AbortController();
+                const t = setTimeout(() => ctrl.abort(), 4000);
+                try {
+                  const type = (item as any).type === "movie" ? "movie" : "tv";
+                  const r = await fetch(`${base}/tmdb/${type}/${item.tmdbId}`, { signal: ctrl.signal });
+                  if (r.ok) {
+                    const d = await r.json();
+                    if (d.poster_path) {
+                      patchMap.set(item.tmdbId!, {
+                        posterPath:   `https://image.tmdb.org/t/p/w342${d.poster_path}`,
+                        backdropPath: d.backdrop_path ? `https://image.tmdb.org/t/p/w780${d.backdrop_path}` : undefined,
+                      });
+                    }
+                  }
+                } catch {}
+                finally { clearTimeout(t); }
+              })
+            );
+            if (!patchMap.size) return items;
+            return items.map((item) => {
+              const p = (item.tmdbId ?? 0) > 0 ? patchMap.get(item.tmdbId!) : undefined;
+              if (!p) return item;
+              return {
+                ...item,
+                posterPath:   !(item.posterPath && item.posterPath.startsWith("http"))   ? p.posterPath   : item.posterPath,
+                backdropPath: !(item.backdropPath && item.backdropPath.startsWith("http")) && p.backdropPath ? p.backdropPath : item.backdropPath,
+              };
+            });
+          };
+
           if (m.length > 0) {
-            const top10M = enrichTop10Posters(blendTop10(m, realMovieIds, trendMovieIds, trendMovieTitles) as ContentItem[]);
-            if (top10M.length > 0) setTop10Movies(top10M.slice(0, 10));
+            const blended = enrichTop10Posters(blendTop10(m, realMovieIds, trendMovieIds, trendMovieTitles) as ContentItem[]);
+            if (blended.length > 0) setTop10Movies(blended.slice(0, 10));
+            // Second pass: fetch TMDB for any still-missing posters
+            fetchTmdbPosters(blended).then((enriched) => {
+              if (enriched.some((i, idx) => i.posterPath !== blended[idx]?.posterPath)) {
+                setTop10Movies(enriched.slice(0, 10));
+              }
+            }).catch(() => {});
           }
           if (s.length > 0) {
-            const top10S = enrichTop10Posters(blendTop10(s, realTvIds, trendTvIds, trendTvTitles) as ContentItem[]);
-            if (top10S.length > 0) setTop10Series(top10S.slice(0, 10));
+            const blended = enrichTop10Posters(blendTop10(s, realTvIds, trendTvIds, trendTvTitles) as ContentItem[]);
+            if (blended.length > 0) setTop10Series(blended.slice(0, 10));
+            // Second pass: fetch TMDB for any still-missing posters
+            fetchTmdbPosters(blended).then((enriched) => {
+              if (enriched.some((i, idx) => i.posterPath !== blended[idx]?.posterPath)) {
+                setTop10Series(enriched.slice(0, 10));
+              }
+            }).catch(() => {});
           }
         } catch {}
       })();

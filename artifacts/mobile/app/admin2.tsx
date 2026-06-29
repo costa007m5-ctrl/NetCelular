@@ -1377,6 +1377,16 @@ function HubbyEditModal({
   const [msg, setMsg] = useState<string | null>(null);
   const debRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Poster field — initialized from existing patch (convert relative TMDB path → full URL)
+  const initPoster = existingPatch?.posterPath
+    ? (existingPatch.posterPath.startsWith("http")
+        ? existingPatch.posterPath
+        : `https://image.tmdb.org/t/p/w342${existingPatch.posterPath}`)
+    : "";
+  const [posterUrl, setPosterUrl] = useState<string>(initPoster);
+  const [posterTouched, setPosterTouched] = useState(false);
+  const [posterErr, setPosterErr] = useState(false);
+
   // Merge state
   const [mergeQ, setMergeQ] = useState("");
   const [mergeSelected, setMergeSelected] = useState<SeriesItem | null>(null);
@@ -1474,7 +1484,15 @@ function HubbyEditModal({
       if (selectedTmdb) {
         body.tmdbId = selectedTmdb.id;
         body.tmdbType = isVod ? "movie" : "tv";
-        if (selectedTmdb.poster_path) body.posterPath = selectedTmdb.poster_path;
+        // Use manually edited poster if touched, else TMDB poster from search result
+        if (posterTouched && posterUrl.trim()) {
+          body.posterPath = posterUrl.trim();
+        } else if (selectedTmdb.poster_path) {
+          body.posterPath = selectedTmdb.poster_path;
+        }
+      } else if (posterTouched && posterUrl.trim()) {
+        // Saving only a manual poster URL (no TMDB re-link)
+        body.posterPath = posterUrl.trim();
       }
       body.audioType = audioType;
       const res = await fetch(`${base}/r2/flix2/item-patch`, {
@@ -1495,7 +1513,7 @@ function HubbyEditModal({
     { value: "dual", label: "DUAL", color: "#10b981" },
   ];
 
-  const hasChange = selectedTmdb !== null || audioTypeTouched || audioType !== (existingPatch?.audioType ?? null);
+  const hasChange = selectedTmdb !== null || audioTypeTouched || audioType !== (existingPatch?.audioType ?? null) || posterTouched;
 
   return (
     <Modal visible animationType="slide" transparent onRequestClose={onClose}>
@@ -1580,7 +1598,15 @@ function HubbyEditModal({
             {tmdbResults.length > 0 && !selectedTmdb && (
               <View style={{ borderRadius: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.08)", overflow: "hidden", marginBottom: 12 }}>
                 {tmdbResults.slice(0, 8).map((hit, i) => (
-                  <Pressable key={hit.id} onPress={() => { setSelectedTmdb(hit); setTmdbResults([]); }}
+                  <Pressable key={hit.id} onPress={() => {
+                    setSelectedTmdb(hit);
+                    setTmdbResults([]);
+                    // Auto-populate poster field with the selected TMDB poster
+                    if (hit.poster_path && !posterTouched) {
+                      setPosterUrl(`https://image.tmdb.org/t/p/w342${hit.poster_path}`);
+                      setPosterErr(false);
+                    }
+                  }}
                     style={{ flexDirection: "row", alignItems: "center", gap: 10, padding: 10,
                       backgroundColor: "rgba(255,255,255,0.02)",
                       borderTopWidth: i > 0 ? 1 : 0, borderTopColor: "rgba(255,255,255,0.06)" }}>
@@ -1608,6 +1634,48 @@ function HubbyEditModal({
                 ))}
               </View>
             )}
+
+            {/* ─── Cartaz (poster manual) ─── */}
+            <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 10, fontWeight: "700",
+              textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 8, marginTop: 4 }}>
+              Cartaz (URL da imagem)
+            </Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 16 }}>
+              {/* Preview thumbnail */}
+              {posterUrl && !posterErr ? (
+                <Image
+                  source={{ uri: posterUrl }}
+                  style={{ width: 46, height: 69, borderRadius: 6 }}
+                  contentFit="cover"
+                  onError={() => setPosterErr(true)}
+                />
+              ) : (
+                <View style={{ width: 46, height: 69, borderRadius: 6,
+                  backgroundColor: "rgba(255,255,255,0.05)", alignItems: "center", justifyContent: "center",
+                  borderWidth: 1, borderColor: "rgba(255,255,255,0.1)" }}>
+                  <Feather name="image" size={16} color="rgba(255,255,255,0.2)" />
+                </View>
+              )}
+              <View style={{ flex: 1, backgroundColor: "rgba(255,255,255,0.06)", borderRadius: 10,
+                borderWidth: 1, borderColor: posterErr ? "rgba(248,113,113,0.5)" : "rgba(255,255,255,0.12)",
+                paddingHorizontal: 12 }}>
+                <TextInput
+                  style={{ color: "#fff", fontSize: 11, paddingVertical: 10 }}
+                  placeholder="https://image.tmdb.org/t/p/w342/..."
+                  placeholderTextColor="rgba(255,255,255,0.25)"
+                  value={posterUrl}
+                  onChangeText={(t) => { setPosterUrl(t); setPosterTouched(true); setPosterErr(false); }}
+                  autoCorrect={false}
+                  autoCapitalize="none"
+                />
+              </View>
+              {posterUrl ? (
+                <Pressable onPress={() => { setPosterUrl(""); setPosterTouched(true); setPosterErr(false); }}
+                  style={{ padding: 6 }}>
+                  <Feather name="x" size={14} color="rgba(255,255,255,0.4)" />
+                </Pressable>
+              ) : null}
+            </View>
 
             {msg && (
               <View style={{ padding: 10, borderRadius: 8, marginBottom: 10,
