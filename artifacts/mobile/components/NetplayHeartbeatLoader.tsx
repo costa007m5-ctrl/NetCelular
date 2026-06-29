@@ -1,13 +1,15 @@
 /**
  * NetplayHeartbeatLoader
  *
- * O "N" do NETPLAY se desenha (stroke draw) e depois pulsa
- * com ritmo de batimento cardíaco — lub-dub — em loop.
+ * Replica do estilo Netflix:
+ * – O "N" se desenha em traço (stroke draw) sobre fundo escuro
+ * – Depois pulsa com ritmo lub-dub de batimento cardíaco
+ * – Sem círculo sólido — só o glow de luz em volta do traço
  */
 
 import React, { useEffect, useState } from "react";
-import { StyleSheet, View } from "react-native";
-import Svg, { Path, Defs, LinearGradient, Stop } from "react-native-svg";
+import { View } from "react-native";
+import Svg, { Path } from "react-native-svg";
 import Animated, {
   Easing,
   cancelAnimation,
@@ -23,200 +25,168 @@ import Animated, {
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 
-const RED       = "#e50914";
-const RED_DARK  = "#b0070f";
-const RED_GLOW  = "#ff3020";
+const RED      = "#e50914";
+const RED_SOFT = "#ff2a1a";
 
-// ── Geometria do "N" ────────────────────────────────────────────────────────
-// ViewBox 0 0 80 110  — proporções de um "N" bold estilizado
-const VB_W = 80;
-const VB_H = 110;
+// ── Forma do "N" ─────────────────────────────────────────────────────────────
+// ViewBox 100 × 120  —  N bem bold, estilo Netflix
+const VB_W  = 100;
+const VB_H  = 120;
+const LX    = 14;   // borda esquerda do traço
+const RX    = 86;   // borda direita do traço
+const TY    = 12;   // topo
+const BY    = 108;  // base
 
-// Pontos (x, y)
-const LX = 8;   // coluna esquerda
-const RX = 72;  // coluna direita
-const TY = 8;   // topo
-const BY = 102; // base
-
-// Path: baixo-esq → cima-esq → diagonal para baixo-dir → cima-dir
+// M baixo-esq → topo-esq → diagonal → topo-dir (igual ao "N" da Netflix)
 const N_PATH = `M ${LX},${BY} L ${LX},${TY} L ${RX},${BY} L ${RX},${TY}`;
 
-// Comprimento total aproximado do path (calculado)
-// segmento 1 (vertical esq): BY - TY = 94
-// segmento 2 (diagonal):     sqrt((RX-LX)² + (BY-TY)²) = sqrt(64²+94²) ≈ 113.7
-// segmento 3 (vertical dir): BY - TY = 94
-// total ≈ 301.7  →  arredondamos para 306 com folga
-const PATH_LENGTH = 306;
+// Comprimento do path  (vertical + diagonal + vertical)
+// seg1: 96  |  seg2: sqrt(72²+96²) ≈ 120  |  seg3: 96  → total ≈ 312
+const PATH_LEN = 316;
 
-// ── Fase 1: draw (strokeDashoffset de PATH_LENGTH → 0) ──────────────────────
-const DRAW_DURATION_MS   = 900;
+// ── Durações ─────────────────────────────────────────────────────────────────
+const DRAW_MS     = 800;   // traço se formando
 
-// ── Fase 2: heartbeat lub-dub loop ──────────────────────────────────────────
-//  lub: scale 1 → 1.28 → 1.0  (160 ms)
-//  dub: scale 1 → 1.15 → 1.0  (130 ms)
-//  pausa:                       (780 ms)
-const LUB_UP_MS   = 90;
-const LUB_DOWN_MS = 70;
-const DUB_UP_MS   = 75;
-const DUB_DOWN_MS = 55;
-const REST_MS     = 780;
+// Lub-dub: batida forte + eco
+const LUB_UP   = 85;
+const LUB_DOWN = 65;
+const DUB_UP   = 70;
+const DUB_DOWN = 50;
+const REST     = 820;
 
-interface Props {
-  size?: number;
-}
+interface Props { size?: number }
 
 export default function NetplayHeartbeatLoader({ size = 96 }: Props) {
-  const dashOffset  = useSharedValue(PATH_LENGTH);
+  const dashOffset  = useSharedValue(PATH_LEN);
   const scale       = useSharedValue(1);
-  const glowOpacity = useSharedValue(0);
-  const [heartbeat, setHeartbeat] = useState(false);
+  const glowW       = useSharedValue(2);      // strokeWidth do halo
+  const glowAlpha   = useSharedValue(0);      // opacidade do halo
+  const [phase2, setPhase2] = useState(false);
 
-  const startHeartbeat = () => {
-    setHeartbeat(true);
-  };
-
+  // ── Phase 1: desenha o N ──────────────────────────────────────────────────
   useEffect(() => {
-    // ── Phase 1: draw the N ─────────────────────────────────────────────────
     dashOffset.value = withTiming(
       0,
-      { duration: DRAW_DURATION_MS, easing: Easing.out(Easing.cubic) },
-      (finished) => {
-        if (!finished) return;
-        runOnJS(startHeartbeat)();
-      }
+      { duration: DRAW_MS, easing: Easing.out(Easing.cubic) },
+      (done) => { if (done) runOnJS(setPhase2)(true); }
     );
 
-    // Glow fades in while drawing
-    glowOpacity.value = withDelay(
-      DRAW_DURATION_MS * 0.5,
-      withTiming(1, { duration: DRAW_DURATION_MS * 0.5 })
+    // halo faz um bloom suave enquanto desenha
+    glowAlpha.value = withDelay(
+      DRAW_MS * 0.4,
+      withTiming(0.45, { duration: DRAW_MS * 0.6 })
     );
 
     return () => {
       cancelAnimation(dashOffset);
       cancelAnimation(scale);
-      cancelAnimation(glowOpacity);
+      cancelAnimation(glowW);
+      cancelAnimation(glowAlpha);
     };
   }, []);
 
-  // ── Phase 2: heartbeat loop (starts after draw) ──────────────────────────
+  // ── Phase 2: heartbeat lub-dub ────────────────────────────────────────────
   useEffect(() => {
-    if (!heartbeat) return;
+    if (!phase2) return;
+
+    // Escala do N inteiro
     scale.value = withRepeat(
       withSequence(
-        // lub — batida forte
-        withTiming(1.30, { duration: LUB_UP_MS,   easing: Easing.out(Easing.quad) }),
-        withTiming(0.97, { duration: LUB_DOWN_MS,  easing: Easing.in(Easing.quad) }),
-        // dub — eco rápido
-        withTiming(1.16, { duration: DUB_UP_MS,    easing: Easing.out(Easing.quad) }),
-        withTiming(1.00, { duration: DUB_DOWN_MS,  easing: Easing.in(Easing.quad) }),
-        // repouso
-        withTiming(1.00, { duration: REST_MS }),
+        withTiming(1.28, { duration: LUB_UP,   easing: Easing.out(Easing.quad) }),
+        withTiming(0.96, { duration: LUB_DOWN,  easing: Easing.in(Easing.quad)  }),
+        withTiming(1.14, { duration: DUB_UP,    easing: Easing.out(Easing.quad) }),
+        withTiming(1.00, { duration: DUB_DOWN,  easing: Easing.in(Easing.quad)  }),
+        withTiming(1.00, { duration: REST }),
       ),
-      -1,
-      false,
+      -1, false,
     );
 
-    // Glow pulsa em sync com o lub
-    glowOpacity.value = withRepeat(
+    // Halo expande e encolhe em sync com o lub
+    glowW.value = withRepeat(
       withSequence(
-        withTiming(1,    { duration: LUB_UP_MS }),
-        withTiming(0.55, { duration: LUB_DOWN_MS + DUB_UP_MS + DUB_DOWN_MS + REST_MS }),
+        withTiming(18, { duration: LUB_UP   }),
+        withTiming(6,  { duration: LUB_DOWN }),
+        withTiming(12, { duration: DUB_UP   }),
+        withTiming(4,  { duration: DUB_DOWN }),
+        withTiming(4,  { duration: REST     }),
       ),
-      -1,
-      false,
+      -1, false,
     );
-  }, [heartbeat]);
 
-  // Animated props para o stroke draw
-  const pathProps = useAnimatedProps(() => ({
+    glowAlpha.value = withRepeat(
+      withSequence(
+        withTiming(0.55, { duration: LUB_UP   }),
+        withTiming(0.25, { duration: LUB_DOWN }),
+        withTiming(0.40, { duration: DUB_UP   }),
+        withTiming(0.20, { duration: DUB_DOWN }),
+        withTiming(0.20, { duration: REST     }),
+      ),
+      -1, false,
+    );
+  }, [phase2]);
+
+  // ── Animated props ────────────────────────────────────────────────────────
+  const mainProps = useAnimatedProps(() => ({
     strokeDashoffset: dashOffset.value,
   }));
 
-  // Container pulsa na fase heartbeat
+  const haloProps = useAnimatedProps(() => ({
+    strokeWidth:   glowW.value,
+    strokeOpacity: glowAlpha.value,
+    // halo acompanha o mesmo offset do traço principal
+    strokeDashoffset: dashOffset.value,
+  }));
+
   const containerStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
   }));
 
-  // Glow halo
-  const glowStyle = useAnimatedStyle(() => ({
-    opacity: glowOpacity.value,
-  }));
-
-  const svgSize = size;
-  const strokeW = size * 0.145; // ~14% do tamanho = traço bold
+  const strokeW = size * 0.16;   // traço bold ~16% do tamanho
 
   return (
-    <View style={styles.wrapper}>
-      {/* Halo glow por trás do N */}
-      <Animated.View
-        style={[
-          styles.glow,
-          {
-            width:  svgSize * 1.6,
-            height: svgSize * 1.6,
-            borderRadius: svgSize * 0.8,
-          },
-          glowStyle,
-        ]}
-      />
-
-      {/* N animado */}
+    <View style={{ alignItems: "center", justifyContent: "center" }}>
       <Animated.View style={containerStyle}>
         <Svg
-          width={svgSize}
-          height={svgSize}
+          width={size}
+          height={size * (VB_H / VB_W)}
           viewBox={`0 0 ${VB_W} ${VB_H}`}
         >
-          <Defs>
-            <LinearGradient id="ng" x1="0" y1="0" x2="1" y2="1">
-              <Stop offset="0"   stopColor={RED_GLOW} stopOpacity="1" />
-              <Stop offset="0.6" stopColor={RED}      stopOpacity="1" />
-              <Stop offset="1"   stopColor={RED_DARK} stopOpacity="1" />
-            </LinearGradient>
-          </Defs>
-
-          {/* Sombra / glow stroke (ligeiramente mais largo, mais opaco) */}
-          <Path
+          {/* ── Halo glow (traço bem largo, semi-transparente, mesma forma) ── */}
+          <AnimatedPath
+            animatedProps={haloProps}
             d={N_PATH}
-            stroke={RED}
-            strokeWidth={strokeW + 4}
+            stroke={RED_SOFT}
             strokeLinecap="round"
             strokeLinejoin="round"
-            strokeOpacity={0.25}
             fill="none"
+            strokeDasharray={PATH_LEN}
           />
 
-          {/* Stroke principal animado */}
+          {/* ── Traço principal animado ─────────────────────────────────── */}
           <AnimatedPath
-            animatedProps={pathProps}
+            animatedProps={mainProps}
             d={N_PATH}
-            stroke="url(#ng)"
+            stroke={RED}
             strokeWidth={strokeW}
             strokeLinecap="round"
             strokeLinejoin="round"
             fill="none"
-            strokeDasharray={PATH_LENGTH}
+            strokeDasharray={PATH_LEN}
+          />
+
+          {/* ── Brilho no topo do traço (highlight claro) ─────────────── */}
+          <AnimatedPath
+            animatedProps={mainProps}
+            d={N_PATH}
+            stroke="rgba(255,160,140,0.18)"
+            strokeWidth={strokeW * 0.3}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            fill="none"
+            strokeDasharray={PATH_LEN}
           />
         </Svg>
       </Animated.View>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  wrapper: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  glow: {
-    position: "absolute",
-    backgroundColor: RED,
-    shadowColor: RED_GLOW,
-    shadowRadius: 40,
-    shadowOpacity: 0.75,
-    shadowOffset: { width: 0, height: 0 },
-    elevation: 12,
-    opacity: 0,
-  },
-});
