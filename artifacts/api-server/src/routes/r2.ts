@@ -3166,19 +3166,15 @@ async function warmCatalogType(type: string): Promise<void> {
     const totalPages = Math.max(1, Math.ceil(allRaw.length / XTREAM_PAGE_SIZE));
     WARM_PROGRESS.set(type, { ...getWarmState(type), pagesLoaded: totalPages, totalPages });
 
-    // Deduplicate by tmdb_id (when > 0) or by flix2 item id
-    const seenTmdb = new Set<number>();
-    const seenFlix2 = new Set<string>();
+    // Deduplicate by composite key tmdb_id+flix2_id so different versions
+    // (e.g. dubbed vs subtitled) of the same title are kept as separate entries.
+    const seenComposite = new Set<string>();
     const deduped = allRaw.filter((item) => {
-      const id = Number(item.tmdb_id);
-      if (id > 0) {
-        if (seenTmdb.has(id)) return false;
-        seenTmdb.add(id);
-        return true;
-      }
-      const key = item.id != null ? String(item.id) : String(item.title ?? "");
-      if (!key || seenFlix2.has(key)) return false;
-      seenFlix2.add(key);
+      const tmdbId = Number(item.tmdb_id);
+      const flix2Id = item.id != null ? String(item.id) : String(item.title ?? "");
+      const key = tmdbId > 0 ? `${tmdbId}:${flix2Id}` : flix2Id;
+      if (!key || seenComposite.has(key)) return false;
+      seenComposite.add(key);
       return true;
     });
 
@@ -3435,21 +3431,15 @@ router.get("/flix2/catalog-full", async (req, res) => {
       }
     }
 
-    // Deduplicate by tmdb_id (when valid > 0) or by flix2 item id as fallback.
-    // Items with tmdb_id=0/null are kept — they are real content, just without TMDB mapping.
-    const seenTmdb = new Set<number>();
-    const seenFlix2 = new Set<string>();
+    // Deduplicate by composite key tmdb_id+flix2_id so different versions
+    // (e.g. dubbed vs subtitled) of the same title are kept as separate entries.
+    const seenComposite = new Set<string>();
     const deduped = allItems.filter((item) => {
       const tmdbId = Number(item.tmdb_id);
-      if (tmdbId > 0) {
-        if (seenTmdb.has(tmdbId)) return false;
-        seenTmdb.add(tmdbId);
-        return true;
-      }
-      // No valid TMDB ID — deduplicate by flix2 item id or title to avoid exact duplicates
-      const fallbackKey = item.id != null ? String(item.id) : String(item.title ?? "");
-      if (!fallbackKey || seenFlix2.has(fallbackKey)) return false;
-      seenFlix2.add(fallbackKey);
+      const flix2Id = item.id != null ? String(item.id) : String(item.title ?? "");
+      const key = tmdbId > 0 ? `${tmdbId}:${flix2Id}` : flix2Id;
+      if (!key || seenComposite.has(key)) return false;
+      seenComposite.add(key);
       return true;
     });
 
@@ -3626,12 +3616,12 @@ async function searchFlix2ByTitle(type: string, query: string, limit: number, ma
           if (r.status === "fulfilled" && r.value.success) allItems.push(...(r.value.data ?? []));
         }
       }
-      const seenTmdb = new Set<number>(); const seenFlix2 = new Set<string>();
+      const seenComposite = new Set<string>();
       const deduped = allItems.filter((item) => {
-        const id = Number(item.tmdb_id);
-        if (id > 0) { if (seenTmdb.has(id)) return false; seenTmdb.add(id); return true; }
-        const key = item.id != null ? String(item.id) : String(item.title ?? "");
-        if (!key || seenFlix2.has(key)) return false; seenFlix2.add(key); return true;
+        const tmdbId = Number(item.tmdb_id);
+        const flix2Id = item.id != null ? String(item.id) : String(item.title ?? "");
+        const key = tmdbId > 0 ? `${tmdbId}:${flix2Id}` : flix2Id;
+        if (!key || seenComposite.has(key)) return false; seenComposite.add(key); return true;
       });
       FULL_CATALOG_CACHE.set(type, { data: deduped, cachedAt: Date.now() });
     } catch {}
