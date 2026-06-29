@@ -18,6 +18,15 @@ export type ContentItem = {
   channel?: string;
   exclusive?: boolean;
   addedAt?: number;
+  // New fields for enhanced cards
+  quality?: string;
+  dubbed?: boolean;
+  subbed?: boolean;
+  episodeCount?: number;
+  matchScore?: number;
+  isLive?: boolean;
+  rankChange?: number;
+  platform?: string;
 };
 
 const TMDB_POSTER = "https://image.tmdb.org/t/p/w342";
