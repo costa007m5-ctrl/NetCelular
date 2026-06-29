@@ -2380,6 +2380,9 @@ export default function HomeScreen() {
   // Below-fold sections render after interactions complete (avoids mounting all 56 sections at once on Android)
   const [belowFoldReady, setBelowFoldReady] = useState(Platform.OS === "web");
 
+  // ── watchList — derived from continueItems for progress stats ────────────
+  const watchList = continueItems;
+
   // ── R2 / Drive catalog ────────────────────────────────────────────────────
   const { r2Movies, r2Series, r2All } = useR2Catalog();
 
