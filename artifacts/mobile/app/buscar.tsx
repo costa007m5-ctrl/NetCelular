@@ -144,7 +144,7 @@ function expandQuery(q: string): string {
 const cleanT = (s: string) =>
   s.replace(/\s*\[[^\]]*\]/g, "").replace(/\s*\(\d{4}\)/g, "").replace(/[:\-–]/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
 
-type Flix2RawItem = { title: string; _type: string; thumbnail?: string | null; tmdb_id?: number };
+type Flix2RawItem = { title: string; _type: string; thumbnail?: string | null; tmdb_id?: number; category_name?: string };
 
 async function flix2Search(q: string): Promise<{ titles: Set<string>; raw: Flix2RawItem[] }> {
   try {
@@ -163,7 +163,7 @@ async function flix2Search(q: string): Promise<{ titles: Set<string>; raw: Flix2
     for (const item of (data.results ?? [])) {
       if (item.title) {
         titles.add(item.title.toLowerCase().trim());
-        raw.push({ title: item.title, _type: item._type ?? "movie", thumbnail: item.poster ?? item.thumbnail ?? null, tmdb_id: item.tmdb_id ?? 0 });
+        raw.push({ title: item.title, _type: item._type ?? "movie", thumbnail: item.poster ?? item.thumbnail ?? null, tmdb_id: item.tmdb_id ?? 0, category_name: item.category_name ?? "" });
       }
     }
     return { titles, raw };
@@ -193,7 +193,7 @@ async function searchFromCache(q: string): Promise<{ titles: Set<string>; raw: F
       seen.add(key);
       scored.push({
         score,
-        item: { title: item.title, _type: type, thumbnail: item.poster ?? item.thumbnail ?? null, tmdb_id: item.tmdb_id ?? 0 },
+        item: { title: item.title, _type: type, thumbnail: item.poster ?? item.thumbnail ?? null, tmdb_id: item.tmdb_id ?? 0, category_name: item.category_name ?? "" },
       });
     }
   };
@@ -326,14 +326,17 @@ function PosterCard({ item, onPress, inFlix2 = false, variantLabel }: {
   );
 }
 
-function Flix2OnlyCard({ item, onPress }: { item: Flix2RawItem; onPress?: () => void }) {
+function Flix2OnlyCard({ item, siblings, onPress }: { item: Flix2RawItem; siblings?: Flix2RawItem[]; onPress?: () => void }) {
   const typeLabel = item._type === "series" ? "SÉRIE" : item._type === "anime" ? "ANIME" : "FILME";
   const typeBg =
     item._type === "series" ? "rgba(8,145,178,0.85)" :
     item._type === "anime"  ? "rgba(234,88,12,0.85)"  : "rgba(229,9,20,0.85)";
-  const isLeg = /\[L\]/i.test(item.title);
-  const isDub = /\[D\b|Dub\b/i.test(item.title);
-  const variantLabel = isLeg ? "LEG" : isDub ? "DUB" : null;
+  const catName = (item.category_name ?? "").toLowerCase();
+  const isLeg = /\[L\]/i.test(item.title) || /legendado/i.test(catName);
+  const isDub = /\[D\b|Dub\b/i.test(item.title) || /dublado/i.test(catName);
+  // If a sibling with [L] exists and this one has no [L], it's the DUB version
+  const hasSiblingLeg = !isLeg && (siblings ?? []).some(s => /\[L\]/i.test(s.title) || /legendado/i.test((s.category_name ?? "").toLowerCase()));
+  const variantLabel = isLeg ? "LEG" : isDub || hasSiblingLeg ? "DUB" : null;
   const variantColor = isLeg ? "#3b82f6" : "#f59e0b";
   const cleanTitle = item.title.replace(/\s*\[[^\]]*\]/g, "").replace(/\s*\(\d{4}\)/g, "").trim();
 
@@ -589,10 +592,19 @@ export default function BuscarScreen() {
       // Other results with the same title (e.g. a remake) appear without a stream badge.
       const isOwner = primaryFlix2Owner.get(key) === item.id;
       const variants = isOwner ? (flix2ByClean.get(key) ?? []) : [];
+      // If any variant has [L] in title or "legendado" in category, the plain-title variant is DUB
+      const hasLeg = variants.some(v =>
+        /\[L\]/i.test(v.title) || /legendado/i.test(v.category_name ?? "")
+      );
       const seenLabels = new Set<string>();
       const uniqueVariants: Array<{ title: string; label: string | undefined }> = [];
       for (const v of variants) {
-        const lbl = /\[L\]/i.test(v.title) ? "LEG" : /\[D\b|Dub\b/i.test(v.title) ? "DUB" : "__none__";
+        const catName = (v.category_name ?? "").toLowerCase();
+        const lbl =
+          /\[L\]/i.test(v.title) || /legendado/i.test(catName) ? "LEG" :
+          /\[D\b|Dub\b/i.test(v.title) || /dublado/i.test(catName) ? "DUB" :
+          hasLeg ? "DUB" :  // plain title alongside a [L] version → must be DUB
+          "__none__";
         if (!seenLabels.has(lbl)) {
           seenLabels.add(lbl);
           coveredFlix2.add(cleanT(v.title));
@@ -784,16 +796,20 @@ export default function BuscarScreen() {
                     <Text style={[s.sectionTitle, { color: "#a855f7" }]}>Exclusivos Flix 2.0</Text>
                   </View>
                   <View style={s.grid}>
-                    {flix2OnlyRaw.map((item, i) => (
-                      <Flix2OnlyCard
-                        key={`flix2-${i}`}
-                        item={item}
-                        onPress={() => router.push({
-                          pathname: "/detail",
-                          params: { type: item._type === "movie" ? "movie" : "tv", id: String(item.tmdb_id || 0), title: item.title, poster: item.thumbnail ?? "" },
-                        } as any)}
-                      />
-                    ))}
+                    {flix2OnlyRaw.map((item, i) => {
+                      const siblings = flix2OnlyRaw.filter(s => s !== item && cleanT(s.title) === cleanT(item.title));
+                      return (
+                        <Flix2OnlyCard
+                          key={`flix2-${i}`}
+                          item={item}
+                          siblings={siblings}
+                          onPress={() => router.push({
+                            pathname: "/detail",
+                            params: { type: item._type === "movie" ? "movie" : "tv", id: String(item.tmdb_id || 0), title: item.title, poster: item.thumbnail ?? "" },
+                          } as any)}
+                        />
+                      );
+                    })}
                   </View>
                 </View>
               )}

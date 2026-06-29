@@ -2872,6 +2872,7 @@ function mapXtreamVod(item: any): any {
   // `added` is a Unix timestamp (string) from Xtream — when this VOD was added to the server
   const addedTs = item.added ? Number(item.added) : 0;
   const releaseDate: string = item.releaseDate ?? "";
+  const catName  = (item.category_name ?? item.category_names ?? "").toLowerCase();
   return {
     id:           String(streamId),
     tmdb_id:      Number(item.tmdb) || 0,
@@ -2884,6 +2885,7 @@ function mapXtreamVod(item: any): any {
     backdrop,
     synopsis:     item.plot ?? "",
     added_at:     addedTs,
+    category_name: catName,
     // Xtream Codes VOD stream format: /movie/{user}/{pass}/{id}.{ext}
     stream_url: `${FLIX2_SERVER}/movie/${FLIX2_USER}/${FLIX2_PASS}/${streamId}.${ext}`,
   };
@@ -2898,6 +2900,7 @@ function mapXtreamSeries(item: any): any {
   const backdrop = normalizeXtreamImageUrl(backdropArr[0] ?? item.cover ?? item.stream_icon ?? "");
   // `last_modified` changes whenever a new episode is added; fall back to `added`
   const addedTs = item.last_modified ? Number(item.last_modified) : (item.added ? Number(item.added) : 0);
+  const catName  = (item.category_name ?? item.category_names ?? "").toLowerCase();
   return {
     id:        String(seriesId),
     tmdb_id:   Number(item.tmdb) || 0,
@@ -2910,6 +2913,7 @@ function mapXtreamSeries(item: any): any {
     synopsis:  item.plot ?? "",
     added_at:  addedTs,
     stream_url: null, // episodes fetched separately via /flix2/series-episodes
+    category_name: catName,
   };
 }
 
