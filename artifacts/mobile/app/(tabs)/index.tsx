@@ -3369,6 +3369,7 @@ export default function HomeScreen() {
                 </AnimatedSection>
               )}
 
+              <LazySection threshold={250} minHeight={500}>
               {/* ── 6.7 SHORTS PARA VOCÊ ─────────────────────────────────────── */}
               {shortsForYou.length > 0 && (
                 <AnimatedSection anim={s[5]}>
@@ -3646,6 +3647,9 @@ export default function HomeScreen() {
                 </AnimatedSection>
               )}
 
+              </LazySection>
+
+              <LazySection threshold={550} minHeight={400}>
               {/* ── 6.95 CINEMATIC BANNER ────────────────────────────────────── */}
               {showAll && movies.length > 3 && (
                 <AnimatedSection anim={s[5]}>
@@ -3678,6 +3682,9 @@ export default function HomeScreen() {
                 </AnimatedSection>
               )}
 
+              </LazySection>
+
+              <LazySection threshold={800} minHeight={300}>
               {/* ── 8.5. CATÁLOGO DRIVE ──────────────────────────────────────── */}
               {(r2Movies.length > 0 || r2Series.length > 0) && (
                 <AnimatedSection anim={s[6]}>
@@ -3714,11 +3721,13 @@ export default function HomeScreen() {
                 </AnimatedSection>
               )}
 
+              </LazySection>
+
               {/* Below-fold: deferred until after first render interactions complete */}
               {belowFoldReady && (
               <>
               {/* ── GROUP A: lazy-reveal at 500px ─────────────────────────────── */}
-              <LazySection threshold={500} minHeight={1200}>
+              <LazySection threshold={1100} minHeight={1200}>
               <>
 
               {/* ── 10.8 ORIGINALS BANNER ────────────────────────────────────── */}
@@ -4053,6 +4062,7 @@ export default function HomeScreen() {
                 </>
               )}
 
+              <LazySection threshold={1800} minHeight={400}>
               {/* ════════════════════════════════════════════════════════════════
                   NOVAS SEÇÕES PREMIUM — Blocos 24–45
               ════════════════════════════════════════════════════════════════ */}
@@ -4442,6 +4452,8 @@ export default function HomeScreen() {
                 </FadeInSection>
               )}
 
+              </LazySection>
+
               {/* ── GENRE CAROUSELS (quando categoria específica selecionada) ── */}
               {!showAll && activeCategory !== "new" && activeCategory !== "top" && (() => {
                 const accentColor = CATEGORY_ACCENT[activeCategory] ?? RED;
@@ -4568,6 +4580,8 @@ export default function HomeScreen() {
                 );
               })()}
 
+              </>
+              </LazySection>
               </>
               )}
             </>
