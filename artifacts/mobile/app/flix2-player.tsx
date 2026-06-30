@@ -1789,141 +1789,225 @@ export default function Flix2PlayerScreen() {
 
           {controlsVisible && (
             <Animated.View style={[styles.controls, { opacity: lockAnim }]} pointerEvents="box-none">
-              <View style={styles.ctrlGradTop} pointerEvents="none" />
-              <View style={styles.ctrlGradBottom} pointerEvents="none" />
+              {/* Cinematic gradient overlays */}
+              <LinearGradient
+                colors={["rgba(0,0,0,0.88)", "rgba(0,0,0,0.4)", "transparent"]}
+                style={styles.ctrlGradTop}
+                pointerEvents="none"
+              />
+              <LinearGradient
+                colors={["transparent", "rgba(0,0,0,0.5)", "rgba(0,0,0,0.92)"]}
+                style={styles.ctrlGradBottom}
+                pointerEvents="none"
+              />
 
-              {/* Top bar */}
-              <View style={[styles.topBar, { paddingTop: topPad + 8 }]} pointerEvents="box-none">
-                <Pressable style={styles.iconBtn} onPress={() => router.back()}>
-                  <Feather name="arrow-left" size={22} color="#fff" />
-                </Pressable>
-                <View style={{ flex: 1, minWidth: 0, marginHorizontal: 10, overflow: "hidden" }}>
-                  {contentLogo ? (
-                    <Image source={{ uri: contentLogo }} style={styles.ctrlContentLogo} contentFit="contain" />
-                  ) : (
-                    <Text style={styles.ctrlTitle} numberOfLines={1}>{title}</Text>
-                  )}
-                  {season != null && episode != null && (
-                    <Text style={styles.ctrlEp} numberOfLines={1}>T{season} · Ep {episode}{episodeName ? ` — ${episodeName}` : ""}</Text>
+              {/* ── TOP BAR ─────────────────────────────────────────────── */}
+              <View style={[styles.topBar, { paddingTop: topPad + 6 }]} pointerEvents="box-none">
+                {/* Left: back + title block */}
+                <View style={styles.topBarLeft}>
+                  <Pressable style={styles.backIconBtn} onPress={() => router.back()}>
+                    <Feather name="arrow-left" size={22} color="#fff" />
+                  </Pressable>
+                  <View style={styles.topBarTitleBlock}>
+                    {contentLogo ? (
+                      <Image source={{ uri: contentLogo }} style={styles.ctrlContentLogo} contentFit="contain" />
+                    ) : (
+                      <Text style={styles.ctrlTitle} numberOfLines={1}>{title}</Text>
+                    )}
+                    {(season != null && episode != null) ? (
+                      <Text style={styles.ctrlEp} numberOfLines={1}>
+                        T{season} • E{episode}{episodeName ? ` • ${episodeName}` : ""} • {sourceBadgeLabel}
+                      </Text>
+                    ) : null}
+                  </View>
+                </View>
+
+                {/* Right: icon action bar */}
+                <View style={styles.topBarRight}>
+                  <Pressable style={styles.topIconItem}>
+                    <Feather name="heart" size={17} color="#fff" />
+                    <Text style={styles.topIconLabel}>Favorito</Text>
+                  </Pressable>
+                  <Pressable style={styles.topIconItem}>
+                    <Feather name="message-square" size={17} color="#fff" />
+                    <Text style={styles.topIconLabel}>{"Áudio e\nLegendas"}</Text>
+                  </Pressable>
+                  <Pressable
+                    style={styles.topIconItem}
+                    onPress={() => { if (hasMultipleQualities) { setShowQualityPanel(true); showControls(); } }}
+                  >
+                    <View style={styles.qualityIconBox}>
+                      <Text style={styles.qualityIconText}>{videoResolution ?? "1080p"}</Text>
+                    </View>
+                    <Text style={styles.topIconLabel}>Qualidade</Text>
+                  </Pressable>
+                  <Pressable style={styles.topIconItem} onPress={() => { setShowSpeedPanel(true); showControls(); }}>
+                    <Feather name="zap" size={17} color={playbackSpeed !== 1.0 ? RED : "#fff"} />
+                    <Text style={[styles.topIconLabel, playbackSpeed !== 1.0 && { color: RED }]}>{playbackSpeed}×</Text>
+                  </Pressable>
+                  <Pressable style={styles.topIconItem} onPress={() => { setShowSleepPanel(true); showControls(); }}>
+                    <Feather name="moon" size={17} color={sleepTimerEnd ? "#f59e0b" : "#fff"} />
+                    <Text style={[styles.topIconLabel, sleepTimerEnd && { color: "#f59e0b" }]}>Noturno</Text>
+                  </Pressable>
+                  <Pressable style={styles.topIconItem} onPress={() => { haptic(30); setIsLocked(true); }}>
+                    <Feather name="unlock" size={17} color="#fff" />
+                    <Text style={styles.topIconLabel}>Bloquear</Text>
+                  </Pressable>
+                  <Pressable style={styles.topIconItem}>
+                    <Feather name="cast" size={17} color="#fff" />
+                    <Text style={styles.topIconLabel}>Transmitir</Text>
+                  </Pressable>
+                  {isTV && (
+                    <Pressable style={styles.episodesBtnPremium} onPress={openEpisodesPanel}>
+                      <Feather name="list" size={15} color="#fff" />
+                      <Text style={styles.episodesBtnPremiumText}>Episódios</Text>
+                    </Pressable>
                   )}
                 </View>
-                {videoResolution && (
-                  <View style={styles.qualityBadge}>
-                    <Text style={styles.qualityBadgeText}>{videoResolution}</Text>
-                  </View>
-                )}
-                <View style={styles.ctrlSourceBadge}>
-                  <Feather name="zap" size={10} color={RED} />
-                  <Text style={[styles.ctrlSourceBadgeText, { color: RED }]}>{sourceBadgeLabel}</Text>
-                </View>
-                {playbackSpeed !== 1.0 && (
-                  <View style={styles.speedBadge}>
-                    <Text style={styles.speedBadgeText}>{playbackSpeed}×</Text>
-                  </View>
-                )}
-                {hasMultipleQualities && (
-                  <Pressable style={styles.iconBtn} onPress={() => { setShowQualityPanel(true); showControls(); }}>
-                    <Feather name="layers" size={18} color="#fff" />
-                  </Pressable>
-                )}
-                <Pressable style={styles.iconBtn} onPress={() => { setShowSpeedPanel(true); showControls(); }}>
-                  <Feather name="zap" size={18} color="#fff" />
-                </Pressable>
-                <Pressable style={styles.iconBtn} onPress={() => { setShowSleepPanel(true); showControls(); }}>
-                  <Feather name="moon" size={18} color={sleepTimerEnd ? "#f59e0b" : "#fff"} />
-                </Pressable>
-                <Pressable style={styles.iconBtn} onPress={() => { haptic(30); setIsLocked(true); }}>
-                  <Feather name="unlock" size={18} color="#fff" />
-                </Pressable>
-                {isTV && (
-                  <Pressable style={styles.episodesBtn} onPress={openEpisodesPanel}>
-                    <Feather name="list" size={16} color="#fff" />
-                    <Text style={styles.episodesBtnText}>Episódios</Text>
-                  </Pressable>
-                )}
               </View>
 
-              {/* Center row */}
+              {/* ── CENTER CONTROLS ──────────────────────────────────────── */}
               <View style={styles.centerRow} pointerEvents="box-none">
                 {isTV && (
-                  <Pressable style={styles.iconBtn} onPress={goToPrevEpisode} disabled={!getPrevEpisodeItem()}>
-                    <Feather name="skip-back" size={22} color={getPrevEpisodeItem() ? "#fff" : "rgba(255,255,255,0.25)"} />
+                  <Pressable
+                    style={[styles.sideCtrlBtn, !getPrevEpisodeItem() && { opacity: 0.2 }]}
+                    onPress={goToPrevEpisode}
+                    disabled={!getPrevEpisodeItem()}
+                  >
+                    <Feather name="skip-back" size={26} color="#fff" />
                   </Pressable>
                 )}
-                <Pressable style={styles.iconBtn} onPress={() => seekBy(-15000)}>
+                <Pressable style={styles.seekBtn} onPress={() => seekBy(-15000)}>
                   <Feather name="rotate-ccw" size={28} color="#fff" />
-                  <Text style={styles.seekLabel}>15s</Text>
+                  <Text style={styles.seekBtnLabel}>15s</Text>
                 </Pressable>
-                <Pressable style={[styles.iconBtn, styles.playBtn]} onPress={togglePlay}>
-                  <Feather name={isPlaying ? "pause" : "play"} size={36} color="#fff" />
+                <Pressable style={styles.playBtnPremium} onPress={togglePlay}>
+                  <Feather
+                    name={isPlaying ? "pause" : "play"}
+                    size={38}
+                    color="#fff"
+                    style={!isPlaying ? { marginLeft: 5 } : undefined}
+                  />
                 </Pressable>
-                <Pressable style={styles.iconBtn} onPress={() => seekBy(15000)}>
+                <Pressable style={styles.seekBtn} onPress={() => seekBy(15000)}>
                   <Feather name="rotate-cw" size={28} color="#fff" />
-                  <Text style={styles.seekLabel}>15s</Text>
+                  <Text style={styles.seekBtnLabel}>15s</Text>
                 </Pressable>
                 {isTV && (
-                  <Pressable style={styles.iconBtn} onPress={goToNextEpisode}>
-                    <Feather name="skip-forward" size={22} color="#fff" />
+                  <Pressable style={styles.sideCtrlBtn} onPress={goToNextEpisode}>
+                    <Feather name="skip-forward" size={26} color="#fff" />
                   </Pressable>
                 )}
               </View>
 
-              {/* Bottom bar */}
-              <View style={styles.bottomBar} pointerEvents="box-none">
-                <Pressable onPress={() => setShowTimeRemaining(!showTimeRemaining)}>
-                  <Text style={styles.timeText}>
-                    {showTimeRemaining ? `-${formatTime(Math.max(0, durationMs - displayPos))}` : formatTime(displayPos)}
-                  </Text>
-                </Pressable>
-                <View
-                  style={styles.seekTrackOuter}
-                  onLayout={(e) => { seekBarWidthRef.current = e.nativeEvent.layout.width; }}
-                  onStartShouldSetResponder={() => true}
-                  onMoveShouldSetResponder={() => true}
-                  onResponderGrant={(e) => onSeekStart(e.nativeEvent.locationX)}
-                  onResponderMove={(e) => onSeekMove(e.nativeEvent.locationX)}
-                  onResponderRelease={(e) => onSeekEnd(e.nativeEvent.locationX)}
-                >
-                  <View style={[styles.seekTrack, { height: isScrubbing ? 6 : 4 }]}>
-                    <View style={[styles.seekBuffered, { width: `${bufferedRatio * 100}%` as any }]} />
-                    <View style={[styles.seekFill, { width: `${displayProgress * 100}%` as any }]} />
-                    <View style={[styles.seekThumb, { left: `${displayProgress * 100}%` as any, width: isScrubbing ? 18 : 14, height: isScrubbing ? 18 : 14, marginLeft: isScrubbing ? -9 : -7, top: isScrubbing ? (6 - 18) / 2 : (4 - 14) / 2 }]} />
-                  </View>
-                  {isScrubbing && (() => {
-                    const THUMB_W = 140;
-                    const THUMB_H = 79; // 16:9
-                    const rawLeft = displayProgress * seekBarWidthRef.current - THUMB_W / 2;
-                    const clampedLeft = Math.max(0, Math.min(seekBarWidthRef.current - THUMB_W, rawLeft));
-                    return (
-                      <View style={[styles.seekThumbnail, { left: clampedLeft, width: THUMB_W, height: THUMB_H + 22 }]}>
-                        <View style={[styles.seekThumbnailImgBox, { width: THUMB_W, height: THUMB_H }]}>
-                          {(seekFrameUrl || seekThumbnailUrl) ? (
-                            <Image
-                              source={{ uri: seekFrameUrl || seekThumbnailUrl! }}
-                              style={StyleSheet.absoluteFill}
-                              contentFit="cover"
-                            />
-                          ) : (
-                            <View style={[StyleSheet.absoluteFill, { backgroundColor: "#1a1a1a", justifyContent: "center", alignItems: "center" }]}>
-                              <Feather name="film" size={22} color="#444" />
-                            </View>
-                          )}
-                          <View style={styles.seekThumbnailImgDim} />
-                        </View>
-                        <View style={styles.seekThumbnailTimeRow}>
-                          <Text style={styles.seekThumbnailTime}>{formatTime(scrubPosition)}</Text>
+              {/* ── BOTTOM AREA ──────────────────────────────────────────── */}
+              <View style={styles.bottomArea} pointerEvents="box-none">
+                {/* Quick action cards */}
+                <View style={styles.quickCardsRow}>
+                  {isTV && (
+                    <Pressable style={styles.quickCard} onPress={goToNextEpisode}>
+                      <View style={styles.quickCardThumb}>
+                        {(backdropPath || posterPath) ? (
+                          <Image
+                            source={{ uri: TMDB_IMG(backdropPath ?? posterPath, "w300") ?? "" }}
+                            style={StyleSheet.absoluteFill}
+                            contentFit="cover"
+                          />
+                        ) : null}
+                        <View style={styles.quickCardThumbOverlay}>
+                          <Feather name="play" size={12} color="#fff" />
                         </View>
                       </View>
-                    );
-                  })()}
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.quickCardTitle}>Próximo episódio</Text>
+                        <Text style={styles.quickCardSub} numberOfLines={1}>
+                          T{season} • E{(episode ?? 0) + 1}
+                          {panelEpisodes[(episode ?? 0)]?.name ? ` • ${panelEpisodes[(episode ?? 0)]?.name}` : ""}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  )}
+                  {showSkipIntro && (
+                    <Pressable style={styles.quickCardSkip} onPress={skipIntro}>
+                      <Feather name="skip-forward" size={16} color="#fff" />
+                      <View>
+                        <Text style={styles.quickCardTitle}>Pular abertura</Text>
+                        <Text style={styles.quickCardSub}>{formatTime(positionMs)}</Text>
+                      </View>
+                    </Pressable>
+                  )}
                 </View>
-                <Text style={styles.timeText}>{formatTime(durationMs)}</Text>
-                <Pressable
-                  style={[styles.iconBtnSmall, continuousPlay && { backgroundColor: "rgba(229,9,20,0.2)" }]}
-                  onPress={() => { haptic(20); setContinuousPlay(!continuousPlay); }}
-                >
-                  <Feather name="repeat" size={16} color={continuousPlay ? RED : "rgba(255,255,255,0.5)"} />
-                </Pressable>
+
+                {/* Progress bar row */}
+                <View style={styles.bottomBar} pointerEvents="box-none">
+                  <Pressable onPress={() => setShowTimeRemaining(!showTimeRemaining)}>
+                    <Text style={styles.timeText}>
+                      {showTimeRemaining
+                        ? `-${formatTime(Math.max(0, durationMs - displayPos))}`
+                        : formatTime(displayPos)}
+                    </Text>
+                  </Pressable>
+                  <View
+                    style={styles.seekTrackOuter}
+                    onLayout={(e) => { seekBarWidthRef.current = e.nativeEvent.layout.width; }}
+                    onStartShouldSetResponder={() => true}
+                    onMoveShouldSetResponder={() => true}
+                    onResponderGrant={(e) => onSeekStart(e.nativeEvent.locationX)}
+                    onResponderMove={(e) => onSeekMove(e.nativeEvent.locationX)}
+                    onResponderRelease={(e) => onSeekEnd(e.nativeEvent.locationX)}
+                  >
+                    <View style={[styles.seekTrack, { height: isScrubbing ? 6 : 4 }]}>
+                      <View style={[styles.seekBuffered, { width: `${bufferedRatio * 100}%` as any }]} />
+                      <View style={[styles.seekFill, { width: `${displayProgress * 100}%` as any }]} />
+                      <View style={[styles.seekThumb, {
+                        left: `${displayProgress * 100}%` as any,
+                        width: isScrubbing ? 18 : 14,
+                        height: isScrubbing ? 18 : 14,
+                        marginLeft: isScrubbing ? -9 : -7,
+                        top: isScrubbing ? (6 - 18) / 2 : (4 - 14) / 2,
+                      }]} />
+                    </View>
+                    {isScrubbing && (() => {
+                      const THUMB_W = 140;
+                      const THUMB_H = 79;
+                      const rawLeft = displayProgress * seekBarWidthRef.current - THUMB_W / 2;
+                      const clampedLeft = Math.max(0, Math.min(seekBarWidthRef.current - THUMB_W, rawLeft));
+                      return (
+                        <View style={[styles.seekThumbnail, { left: clampedLeft, width: THUMB_W, height: THUMB_H + 22 }]}>
+                          <View style={[styles.seekThumbnailImgBox, { width: THUMB_W, height: THUMB_H }]}>
+                            {(seekFrameUrl || seekThumbnailUrl) ? (
+                              <Image source={{ uri: seekFrameUrl || seekThumbnailUrl! }} style={StyleSheet.absoluteFill} contentFit="cover" />
+                            ) : (
+                              <View style={[StyleSheet.absoluteFill, { backgroundColor: "#1a1a1a", justifyContent: "center", alignItems: "center" }]}>
+                                <Feather name="film" size={22} color="#444" />
+                              </View>
+                            )}
+                            <View style={styles.seekThumbnailImgDim} />
+                          </View>
+                          <View style={styles.seekThumbnailTimeRow}>
+                            <Text style={styles.seekThumbnailTime}>{formatTime(scrubPosition)}</Text>
+                          </View>
+                        </View>
+                      );
+                    })()}
+                  </View>
+                  <Text style={styles.timeText}>{formatTime(durationMs)}</Text>
+                  <Pressable style={styles.fullscreenBtn}>
+                    <Feather name="maximize" size={18} color="#fff" />
+                  </Pressable>
+                </View>
+
+                {/* Progress legend */}
+                <View style={styles.progressLegend}>
+                  <View style={styles.legendItem}>
+                    <View style={[styles.legendLine, { backgroundColor: RED }]} />
+                    <Text style={styles.legendText}>Assistindo</Text>
+                  </View>
+                  <View style={styles.legendItem}>
+                    <View style={[styles.legendLine, { backgroundColor: "rgba(255,255,255,0.35)" }]} />
+                    <Text style={styles.legendText}>Carregado</Text>
+                  </View>
+                </View>
               </View>
             </Animated.View>
           )}
@@ -2046,56 +2130,74 @@ export default function Flix2PlayerScreen() {
               const epName = tmdbEp?.name ?? item?.label ?? "";
               const stillUri = tmdbEp?.still_path ? TMDB_IMG(tmdbEp.still_path, "w300") : null;
               const runtime = tmdbEp?.runtime;
-              const overview = tmdbEp?.overview ?? "";
               const rating = tmdbEp?.vote_average;
+              const runtimeText = runtime
+                ? `${Math.floor(runtime / 60)}:${String(runtime % 60).padStart(2, "0")}`
+                : null;
+
               return (
                 <Pressable
                   key={key}
                   style={[styles.panelEpCard, isCurrentEp && styles.panelEpCardActive]}
                   onPress={() => { if (item) { haptic(20); goToEpisode(item); } }}
                 >
-                  {/* Compact horizontal: thumbnail left */}
+                  {/* Red left indicator for active episode */}
+                  {isCurrentEp && <View style={styles.panelEpActiveBar} />}
+
+                  {/* Thumbnail */}
                   <View style={[styles.panelEpThumb, { width: THUMB_W, height: THUMB_H }]}>
                     {stillUri ? (
                       <Image source={{ uri: stillUri }} style={StyleSheet.absoluteFill} contentFit="cover" />
                     ) : (
                       <View style={[StyleSheet.absoluteFill, styles.panelEpThumbFallback]}>
-                        <Feather name="film" size={18} color="#2a2a2a" />
+                        <Feather name="film" size={16} color="#2a2a2a" />
                       </View>
                     )}
-                    {isCurrentEp && (
+                    {/* Episode number badge */}
+                    <View style={styles.panelEpNumBadge}>
+                      <Text style={styles.panelEpNumBadgeText}>E{epNum}</Text>
+                    </View>
+                    {/* Play / pause overlay */}
+                    {isCurrentEp ? (
                       <View style={styles.panelEpPlayOverlay}>
                         <View style={styles.panelEpPlayCircle}>
-                          <Feather name="pause" size={14} color="#fff" />
+                          <Feather name="pause" size={11} color="#fff" />
                         </View>
                       </View>
-                    )}
-                  </View>
-
-                  {/* Info right side */}
-                  <View style={styles.panelEpInfo}>
-                    {/* Episode number + runtime on same row */}
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 3 }}>
-                      <Text style={[styles.panelEpNum, isCurrentEp && { color: RED }]}>
-                        {`E${epNum}`}
-                      </Text>
-                      {runtime ? (
-                        <Text style={styles.panelEpRuntime}>{runtime} min</Text>
-                      ) : null}
-                      {rating && rating > 0 ? (
-                        <Text style={styles.panelEpRating}>· ⭐ {(rating as number).toFixed(1)}</Text>
-                      ) : null}
-                    </View>
-                    <Text style={[styles.panelEpName, isCurrentEp && { color: "#fff" }]} numberOfLines={2}>
-                      {epName || `Episódio ${epNum}`}
-                    </Text>
-                    {overview ? (
-                      <Text style={styles.panelEpOverview} numberOfLines={2}>{overview}</Text>
                     ) : null}
                   </View>
 
-                  {/* Active indicator — left edge bar */}
-                  {isCurrentEp && <View style={styles.panelEpActiveBar} />}
+                  {/* Info area */}
+                  <View style={styles.panelEpInfo}>
+                    <Text style={[styles.panelEpName, isCurrentEp && { color: "#fff" }]} numberOfLines={2}>
+                      {epName || `Episódio ${epNum}`}
+                    </Text>
+
+                    {/* Duration + Rating row */}
+                    <View style={styles.panelEpMetaRow}>
+                      {runtimeText ? <Text style={styles.panelEpRuntime}>{runtimeText}</Text> : null}
+                      {rating && rating > 0 ? (
+                        <Text style={styles.panelEpRating}>⭐ {(rating as number).toFixed(1)}</Text>
+                      ) : null}
+                    </View>
+
+                    {/* Status */}
+                    {isCurrentEp ? (
+                      <View>
+                        <Text style={styles.panelEpStatusActive}>Assistindo agora</Text>
+                        <View style={styles.panelEpProgressTrack}>
+                          <View style={[styles.panelEpProgressFill, { width: `${Math.round(displayProgress * 100)}%` as any }]} />
+                        </View>
+                      </View>
+                    ) : (
+                      <Text style={styles.panelEpStatusIdle}>Não assistido</Text>
+                    )}
+                  </View>
+
+                  {/* Three-dot menu */}
+                  <Pressable style={styles.panelEpMenuBtn}>
+                    <Feather name="more-vertical" size={14} color="rgba(255,255,255,0.4)" />
+                  </Pressable>
                 </Pressable>
               );
             };
@@ -2232,7 +2334,7 @@ export default function Flix2PlayerScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#000" },
 
-  // Loading screen
+  // ── Loading screen ────────────────────────────────────────────────────────────
   loadScreen: { ...StyleSheet.absoluteFillObject, backgroundColor: "#000", justifyContent: "center", alignItems: "center" },
   loadDim: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.72)" },
   loadCenter: { alignItems: "center", paddingHorizontal: 32, gap: 12, zIndex: 1 },
@@ -2249,7 +2351,7 @@ const styles = StyleSheet.create({
   sourceBadgeText: { color: RED, fontSize: 10, fontWeight: "700" },
   backBtn: { position: "absolute", left: 16, width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "center", alignItems: "center" },
 
-  // Error screen
+  // ── Error screen ──────────────────────────────────────────────────────────────
   retryCountdown: { width: 52, height: 52, borderRadius: 26, borderWidth: 2, borderColor: "rgba(255,255,255,0.2)", justifyContent: "center", alignItems: "center" },
   retryCountdownNum: { color: "#fff", fontSize: 22, fontWeight: "700" },
   retryCountdownText: { color: "rgba(255,255,255,0.45)", fontSize: 12 },
@@ -2260,61 +2362,135 @@ const styles = StyleSheet.create({
   altPlayerBtn: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 20, paddingVertical: 11, borderRadius: 10, backgroundColor: "rgba(139,92,246,0.18)", borderWidth: 1, borderColor: "rgba(139,92,246,0.35)" },
   altPlayerText: { color: "#a78bfa", fontSize: 13, fontWeight: "600" },
 
-  // Buffering
+  // ── Buffering ─────────────────────────────────────────────────────────────────
   bufferingOverlay: { ...StyleSheet.absoluteFillObject, justifyContent: "center", alignItems: "center" },
   bufferingSpinner: { opacity: 0.7 },
 
-  // Controls
+  // ── Controls overlay ──────────────────────────────────────────────────────────
   controls: { ...StyleSheet.absoluteFillObject, justifyContent: "space-between" },
-  ctrlGradTop: { position: "absolute", top: 0, left: 0, right: 0, height: 120, backgroundColor: "transparent", backgroundImage: undefined, opacity: 0.85 },
-  ctrlGradBottom: { position: "absolute", bottom: 0, left: 0, right: 0, height: 120, opacity: 0.85 },
-  topBar: { flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingBottom: 8, gap: 6 },
-  centerRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 16 },
-  bottomBar: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingBottom: 20, gap: 10 },
-  iconBtn: { width: 44, height: 44, justifyContent: "center", alignItems: "center" },
-  iconBtnSmall: { width: 32, height: 32, justifyContent: "center", alignItems: "center", borderRadius: 8 },
-  playBtn: { width: 64, height: 64, backgroundColor: "rgba(255,255,255,0.15)", borderRadius: 32 },
-  seekLabel: { color: "#fff", fontSize: 9, fontWeight: "700", position: "absolute", bottom: 6 },
-  ctrlTitle: { color: "#fff", fontSize: 14, fontWeight: "700" },
-  ctrlEp: { color: "rgba(255,255,255,0.6)", fontSize: 11, marginTop: 1 },
-  ctrlContentLogo: { width: 120, height: 36 },
-  ctrlSourceBadge: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: "rgba(0,0,0,0.4)", borderRadius: 8, paddingHorizontal: 7, paddingVertical: 3 },
-  ctrlSourceBadgeText: { fontSize: 9, fontWeight: "800" },
-  qualityBadge: { backgroundColor: "rgba(0,0,0,0.4)", borderRadius: 8, paddingHorizontal: 7, paddingVertical: 4, borderWidth: 1, borderColor: "rgba(255,255,255,0.15)" },
-  qualityBadgeText: { color: "rgba(255,255,255,0.7)", fontSize: 9, fontWeight: "700" },
-  speedBadge: { backgroundColor: "rgba(229,9,20,0.3)", borderRadius: 8, paddingHorizontal: 7, paddingVertical: 3 },
-  speedBadgeText: { color: RED, fontSize: 9, fontWeight: "800" },
-  episodesBtn: { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "rgba(255,255,255,0.1)", borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6 },
-  episodesBtnText: { color: "#fff", fontSize: 12, fontWeight: "600" },
-  timeText: { color: "rgba(255,255,255,0.85)", fontSize: 12, fontWeight: "600", minWidth: 44, textAlign: "center" },
-  seekTrackOuter: { flex: 1, paddingVertical: 12, justifyContent: "center" },
-  seekTrack: { borderRadius: 3, backgroundColor: "rgba(255,255,255,0.2)", overflow: "visible" },
-  seekBuffered: { position: "absolute", left: 0, top: 0, bottom: 0, backgroundColor: "rgba(255,255,255,0.25)", borderRadius: 3 },
+
+  // Cinematic gradient bars
+  ctrlGradTop: { position: "absolute", top: 0, left: 0, right: 0, height: 140 },
+  ctrlGradBottom: { position: "absolute", bottom: 0, left: 0, right: 0, height: 160 },
+
+  // Top bar — split left/right
+  topBar: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", paddingHorizontal: 10, paddingBottom: 6 },
+  topBarLeft: { flexDirection: "row", alignItems: "center", flex: 1, gap: 8, minWidth: 0, paddingRight: 10 },
+  topBarRight: { flexDirection: "row", alignItems: "center", gap: 2, flexShrink: 0 },
+
+  // Back button
+  backIconBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: "rgba(0,0,0,0.35)", justifyContent: "center", alignItems: "center", flexShrink: 0 },
+
+  // Title block
+  topBarTitleBlock: { flex: 1, minWidth: 0 },
+  ctrlTitle: { color: "#fff", fontSize: 16, fontWeight: "800", letterSpacing: -0.3 },
+  ctrlEp: { color: "rgba(255,255,255,0.55)", fontSize: 11, marginTop: 2, fontWeight: "500" },
+  ctrlContentLogo: { width: 110, height: 34 },
+
+  // Top icon items
+  topIconItem: { alignItems: "center", paddingHorizontal: 7, paddingVertical: 4, gap: 3, minWidth: 46 },
+  topIconLabel: { color: "rgba(255,255,255,0.75)", fontSize: 8.5, fontWeight: "600", textAlign: "center", lineHeight: 11 },
+
+  // Quality badge inside top icon
+  qualityIconBox: { backgroundColor: "rgba(255,255,255,0.12)", borderRadius: 6, paddingHorizontal: 6, paddingVertical: 3, borderWidth: 1, borderColor: "rgba(255,255,255,0.2)" },
+  qualityIconText: { color: "#fff", fontSize: 10, fontWeight: "800", letterSpacing: 0.3 },
+
+  // Episodes button — premium red-bordered style
+  episodesBtnPremium: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    backgroundColor: "rgba(0,0,0,0.55)", borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 8,
+    borderWidth: 1.5, borderColor: RED,
+    marginLeft: 4,
+  },
+  episodesBtnPremiumText: { color: "#fff", fontSize: 12, fontWeight: "700" },
+
+  // Center controls
+  centerRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 20 },
+  sideCtrlBtn: {
+    width: 48, height: 48, borderRadius: 24,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    justifyContent: "center", alignItems: "center",
+  },
+  seekBtn: { alignItems: "center", justifyContent: "center", gap: 2, width: 56, height: 56 },
+  seekBtnLabel: { color: "rgba(255,255,255,0.8)", fontSize: 10, fontWeight: "700" },
+
+  // Premium play/pause — circular with red border + glow
+  playBtnPremium: {
+    width: 72, height: 72, borderRadius: 36,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    borderWidth: 2.5, borderColor: RED,
+    justifyContent: "center", alignItems: "center",
+    shadowColor: RED,
+    shadowOpacity: 0.55,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 12,
+  },
+
+  // Bottom area (quick cards + progress bar + legend)
+  bottomArea: { paddingHorizontal: 14, paddingBottom: 10, gap: 6 },
+
+  // Quick action cards
+  quickCardsRow: { flexDirection: "row", gap: 10, marginBottom: 2 },
+  quickCard: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    backgroundColor: "rgba(12,12,12,0.72)",
+    borderRadius: 10, paddingVertical: 7, paddingHorizontal: 8,
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.12)",
+    maxWidth: 200,
+    overflow: "hidden",
+  },
+  quickCardThumb: { width: 40, height: 28, borderRadius: 5, overflow: "hidden", backgroundColor: "#1a1a1a" },
+  quickCardThumbOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "center", alignItems: "center" },
+  quickCardSkip: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    backgroundColor: "rgba(12,12,12,0.72)",
+    borderRadius: 10, paddingVertical: 7, paddingHorizontal: 10,
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.12)",
+    overflow: "hidden",
+  },
+  quickCardTitle: { color: "#fff", fontSize: 11, fontWeight: "700", lineHeight: 14 },
+  quickCardSub: { color: "rgba(255,255,255,0.5)", fontSize: 9.5, lineHeight: 13, maxWidth: 130 },
+
+  // Progress bar row
+  bottomBar: { flexDirection: "row", alignItems: "center", gap: 8 },
+  timeText: { color: "rgba(255,255,255,0.85)", fontSize: 12, fontWeight: "700", minWidth: 42, textAlign: "center" },
+  seekTrackOuter: { flex: 1, paddingVertical: 10, justifyContent: "center" },
+  seekTrack: { borderRadius: 3, backgroundColor: "rgba(255,255,255,0.18)", overflow: "visible" },
+  seekBuffered: { position: "absolute", left: 0, top: 0, bottom: 0, backgroundColor: "rgba(255,255,255,0.3)", borderRadius: 3 },
   seekFill: { position: "absolute", left: 0, top: 0, bottom: 0, backgroundColor: RED, borderRadius: 3 },
-  seekThumb: { position: "absolute", backgroundColor: "#fff", borderRadius: 10 },
-  seekTooltip: { position: "absolute", bottom: 28, backgroundColor: "rgba(0,0,0,0.75)", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
-  seekTooltipText: { color: "#fff", fontSize: 11, fontWeight: "700" },
+  seekThumb: { position: "absolute", backgroundColor: "#fff", borderRadius: 10, shadowColor: "#fff", shadowOpacity: 0.4, shadowRadius: 4, shadowOffset: { width: 0, height: 0 } },
   seekThumbnail: { position: "absolute", bottom: 26, overflow: "hidden", borderRadius: 8, borderWidth: 1.5, borderColor: "rgba(255,255,255,0.18)", shadowColor: "#000", shadowOpacity: 0.7, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 10 },
   seekThumbnailImgBox: { overflow: "hidden", borderTopLeftRadius: 6, borderTopRightRadius: 6 },
   seekThumbnailImgDim: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.12)" },
   seekThumbnailTimeRow: { backgroundColor: "rgba(15,15,15,0.95)", alignItems: "center", justifyContent: "center", height: 22 },
   seekThumbnailTime: { color: "#fff", fontSize: 12, fontWeight: "800", letterSpacing: 0.3 },
 
-  // Seek flash
+  // Fullscreen button
+  fullscreenBtn: { width: 36, height: 36, justifyContent: "center", alignItems: "center" },
+
+  // Progress legend
+  progressLegend: { flexDirection: "row", gap: 14, paddingLeft: 52 },
+  legendItem: { flexDirection: "row", alignItems: "center", gap: 5 },
+  legendLine: { width: 20, height: 2.5, borderRadius: 2 },
+  legendText: { color: "rgba(255,255,255,0.4)", fontSize: 9.5, fontWeight: "600" },
+
+  // ── Seek flash ────────────────────────────────────────────────────────────────
   seekFlash: { position: "absolute", top: 0, bottom: 0, width: W * 0.3, backgroundColor: "rgba(255,255,255,0.18)", justifyContent: "center", alignItems: "center", gap: 8 },
   seekFlashText: { color: "#fff", fontSize: 13, fontWeight: "700" },
 
-  // Speed boost
+  // ── Speed boost badge ──────────────────────────────────────────────────────────
   speedBoostBadge: { position: "absolute", top: "50%", left: "50%", transform: [{ translateX: -30 }, { translateY: -15 }], flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(0,0,0,0.6)", borderRadius: 12, paddingHorizontal: 12, paddingVertical: 6 },
   speedBoostText: { color: "#fff", fontWeight: "800", fontSize: 14 },
 
-  // Skip intro/credits
+  // ── Skip intro/credits ────────────────────────────────────────────────────────
   skipIntroBtnPos: { position: "absolute", bottom: 80, right: 24 },
   skipCreditsBtnPos: { position: "absolute", bottom: 80, right: 24 },
   skipIntroBtn: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "rgba(255,255,255,0.18)", borderWidth: 1, borderColor: "rgba(255,255,255,0.35)", borderRadius: 10, paddingHorizontal: 16, paddingVertical: 10 },
   skipIntroBtnText: { color: "#fff", fontSize: 13, fontWeight: "700" },
 
-  // Next ep countdown — immersive side panel
+  // ── Next ep countdown ─────────────────────────────────────────────────────────
   nextEpPanel: { position: "absolute", top: 0, right: 0, bottom: 0, width: "42%", overflow: "hidden" },
   nextEpPanelBg: { ...StyleSheet.absoluteFillObject, backgroundColor: "#0a0a0a" },
   nextEpPanelDim: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.72)" },
@@ -2329,7 +2505,7 @@ const styles = StyleSheet.create({
   nextEpCancelBtn: { backgroundColor: "rgba(255,255,255,0.08)", borderRadius: 10, paddingHorizontal: 14, paddingVertical: 8, borderWidth: 1, borderColor: "rgba(255,255,255,0.1)" },
   nextEpCancelText: { color: "rgba(255,255,255,0.6)", fontSize: 11 },
 
-  // Sleep badge
+  // ── Sleep badge ───────────────────────────────────────────────────────────────
   sleepBadge: { position: "absolute", top: 54, right: 16, flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "rgba(0,0,0,0.55)", borderRadius: 10, paddingHorizontal: 10, paddingVertical: 5 },
   sleepBadgeText: { color: "#aaa", fontSize: 11 },
   hudPill: { position: "absolute", top: "40%" as any, alignSelf: "center", flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(0,0,0,0.72)", borderRadius: 20, paddingHorizontal: 14, paddingVertical: 8, marginTop: -18 },
@@ -2337,28 +2513,26 @@ const styles = StyleSheet.create({
   hudBarFill: { height: 4, backgroundColor: "#fff", borderRadius: 2 },
   hudPct: { color: "#fff", fontSize: 13, fontWeight: "700" as const, minWidth: 34 },
 
-  // Lock screen
+  // ── Lock screen ───────────────────────────────────────────────────────────────
   lockOverlay: { justifyContent: "center", alignItems: "center", backgroundColor: "rgba(0,0,0,0.3)" },
   lockUnlockBtn: { alignItems: "center", gap: 8 },
   lockUnlockText: { color: "rgba(255,255,255,0.6)", fontSize: 12 },
 
-  // Speed panel
+  // ── Speed / quality / sleep panels ───────────────────────────────────────────
   panelOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", alignItems: "center" },
-  speedPanelBox: { backgroundColor: "#1a1a1a", borderRadius: 16, padding: 8, minWidth: 200, borderWidth: 1, borderColor: "rgba(255,255,255,0.1)" },
-  speedPanelTitle: { color: "rgba(255,255,255,0.5)", fontSize: 11, fontWeight: "700", textAlign: "center", paddingVertical: 8 },
+  speedPanelBox: { backgroundColor: "#181818", borderRadius: 16, padding: 8, minWidth: 200, borderWidth: 1, borderColor: "rgba(255,255,255,0.1)" },
+  speedPanelTitle: { color: "rgba(255,255,255,0.4)", fontSize: 11, fontWeight: "700", textAlign: "center", paddingVertical: 8, letterSpacing: 1 },
   speedOption: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, paddingVertical: 14, borderRadius: 10 },
   speedOptionText: { color: "#fff", fontSize: 15, fontWeight: "600" },
-
-  // Quality option badge
   qualityOptionBadge: { backgroundColor: "rgba(229,9,20,0.25)", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, marginRight: 8 },
   qualityOptionBadgeText: { color: RED, fontSize: 11, fontWeight: "800", letterSpacing: 0.5 },
 
-  // Swipe-to-seek indicator
+  // ── Swipe-to-seek ─────────────────────────────────────────────────────────────
   swipeSeekIndicator: { position: "absolute", top: "50%", left: "50%", transform: [{ translateX: -70 }, { translateY: -45 }], alignItems: "center", gap: 4, backgroundColor: "rgba(0,0,0,0.75)", borderRadius: 16, paddingHorizontal: 24, paddingVertical: 16, borderWidth: 1, borderColor: "rgba(255,255,255,0.15)" },
   swipeSeekDelta: { color: "#fff", fontSize: 26, fontWeight: "800" },
   swipeSeekTarget: { color: "rgba(255,255,255,0.65)", fontSize: 14, fontWeight: "600" },
 
-  // Session modal
+  // ── Session modal ─────────────────────────────────────────────────────────────
   sessionModal: { flex: 1, backgroundColor: "rgba(0,0,0,0.85)", justifyContent: "center", alignItems: "center" },
   sessionBox: { backgroundColor: "#1a1a1a", borderRadius: 16, padding: 28, alignItems: "center", gap: 12, maxWidth: 320, borderWidth: 1, borderColor: "rgba(255,255,255,0.1)" },
   sessionTitle: { color: "#fff", fontSize: 18, fontWeight: "800", textAlign: "center" },
@@ -2366,43 +2540,115 @@ const styles = StyleSheet.create({
   sessionBtn: { backgroundColor: RED, borderRadius: 10, paddingHorizontal: 24, paddingVertical: 12, marginTop: 8 },
   sessionBtnText: { color: "#fff", fontSize: 14, fontWeight: "700" },
 
-  // Episodes panel
-  episodesPanel: { position: "absolute", top: 0, right: 0, bottom: 0, borderLeftWidth: 1, borderLeftColor: "rgba(255,255,255,0.08)", overflow: "hidden" },
-  panelHeader: { height: 140, overflow: "hidden", position: "relative" },
+  // ── Episodes panel ────────────────────────────────────────────────────────────
+  episodesPanel: {
+    position: "absolute", top: 0, right: 0, bottom: 0,
+    borderLeftWidth: 1, borderLeftColor: "rgba(255,255,255,0.1)",
+    overflow: "hidden",
+    shadowColor: "#000", shadowOpacity: 0.8, shadowRadius: 24, shadowOffset: { width: -4, height: 0 }, elevation: 20,
+  },
+  panelHeader: { height: 130, overflow: "hidden", position: "relative" },
   panelBackdropGrad: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.72)" },
   panelHeaderRow: { position: "absolute", bottom: 0, left: 0, right: 0, flexDirection: "row", alignItems: "flex-end", paddingHorizontal: 14, paddingBottom: 14, gap: 10 },
-  panelTitle: { color: "#fff", fontSize: 15, fontWeight: "800", lineHeight: 19 },
-  panelCurrentEp: { color: "rgba(255,255,255,0.6)", fontSize: 11, marginTop: 3 },
+  panelFloatClose: { position: "absolute", top: 10, right: 12, width: 32, height: 32, borderRadius: 16, backgroundColor: "rgba(255,255,255,0.12)", justifyContent: "center", alignItems: "center", zIndex: 10 },
+  panelHeaderContent: { position: "absolute", bottom: 38, left: 14, right: 44 },
+  panelTitle: { color: "#fff", fontSize: 15, fontWeight: "800" },
+  panelCurrentEp: { color: "rgba(255,255,255,0.55)", fontSize: 11, marginTop: 3 },
   panelCloseBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.14)", justifyContent: "center", alignItems: "center", flexShrink: 0 },
-  panelAutoPlayRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.07)" },
-  panelAutoPlayText: { color: "#888", fontSize: 11, fontWeight: "600", flex: 1 },
-  panelAutoPlayToggle: { width: 34, height: 20, backgroundColor: "rgba(255,255,255,0.12)", borderRadius: 10, flexShrink: 0 },
-  panelAutoPlayKnob: { width: 16, height: 16, backgroundColor: "#fff", borderRadius: 8, marginTop: 2, marginLeft: 2 },
-  panelSeasonRow: { paddingHorizontal: 10, paddingVertical: 8, maxHeight: 50 },
-  panelSeasonBtn: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 12, borderWidth: 1, borderColor: "rgba(255,255,255,0.15)", marginRight: 6 },
-  panelSeasonText: { color: "rgba(255,255,255,0.65)", fontSize: 12, fontWeight: "700" },
-  panelEmpty: { color: "rgba(255,255,255,0.35)", fontSize: 13 },
 
-  // Episode card (full-width, stacked: image top + info bottom)
-  panelEpCard: { borderRadius: 12, overflow: "hidden", backgroundColor: "rgba(255,255,255,0.05)", borderWidth: 1, borderColor: "rgba(255,255,255,0.07)" },
-  panelEpCardActive: { borderColor: RED, borderWidth: 1.5, backgroundColor: "rgba(229,9,20,0.08)" },
+  // Continuous play toggle row
+  panelAutoPlayRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.07)" },
+  panelAutoPlayText: { color: "#999", fontSize: 11, fontWeight: "600", flex: 1 },
+  panelAutoPlayToggle: { width: 38, height: 22, backgroundColor: "rgba(255,255,255,0.12)", borderRadius: 11, flexShrink: 0, justifyContent: "center" },
+  panelAutoPlayKnob: { width: 17, height: 17, backgroundColor: "#fff", borderRadius: 9, marginLeft: 3 },
+
+  // Season tabs
+  panelSeasonRow: { paddingHorizontal: 10, paddingVertical: 8, maxHeight: 50 },
+  panelSeasonBar: { paddingVertical: 6 },
+  panelSeasonBtn: { paddingHorizontal: 16, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: "rgba(255,255,255,0.12)", backgroundColor: "rgba(255,255,255,0.04)" },
+  panelSeasonText: { color: "rgba(255,255,255,0.55)", fontSize: 12, fontWeight: "700" },
+  panelEmpty: { color: "rgba(255,255,255,0.3)", fontSize: 13 },
+
+  // ── Episode card — premium horizontal layout ───────────────────────────────────
+  panelEpCard: {
+    flexDirection: "row", alignItems: "center",
+    borderRadius: 11, overflow: "hidden",
+    backgroundColor: "#111",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.07)",
+    marginBottom: 1,
+  },
+  panelEpCardActive: {
+    borderColor: RED,
+    borderWidth: 1.5,
+    backgroundColor: "rgba(229,9,20,0.07)",
+    shadowColor: RED,
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 4,
+  },
+
+  // Left red bar for active episode
+  panelEpActiveBar: { width: 4, alignSelf: "stretch", backgroundColor: RED, borderTopLeftRadius: 11, borderBottomLeftRadius: 11, flexShrink: 0 },
+
+  // Thumbnail
+  panelEpThumb: { backgroundColor: "#181818", overflow: "hidden", flexShrink: 0 },
+  panelEpThumbFallback: { justifyContent: "center", alignItems: "center", backgroundColor: "#181818" },
+
+  // Episode badge (E1, E2...)
+  panelEpNumBadge: { position: "absolute", top: 5, left: 5, backgroundColor: "rgba(0,0,0,0.78)", borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2 },
+  panelEpNumBadgeText: { color: "#fff", fontSize: 9, fontWeight: "800", letterSpacing: 0.3 },
+
+  // Play overlay on thumbnail
+  panelEpPlayOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.42)", justifyContent: "center", alignItems: "center" },
+  panelEpPlayCircle: { width: 28, height: 28, borderRadius: 14, backgroundColor: "rgba(229,9,20,0.9)", justifyContent: "center", alignItems: "center" },
+
+  // Info area (right of thumbnail)
+  panelEpInfo: { flex: 1, paddingHorizontal: 10, paddingVertical: 8, gap: 3 },
+  panelEpName: { color: "rgba(255,255,255,0.8)", fontSize: 12, fontWeight: "700", lineHeight: 16 },
+  panelEpMetaRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  panelEpRuntime: { color: "rgba(255,255,255,0.45)", fontSize: 10, fontWeight: "600" },
+  panelEpRating: { color: "rgba(255,255,255,0.45)", fontSize: 10, fontWeight: "600" },
+
+  // Status labels
+  panelEpStatusActive: { color: RED, fontSize: 9.5, fontWeight: "700", letterSpacing: 0.2 },
+  panelEpStatusIdle: { color: "rgba(255,255,255,0.3)", fontSize: 9.5, fontWeight: "600" },
+
+  // Episode progress bar (current episode)
+  panelEpProgressTrack: { height: 2.5, backgroundColor: "rgba(255,255,255,0.12)", borderRadius: 2, marginTop: 5, overflow: "hidden" },
+  panelEpProgressFill: { height: "100%", backgroundColor: RED, borderRadius: 2 },
+
+  // Three-dot menu
+  panelEpMenuBtn: { paddingHorizontal: 10, paddingVertical: 14, alignSelf: "stretch", justifyContent: "center" },
+
+  // Load more button
+  panelLoadMoreBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, marginHorizontal: 12, marginTop: 6, marginBottom: 24, paddingVertical: 12, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.06)", borderWidth: 1, borderColor: "rgba(255,255,255,0.1)" },
+  panelLoadMoreText: { color: "rgba(255,255,255,0.6)", fontSize: 12, fontWeight: "600" },
+
+  // Unused legacy styles kept for compat
   panelEpCardThumb: { width: "100%", backgroundColor: "#111", overflow: "hidden" },
-  panelEpThumbFallback: { justifyContent: "center", alignItems: "center", backgroundColor: "#111" },
   panelEpThumbGrad: { position: "absolute", bottom: 0, left: 0, right: 0, height: 40, backgroundColor: "rgba(0,0,0,0.5)" },
-  panelEpPlayOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "center", alignItems: "center" },
-  panelEpPlayCircle: { width: 52, height: 52, borderRadius: 26, backgroundColor: "rgba(229,9,20,0.85)", justifyContent: "center", alignItems: "center", borderWidth: 2, borderColor: "#fff" },
-  panelEpNumBadge: { position: "absolute", top: 8, left: 8, backgroundColor: "rgba(0,0,0,0.72)", borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3 },
-  panelEpNumBadgeText: { color: "#fff", fontSize: 10, fontWeight: "700" },
-  panelEpRuntimeBadge: { position: "absolute", top: 8, right: 8, backgroundColor: "rgba(0,0,0,0.72)", borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3 },
-  panelEpRuntimeBadgeText: { color: "rgba(255,255,255,0.75)", fontSize: 10, fontWeight: "600" },
   panelEpCardInfo: { padding: 10, gap: 4 },
   panelEpActiveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: RED, flexShrink: 0 },
-  panelEpName: { color: "#fff", fontSize: 13, fontWeight: "700", lineHeight: 17, flex: 1 },
-  panelEpRating: { color: "rgba(255,255,255,0.5)", fontSize: 10, fontWeight: "600" },
+  panelEpNum: { color: RED, fontSize: 11, fontWeight: "800" },
   panelEpOverview: { color: "rgba(255,255,255,0.45)", fontSize: 11, lineHeight: 15, marginTop: 2 },
   panelEpWatchedTxt: { color: RED, fontSize: 10, fontWeight: "700" },
 
-  // Similar movies panel (movies only, last 10 min)
+  // Unused badge styles (kept for compat with similar panel)
+  iconBtn: { width: 44, height: 44, justifyContent: "center", alignItems: "center" },
+  iconBtnSmall: { width: 32, height: 32, justifyContent: "center", alignItems: "center", borderRadius: 8 },
+  seekLabel: { color: "#fff", fontSize: 9, fontWeight: "700", position: "absolute", bottom: 6 },
+  ctrlSourceBadge: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: "rgba(0,0,0,0.4)", borderRadius: 8, paddingHorizontal: 7, paddingVertical: 3 },
+  ctrlSourceBadgeText: { fontSize: 9, fontWeight: "800" },
+  qualityBadge: { backgroundColor: "rgba(0,0,0,0.4)", borderRadius: 8, paddingHorizontal: 7, paddingVertical: 4, borderWidth: 1, borderColor: "rgba(255,255,255,0.15)" },
+  qualityBadgeText: { color: "rgba(255,255,255,0.7)", fontSize: 9, fontWeight: "700" },
+  speedBadge: { backgroundColor: "rgba(229,9,20,0.3)", borderRadius: 8, paddingHorizontal: 7, paddingVertical: 3 },
+  speedBadgeText: { color: RED, fontSize: 9, fontWeight: "800" },
+  episodesBtn: { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "rgba(255,255,255,0.1)", borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6 },
+  episodesBtnText: { color: "#fff", fontSize: 12, fontWeight: "600" },
+  playBtn: { width: 64, height: 64, backgroundColor: "rgba(255,255,255,0.15)", borderRadius: 32 },
+
+  // ── Similar movies panel ──────────────────────────────────────────────────────
   similarPanel: { position: "absolute", bottom: 0, left: 0, right: 0, overflow: "hidden", borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.1)" },
   similarPanelInner: { paddingTop: 14, paddingBottom: 16 },
   similarHeader: { flexDirection: "row", alignItems: "flex-start", paddingHorizontal: 16, marginBottom: 12 },
