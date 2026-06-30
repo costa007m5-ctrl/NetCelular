@@ -5,6 +5,7 @@ export const modules: ModuleMap = {
   "./components/mockups/channels/HomeAoVivo.tsx": () => import("../components/mockups/channels/HomeAoVivo.tsx"),
   "./components/mockups/channels/PlayerPremium.tsx": () => import("../components/mockups/channels/PlayerPremium.tsx"),
   "./components/mockups/channels/SinopseCinematica.tsx": () => import("../components/mockups/channels/SinopseCinematica.tsx"),
+  "./components/mockups/loader/NetplayLoaderV29.tsx": () => import("../components/mockups/loader/NetplayLoaderV29.tsx"),
   "./components/mockups/splash/NetplaySplash.tsx": () => import("../components/mockups/splash/NetplaySplash.tsx"),
   "./components/mockups/sting/StingPreview.tsx": () => import("../components/mockups/sting/StingPreview.tsx"),
   "./components/mockups/vinheta/VinhetaNetplay.tsx": () => import("../components/mockups/vinheta/VinhetaNetplay.tsx")

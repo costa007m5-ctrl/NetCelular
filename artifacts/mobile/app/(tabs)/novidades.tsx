@@ -5,7 +5,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import NetplayHeartbeatLoader from "@/components/NetplayHeartbeatLoader";
+import NetplayLoaderV29 from "@/components/NetplayLoaderV29";
 import {
   ActivityIndicator,
   Animated,
@@ -1365,7 +1365,7 @@ function EpPreviewRow({
         {/* Loading spinner — native only (web video doesn't use vidLoading) */}
         {isPlaying && vidLoading && !canPreviewWeb && (
           <View style={epr.loadingOverlay}>
-            <NetplayHeartbeatLoader size={72} />
+            <NetplayLoaderV29 />
             <Text style={epr.loadingText}>Carregando prévia…</Text>
           </View>
         )}
@@ -2770,7 +2770,7 @@ function TrendingFlatList({
       )}
       ListEmptyComponent={
         <View style={{ alignItems: "center", paddingTop: 80 }}>
-          <NetplayHeartbeatLoader size={80} />
+          <NetplayLoaderV29 />
         </View>
       }
     />
@@ -3331,7 +3331,7 @@ export default function NovidadesScreen() {
       {/* ═══ CONTENT ═════════════════════════════════════════════════════════ */}
       {loading ? (
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingTop: topPad + 100 }}>
-          <NetplayHeartbeatLoader size={80} />
+          <NetplayLoaderV29 />
         </View>
       ) : activeTab === "embreve" ? (
         <UpcomingFlatList
@@ -3344,7 +3344,7 @@ export default function NovidadesScreen() {
       ) : activeTab === "filmes" ? (
         wnLoading && newMovies.length === 0 ? (
           <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-            <NetplayHeartbeatLoader size={80} />
+            <NetplayLoaderV29 />
             <Text style={{ color: "rgba(255,255,255,0.5)", marginTop: 12, fontSize: 13 }}>Carregando catálogo…</Text>
           </View>
         ) : (
@@ -3362,7 +3362,7 @@ export default function NovidadesScreen() {
       ) : activeTab === "series" ? (
         wnLoading && newSeries.length === 0 ? (
           <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-            <NetplayHeartbeatLoader size={80} />
+            <NetplayLoaderV29 />
             <Text style={{ color: "rgba(255,255,255,0.5)", marginTop: 12, fontSize: 13 }}>Carregando catálogo…</Text>
           </View>
         ) : (
@@ -3414,7 +3414,7 @@ export default function NovidadesScreen() {
       ) : activeTab === "dorama" ? (
         wnLoading && doramas.length === 0 ? (
           <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-            <NetplayHeartbeatLoader size={80} />
+            <NetplayLoaderV29 />
             <Text style={{ color: "rgba(255,255,255,0.5)", marginTop: 12, fontSize: 13 }}>Carregando catálogo…</Text>
           </View>
         ) : (
@@ -3432,7 +3432,7 @@ export default function NovidadesScreen() {
       ) : activeTab === "animes" ? (
         wnLoading && jpAnimesFiltered.length === 0 ? (
           <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-            <NetplayHeartbeatLoader size={80} />
+            <NetplayLoaderV29 />
             <Text style={{ color: "rgba(255,255,255,0.5)", marginTop: 12, fontSize: 13 }}>Carregando catálogo…</Text>
           </View>
         ) : (
@@ -3450,7 +3450,7 @@ export default function NovidadesScreen() {
       ) : activeTab === "animacao" ? (
         wnLoading && animations.length === 0 ? (
           <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-            <NetplayHeartbeatLoader size={80} />
+            <NetplayLoaderV29 />
             <Text style={{ color: "rgba(255,255,255,0.5)", marginTop: 12, fontSize: 13 }}>Carregando catálogo…</Text>
           </View>
         ) : (

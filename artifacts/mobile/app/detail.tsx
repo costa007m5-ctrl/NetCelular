@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import NetplayHeartbeatLoader from "@/components/NetplayHeartbeatLoader";
+import NetplayLoaderV29 from "@/components/NetplayLoaderV29";
 import {
   ActivityIndicator,
   Alert,
@@ -3732,7 +3732,7 @@ export default function DetailScreen() {
           {/* File list */}
           {epMapperLoading ? (
             <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 12 }}>
-              <NetplayHeartbeatLoader size={80} />
+              <NetplayLoaderV29 />
               <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 13 }}>Carregando arquivos da pasta...</Text>
             </View>
           ) : (
@@ -4045,7 +4045,7 @@ export default function DetailScreen() {
         <View style={styles.infoSection}>
           {loading ? (
             <View style={styles.centered}>
-              <NetplayHeartbeatLoader size={88} />
+              <NetplayLoaderV29 />
             </View>
           ) : (
             <>

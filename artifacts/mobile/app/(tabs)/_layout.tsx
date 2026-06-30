@@ -5,7 +5,7 @@ import { SymbolView } from "expo-symbols";
 import { Feather } from "@expo/vector-icons";
 import React, { useEffect, useMemo, useState } from "react";
 import { Platform, StyleSheet, View } from "react-native";
-import NetplayHeartbeatLoader from "@/components/NetplayHeartbeatLoader";
+import NetplayLoaderV29 from "@/components/NetplayLoaderV29";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useColors } from "@/hooks/useColors";
@@ -231,7 +231,7 @@ export default function TabLayout() {
   if (loading || profileChecking) {
     return (
       <View style={{ flex: 1, backgroundColor: "#000", alignItems: "center", justifyContent: "center" }}>
-        <NetplayHeartbeatLoader size={88} />
+        <NetplayLoaderV29 />
       </View>
     );
   }

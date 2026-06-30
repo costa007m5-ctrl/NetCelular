@@ -5,7 +5,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import NetplayHeartbeatLoader from "@/components/NetplayHeartbeatLoader";
+import NetplayLoaderV29 from "@/components/NetplayLoaderV29";
 import {
   Animated,
   Dimensions,
@@ -599,7 +599,7 @@ export default function LiveTvScreen() {
       {/* ── CONTENT ──────────────────────────────────────────────────────── */}
       {loading ? (
         <View style={st.loadingWrap}>
-          <NetplayHeartbeatLoader size={80} />
+          <NetplayLoaderV29 />
           <Text style={st.loadingT}>Conectando à transmissão...</Text>
           <Text style={st.loadingHint}>Buscando canais ao vivo</Text>
         </View>

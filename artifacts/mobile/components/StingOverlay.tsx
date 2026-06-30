@@ -18,7 +18,7 @@ import {
   View,
 } from "react-native";
 import StingAnimation from "./StingAnimation";
-import NetplayHeartbeatLoader from "./NetplayHeartbeatLoader";
+import NetplayLoaderV29 from "./NetplayLoaderV29";
 
 let AudioModule: any = null;
 try { AudioModule = require("expo-av").Audio; } catch {}
@@ -173,7 +173,7 @@ export default function StingOverlay({ videoReady, onDone, tmdbId, mediaType, ti
       {/* N heartbeat: animation done but video still buffering — logo/título persiste */}
       {animDone && !doneCalledRef.current && (
         <View style={styles.waitSpinner} pointerEvents="none">
-          <NetplayHeartbeatLoader size={100} />
+          <NetplayLoaderV29 />
           {/* Mantém a logo/título visível enquanto aguarda o vídeo */}
           {(logoUrl || title) && (
             <View style={styles.waitLogoWrap}>

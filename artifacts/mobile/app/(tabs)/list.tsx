@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import NetplayHeartbeatLoader from "@/components/NetplayHeartbeatLoader";
+import NetplayLoaderV29 from "@/components/NetplayLoaderV29";
 import {
   Animated,
   Dimensions,
@@ -561,7 +561,7 @@ export default function ListScreen() {
 
         {loading ? (
           <View style={s.loadingWrap}>
-            <NetplayHeartbeatLoader size={80} />
+            <NetplayLoaderV29 />
           </View>
         ) : (
           <>
