@@ -31,6 +31,7 @@ function buildHtml(logoUrl?: string, title?: string): string {
 
   const contentBrand = `
 <div class="content-brand">
+  <div class="content-brand-glow"></div>
   ${logoUrl
     ? `<img src="${logoUrl}" class="content-logo-img" alt=""
             onerror="this.style.display='none';var f=document.getElementById('ctf');if(f)f.style.display='block'"/>`
@@ -151,7 +152,7 @@ body{display:grid;place-items:center;}
   opacity:0;
   text-align:center;
   pointer-events:none;
-  animation:contentLogoIn var(--d) cubic-bezier(.2,.85,.2,1) infinite;
+  animation:contentLogoIn var(--d) cubic-bezier(.2,.85,.2,1) forwards;
 }
 .content-logo-img{
   display:block;
@@ -160,18 +161,24 @@ body{display:grid;place-items:center;}
   width:auto;
   height:auto;
   object-fit:contain;
-  filter:
-    drop-shadow(0 2px 14px rgba(0,0,0,.90))
-    drop-shadow(0 0 22px rgba(255,255,255,.18));
+  animation:logoGlowPulse 1.8s ease-in-out infinite;
 }
 .content-title-text{
   font-size:clamp(13px,2.6vw,28px);
   font-weight:700;
   letter-spacing:2.5px;
-  color:rgba(255,255,255,.92);
-  text-shadow:0 2px 16px rgba(0,0,0,.95),0 0 28px rgba(255,24,48,.45);
+  color:rgba(255,255,255,.95);
   white-space:nowrap;
   text-transform:uppercase;
+  animation:titleGlowPulse 1.8s ease-in-out infinite;
+}
+.content-brand-glow{
+  position:absolute;
+  inset:-18px -28px;
+  border-radius:16px;
+  animation:brandHaloPulse 1.8s ease-in-out infinite;
+  pointer-events:none;
+  z-index:-1;
 }
 
 @keyframes scan{to{transform:translateY(10px);}}
@@ -259,10 +266,22 @@ body{display:grid;place-items:center;}
   0%,43%{opacity:0;transform:translateY(-8px);}56%,84%{opacity:.86;transform:translateY(0);}
   100%{opacity:0;transform:translateY(8px);}}
 @keyframes finalFlash{0%,89%{opacity:0;}92%{opacity:.16;}100%{opacity:0;}}
+/* Logo entra suave e FICA — não some durante a animação (forwards) */
 @keyframes contentLogoIn{
-  0%,62%{opacity:0;transform:translateX(-50%) translateY(10px);}
-  71%,84%{opacity:1;transform:translateX(-50%) translateY(0);}
-  100%{opacity:0;transform:translateX(-50%) translateY(8px);}}
+  0%,62%{opacity:0;transform:translateX(-50%) translateY(12px);}
+  72%,100%{opacity:1;transform:translateX(-50%) translateY(0);}}
+/* Shimmer glow vermelho pulsante ao redor da logo PNG */
+@keyframes logoGlowPulse{
+  0%,100%{filter:drop-shadow(0 2px 14px rgba(0,0,0,.90)) drop-shadow(0 0 10px rgba(255,24,48,.40));}
+  50%{filter:drop-shadow(0 2px 20px rgba(0,0,0,.95)) drop-shadow(0 0 28px rgba(255,24,48,.90)) drop-shadow(0 0 8px rgba(255,180,185,.50));}}
+/* Shimmer glow para o texto do título */
+@keyframes titleGlowPulse{
+  0%,100%{text-shadow:0 2px 16px rgba(0,0,0,.95),0 0 16px rgba(255,24,48,.45);}
+  50%{text-shadow:0 2px 20px rgba(0,0,0,.98),0 0 32px rgba(255,24,48,.95),0 0 6px rgba(255,180,185,.60);}}
+/* Halo de luz vermelho atrás da logo */
+@keyframes brandHaloPulse{
+  0%,100%{background:radial-gradient(ellipse at center,rgba(255,24,48,.18) 0%,transparent 70%);box-shadow:none;}
+  50%{background:radial-gradient(ellipse at center,rgba(255,24,48,.42) 0%,transparent 70%);box-shadow:0 0 40px 8px rgba(255,24,48,.22);}}
 </style>
 </head>
 <body>

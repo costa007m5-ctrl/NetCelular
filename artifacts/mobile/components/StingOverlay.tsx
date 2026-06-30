@@ -12,7 +12,9 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
   Animated,
+  Image,
   StyleSheet,
+  Text,
   View,
 } from "react-native";
 import StingAnimation from "./StingAnimation";
@@ -168,10 +170,26 @@ export default function StingOverlay({ videoReady, onDone, tmdbId, mediaType, ti
       {/* Sting animation */}
       {!animDone && <StingAnimation onEnd={markAnimDone} logoUrl={logoUrl} title={title} />}
 
-      {/* N heartbeat: animation done but video still buffering */}
+      {/* N heartbeat: animation done but video still buffering — logo/título persiste */}
       {animDone && !doneCalledRef.current && (
         <View style={styles.waitSpinner} pointerEvents="none">
           <NetplayHeartbeatLoader size={100} />
+          {/* Mantém a logo/título visível enquanto aguarda o vídeo */}
+          {(logoUrl || title) && (
+            <View style={styles.waitLogoWrap}>
+              {logoUrl ? (
+                <Image
+                  source={{ uri: logoUrl }}
+                  style={styles.waitLogoImg}
+                  resizeMode="contain"
+                  onError={() => {/* fallback para texto abaixo */}}
+                />
+              ) : null}
+              {!logoUrl && title ? (
+                <Text style={styles.waitLogoText}>{title.toUpperCase()}</Text>
+              ) : null}
+            </View>
+          )}
         </View>
       )}
 
@@ -200,5 +218,25 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "#ffffff",
     zIndex: 10000,
+  },
+  waitLogoWrap: {
+    position: "absolute",
+    bottom: "6%" as any,
+    left: 0,
+    right: 0,
+    alignItems: "center",
+  },
+  waitLogoImg: {
+    width: 260,
+    height: 72,
+  },
+  waitLogoText: {
+    fontSize: 18,
+    fontWeight: "700",
+    letterSpacing: 3,
+    color: "rgba(255,255,255,.92)",
+    textShadowColor: "rgba(255,24,48,.80)",
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 20,
   },
 });
