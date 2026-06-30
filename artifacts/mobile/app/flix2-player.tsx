@@ -307,6 +307,7 @@ export default function Flix2PlayerScreen() {
   const [isSwipeSeeking, setIsSwipeSeeking] = useState(false);
   const [swipeSeekDisplay, setSwipeSeekDisplay] = useState(0);
   const swipeGestureActive = useRef(false);
+  const isScrubbingRef = useRef(false);
   const swipeDeltaSec = useRef(0);
   const seekByRef = useRef<(ms: number) => void>(() => {});
 
@@ -1204,10 +1205,12 @@ export default function Flix2PlayerScreen() {
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
       onStartShouldSetPanResponderCapture: () => false,
-      onMoveShouldSetPanResponder: (_, gs) =>
-        !swipeGestureActive.current
+      onMoveShouldSetPanResponder: (_, gs) => {
+        if (isScrubbingRef.current) return false;
+        return !swipeGestureActive.current
           ? Math.abs(gs.dx) > 14 && Math.abs(gs.dx) > Math.abs(gs.dy) * 1.5
-          : true,
+          : true;
+      },
       onMoveShouldSetPanResponderCapture: () => false,
       onPanResponderGrant: () => { swipeGestureActive.current = true; },
       onPanResponderMove: (_, gs) => {
@@ -1302,6 +1305,7 @@ export default function Flix2PlayerScreen() {
 
   // ── Seek bar ─────────────────────────────────────────────────────────────────
   const onSeekStart = useCallback((x: number) => {
+    isScrubbingRef.current = true;
     setIsScrubbing(true);
     setScrubPosition((x / seekBarWidthRef.current) * durationMs);
     showControls();
@@ -1321,6 +1325,7 @@ export default function Flix2PlayerScreen() {
 
   const onSeekEnd = useCallback((x: number) => {
     const pos = Math.max(0, Math.min(durationMs, (x / seekBarWidthRef.current) * durationMs));
+    isScrubbingRef.current = false;
     setIsScrubbing(false);
     setSeekFrameUrl(null);
     if (captureThrottleRef.current) { clearTimeout(captureThrottleRef.current); captureThrottleRef.current = null; }
