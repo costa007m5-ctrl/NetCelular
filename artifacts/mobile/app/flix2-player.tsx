@@ -2188,6 +2188,7 @@ export default function Flix2PlayerScreen() {
           onDone={() => setShowSting(false)}
           tmdbId={tmdbId ?? undefined}
           mediaType={contentType === "tv" ? "tv" : "movie"}
+          title={title ?? undefined}
         />
       )}
 

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import "./vinheta.css";
 
-const DEFAULT_LOGO = "https://image.tmdb.org/t/p/w342/q6y0Go1tsGEsmtFryDOJo3dEmqu.jpg";
+const DEFAULT_LOGO = "https://image.tmdb.org/t/p/w500/frwl2zBNAl5ZbFDJGoJv0CSd90D.png";
 const DEFAULT_TITLE = "Vingadores: Ultimato";
 
 function playOpeningSound() {
@@ -327,17 +327,20 @@ export function VinhetaNetplay() {
           <rect className="final-flash" x="0" y="0" width="1920" height="1080" fill="#ffffff"/>
         </svg>
 
-        <div className="content-logo">
-          <div className="content-logo-inner">
-            <img
-              src={DEFAULT_LOGO}
-              alt={DEFAULT_TITLE}
-              className="content-poster"
-              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-            />
-            <div className="content-title-badge">
-              <span className="content-title-text">{DEFAULT_TITLE}</span>
-            </div>
+        {/* Logo do conteúdo — centro inferior, abaixo de CATÁLOGO PREMIUM */}
+        <div className="content-brand">
+          <img
+            src={DEFAULT_LOGO}
+            alt={DEFAULT_TITLE}
+            className="content-logo-img"
+            onError={(e) => {
+              (e.target as HTMLImageElement).style.display = "none";
+              const fallback = document.getElementById("ctf-mockup");
+              if (fallback) fallback.style.display = "block";
+            }}
+          />
+          <div id="ctf-mockup" className="content-title-text" style={{ display: "none" }}>
+            {DEFAULT_TITLE}
           </div>
         </div>
       </main>

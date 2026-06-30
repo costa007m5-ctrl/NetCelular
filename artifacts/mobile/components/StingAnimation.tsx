@@ -1,12 +1,11 @@
 /**
  * StingAnimation — NETPLAY opening sting V18 Ultra Premium.
  *
- * Renderiza a vinheta HTML/CSS/SVG via WebView para máxima fidelidade visual.
- * Interface inalterada: onEnd() é chamado após a animação (9 s).
+ * Renderiza a vinheta HTML/CSS/SVG via WebView.
+ * Interface: onEnd(), logoUrl (logo PNG transparente do título), title (fallback texto).
  *
- * Props:
- *   onEnd    — chamado quando a animação termina (StingOverlay faz o fade-out)
- *   logoUrl  — URL do poster/logo do conteúdo (aparece no canto inferior direito)
+ * A logo/título aparece centralizada no rodapé da animação
+ * (abaixo de "CATÁLOGO PREMIUM"), exatamente onde o círculo azul foi marcado.
  */
 
 import React, { useEffect, useRef } from "react";
@@ -20,17 +19,24 @@ export const STING_DURATION_MS = 9_000;
 interface StingAnimationProps {
   onEnd:    () => void;
   logoUrl?: string;
+  title?:   string;
 }
 
-function buildHtml(logoUrl?: string): string {
-  const posterTag = logoUrl
-    ? `<div class="content-logo">
-         <div class="content-logo-inner">
-           <img src="${logoUrl}" alt="" class="content-poster"
-                onerror="this.style.display='none'" />
-         </div>
-       </div>`
-    : "";
+function esc(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function buildHtml(logoUrl?: string, title?: string): string {
+  const safeTitle = esc(title ?? "");
+
+  const contentBrand = `
+<div class="content-brand">
+  ${logoUrl
+    ? `<img src="${logoUrl}" class="content-logo-img" alt=""
+            onerror="this.style.display='none';var f=document.getElementById('ctf');if(f)f.style.display='block'"/>`
+    : ""}
+  <div id="ctf" class="content-title-text" style="display:${logoUrl ? "none" : "block"}">${safeTitle}</div>
+</div>`;
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -116,8 +122,8 @@ body{display:grid;place-items:center;}
   animation:fillUp var(--d) cubic-bezier(.2,.82,.2,1) infinite;}
 .fragment{opacity:0;transform-origin:960px 500px;
   animation:fragmentPop var(--d) cubic-bezier(.2,.9,.2,1) infinite;}
-.fragment.f1{animation-delay:.04s;} .fragment.f2{animation-delay:.13s;}
-.fragment.f3{animation-delay:.22s;} .fragment.f4{animation-delay:.31s;}
+.fragment.f1{animation-delay:.04s;}.fragment.f2{animation-delay:.13s;}
+.fragment.f3{animation-delay:.22s;}.fragment.f4{animation-delay:.31s;}
 .brand{opacity:0;transform-origin:960px 760px;
   animation:brandEnter var(--d) cubic-bezier(.2,.85,.2,1) infinite;
   filter:drop-shadow(0 10px 28px rgba(0,0,0,.65));}
@@ -135,13 +141,38 @@ body{display:grid;place-items:center;}
 .micro-tag{opacity:0;animation:microTag var(--d) ease-in-out infinite;}
 .final-flash{opacity:0;animation:finalFlash var(--d) ease-in-out infinite;}
 
-/* Content logo */
-.content-logo{position:absolute;bottom:9%;right:5%;z-index:90;opacity:0;
-  animation:contentLogoIn var(--d) cubic-bezier(.2,.85,.2,1) infinite;}
-.content-logo-inner{display:flex;flex-direction:column;align-items:center;gap:5px;
-  filter:drop-shadow(0 6px 18px rgba(0,0,0,.80)) drop-shadow(0 0 12px rgba(255,24,48,.28));}
-.content-poster{width:clamp(52px,9vw,96px);aspect-ratio:2/3;object-fit:cover;
-  border-radius:7px;border:1.5px solid rgba(255,255,255,.28);box-shadow:0 4px 16px rgba(0,0,0,.70);}
+/* ── Logo / título do conteúdo — centro inferior ── */
+.content-brand{
+  position:absolute;
+  bottom:3.5%;
+  left:50%;
+  transform:translateX(-50%);
+  z-index:90;
+  opacity:0;
+  text-align:center;
+  pointer-events:none;
+  animation:contentLogoIn var(--d) cubic-bezier(.2,.85,.2,1) infinite;
+}
+.content-logo-img{
+  display:block;
+  max-width:clamp(160px,42vw,440px);
+  max-height:clamp(38px,8vh,88px);
+  width:auto;
+  height:auto;
+  object-fit:contain;
+  filter:
+    drop-shadow(0 2px 14px rgba(0,0,0,.90))
+    drop-shadow(0 0 22px rgba(255,255,255,.18));
+}
+.content-title-text{
+  font-size:clamp(13px,2.6vw,28px);
+  font-weight:700;
+  letter-spacing:2.5px;
+  color:rgba(255,255,255,.92);
+  text-shadow:0 2px 16px rgba(0,0,0,.95),0 0 28px rgba(255,24,48,.45);
+  white-space:nowrap;
+  text-transform:uppercase;
+}
 
 @keyframes scan{to{transform:translateY(10px);}}
 @keyframes curtains{
@@ -229,9 +260,9 @@ body{display:grid;place-items:center;}
   100%{opacity:0;transform:translateY(8px);}}
 @keyframes finalFlash{0%,89%{opacity:0;}92%{opacity:.16;}100%{opacity:0;}}
 @keyframes contentLogoIn{
-  0%,48%{opacity:0;transform:translateY(12px) scale(.90);}
-  62%,84%{opacity:1;transform:translateY(0) scale(1);}
-  100%{opacity:0;transform:translateY(8px) scale(.95);}}
+  0%,62%{opacity:0;transform:translateX(-50%) translateY(10px);}
+  71%,84%{opacity:1;transform:translateX(-50%) translateY(0);}
+  100%{opacity:0;transform:translateX(-50%) translateY(8px);}}
 </style>
 </head>
 <body>
@@ -317,12 +348,10 @@ body{display:grid;place-items:center;}
     </defs>
 
     <circle cx="960" cy="520" r="340" fill="url(#mainGlow)" opacity=".78"/>
-
     <path class="orbit-glow" d="M300 496 C550 292,1060 238,1620 482"
           fill="none" stroke="#2d95ff" stroke-width="18" stroke-linecap="round"/>
     <path class="orbit-main" d="M300 496 C550 292,1060 238,1620 482"
           fill="none" stroke="url(#orbitGradient)" stroke-width="7" stroke-linecap="round"/>
-
     <g class="star">
       <g class="star-core">
         <path d="M1572 432 L1584 458 L1572 484 L1560 458 Z" fill="#ffffff"/>
@@ -330,17 +359,14 @@ body{display:grid;place-items:center;}
         <circle cx="1572" cy="458" r="4.8" fill="#f4ffff"/>
       </g>
     </g>
-
     <path class="horizon" d="M390 602 L1530 602"
           fill="none" stroke="url(#horizonGradient)" stroke-width="5" stroke-linecap="round"/>
     <rect class="scanner" x="925" y="596" width="86" height="10" rx="5" fill="rgba(255,255,255,.42)"/>
-
     <g class="floor">
       <ellipse cx="960" cy="858" rx="415" ry="64" fill="rgba(255,20,40,.25)"/>
       <path d="M580 815 L1340 815" stroke="rgba(255,255,255,.14)" stroke-width="2"/>
       <path d="M700 860 L1220 860" stroke="rgba(255,255,255,.085)" stroke-width="2"/>
     </g>
-
     <g>
       <rect class="fragment f1" style="--x:-115px;--y:-45px;--r:-22deg;"
             x="930" y="482" width="21" height="72" rx="10" fill="#ff4352"/>
@@ -351,7 +377,6 @@ body{display:grid;place-items:center;}
       <rect class="fragment f4" style="--x:92px;--y:72px;--r:-24deg;"
             x="905" y="520" width="82" height="16" rx="8" fill="#ff2336"/>
     </g>
-
     <g class="badge">
       <ellipse class="badge-ring" cx="960" cy="500" rx="300" ry="178"
                fill="none" stroke="rgba(255,35,58,.58)" stroke-width="4"/>
@@ -363,14 +388,12 @@ body{display:grid;place-items:center;}
             fill="rgba(255,255,255,.11)" transform="rotate(-18 845 492)"/>
       <path d="M830 390 C900 340,1020 340,1090 400"
             fill="none" stroke="rgba(255,255,255,.12)" stroke-width="8" stroke-linecap="round"/>
-
       <text class="n-outline" x="960" y="592" text-anchor="middle"
             font-family="Arial Black,Impact,Arial,sans-serif" font-size="370" font-weight="900">N</text>
       <text class="n-fill" x="960" y="592" text-anchor="middle"
             font-family="Arial Black,Impact,Arial,sans-serif" font-size="370" font-weight="900"
             fill="url(#nFill)" stroke="url(#nStroke)" stroke-width="7"
             paint-order="stroke fill" mask="url(#nFillMask)" filter="url(#premiumGlow)">N</text>
-
       <g class="n-depth" clip-path="url(#nClip)">
         <path d="M805 300 L1172 690" stroke="rgba(255,255,255,.40)" stroke-width="40"/>
         <path d="M1006 290 L1250 704" stroke="rgba(0,0,0,.38)" stroke-width="82"/>
@@ -383,7 +406,6 @@ body{display:grid;place-items:center;}
       <rect class="n-shine" x="715" y="285" width="110" height="490" rx="24"
             fill="rgba(255,255,255,.34)" transform="rotate(-16 770 545)" clip-path="url(#nClip)"/>
     </g>
-
     <g class="brand">
       <ellipse class="brand-glow" cx="960" cy="756" rx="400" ry="62" fill="url(#brandGlowFill)"/>
       <g font-family="Arial,sans-serif" font-size="104" font-weight="900" letter-spacing="8" text-anchor="middle">
@@ -406,11 +428,9 @@ body{display:grid;place-items:center;}
         </text>
       </g>
     </g>
-
     <text class="subtitle" x="960" y="842" text-anchor="middle"
           font-family="Arial,sans-serif" font-size="23" font-weight="600"
           letter-spacing="8" fill="rgba(255,255,255,.84)">CATÁLOGO PREMIUM • ENTRETENIMENTO</text>
-
     <g class="micro-tag">
       <rect x="800" y="205" width="320" height="42" rx="21"
             fill="rgba(0,0,0,.36)" stroke="rgba(255,255,255,.12)"/>
@@ -420,11 +440,10 @@ body{display:grid;place-items:center;}
     <rect class="final-flash" x="0" y="0" width="1920" height="1080" fill="#ffffff"/>
   </svg>
 
-  ${posterTag}
+  ${contentBrand}
 </main>
 
 <script>
-// ── Web Audio API — som de abertura cinemático ───────────────────────────────
 (function(){
   try{
     var ctx=new(window.AudioContext||window.webkitAudioContext)();
@@ -434,13 +453,11 @@ body{display:grid;place-items:center;}
     master.gain.setValueAtTime(0.65,ctx.currentTime+5.5);
     master.gain.linearRampToValueAtTime(0,ctx.currentTime+9);
     master.connect(ctx.destination);
-
     var reverb=ctx.createConvolver();
     var rb=ctx.createBuffer(2,ctx.sampleRate*2.5,ctx.sampleRate);
     for(var c=0;c<2;c++){var d=rb.getChannelData(c);for(var i=0;i<d.length;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/d.length,2.2);}
     reverb.buffer=rb;reverb.connect(master);
     var dry=ctx.createGain();dry.gain.value=0.55;dry.connect(master);
-
     function tone(f,s,dur,vol,type){
       var o=ctx.createOscillator(),g=ctx.createGain();
       o.type=type||'sine';o.frequency.setValueAtTime(f,ctx.currentTime+s);
@@ -450,7 +467,6 @@ body{display:grid;place-items:center;}
       g.gain.linearRampToValueAtTime(0,ctx.currentTime+s+dur);
       o.connect(g);g.connect(reverb);g.connect(dry);
       o.start(ctx.currentTime+s);o.stop(ctx.currentTime+s+dur+0.02);}
-
     function boom(s,vol){
       var buf=ctx.createBuffer(1,ctx.sampleRate*1.2,ctx.sampleRate);
       var bd=buf.getChannelData(0);
@@ -459,11 +475,9 @@ body{display:grid;place-items:center;}
       var g=ctx.createGain();g.gain.setValueAtTime(vol||0.9,ctx.currentTime+s);
       g.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+s+1.1);
       src.connect(g);g.connect(reverb);g.connect(dry);src.start(ctx.currentTime+s);}
-
     function riser(s){
-      var o=ctx.createOscillator(),g=ctx.createGain();
-      var f=ctx.createBiquadFilter();f.type='lowpass';
-      o.type='sawtooth';
+      var o=ctx.createOscillator(),g=ctx.createGain(),f=ctx.createBiquadFilter();
+      f.type='lowpass';o.type='sawtooth';
       o.frequency.setValueAtTime(60,ctx.currentTime+s);
       o.frequency.exponentialRampToValueAtTime(480,ctx.currentTime+s+2.8);
       f.frequency.setValueAtTime(200,ctx.currentTime+s);
@@ -473,7 +487,6 @@ body{display:grid;place-items:center;}
       g.gain.linearRampToValueAtTime(0,ctx.currentTime+s+2.8);
       o.connect(f);f.connect(g);g.connect(reverb);
       o.start(ctx.currentTime+s);o.stop(ctx.currentTime+s+3);}
-
     boom(0.0,0.85);riser(0.2);
     tone(110,0.8,1.2,0.28,'triangle');tone(220,1.4,0.9,0.22);
     boom(2.2,0.65);tone(330,2.5,0.7,0.20);tone(440,3.0,0.6,0.18);
@@ -482,36 +495,29 @@ body{display:grid;place-items:center;}
     tone(440,6.5,2.0,0.22,'triangle');boom(7.5,0.55);
   }catch(e){}
 })();
-
-// Notifica o React Native que a animação terminou (9 s)
 setTimeout(function(){
-  if(window.ReactNativeWebView){
-    window.ReactNativeWebView.postMessage('STING_DONE');
-  }
-}, 9000);
+  if(window.ReactNativeWebView) window.ReactNativeWebView.postMessage('STING_DONE');
+},9000);
 </script>
 </body>
 </html>`;
 }
 
-export default function StingAnimation({ onEnd, logoUrl }: StingAnimationProps) {
+export default function StingAnimation({ onEnd, logoUrl, title }: StingAnimationProps) {
   const onEndRef = useRef(onEnd);
   useEffect(() => { onEndRef.current = onEnd; });
 
-  // Safety timeout (13 s) em caso do WebView não disparar a mensagem
   useEffect(() => {
     const t = setTimeout(() => onEndRef.current(), 13_000);
     return () => clearTimeout(t);
   }, []);
 
   if (!WebView) {
-    // Fallback: dispositivos sem WebView só esperam o timeout de segurança
     return <View style={StyleSheet.absoluteFill} />;
   }
 
   if (Platform.OS === "web") {
-    // Na web o StingOverlay roda dentro do browser; usa um iframe inline
-    const html = buildHtml(logoUrl);
+    const html = buildHtml(logoUrl, title);
     return (
       <View style={StyleSheet.absoluteFill}>
         <iframe
@@ -519,9 +525,7 @@ export default function StingAnimation({ onEnd, logoUrl }: StingAnimationProps) 
           style={{ width: "100%", height: "100%", border: "none", background: "#000" }}
           sandbox="allow-scripts"
           title="Netplay Sting"
-          onLoad={() => {
-            setTimeout(() => onEndRef.current(), STING_DURATION_MS);
-          }}
+          onLoad={() => { setTimeout(() => onEndRef.current(), STING_DURATION_MS); }}
         />
       </View>
     );
@@ -530,7 +534,7 @@ export default function StingAnimation({ onEnd, logoUrl }: StingAnimationProps) 
   return (
     <View style={StyleSheet.absoluteFill}>
       <WebView
-        source={{ html: buildHtml(logoUrl) }}
+        source={{ html: buildHtml(logoUrl, title) }}
         style={{ flex: 1, backgroundColor: "#000" }}
         scrollEnabled={false}
         bounces={false}
@@ -540,9 +544,7 @@ export default function StingAnimation({ onEnd, logoUrl }: StingAnimationProps) 
         mediaPlaybackRequiresUserAction={false}
         javaScriptEnabled
         onMessage={(event: any) => {
-          if (event.nativeEvent.data === "STING_DONE") {
-            onEndRef.current();
-          }
+          if (event.nativeEvent.data === "STING_DONE") onEndRef.current();
         }}
       />
     </View>

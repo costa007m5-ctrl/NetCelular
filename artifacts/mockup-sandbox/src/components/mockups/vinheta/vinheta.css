@@ -304,55 +304,40 @@
   animation: finalFlash var(--duration) ease-in-out infinite;
 }
 
-/* ── Content logo — aparece junto com a vinheta ── */
+/* ── Logo / título do conteúdo — centro inferior ── */
 
-.content-logo {
+.content-brand {
   position: absolute;
-  bottom: 9%;
-  right: 6%;
+  bottom: 3.5%;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 90;
   opacity: 0;
+  text-align: center;
+  pointer-events: none;
   animation: contentLogoIn var(--duration) cubic-bezier(.2,.85,.2,1) infinite;
 }
 
-.content-logo-inner {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
+.content-logo-img {
+  display: block;
+  max-width: clamp(160px, 42vw, 440px);
+  max-height: clamp(38px, 8vh, 88px);
+  width: auto;
+  height: auto;
+  object-fit: contain;
   filter:
-    drop-shadow(0 8px 24px rgba(0,0,0,.80))
-    drop-shadow(0 0 14px rgba(255,24,48,.30));
-}
-
-.content-poster {
-  width: clamp(56px, 8vw, 100px);
-  aspect-ratio: 2/3;
-  object-fit: cover;
-  border-radius: 8px;
-  border: 1.5px solid rgba(255,255,255,.28);
-  box-shadow: 0 4px 18px rgba(0,0,0,.70);
-}
-
-.content-title-badge {
-  background: rgba(0,0,0,.56);
-  border: 1px solid rgba(255,255,255,.14);
-  border-radius: 20px;
-  padding: 3px 10px;
-  backdrop-filter: blur(6px);
-  max-width: 130px;
+    drop-shadow(0 2px 14px rgba(0,0,0,.90))
+    drop-shadow(0 0 22px rgba(255,255,255,.18));
 }
 
 .content-title-text {
-  font-size: 9px;
+  font-size: clamp(13px, 2.6vw, 28px);
   font-weight: 700;
-  letter-spacing: 1px;
-  color: rgba(255,255,255,.88);
-  text-align: center;
+  letter-spacing: 2.5px;
+  color: rgba(255,255,255,.92);
+  text-shadow: 0 2px 16px rgba(0,0,0,.95), 0 0 28px rgba(255,24,48,.45);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: block;
+  text-transform: uppercase;
 }
 
 /* ── Keyframes ── */
@@ -544,7 +529,7 @@
 }
 
 @keyframes contentLogoIn {
-  0%, 48%  { opacity: 0; transform: translateY(12px) scale(.90); }
-  62%, 84% { opacity: 1; transform: translateY(0) scale(1); }
-  100%     { opacity: 0; transform: translateY(8px) scale(.95); }
+  0%, 62%  { opacity: 0; transform: translateX(-50%) translateY(10px); }
+  71%, 84% { opacity: 1; transform: translateX(-50%) translateY(0); }
+  100%     { opacity: 0; transform: translateX(-50%) translateY(8px); }
 }

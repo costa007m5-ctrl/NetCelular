@@ -52,12 +52,13 @@ interface StingOverlayProps {
   onDone:     () => void;
   tmdbId?:    number | null;
   mediaType?: "movie" | "tv";
+  title?:     string;
 }
 
 const FADE_DURATION_MS = 650;
 const FLASH_DURATION_MS = 80;
 
-export default function StingOverlay({ videoReady, onDone, tmdbId, mediaType }: StingOverlayProps) {
+export default function StingOverlay({ videoReady, onDone, tmdbId, mediaType, title }: StingOverlayProps) {
   const [animDone, setAnimDone]   = useState(false);
   const [logoUrl,  setLogoUrl]    = useState<string | undefined>(undefined);
 
@@ -165,7 +166,7 @@ export default function StingOverlay({ videoReady, onDone, tmdbId, mediaType }: 
   return (
     <Animated.View style={[styles.container, { opacity: overlayOpacity }]} pointerEvents="none">
       {/* Sting animation */}
-      {!animDone && <StingAnimation onEnd={markAnimDone} logoUrl={logoUrl} />}
+      {!animDone && <StingAnimation onEnd={markAnimDone} logoUrl={logoUrl} title={title} />}
 
       {/* N heartbeat: animation done but video still buffering */}
       {animDone && !doneCalledRef.current && (

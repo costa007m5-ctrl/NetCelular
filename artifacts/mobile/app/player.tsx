@@ -1734,6 +1734,7 @@ export default function PlayerScreen() {
           onDone={() => setShowSting(false)}
           tmdbId={id > 0 ? id : undefined}
           mediaType={type === "tv" ? "tv" : "movie"}
+          title={String(title ?? "")}
         />
       )}
     </View>
