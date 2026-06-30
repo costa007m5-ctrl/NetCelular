@@ -55,7 +55,7 @@ import { saveLocalProgress } from "@/hooks/useWatchProgress";
 import WebViewVideoPlayer, { type WebViewVideoPlayerRef } from "@/components/WebViewVideoPlayer";
 import StingOverlay from "@/components/StingOverlay";
 import { CastModal } from "@/components/CastModal";
-import AudioTrackSelector from "@/components/AudioTrackSelector";
+import { AudioTrackSelector } from "@/components/AudioTrackSelector";
 
 let Video: any = null;
 let ResizeMode: any = null;
