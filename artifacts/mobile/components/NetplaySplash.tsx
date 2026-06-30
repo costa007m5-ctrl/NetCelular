@@ -132,15 +132,15 @@ export default function NetplaySplash({ onFinish }: Props) {
     // Entrance: master fade in + scale
     Animated.parallel([
       Animated.timing(masterOp, { toValue: 1, duration: 380, easing: Easing.out(Easing.quad), ...nd }),
-      Animated.timing(masterSc, { toValue: 1, duration: 480, easing: Easing.out(Easing.cubic), ...nd }),
+      Animated.timing(masterSc, { toValue: 1, duration: 480, easing: Easing.out(Easing.quad), ...nd }),
     ]).start();
 
     // Orb glow in
     Animated.timing(orbOp, { toValue: 1, duration: 700, ...nd }).start();
     Animated.loop(
       Animated.sequence([
-        Animated.timing(orbSc, { toValue: 1.14, duration: 2100, easing: Easing.inOut(Easing.sine), ...nd }),
-        Animated.timing(orbSc, { toValue: 1.0, duration: 2100, easing: Easing.inOut(Easing.sine), ...nd }),
+        Animated.timing(orbSc, { toValue: 1.14, duration: 2100, easing: Easing.inOut(Easing.quad), ...nd }),
+        Animated.timing(orbSc, { toValue: 1.0, duration: 2100, easing: Easing.inOut(Easing.quad), ...nd }),
       ])
     ).start();
 
@@ -153,8 +153,8 @@ export default function NetplaySplash({ onFinish }: Props) {
       // Logo float
       Animated.loop(
         Animated.sequence([
-          Animated.timing(logoFloatY, { toValue: -7, duration: 2000, easing: Easing.inOut(Easing.sine), ...nd }),
-          Animated.timing(logoFloatY, { toValue: 0, duration: 2000, easing: Easing.inOut(Easing.sine), ...nd }),
+          Animated.timing(logoFloatY, { toValue: -7, duration: 2000, easing: Easing.inOut(Easing.quad), ...nd }),
+          Animated.timing(logoFloatY, { toValue: 0, duration: 2000, easing: Easing.inOut(Easing.quad), ...nd }),
         ])
       ).start();
     }, 420);
@@ -171,7 +171,7 @@ export default function NetplaySplash({ onFinish }: Props) {
     const tBrand = setTimeout(() => {
       Animated.parallel([
         Animated.timing(brandOp, { toValue: 1, duration: 400, easing: Easing.out(Easing.quad), ...nd }),
-        Animated.timing(brandY, { toValue: 0, duration: 440, easing: Easing.out(Easing.cubic), ...nd }),
+        Animated.timing(brandY, { toValue: 0, duration: 440, easing: Easing.out(Easing.quad), ...nd }),
       ]).start();
     }, 950);
 

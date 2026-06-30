@@ -12,6 +12,9 @@ import Animated, {
 } from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
 
+// Safe easing — Easing.linear works on all platforms (web, iOS, Android)
+const LIN = Easing.linear;
+
 // ── Arc spinner ───────────────────────────────────────────────────────────────
 function Arc({
   size,
@@ -36,7 +39,7 @@ function Arc({
 
   useEffect(() => {
     rotation.value = withRepeat(
-      withTiming(reverse ? 0 : 360, { duration, easing: Easing.linear }),
+      withTiming(reverse ? 0 : 360, { duration, easing: LIN }),
       -1,
       false,
     );
@@ -73,7 +76,7 @@ function OrbitDot({ arcSize }: { arcSize: number }) {
 
   useEffect(() => {
     rotation.value = withRepeat(
-      withTiming(360, { duration: 5000, easing: Easing.linear }),
+      withTiming(360, { duration: 5000, easing: LIN }),
       -1,
       false,
     );
@@ -123,8 +126,8 @@ function Ring({ size, delay }: { size: number; delay: number }) {
       delay,
       withRepeat(
         withSequence(
-          withTiming(0.55, { duration: 2400, easing: Easing.inOut(Easing.sine) }),
-          withTiming(0.8, { duration: 2400, easing: Easing.inOut(Easing.sine) }),
+          withTiming(0.55, { duration: 2400, easing: LIN }),
+          withTiming(0.8,  { duration: 2400, easing: LIN }),
         ),
         -1,
         false,
@@ -161,8 +164,8 @@ function EqBar({ height, delay }: { height: number; delay: number }) {
       delay,
       withRepeat(
         withSequence(
-          withTiming(1.26, { duration: 500, easing: Easing.inOut(Easing.sine) }),
-          withTiming(0.72, { duration: 500, easing: Easing.inOut(Easing.sine) }),
+          withTiming(1.26, { duration: 500, easing: LIN }),
+          withTiming(0.72, { duration: 500, easing: LIN }),
         ),
         -1,
         false,
@@ -184,47 +187,36 @@ function EqBar({ height, delay }: { height: number; delay: number }) {
 }
 
 // ── Particle ──────────────────────────────────────────────────────────────────
-function Particle({
-  left,
-  top,
-  delay,
-}: {
-  left: string;
-  top: string;
-  delay: number;
-}) {
+function Particle({ left, top, delay }: { left: string; top: string; delay: number }) {
   const opacity = useSharedValue(0);
   const translateY = useSharedValue(8);
 
   useEffect(() => {
-    const loop = () => {
-      opacity.value = withDelay(
-        delay,
-        withRepeat(
-          withSequence(
-            withTiming(0.75, { duration: 1700, easing: Easing.out(Easing.quad) }),
-            withTiming(0.36, { duration: 2800, easing: Easing.inOut(Easing.sine) }),
-            withTiming(0, { duration: 700, easing: Easing.in(Easing.quad) }),
-            withTiming(0, { duration: 1600 }),
-          ),
-          -1,
-          false,
+    opacity.value = withDelay(
+      delay,
+      withRepeat(
+        withSequence(
+          withTiming(0.75, { duration: 1700, easing: LIN }),
+          withTiming(0.36, { duration: 2800, easing: LIN }),
+          withTiming(0,    { duration: 700,  easing: LIN }),
+          withTiming(0,    { duration: 1600, easing: LIN }),
         ),
-      );
-      translateY.value = withDelay(
-        delay,
-        withRepeat(
-          withSequence(
-            withTiming(-20, { duration: 5200, easing: Easing.out(Easing.quad) }),
-            withTiming(8, { duration: 0 }),
-            withTiming(8, { duration: 1600 }),
-          ),
-          -1,
-          false,
+        -1,
+        false,
+      ),
+    );
+    translateY.value = withDelay(
+      delay,
+      withRepeat(
+        withSequence(
+          withTiming(-20, { duration: 5200, easing: LIN }),
+          withTiming(8,   { duration: 0   }),
+          withTiming(8,   { duration: 1600, easing: LIN }),
         ),
-      );
-    };
-    loop();
+        -1,
+        false,
+      ),
+    );
     return () => {
       cancelAnimation(opacity);
       cancelAnimation(translateY);
@@ -261,8 +253,8 @@ function CenterBox() {
   useEffect(() => {
     scale.value = withRepeat(
       withSequence(
-        withTiming(1.06, { duration: 1000, easing: Easing.inOut(Easing.sine) }),
-        withTiming(1.0, { duration: 1000, easing: Easing.inOut(Easing.sine) }),
+        withTiming(1.06, { duration: 1000, easing: LIN }),
+        withTiming(1.0,  { duration: 1000, easing: LIN }),
       ),
       -1,
       false,
@@ -293,8 +285,8 @@ function Halo() {
   useEffect(() => {
     scale.value = withRepeat(
       withSequence(
-        withTiming(1.1, { duration: 1100, easing: Easing.inOut(Easing.sine) }),
-        withTiming(1.0, { duration: 1100, easing: Easing.inOut(Easing.sine) }),
+        withTiming(1.1, { duration: 1100, easing: LIN }),
+        withTiming(1.0, { duration: 1100, easing: LIN }),
       ),
       -1,
       false,
@@ -358,29 +350,10 @@ export default function NetplayLoaderV29() {
           <Halo />
           <View style={styles.track} />
 
-          {/* Arcs */}
-          <Arc
-            size={128}
-            borderWidth={4}
-            topColor="#ff2034"
-            rightColor="#ff6672"
-            duration={1050}
-          />
-          <Arc
-            size={104}
-            borderWidth={3}
-            bottomColor="rgba(255,105,116,0.88)"
-            leftColor="rgba(255,31,51,0.78)"
-            duration={1750}
-            reverse
-          />
-          <Arc
-            size={84}
-            borderWidth={2}
-            topColor="rgba(255,255,255,0.16)"
-            rightColor="rgba(255,255,255,0.05)"
-            duration={2400}
-          />
+          {/* Three spinning arcs */}
+          <Arc size={128} borderWidth={4} topColor="#ff2034" rightColor="#ff6672" duration={1050} />
+          <Arc size={104} borderWidth={3} bottomColor="rgba(255,105,116,0.88)" leftColor="rgba(255,31,51,0.78)" duration={1750} reverse />
+          <Arc size={84}  borderWidth={2} topColor="rgba(255,255,255,0.16)" rightColor="rgba(255,255,255,0.05)" duration={2400} />
 
           <OrbitDot arcSize={128} />
           <CenterBox />
@@ -420,9 +393,6 @@ const styles = StyleSheet.create({
     height: 420,
     borderRadius: 210,
     backgroundColor: "rgba(255,36,52,0.10)",
-    ...(Platform.OS === "ios" || Platform.OS === "android"
-      ? {}
-      : {}),
   },
   loaderWrap: {
     alignItems: "center",
