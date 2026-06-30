@@ -477,6 +477,35 @@ function SectionHeader({ title, icon, onSeeAll, badge, accentColor = RED, subtit
   );
 }
 
+// Shared scroll-position tracker updated by HomeScreen's onScroll.
+// A plain object ref (not Animated.Value) so LazySection can read it without re-renders.
+const _homeScrollY = { current: 0 };
+
+// LazySection — renders children only when the user has scrolled past `threshold` pixels.
+// Shows a blank placeholder until revealed. Once revealed it never unmounts (mount-once pattern).
+function LazySection({
+  children,
+  threshold,
+  minHeight = 220,
+}: {
+  children: React.ReactNode;
+  threshold: number;
+  minHeight?: number;
+}) {
+  const [revealed, setRevealed] = useState(false);
+  useEffect(() => {
+    if (revealed) return;
+    // Immediate check in case user loaded deep via back-nav
+    if (_homeScrollY.current >= threshold) { setRevealed(true); return; }
+    const id = setInterval(() => {
+      if (_homeScrollY.current >= threshold) setRevealed(true);
+    }, 150);
+    return () => clearInterval(id);
+  }, [revealed, threshold]);
+  if (!revealed) return <View style={{ minHeight }} />;
+  return <>{children}</>;
+}
+
 // Animated section wrapper — fades + slides up on mount
 function AnimatedSection({ anim, children }: { anim: Animated.Value; children: React.ReactNode }) {
   // On native skip Animated.View entirely — avoids creating 100+ animated wrappers on Android
@@ -3182,6 +3211,7 @@ export default function HomeScreen() {
             useNativeDriver: true,
             listener: (e: any) => {
               const y = e.nativeEvent.contentOffset.y;
+              _homeScrollY.current = y; // feed LazySection progressive reveal
               // Only trigger state update when crossing threshold (avoid 60fps re-renders)
               const shouldShow = y > 700;
               setShowScrollTop((prev) => (prev !== shouldShow ? shouldShow : prev));
@@ -3686,6 +3716,9 @@ export default function HomeScreen() {
 
               {/* Below-fold: deferred until after first render interactions complete */}
               {belowFoldReady && (
+              <>
+              {/* ── GROUP A: lazy-reveal at 500px ─────────────────────────────── */}
+              <LazySection threshold={500} minHeight={1200}>
               <>
 
               {/* ── 10.8 ORIGINALS BANNER ────────────────────────────────────── */}
