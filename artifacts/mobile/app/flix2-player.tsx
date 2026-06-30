@@ -54,6 +54,8 @@ import { checkAndStartSession, heartbeatSession, endSession } from "@/lib/sessio
 import { saveLocalProgress } from "@/hooks/useWatchProgress";
 import WebViewVideoPlayer, { type WebViewVideoPlayerRef } from "@/components/WebViewVideoPlayer";
 import StingOverlay from "@/components/StingOverlay";
+import { CastModal } from "@/components/CastModal";
+import AudioTrackSelector from "@/components/AudioTrackSelector";
 
 let Video: any = null;
 let ResizeMode: any = null;
@@ -256,6 +258,16 @@ export default function Flix2PlayerScreen() {
   const [useWebViewPlayer, setUseWebViewPlayer] = useState(false);
   const [webViewBaseUrl, setWebViewBaseUrl] = useState("https://nixplay.lat");
 
+  // ── Favorito / watchlist ──────────────────────────────────────────────────────
+  const [isFavorited, setIsFavorited] = useState(false);
+  const [favoriteLoading, setFavoriteLoading] = useState(false);
+
+  // ── Cast / Transmitir ─────────────────────────────────────────────────────────
+  const [showCastModal, setShowCastModal] = useState(false);
+
+  // ── Áudio e Legendas ──────────────────────────────────────────────────────────
+  const [showAudioPanel, setShowAudioPanel] = useState(false);
+
   // ── Sting overlay ─────────────────────────────────────────────────────────────
   const [showSting, setShowSting] = useState(Platform.OS !== "web");
 
@@ -364,6 +376,37 @@ export default function Flix2PlayerScreen() {
     const hbInterval = setInterval(heartbeatSession, 20000);
     return () => { clearInterval(hbInterval); endSession(); };
   }, [user?.id]);
+
+  // ── Watchlist / Favorito ──────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!user?.id || !tmdbId) return;
+    db.watchlist.isAdded(user.id, tmdbId, contentType).then((inList) => {
+      setIsFavorited(inList);
+    }).catch(() => {});
+  }, [user?.id, tmdbId, contentType]);
+
+  const toggleFavorite = useCallback(async () => {
+    if (!user?.id || !tmdbId || favoriteLoading) return;
+    setFavoriteLoading(true);
+    haptic(20);
+    try {
+      if (isFavorited) {
+        await db.watchlist.remove(user.id, tmdbId, contentType);
+        setIsFavorited(false);
+      } else {
+        await db.watchlist.add({
+          user_id: user.id,
+          tmdb_id: tmdbId,
+          type: contentType,
+          title,
+          poster_path: posterPath ?? undefined,
+          backdrop_path: backdropPath ?? undefined,
+        } as any);
+        setIsFavorited(true);
+      }
+    } catch {}
+    setFavoriteLoading(false);
+  }, [user?.id, tmdbId, contentType, isFavorited, favoriteLoading, haptic, title, posterPath, backdropPath]);
 
   // ── TMDB content logo ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -1467,6 +1510,23 @@ export default function Flix2PlayerScreen() {
         </Pressable>
       </Modal>
 
+      {/* ── Cast modal ────────────────────────────────────────────────────────── */}
+      <CastModal
+        visible={showCastModal}
+        onClose={() => setShowCastModal(false)}
+        castUrl={videoUrl ?? ""}
+        title={title}
+        videoUrl={videoUrl ?? ""}
+      />
+
+      {/* ── Áudio e Legendas ──────────────────────────────────────────────────── */}
+      <AudioTrackSelector
+        visible={showAudioPanel}
+        onClose={() => setShowAudioPanel(false)}
+        audioTracks={[]}
+        subtitleTracks={[]}
+      />
+
       {/* ── Backdrop wallpaper — fills black bars behind the video ──────────── */}
       {(backdropPath || posterPath) ? (
         <Image
@@ -1824,20 +1884,30 @@ export default function Flix2PlayerScreen() {
 
                 {/* Right: icon action bar */}
                 <View style={styles.topBarRight}>
-                  <Pressable style={styles.topIconItem}>
-                    <Feather name="heart" size={17} color="#fff" />
-                    <Text style={styles.topIconLabel}>Favorito</Text>
+                  <Pressable
+                    style={styles.topIconItem}
+                    onPress={() => { showControls(); toggleFavorite(); }}
+                    disabled={favoriteLoading}
+                  >
+                    <Feather
+                      name={isFavorited ? "heart" : "heart"}
+                      size={17}
+                      color={isFavorited ? RED : "#fff"}
+                    />
+                    <Text style={[styles.topIconLabel, isFavorited && { color: RED }]}>
+                      {isFavorited ? "Salvo" : "Favorito"}
+                    </Text>
                   </Pressable>
-                  <Pressable style={styles.topIconItem}>
+                  <Pressable style={styles.topIconItem} onPress={() => { showControls(); setShowAudioPanel(true); }}>
                     <Feather name="message-square" size={17} color="#fff" />
                     <Text style={styles.topIconLabel}>{"Áudio e\nLegendas"}</Text>
                   </Pressable>
                   <Pressable
                     style={styles.topIconItem}
-                    onPress={() => { if (hasMultipleQualities) { setShowQualityPanel(true); showControls(); } }}
+                    onPress={() => { if (hasMultipleQualities) { setShowQualityPanel(true); } showControls(); }}
                   >
-                    <View style={styles.qualityIconBox}>
-                      <Text style={styles.qualityIconText}>{videoResolution ?? "1080p"}</Text>
+                    <View style={[styles.qualityIconBox, !hasMultipleQualities && { opacity: 0.5 }]}>
+                      <Text style={styles.qualityIconText}>{videoResolution ?? "HD"}</Text>
                     </View>
                     <Text style={styles.topIconLabel}>Qualidade</Text>
                   </Pressable>
@@ -1853,7 +1923,7 @@ export default function Flix2PlayerScreen() {
                     <Feather name="unlock" size={17} color="#fff" />
                     <Text style={styles.topIconLabel}>Bloquear</Text>
                   </Pressable>
-                  <Pressable style={styles.topIconItem}>
+                  <Pressable style={styles.topIconItem} onPress={() => { showControls(); setShowCastModal(true); }}>
                     <Feather name="cast" size={17} color="#fff" />
                     <Text style={styles.topIconLabel}>Transmitir</Text>
                   </Pressable>
@@ -2127,12 +2197,14 @@ export default function Flix2PlayerScreen() {
             const renderEpCard = (item: Flix2Item | null, tmdbEp: any, key: string | number) => {
               const isCurrentEp = item ? (item.season === season && item.episode === episode) : false;
               const epNum = item?.episode ?? tmdbEp?.episode_number;
-              const epName = tmdbEp?.name ?? item?.label ?? "";
+              const epName = tmdbEp?.name
+                ? tmdbEp.name
+                : `Episódio ${epNum}`;
               const stillUri = tmdbEp?.still_path ? TMDB_IMG(tmdbEp.still_path, "w300") : null;
               const runtime = tmdbEp?.runtime;
               const rating = tmdbEp?.vote_average;
               const runtimeText = runtime
-                ? `${Math.floor(runtime / 60)}:${String(runtime % 60).padStart(2, "0")}`
+                ? formatTime(runtime * 60 * 1000)
                 : null;
 
               return (
@@ -2202,13 +2274,7 @@ export default function Flix2PlayerScreen() {
               );
             };
 
-            if (seasonFlix2.length === 0 && panelEpisodes.length > 0) {
-              return panelEpisodes.map((tmdbEp: any) =>
-                renderEpCard(null, tmdbEp, tmdbEp.episode_number)
-              );
-            }
-
-            if (seasonFlix2.length === 0) {
+            if (seasonFlix2.length === 0 && panelEpisodes.length === 0) {
               return (
                 <View style={{ padding: 32, alignItems: "center", gap: 8 }}>
                   <Feather name="inbox" size={28} color="rgba(255,255,255,0.2)" />
@@ -2217,10 +2283,22 @@ export default function Flix2PlayerScreen() {
               );
             }
 
-            return seasonFlix2.map((item) => {
-              const tmdbEp = panelEpisodes.find((e: any) => e.episode_number === item.episode);
-              return renderEpCard(item, tmdbEp, item.id);
-            });
+            const cards = seasonFlix2.length === 0
+              ? panelEpisodes.map((tmdbEp: any) => renderEpCard(null, tmdbEp, tmdbEp.episode_number))
+              : seasonFlix2.map((item) => {
+                  const tmdbEp = panelEpisodes.find((e: any) => e.episode_number === item.episode);
+                  return renderEpCard(item, tmdbEp, item.id);
+                });
+
+            return (
+              <>
+                {cards}
+                <Pressable style={styles.panelLoadMoreBtn}>
+                  <Feather name="chevron-down" size={14} color="rgba(255,255,255,0.55)" />
+                  <Text style={styles.panelLoadMoreText}>Carregar mais episódios</Text>
+                </Pressable>
+              </>
+            );
           })()}
         </Animated.ScrollView>
       </Animated.View>
