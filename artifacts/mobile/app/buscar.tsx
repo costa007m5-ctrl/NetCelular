@@ -283,15 +283,16 @@ const SUGGESTIONS = [
 
 // ─── Components ───────────────────────────────────────────────────────────────
 
-function PosterCard({ item, onPress, inFlix2 = false, variantLabel }: {
+function PosterCard({ item, onPress, inFlix2 = false, variantLabel, compact = false }: {
   item: ContentItem;
   onPress: () => void;
   inFlix2?: boolean;
   variantLabel?: string;
+  compact?: boolean;
 }) {
   const variantColor = variantLabel === "LEG" ? "#3b82f6" : variantLabel === "DUB" ? "#f59e0b" : "#6366f1";
   return (
-    <Pressable style={s.card} onPress={onPress}>
+    <Pressable style={compact ? s.hPosterCard : s.card} onPress={onPress}>
       <View style={s.cardImg}>
         {item.posterPath ? (
           <Image source={{ uri: item.posterPath }} style={StyleSheet.absoluteFill} contentFit="cover" />
@@ -986,7 +987,8 @@ export default function BuscarScreen() {
                   <Text style={s.rowTitle}>Principais sugestões</Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.hRow}>
                     {topSuggestions.map((e, idx) => (
-                      <LandscapeCard
+                      <PosterCard
+                        compact
                         key={`top-${e.item.id}-${idx}`}
                         item={e.item}
                         variantLabel={e.variantLabel}
@@ -1012,7 +1014,8 @@ export default function BuscarScreen() {
                   <Text style={s.rowTitle}>{g.title}</Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.hRow}>
                     {g.entries.map((e, idx) => (
-                      <LandscapeCard
+                      <PosterCard
+                        compact
                         key={`g-${gi}-${e.item.id}-${idx}`}
                         item={e.item}
                         variantLabel={e.variantLabel}
@@ -1038,7 +1041,8 @@ export default function BuscarScreen() {
                   <Text style={s.rowTitle}>{row.title}</Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.hRow}>
                     {row.entries.map((item, idx) => (
-                      <LandscapeCard
+                      <PosterCard
+                        compact
                         key={`rel-${row.key}-${item.id}-${idx}`}
                         item={item}
                         onPress={() => goTo(item)}
@@ -1238,6 +1242,7 @@ const s = StyleSheet.create({
 
   /* poster card */
   card:    { width: (W - 32 - 16) / 3, marginBottom: 4 },
+  hPosterCard: { width: 108, marginBottom: 4 },
   cardImg: {
     width: "100%", aspectRatio: 2 / 3, borderRadius: 10,
     overflow: "hidden", backgroundColor: "#1a0a14", marginBottom: 5,
