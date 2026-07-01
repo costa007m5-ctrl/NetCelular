@@ -542,6 +542,7 @@ export default function BuscarScreen() {
   const [geminiEnabled,   setGeminiEnabled]   = useState(false);
   const [recommended,        setRecommended]        = useState<ContentItem[]>([]);
   const [recommendedLoading, setRecommendedLoading] = useState(true);
+  const [relatedRows,        setRelatedRows]        = useState<{ key: string; title: string; entries: ContentItem[] }[]>([]);
 
   // Animations
   const barFade  = useRef(new Animated.Value(0)).current;
@@ -580,6 +581,37 @@ export default function BuscarScreen() {
     })();
     return () => { cancelled = true; };
   }, []);
+
+  // Netflix-style "Relacionados a X" rows — fetches similar titles for the
+  // top matches in the background so extra options keep showing up under
+  // the main results, without blocking or re-triggering the main search.
+  useEffect(() => {
+    let cancelled = false;
+    if (results.length === 0) { setRelatedRows([]); return; }
+
+    const top = results.slice(0, 5);
+    (async () => {
+      const settled = await Promise.allSettled(
+        top.map(async (it) => {
+          const mt = it.mediaType === "tv" ? "tv" : "movie";
+          const data = await tfetch(`/${mt}/${it.tmdbId}/similar`, { page: "1" });
+          const entries = (data.results ?? [])
+            .filter((r: any) => r.poster_path || r.backdrop_path)
+            .slice(0, 12)
+            .map((r: any) => toItem(r, mt));
+          return { key: `${mt}-${it.tmdbId}`, title: `Relacionados a ${it.title}`, entries };
+        })
+      );
+      if (cancelled) return;
+      const rows = settled
+        .filter((r): r is PromiseFulfilledResult<{ key: string; title: string; entries: ContentItem[] }> => r.status === "fulfilled")
+        .map(r => r.value)
+        .filter(r => r.entries.length >= 3);
+      setRelatedRows(rows);
+    })();
+
+    return () => { cancelled = true; };
+  }, [results]);
 
   // ── Search logic ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -994,6 +1026,22 @@ export default function BuscarScreen() {
                             poster: e.item.posterPath ?? "",
                           },
                         } as any)}
+                      />
+                    ))}
+                  </ScrollView>
+                </View>
+              ))}
+
+              {/* Netflix-style "Relacionados a X" rows — extra options based on top matches */}
+              {relatedRows.map((row) => (
+                <View key={row.key} style={s.rowWrap}>
+                  <Text style={s.rowTitle}>{row.title}</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.hRow}>
+                    {row.entries.map((item, idx) => (
+                      <LandscapeCard
+                        key={`rel-${row.key}-${item.id}-${idx}`}
+                        item={item}
+                        onPress={() => goTo(item)}
                       />
                     ))}
                   </ScrollView>
