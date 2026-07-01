@@ -337,6 +337,7 @@ export default function DetailScreen() {
   const [trailerPlaying, setTrailerPlaying] = useState(true);
   const [bannerMuted, setBannerMuted] = useState(true);
   const [bannerVideoUrl, setBannerVideoUrl] = useState<string | null>(null);
+  const [bannerVideoReady, setBannerVideoReady] = useState(false);
   const bannerVideoRef = useRef<any>(null);
   const bannerTrailerRef = useRef<any>(null);
 
@@ -440,7 +441,14 @@ export default function DetailScreen() {
   // Reset banner video when navigating to a different title
   React.useEffect(() => {
     setBannerVideoUrl(null);
+    setBannerVideoReady(false);
   }, [contentKey]);
+
+  // Reset "ready" flag whenever the video source changes so the backdrop
+  // image stays visible until the new video's first frame is decoded.
+  React.useEffect(() => {
+    setBannerVideoReady(false);
+  }, [bannerVideoUrl]);
 
   // Admin content override state
   const [contentOverride, setContentOverride] = useState<ContentOverride | null>(null);
@@ -3977,23 +3985,35 @@ export default function DetailScreen() {
                 muted={bannerMuted}
                 playsInline
                 loop
+                onLoadedData={() => setBannerVideoReady(true)}
+                onCanPlay={() => setBannerVideoReady(true)}
                 style={{
                   position: "absolute", top: 0, left: 0,
                   width: "100%", height: "100%",
                   objectFit: "cover", pointerEvents: "none",
+                  opacity: bannerVideoReady ? 1 : 0,
                 } as any}
               />
             ) : WebView ? (
               // Native: embed stream in a minimal HTML page so the browser engine
               // follows CDN redirects (HTTPS→HTTP) that RN's fetch layer blocks
-              <View style={StyleSheet.absoluteFill} pointerEvents="none">
+              // Kept fully transparent (opacity 0) until the first frame decodes —
+              // otherwise the Android WebView's own white surface briefly covers
+              // the static backdrop image (Layer 1), causing a white flash.
+              <View style={[StyleSheet.absoluteFill, { opacity: bannerVideoReady ? 1 : 0 }]} pointerEvents="none">
                 <WebView
                   ref={bannerVideoRef}
                   source={{
-                    html: `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>*{margin:0;padding:0;background:transparent;overflow:hidden}html,body{width:100%;height:100%;background:transparent}video{width:100%;height:100%;object-fit:cover}</style></head><body><video id="v" src="${bannerVideoUrl.replace(/"/g, "&quot;")}" autoplay muted playsinline loop preload="auto"></video><script>(function(){var v=document.getElementById('v');function tryPlay(){v.play().catch(function(){});}v.addEventListener('canplay',tryPlay);v.addEventListener('loadedmetadata',tryPlay);tryPlay();})();</script></body></html>`,
+                    html: `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>*{margin:0;padding:0;background:transparent;overflow:hidden}html,body{width:100%;height:100%;background:transparent}video{width:100%;height:100%;object-fit:cover}</style></head><body><video id="v" src="${bannerVideoUrl.replace(/"/g, "&quot;")}" autoplay muted playsinline loop preload="auto"></video><script>(function(){var v=document.getElementById('v');var rn=window.ReactNativeWebView;var sent=false;function sendReady(){if(sent)return;sent=true;try{rn&&rn.postMessage(JSON.stringify({type:'ready'}));}catch(e){}}function tryPlay(){v.play().catch(function(){});}v.addEventListener('canplay',function(){tryPlay();sendReady();});v.addEventListener('loadeddata',sendReady);v.addEventListener('playing',sendReady);v.addEventListener('loadedmetadata',tryPlay);tryPlay();})();</script></body></html>`,
                     baseUrl: "https://nixplay.lat",
                   }}
                   style={StyleSheet.absoluteFill}
+                  onMessage={(e: any) => {
+                    try {
+                      const msg = JSON.parse(e.nativeEvent.data);
+                      if (msg.type === "ready") setBannerVideoReady(true);
+                    } catch {}
+                  }}
                   allowsInlineMediaPlayback
                   mediaPlaybackRequiresUserAction={false}
                   scrollEnabled={false}
