@@ -256,6 +256,19 @@ function toItem(raw: any, forcedType?: "movie" | "tv"): ContentItem {
   };
 }
 
+// Maps TMDB genre ids → pt-BR labels, used to group search results into
+// Netflix-style horizontal category rows.
+const GENRE_NAMES: Record<number, string> = {
+  28: "Ação", 12: "Aventura", 16: "Animação", 35: "Comédia", 80: "Crime",
+  99: "Documentário", 18: "Drama", 10751: "Família", 14: "Fantasia",
+  36: "História", 27: "Terror", 10402: "Música", 9648: "Mistério",
+  10749: "Romance", 878: "Ficção Científica", 53: "Suspense",
+  10752: "Guerra", 37: "Faroeste", 10759: "Ação & Aventura",
+  10765: "Sci-Fi & Fantasia", 10766: "Novela", 10767: "Talk Show",
+  10768: "Guerra & Política", 10762: "Infantil", 10763: "Notícias",
+  10764: "Reality",
+};
+
 // ─── Quick suggestion chips shown when idle ────────────────────────────────────
 const SUGGESTIONS = [
   { label: "Marvel",     emoji: "⚡", q: "Marvel" },
@@ -379,6 +392,130 @@ function Flix2OnlyCard({ item, siblings, onPress }: { item: Flix2RawItem; siblin
     : <View style={[s.card, { opacity: 0.9 }]}>{inner}</View>;
 }
 
+// Netflix-style horizontal landscape card (used for "Principais sugestões"
+// and genre rows in search results, plus Flix2/Drive rows).
+function LandscapeCard({ item, onPress, variantLabel, inFlix2 }: {
+  item: ContentItem;
+  onPress: () => void;
+  variantLabel?: string;
+  inFlix2?: boolean;
+}) {
+  const variantColor = variantLabel === "LEG" ? "#3b82f6" : variantLabel === "DUB" ? "#f59e0b" : "#6366f1";
+  const img = item.backdropPath || item.posterPath;
+  return (
+    <Pressable style={s.landCard} onPress={onPress}>
+      <View style={s.landImg}>
+        {img ? (
+          <Image source={{ uri: img }} style={StyleSheet.absoluteFill} contentFit="cover" />
+        ) : (
+          <LinearGradient colors={["#2a1020", "#0e0810"]}
+            style={[StyleSheet.absoluteFill, { alignItems: "center", justifyContent: "center" }]}>
+            <Feather name="film" size={22} color="rgba(255,255,255,0.1)" />
+          </LinearGradient>
+        )}
+        <LinearGradient colors={["transparent", "rgba(0,0,0,0.85)"]}
+          style={StyleSheet.absoluteFill} locations={[0.5, 1]} />
+        <View style={[s.typeBadge, item.mediaType === "movie" && { backgroundColor: "rgba(229,9,20,0.82)" }]}>
+          <Text style={s.typeBadgeText}>{item.mediaType === "tv" ? "SÉRIE" : "FILME"}</Text>
+        </View>
+        {item.rating >= 7 && (
+          <View style={s.ratingBadge}>
+            <Text style={s.ratingText}>★ {item.rating.toFixed(1)}</Text>
+          </View>
+        )}
+        {variantLabel ? (
+          <View style={[s.variantBadge, { backgroundColor: `${variantColor}dd`, borderColor: `${variantColor}88` }]}>
+            <Feather name={variantLabel === "LEG" ? "align-left" : "volume-2"} size={7} color="#fff" />
+            <Text style={s.variantBadgeText}>{variantLabel}</Text>
+          </View>
+        ) : inFlix2 ? (
+          <View style={s.flix2Badge}>
+            <Feather name="zap" size={8} color="#fff" />
+            <Text style={s.flix2BadgeText}>FLIX</Text>
+          </View>
+        ) : null}
+        <View style={s.landPlayBtn}>
+          <Feather name="play" size={13} color="#fff" />
+        </View>
+      </View>
+      <Text style={s.landTitle} numberOfLines={1}>
+        {variantLabel
+          ? item.title.replace(/\s*\[[^\]]*\]/g, "").replace(/\s*\(\d{4}\)/g, "").trim()
+          : item.title}
+      </Text>
+    </Pressable>
+  );
+}
+
+function Flix2LandscapeCard({ item, siblings, onPress }: { item: Flix2RawItem; siblings?: Flix2RawItem[]; onPress?: () => void }) {
+  const typeLabel = item._type === "series" ? "SÉRIE" : item._type === "anime" ? "ANIME" : "FILME";
+  const typeBg =
+    item._type === "series" ? "rgba(8,145,178,0.85)" :
+    item._type === "anime"  ? "rgba(234,88,12,0.85)"  : "rgba(229,9,20,0.85)";
+  const catName = (item.category_name ?? "").toLowerCase();
+  const isLeg = /\[L\]/i.test(item.title) || /legendado/i.test(catName);
+  const isDub = /\[D\b|Dub\b/i.test(item.title) || /dublado/i.test(catName);
+  const hasSiblingLeg = !isLeg && (siblings ?? []).some(s => /\[L\]/i.test(s.title) || /legendado/i.test((s.category_name ?? "").toLowerCase()));
+  const variantLabel = isLeg ? "LEG" : isDub || hasSiblingLeg ? "DUB" : null;
+  const variantColor = isLeg ? "#3b82f6" : "#f59e0b";
+  const cleanTitle = item.title.replace(/\s*\[[^\]]*\]/g, "").replace(/\s*\(\d{4}\)/g, "").trim();
+
+  return (
+    <Pressable style={s.landCard} onPress={onPress}>
+      <View style={s.landImg}>
+        {item.thumbnail ? (
+          <Image source={{ uri: item.thumbnail }} style={StyleSheet.absoluteFill} contentFit="cover" />
+        ) : (
+          <LinearGradient colors={["#2a1020", "#0e0810"]}
+            style={[StyleSheet.absoluteFill, { alignItems: "center", justifyContent: "center" }]}>
+            <Feather name="film" size={22} color="rgba(255,255,255,0.1)" />
+          </LinearGradient>
+        )}
+        <LinearGradient colors={["transparent", "rgba(0,0,0,0.85)"]}
+          style={StyleSheet.absoluteFill} locations={[0.5, 1]} />
+        <View style={[s.typeBadge, { backgroundColor: typeBg }]}>
+          <Text style={s.typeBadgeText}>{typeLabel}</Text>
+        </View>
+        {variantLabel ? (
+          <View style={[s.variantBadge, { backgroundColor: `${variantColor}dd`, borderColor: `${variantColor}88` }]}>
+            <Feather name={isLeg ? "align-left" : "volume-2"} size={7} color="#fff" />
+            <Text style={s.variantBadgeText}>{variantLabel}</Text>
+          </View>
+        ) : (
+          <View style={s.flix2Badge}>
+            <Feather name="zap" size={8} color="#fff" />
+            <Text style={s.flix2BadgeText}>FLIX</Text>
+          </View>
+        )}
+        <View style={s.landPlayBtn}>
+          <Feather name="play" size={13} color="#fff" />
+        </View>
+      </View>
+      <Text style={s.landTitle} numberOfLines={1}>{cleanTitle}</Text>
+    </Pressable>
+  );
+}
+
+// Netflix-style vertical row shown on the idle "recomendados" list
+function RecommendedRow({ item, onPress }: { item: ContentItem; onPress: () => void }) {
+  const img = item.backdropPath || item.posterPath;
+  return (
+    <Pressable style={s.recRow} onPress={onPress}>
+      <View style={s.recThumb}>
+        {img ? (
+          <Image source={{ uri: img }} style={StyleSheet.absoluteFill} contentFit="cover" />
+        ) : (
+          <LinearGradient colors={["#2a1020", "#0e0810"]} style={StyleSheet.absoluteFill} />
+        )}
+      </View>
+      <Text style={s.recTitle} numberOfLines={2}>{item.title}</Text>
+      <View style={s.recPlayBtn}>
+        <Feather name="play" size={14} color="#fff" />
+      </View>
+    </Pressable>
+  );
+}
+
 // ─── Main screen ──────────────────────────────────────────────────────────────
 
 export default function BuscarScreen() {
@@ -403,6 +540,8 @@ export default function BuscarScreen() {
   const [geminiSuggs,     setGeminiSuggs]     = useState<string[]>([]);
   const [geminiCorrection, setGeminiCorrection] = useState<string | null>(null);
   const [geminiEnabled,   setGeminiEnabled]   = useState(false);
+  const [recommended,        setRecommended]        = useState<ContentItem[]>([]);
+  const [recommendedLoading, setRecommendedLoading] = useState(true);
 
   // Animations
   const barFade  = useRef(new Animated.Value(0)).current;
@@ -414,6 +553,32 @@ export default function BuscarScreen() {
     Animated.timing(barFade, { toValue: 1, duration: 500, useNativeDriver: true }).start();
     setTimeout(() => inputRef.current?.focus(), 350);
     checkGeminiAvailable().then(setGeminiEnabled);
+  }, []);
+
+  // Recommended list shown on the idle "Buscar" screen (Netflix-style)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [trend1, trend2] = await Promise.all([
+          tfetch("/trending/all/week", { page: "1" }),
+          tfetch("/trending/all/week", { page: "2" }),
+        ]);
+        if (cancelled) return;
+        const seen = new Set<string>();
+        const items: ContentItem[] = [];
+        for (const raw of [...(trend1.results ?? []), ...(trend2.results ?? [])]) {
+          if (raw.media_type !== "movie" && raw.media_type !== "tv") continue;
+          if (seen.has(String(raw.id))) continue;
+          seen.add(String(raw.id));
+          items.push(toItem(raw));
+        }
+        setRecommended(items);
+      } finally {
+        if (!cancelled) setRecommendedLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
   }, []);
 
   // ── Search logic ────────────────────────────────────────────────────────────
@@ -637,6 +802,30 @@ export default function BuscarScreen() {
 
   const totalCount = expandedItems.length + flix2OnlyRaw.length + driveItems.length;
 
+  // Split results into a "Principais sugestões" row + genre-based rows
+  // (Netflix-style search layout).
+  type Expanded = { item: ContentItem; variantTitle?: string; variantLabel?: string; r2TmdbId?: number };
+  const { topSuggestions, genreGroups } = (() => {
+    const TOP_N = 8;
+    const top = expandedItems.slice(0, TOP_N);
+    const rest = expandedItems.slice(TOP_N);
+    const groups = new Map<number, { title: string; entries: Expanded[] }>();
+    const leftover: Expanded[] = [];
+    for (const e of rest) {
+      const gid = (e.item.genres ?? []).find((g: number) => GENRE_NAMES[g]);
+      if (gid == null) { leftover.push(e); continue; }
+      if (!groups.has(gid)) groups.set(gid, { title: GENRE_NAMES[gid], entries: [] });
+      groups.get(gid)!.entries.push(e);
+    }
+    const finalGroups: { title: string; entries: Expanded[] }[] = [];
+    for (const g of groups.values()) {
+      if (g.entries.length >= 2) finalGroups.push(g);
+      else leftover.push(...g.entries);
+    }
+    if (leftover.length > 0) finalGroups.push({ title: "Mais resultados", entries: leftover });
+    return { topSuggestions: top, genreGroups: finalGroups };
+  })();
+
   return (
     <View style={[s.root, { paddingTop: topPad }]}>
       <StatusBar style="light" />
@@ -763,44 +952,73 @@ export default function BuscarScreen() {
           ) : (
             <ScrollView showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
-              contentContainerStyle={s.resultsScroll}>
+              contentContainerStyle={s.resultsScrollRows}>
 
-              {/* TMDB + Flix2 merged grid */}
-              {expandedItems.length > 0 && (
-                <View style={s.grid}>
-                  {expandedItems.map((e, idx) => (
-                    <PosterCard
-                      key={`${e.item.id}-${idx}`}
-                      item={e.item}
-                      onPress={() => router.push({
-                        pathname: "/detail",
-                        params: {
-                          type: e.item.mediaType ?? (e.item.type === "movie" ? "movie" : "tv"),
-                          id: String(e.r2TmdbId ?? e.item.tmdbId ?? 0),
-                          title: e.variantTitle ?? e.item.title,
-                          poster: e.item.posterPath ?? "",
-                        },
-                      } as any)}
-                      inFlix2={!!e.variantTitle}
-                      variantLabel={e.variantLabel}
-                    />
-                  ))}
+              {/* Principais sugestões */}
+              {topSuggestions.length > 0 && (
+                <View style={s.rowWrap}>
+                  <Text style={s.rowTitle}>Principais sugestões</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.hRow}>
+                    {topSuggestions.map((e, idx) => (
+                      <LandscapeCard
+                        key={`top-${e.item.id}-${idx}`}
+                        item={e.item}
+                        variantLabel={e.variantLabel}
+                        inFlix2={!!e.variantTitle}
+                        onPress={() => router.push({
+                          pathname: "/detail",
+                          params: {
+                            type: e.item.mediaType ?? (e.item.type === "movie" ? "movie" : "tv"),
+                            id: String(e.r2TmdbId ?? e.item.tmdbId ?? 0),
+                            title: e.variantTitle ?? e.item.title,
+                            poster: e.item.posterPath ?? "",
+                          },
+                        } as any)}
+                      />
+                    ))}
+                  </ScrollView>
                 </View>
               )}
 
+              {/* Genre-based rows */}
+              {genreGroups.map((g, gi) => (
+                <View key={`genre-${gi}`} style={s.rowWrap}>
+                  <Text style={s.rowTitle}>{g.title}</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.hRow}>
+                    {g.entries.map((e, idx) => (
+                      <LandscapeCard
+                        key={`g-${gi}-${e.item.id}-${idx}`}
+                        item={e.item}
+                        variantLabel={e.variantLabel}
+                        inFlix2={!!e.variantTitle}
+                        onPress={() => router.push({
+                          pathname: "/detail",
+                          params: {
+                            type: e.item.mediaType ?? (e.item.type === "movie" ? "movie" : "tv"),
+                            id: String(e.r2TmdbId ?? e.item.tmdbId ?? 0),
+                            title: e.variantTitle ?? e.item.title,
+                            poster: e.item.posterPath ?? "",
+                          },
+                        } as any)}
+                      />
+                    ))}
+                  </ScrollView>
+                </View>
+              ))}
+
               {/* Flix2-only section */}
               {flix2OnlyRaw.length > 0 && (
-                <View style={{ marginTop: expandedItems.length > 0 ? 20 : 0 }}>
+                <View style={s.rowWrap}>
                   <View style={s.sectionHead}>
                     <View style={[s.sectionBar, { backgroundColor: "#a855f7" }]} />
                     <Feather name="zap" size={13} color="#a855f7" />
                     <Text style={[s.sectionTitle, { color: "#a855f7" }]}>Exclusivos Flix 2.0</Text>
                   </View>
-                  <View style={s.grid}>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.hRow}>
                     {flix2OnlyRaw.map((item, i) => {
                       const siblings = flix2OnlyRaw.filter(s => s !== item && cleanT(s.title) === cleanT(item.title));
                       return (
-                        <Flix2OnlyCard
+                        <Flix2LandscapeCard
                           key={`flix2-${i}`}
                           item={item}
                           siblings={siblings}
@@ -811,23 +1029,23 @@ export default function BuscarScreen() {
                         />
                       );
                     })}
-                  </View>
+                  </ScrollView>
                 </View>
               )}
 
               {/* Drive section */}
               {driveItems.length > 0 && (
-                <View style={{ marginTop: (expandedItems.length > 0 || flix2OnlyRaw.length > 0) ? 20 : 0 }}>
+                <View style={s.rowWrap}>
                   <View style={s.sectionHead}>
                     <View style={[s.sectionBar, { backgroundColor: GREEN }]} />
                     <Feather name="hard-drive" size={13} color={GREEN} />
                     <Text style={[s.sectionTitle, { color: GREEN }]}>Minha Biblioteca</Text>
                   </View>
-                  <View style={s.grid}>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.hRow}>
                     {driveItems.map(item => (
-                      <PosterCard key={item.id} item={item} onPress={() => goTo(item)} />
+                      <LandscapeCard key={item.id} item={item} onPress={() => goTo(item)} />
                     ))}
-                  </View>
+                  </ScrollView>
                 </View>
               )}
 
@@ -873,36 +1091,19 @@ export default function BuscarScreen() {
             </View>
           )}
 
-          {/* Suggestion chips */}
-          <View style={s.suggestWrap}>
-            <View style={s.suggestHead}>
-              <View style={[s.sectionBar, { backgroundColor: RED }]} />
-              <Text style={[s.suggestTitle, { color: RED }]}>Popular</Text>
-              <Text style={s.suggestTitle}> agora</Text>
-            </View>
-            <View style={s.suggestGrid}>
-              {SUGGESTIONS.map(sg => (
-                <Pressable key={sg.q} style={s.suggestChip} onPress={() => setQuery(sg.q)}>
-                  <Text style={s.suggestEmoji}>{sg.emoji}</Text>
-                  <Text style={s.suggestLabel}>{sg.label}</Text>
-                </Pressable>
-              ))}
-            </View>
-          </View>
-
-          {/* Empty state illustration */}
-          {searchHistory.length === 0 && (
-            <View style={s.emptyIdle}>
-              <View style={s.emptyIdleIcon}>
-                <Feather name="search" size={32} color="rgba(229,9,20,0.5)" />
+          {/* Recommended list (Netflix-style vertical rows) */}
+          <View style={s.recWrap}>
+            <Text style={s.recSectionTitle}>Séries e filmes recomendados</Text>
+            {recommendedLoading ? (
+              <View style={{ paddingVertical: 30, alignItems: "center" }}>
+                <ActivityIndicator color={RED} />
               </View>
-              <Text style={s.emptyIdleTitle}>Busca inteligente</Text>
-              <Text style={s.emptyIdleSub}>
-                Aceita erros de digitação, descrições e até sinônimos.{"\n"}
-                Ex: "filme de terror dos anos 90", "herói da marvel"
-              </Text>
-            </View>
-          )}
+            ) : (
+              recommended.map(item => (
+                <RecommendedRow key={item.id} item={item} onPress={() => goTo(item)} />
+              ))
+            )}
+          </View>
 
         </Animated.ScrollView>
       )}
@@ -958,7 +1159,35 @@ const s = StyleSheet.create({
 
   /* results */
   resultsScroll: { paddingHorizontal: 16, paddingBottom: 120, rowGap: 0 },
+  resultsScrollRows: { paddingBottom: 120 },
   grid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", rowGap: 14 },
+
+  /* Netflix-style horizontal rows */
+  rowWrap: { marginBottom: 22 },
+  rowTitle: { color: "#fff", fontSize: 15, fontWeight: "800", marginBottom: 10, paddingHorizontal: 16, letterSpacing: -0.2 },
+  hRow: { paddingHorizontal: 16, gap: 10 },
+  landCard: { width: 152 },
+  landImg: {
+    width: "100%", aspectRatio: 16 / 9, borderRadius: 10,
+    overflow: "hidden", backgroundColor: "#1a0a14", marginBottom: 6,
+  },
+  landPlayBtn: {
+    position: "absolute", bottom: 6, right: 6, width: 24, height: 24, borderRadius: 12,
+    backgroundColor: "rgba(0,0,0,0.55)", borderWidth: 1, borderColor: "rgba(255,255,255,0.25)",
+    alignItems: "center", justifyContent: "center",
+  },
+  landTitle: { color: "#fff", fontSize: 12, fontWeight: "700" },
+
+  /* Netflix-style recommended list (idle state) */
+  recWrap: { paddingTop: 6, marginBottom: 20 },
+  recSectionTitle: { color: "#fff", fontSize: 16, fontWeight: "800", paddingHorizontal: 16, marginBottom: 14, letterSpacing: -0.2 },
+  recRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, marginBottom: 16, gap: 12 },
+  recThumb: { width: 118, height: 68, borderRadius: 8, overflow: "hidden", backgroundColor: "#1a0a14" },
+  recTitle: { flex: 1, color: "#fff", fontSize: 14, fontWeight: "700", lineHeight: 19 },
+  recPlayBtn: {
+    width: 34, height: 34, borderRadius: 17, backgroundColor: "rgba(255,255,255,0.1)",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.15)", alignItems: "center", justifyContent: "center",
+  },
 
   /* section headers */
   sectionHead:  { flexDirection: "row", alignItems: "center", gap: 7, marginBottom: 12, marginTop: 4 },
