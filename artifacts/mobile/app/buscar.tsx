@@ -923,12 +923,6 @@ export default function BuscarScreen() {
                   "{query.trim()}"
                 </Text>
               </Text>
-              {flix2Loading && (
-                <View style={s.flix2Pill}>
-                  <ActivityIndicator color="#a855f7" size="small" style={{ transform: [{ scale: 0.65 }] }} />
-                  <Text style={s.flix2PillText}>Flix…</Text>
-                </View>
-              )}
               {driveItems.length > 0 && (
                 <View style={[s.flix2Pill, { borderColor: "rgba(34,197,94,0.4)", backgroundColor: "rgba(34,197,94,0.1)" }]}>
                   <Feather name="hard-drive" size={9} color={GREEN} />
