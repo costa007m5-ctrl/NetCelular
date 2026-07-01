@@ -3990,13 +3990,25 @@ export default function DetailScreen() {
                 <WebView
                   ref={bannerVideoRef}
                   source={{
-                    html: `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>*{margin:0;padding:0;background:transparent;overflow:hidden}html,body{width:100%;height:100%;background:transparent}video{width:100%;height:100%;object-fit:cover}</style></head><body><video src="${bannerVideoUrl.replace(/"/g, "&quot;")}" autoplay muted playsinline loop preload="auto"></video></body></html>`,
+                    html: `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>*{margin:0;padding:0;background:transparent;overflow:hidden}html,body{width:100%;height:100%;background:transparent}video{width:100%;height:100%;object-fit:cover}</style></head><body><video id="v" src="${bannerVideoUrl.replace(/"/g, "&quot;")}" autoplay muted playsinline loop preload="auto"></video><script>(function(){var v=document.getElementById('v');function tryPlay(){v.play().catch(function(){});}v.addEventListener('canplay',tryPlay);v.addEventListener('loadedmetadata',tryPlay);tryPlay();})();</script></body></html>`,
+                    baseUrl: "https://nixplay.lat",
                   }}
                   style={StyleSheet.absoluteFill}
                   allowsInlineMediaPlayback
                   mediaPlaybackRequiresUserAction={false}
                   scrollEnabled={false}
                   backgroundColor="transparent"
+                  javaScriptEnabled
+                  domStorageEnabled
+                  originWhitelist={["*"]}
+                  mixedContentMode="always"
+                  allowsProtectedMedia
+                  setSupportMultipleWindows={false}
+                  bounces={false}
+                  showsHorizontalScrollIndicator={false}
+                  showsVerticalScrollIndicator={false}
+                  overScrollMode="never"
+                  userAgent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
                 />
               </View>
             ) : null

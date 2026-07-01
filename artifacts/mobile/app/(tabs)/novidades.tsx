@@ -1296,8 +1296,17 @@ function EpPreviewRow({
             allowsInlineMediaPlayback
             mediaPlaybackRequiresUserAction={false}
             javaScriptEnabled
+            domStorageEnabled
             scrollEnabled={false}
             allowsFullscreenVideo={false}
+            mixedContentMode="always"
+            allowsProtectedMedia
+            setSupportMultipleWindows={false}
+            bounces={false}
+            showsHorizontalScrollIndicator={false}
+            showsVerticalScrollIndicator={false}
+            overScrollMode="never"
+            userAgent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
             onMessage={(e: any) => {
               try {
                 const msg = JSON.parse(e.nativeEvent.data);
