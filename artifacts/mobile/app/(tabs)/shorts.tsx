@@ -28,6 +28,7 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useColors } from "@/hooks/useColors";
+import { useFollowedActors } from "@/hooks/useFollowedActors";
 import { getApiBase } from "@/lib/api";
 import ShortsCommentsSheet from "@/components/ShortsCommentsSheet";
 import { getProxiedStreamUrl } from "@/lib/gdrive-index";
@@ -1948,6 +1949,10 @@ export default function ShortsScreen() {
   // so only a small breathing room is needed. Native uses the real safe-area inset.
   const topPad = isWeb ? 10 : insets.top;
 
+  const { followedActors } = useFollowedActors();
+  const [actorShortItems, setActorShortItems] = useState<Array<{ tmdbId: number; title: string; poster: string | null; type: "movie" | "tv" }>>([]);
+  const [actorRowLabel, setActorRowLabel] = useState("Dos seus atores");
+
   const [items, setItems] = useState<ShortItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [visibleIndex, setVisibleIndex] = useState(0);
@@ -2182,6 +2187,52 @@ export default function ShortsScreen() {
     return () => clearTimeout(timer);
   }, [visibleIndex, items]);
 
+  // ── fetch TMDB filmography for followed actors → actor shorts strip ──────
+  useEffect(() => {
+    if (!followedActors.length) { setActorShortItems([]); return; }
+    let cancelled = false;
+    const TMDB_KEY = "8f0beb08cf016ec8de49e454e09879ec";
+    (async () => {
+      try {
+        const allItems: Array<{ tmdbId: number; title: string; poster: string | null; type: "movie" | "tv" }> = [];
+        for (const actor of followedActors.slice(0, 3)) {
+          const r = await fetch(
+            `https://api.themoviedb.org/3/search/person?api_key=${TMDB_KEY}&query=${encodeURIComponent(actor.name)}&language=pt-BR`
+          );
+          if (!r.ok || cancelled) continue;
+          const d = await r.json() as any;
+          const personId: number | undefined = d.results?.[0]?.id;
+          if (!personId) continue;
+          const cr = await fetch(
+            `https://api.themoviedb.org/3/person/${personId}/combined_credits?api_key=${TMDB_KEY}&language=pt-BR`
+          );
+          if (!cr.ok || cancelled) continue;
+          const cd = await cr.json() as any;
+          const top = ([...(cd.cast ?? [])] as any[])
+            .filter((c: any) => c.poster_path && (c.vote_average ?? 0) >= 6.5 && (c.vote_count ?? 0) > 200)
+            .sort((a: any, b: any) => (b.popularity ?? 0) - (a.popularity ?? 0))
+            .slice(0, 3);
+          for (const c of top) {
+            allItems.push({
+              tmdbId: c.id,
+              title: c.title ?? c.name ?? "",
+              poster: c.poster_path ? `https://image.tmdb.org/t/p/w185${c.poster_path}` : null,
+              type: c.media_type === "movie" ? "movie" : "tv",
+            });
+          }
+        }
+        if (!cancelled && allItems.length > 0) {
+          const seen = new Set<number>();
+          const deduped = allItems.filter((i) => { if (seen.has(i.tmdbId)) return false; seen.add(i.tmdbId); return true; });
+          setActorShortItems(deduped.slice(0, 10));
+          if (followedActors.length === 1) setActorRowLabel(`De ${followedActors[0].name}`);
+          else setActorRowLabel("Dos seus atores");
+        }
+      } catch { /* silent */ }
+    })();
+    return () => { cancelled = true; };
+  }, [followedActors]);
+
   // Pre-fetch lookups + redirect resolution for items ahead so video is instant.
   // Covers current item + next 10 (full batch). Also fires for items before current
   // (back-scroll) so returning to a previous card is also instant.
@@ -2235,6 +2286,71 @@ export default function ShortsScreen() {
   return (
     <View style={s.root}>
       <StatusBar style="light" />
+
+      {/* ── Actor strip — shown when user follows actors ── */}
+      {actorShortItems.length > 0 && (
+        <View style={{
+          position: "absolute",
+          bottom: 90, left: 0, right: 0,
+          zIndex: 20,
+          paddingBottom: 10,
+        }}>
+          <View style={{
+            flexDirection: "row",
+            alignItems: "center",
+            paddingHorizontal: 14,
+            marginBottom: 8,
+            gap: 6,
+          }}>
+            <Feather name="user" size={11} color="#ec4899" />
+            <Text style={{ color: "#ec4899", fontSize: 11, fontWeight: "800", letterSpacing: 0.4 }}>
+              {actorRowLabel.toUpperCase()}
+            </Text>
+          </View>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingHorizontal: 14, gap: 8 }}
+          >
+            {actorShortItems.map((it) => (
+              <TouchableOpacity
+                key={it.tmdbId}
+                activeOpacity={0.82}
+                onPress={() => router.push({ pathname: "/detail", params: { type: it.type, id: String(it.tmdbId), title: it.title } } as any)}
+                style={{ width: 68, alignItems: "center", gap: 4 }}
+              >
+                <View style={{
+                  width: 68, height: 100, borderRadius: 8,
+                  overflow: "hidden", backgroundColor: "#1a1a1a",
+                  borderWidth: 1.5, borderColor: "rgba(236,72,153,0.4)",
+                }}>
+                  {it.poster ? (
+                    <Image source={{ uri: it.poster }} style={{ width: 68, height: 100 }} contentFit="cover" />
+                  ) : (
+                    <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+                      <Feather name="film" size={18} color="rgba(255,255,255,0.2)" />
+                    </View>
+                  )}
+                  <View style={{
+                    position: "absolute", bottom: 0, left: 0, right: 0, height: 32,
+                    backgroundColor: "rgba(0,0,0,0.6)",
+                  }} />
+                  <View style={{
+                    position: "absolute", top: 3, right: 3,
+                    backgroundColor: "#ec4899",
+                    borderRadius: 4, paddingHorizontal: 3, paddingVertical: 1,
+                  }}>
+                    <Feather name="heart" size={7} color="#fff" />
+                  </View>
+                </View>
+                <Text numberOfLines={2} style={{ color: "rgba(255,255,255,0.75)", fontSize: 9, fontWeight: "600", textAlign: "center", lineHeight: 12 }}>
+                  {it.title}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      )}
 
       {/* ── TikTok-style vertical feed ── */}
       <FlatList

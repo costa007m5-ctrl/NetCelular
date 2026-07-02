@@ -29,6 +29,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useRouter, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useFollowedActors } from "@/hooks/useFollowedActors";
 import { useColors } from "@/hooks/useColors";
 import { getAllLocalProgress, clearLocalProgress } from "@/hooks/useWatchProgress";
 import type { WatchEntry } from "@/hooks/useWatchProgress";
@@ -2377,6 +2378,9 @@ export default function HomeScreen() {
   const [fromFriendsShorts, setFromFriendsShorts] = useState<import("@/lib/shorts-received").ReceivedShort[]>([]);
   // ── Top Shorts da Semana — TMDB trending, cached per ISO week ────────────
   const [topShortsWeek, setTopShortsWeek] = useState<ContentItem[]>([]);
+  // ── Dos seus atores — content from followed actors ─────────────────────
+  const [actorCarouselItems, setActorCarouselItems] = useState<ContentItem[]>([]);
+  const [actorCarouselLabel, setActorCarouselLabel] = useState("Dos seus atores");
 
   // ── genre carousels per category ──────────────────────────────────────────
   const [genreRows, setGenreRows] = useState<Record<string, ContentItem[]>>({});
@@ -2399,6 +2403,9 @@ export default function HomeScreen() {
 
   // ── watchList — derived from continueItems for progress stats ────────────
   const watchList = continueItems;
+
+  // ── followed actors ───────────────────────────────────────────────────────
+  const { followedActors } = useFollowedActors();
 
   // ── R2 / Drive catalog ────────────────────────────────────────────────────
   const { r2Movies, r2Series, r2All } = useR2Catalog();
@@ -2636,6 +2643,69 @@ export default function HomeScreen() {
       return () => { cancelled = true; };
     }, [])
   );
+
+  // ── fetch TMDB filmography for followed actors → actor carousel ──────────
+  useEffect(() => {
+    if (!followedActors.length) { setActorCarouselItems([]); return; }
+    let cancelled = false;
+    const TMDB_KEY = "8f0beb08cf016ec8de49e454e09879ec";
+    (async () => {
+      try {
+        const allItems: ContentItem[] = [];
+        for (const actor of followedActors.slice(0, 4)) {
+          const r = await fetch(
+            `https://api.themoviedb.org/3/search/person?api_key=${TMDB_KEY}&query=${encodeURIComponent(actor.name)}&language=pt-BR`
+          );
+          if (!r.ok || cancelled) continue;
+          const d = await r.json() as any;
+          const personId: number | undefined = d.results?.[0]?.id;
+          if (!personId) continue;
+          const cr = await fetch(
+            `https://api.themoviedb.org/3/person/${personId}/combined_credits?api_key=${TMDB_KEY}&language=pt-BR`
+          );
+          if (!cr.ok || cancelled) continue;
+          const cd = await cr.json() as any;
+          const credits: any[] = [...(cd.cast ?? [])];
+          const top = credits
+            .filter((c: any) => c.poster_path && (c.vote_average ?? 0) >= 6 && (c.vote_count ?? 0) > 100)
+            .sort((a: any, b: any) => (b.vote_average ?? 0) - (a.vote_average ?? 0))
+            .slice(0, 4);
+          for (const c of top) {
+            const isMovie = c.media_type === "movie";
+            allItems.push({
+              id: `actor-${personId}-${c.id}`,
+              tmdbId: c.id,
+              title: c.title ?? c.name ?? "",
+              year: parseInt((isMovie ? c.release_date : c.first_air_date)?.split("-")[0] ?? "2024"),
+              rating: c.vote_average ?? 0,
+              posterPath: c.poster_path ? `https://image.tmdb.org/t/p/w342${c.poster_path}` : "",
+              backdropPath: c.backdrop_path ? `https://image.tmdb.org/t/p/w780${c.backdrop_path}` : "",
+              description: c.overview ?? "",
+              genres: [],
+              type: isMovie ? "movie" : "series",
+              mediaType: isMovie ? "movie" : "tv",
+              exclusive: false,
+            });
+          }
+        }
+        if (!cancelled && allItems.length > 0) {
+          const seen = new Set<number>();
+          const deduped = allItems.filter((i) => {
+            if (seen.has(i.tmdbId)) return false;
+            seen.add(i.tmdbId);
+            return true;
+          });
+          setActorCarouselItems(deduped.slice(0, 12));
+          if (followedActors.length === 1) {
+            setActorCarouselLabel(`De ${followedActors[0].name}`);
+          } else {
+            setActorCarouselLabel("Dos seus atores");
+          }
+        }
+      } catch { /* silent */ }
+    })();
+    return () => { cancelled = true; };
+  }, [followedActors]);
 
   // ── fetch genre rows when category changes ────────────────────────────────
   useEffect(() => {
@@ -3500,6 +3570,23 @@ export default function HomeScreen() {
                       )}
                     />
                     <PosterRow items={aiRowItems.length > 0 ? aiRowItems : recommendations.slice(0, 4)} onPress={goTo} />
+                  </View>
+                </AnimatedSection>
+              )}
+
+              {/* ── 6.6 DOS SEUS ATORES ───────────────────────────────────────── */}
+              {actorCarouselItems.length > 0 && (
+                <AnimatedSection anim={s[5]}>
+                  <View style={styles.section}>
+                    <SectionHeader
+                      title={actorCarouselLabel}
+                      icon="user"
+                      badge="♥ ATORES"
+                      accentColor="#ec4899"
+                      subtitle={`Com ${followedActors.slice(0, 2).map((a) => a.name.split(" ")[0]).join(" & ")}${followedActors.length > 2 ? ` +${followedActors.length - 2}` : ""}`}
+                      onSeeAll={() => openModal(actorCarouselLabel, actorCarouselItems, "#ec4899")}
+                    />
+                    <PosterRow items={actorCarouselItems} onPress={goTo} />
                   </View>
                 </AnimatedSection>
               )}
