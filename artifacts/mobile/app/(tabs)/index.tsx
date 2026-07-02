@@ -3459,11 +3459,6 @@ export default function HomeScreen() {
                 />
               </AnimatedSection>
 
-              {/* ── 5.5. GLASS STATS ─────────────────────────────────────────── */}
-              <AnimatedSection anim={s[3]}>
-                <GlassStatsRow stats={stats} />
-              </AnimatedSection>
-
               {/* ── 6. CONTINUE ASSISTINDO ───────────────────────────────────── */}
               {continueItems.length > 0 && (
                 <AnimatedSection anim={s[4]}>
