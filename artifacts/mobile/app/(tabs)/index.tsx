@@ -371,25 +371,36 @@ function ContinueCard({
 function StreamingChip({ platform, onPress }: { platform: StreamingPlatform; onPress: () => void }) {
   const [err, setErr] = useState(false);
   const scale = useRef(new Animated.Value(1)).current;
-  const logoUrl = platform.logoPath ? `https://image.tmdb.org/t/p/w185${platform.logoPath}` : null;
   const pressIn  = () => Animated.spring(scale, { toValue: 0.91, useNativeDriver: true, speed: 28 }).start();
   const pressOut = () => Animated.spring(scale, { toValue: 1,    useNativeDriver: true, speed: 24 }).start();
+  const logoSrc = platform.logoUrl ?? null;
 
   return (
     <Pressable onPress={onPress} onPressIn={pressIn} onPressOut={pressOut}>
-      <Animated.View style={[styles.streamingChip, { transform: [{ scale }] }]}>
-        <LinearGradient colors={platform.bgGradient} style={styles.streamingChipGrad}
-          start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
-          <View style={[styles.streamingAccent, { backgroundColor: platform.brandColor }]} />
-          {logoUrl && !err ? (
-            <Image source={{ uri: logoUrl }} style={styles.streamingLogo}
-              contentFit="contain" onError={() => setErr(true)} cachePolicy="memory-disk" />
+      <Animated.View style={[
+        styles.streamingChip,
+        { backgroundColor: platform.bgColor, borderColor: `${platform.brandColor}28`, transform: [{ scale }] },
+      ]}>
+        <View style={styles.streamingChipInner}>
+          {logoSrc && !err ? (
+            <Image
+              source={{ uri: logoSrc }}
+              style={styles.streamingLogo}
+              contentFit="contain"
+              onError={() => setErr(true)}
+              cachePolicy="memory-disk"
+            />
           ) : (
             <Text style={[styles.streamingName, { color: platform.brandColor }]} numberOfLines={1}>
-              {platform.name.split(" ")[0]}
+              {platform.name}
             </Text>
           )}
-        </LinearGradient>
+          {platform.tagline ? (
+            <Text style={[styles.streamingTagline, { color: `${platform.brandColor}99` }]} numberOfLines={1}>
+              {platform.tagline}
+            </Text>
+          ) : null}
+        </View>
       </Animated.View>
     </Pressable>
   );
@@ -4046,12 +4057,12 @@ export default function HomeScreen() {
               )}
 
               {/* ── 10.9 GLASS FEATURED ──────────────────────────────────────── */}
-              {showAll && movies.length > 8 && (
+              {showAll && pool_glass.length > 0 && (
                 <AnimatedSection anim={s[8]}>
                   <GlassFeaturedCard
-                    item={movies[7]}
+                    item={pool_glass[0]}
                     accent={PURPLE}
-                    onPress={() => goTo(movies[7])}
+                    onPress={() => goTo(pool_glass[0])}
                   />
                 </AnimatedSection>
               )}
@@ -4089,12 +4100,12 @@ export default function HomeScreen() {
               )}
 
               {/* ── 11.7 EDITOR PICK ─────────────────────────────────────────── */}
-              {showAll && series.length > 4 && (
+              {showAll && pool_editorPick.length > 0 && (
                 <AnimatedSection anim={s[9]}>
                   <EditorPickBanner
-                    item={series[4]}
+                    item={pool_editorPick[0]}
                     editorName="Curadoria NETPLAY"
-                    onPress={() => goTo(series[4])}
+                    onPress={() => goTo(pool_editorPick[0])}
                   />
                 </AnimatedSection>
               )}
@@ -4162,7 +4173,7 @@ export default function HomeScreen() {
               )}
 
               {/* ── 13.8 AWARD WINNERS ROW ───────────────────────────────────── */}
-              {showAll && movies.length > 12 && (
+              {showAll && pool_award.length > 0 && (
                 <AnimatedSection anim={s[11]}>
                   <View style={styles.section}>
                     <GradientSectionHeader
@@ -4170,15 +4181,15 @@ export default function HomeScreen() {
                       subtitle="Premiados pela academia"
                       accent={AMBER}
                       icon="award"
-                      onSeeAll={() => openModal("Ganhadores do Oscar", movies.slice(10, 22), AMBER)}
+                      onSeeAll={() => openModal("Ganhadores do Oscar", pool_award, AMBER)}
                     />
-                    <AwardWinnersRow items={movies.slice(10, 18)} onPress={goTo} award="Oscar" />
+                    <AwardWinnersRow items={pool_award} onPress={goTo} award="Oscar" />
                   </View>
                 </AnimatedSection>
               )}
 
               {/* ── 13.9 QUICK PLAY ROW ──────────────────────────────────────── */}
-              {showAll && movies.length > 18 && (
+              {showAll && pool_quickPlay.length > 0 && (
                 <AnimatedSection anim={s[11]}>
                   <View style={styles.section}>
                     <GradientSectionHeader
@@ -4186,9 +4197,9 @@ export default function HomeScreen() {
                       subtitle="Aperte play e relaxe"
                       accent={TEAL}
                       icon="play-circle"
-                      onSeeAll={() => openModal("Assistir Agora", movies.slice(14, 26), TEAL)}
+                      onSeeAll={() => openModal("Assistir Agora", pool_quickPlay, TEAL)}
                     />
-                    <QuickPlayRow items={movies.slice(14, 20)} onPress={goTo} />
+                    <QuickPlayRow items={pool_quickPlay} onPress={goTo} />
                   </View>
                 </AnimatedSection>
               )}
@@ -4235,14 +4246,14 @@ export default function HomeScreen() {
               )}
 
               {/* ── 17. DESTAQUES (square 1:1 cards) ────────────────────────── */}
-              {showMovies && movies.length > 22 && (
+              {showMovies && pool_squareDestaques.length > 0 && (
                 <View style={styles.section}>
                   <SectionHeader title="Destaques do Dia" icon="sun"
                     accentColor={PINK}
-                    onSeeAll={() => openModal("Destaques do Dia", movies.slice(16, 40), PINK)} />
+                    onSeeAll={() => openModal("Destaques do Dia", pool_squareDestaques, PINK)} />
                   <ScrollView horizontal showsHorizontalScrollIndicator={false}
                     contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }} decelerationRate="fast">
-                    {movies.slice(16, 24).map((item) => (
+                    {pool_squareDestaques.map((item) => (
                       <SquareCard key={item.id} item={item} onPress={() => goTo(item)} accentColor={PINK} />
                     ))}
                   </ScrollView>
@@ -4250,14 +4261,14 @@ export default function HomeScreen() {
               )}
 
               {/* ── 18. SÉRIES MARATONA (tall portrait cards) ───────────────── */}
-              {showSeries && series.length > 18 && (
+              {showSeries && pool_seriesMaraton.length > 0 && (
                 <View style={styles.section}>
                   <SectionHeader title="Séries para Maratonar" icon="play-circle"
                     accentColor={GREEN}
-                    onSeeAll={() => openModal("Séries para Maratonar", series.slice(10, 50), GREEN)} />
+                    onSeeAll={() => openModal("Séries para Maratonar", pool_seriesMaraton, GREEN)} />
                   <ScrollView horizontal showsHorizontalScrollIndicator={false}
                     contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }} decelerationRate="fast">
-                    {series.slice(10, 20).map((item) => (
+                    {pool_seriesMaraton.map((item) => (
                       <TallCard key={item.id} item={item} onPress={() => goTo(item)} />
                     ))}
                   </ScrollView>
@@ -4339,7 +4350,7 @@ export default function HomeScreen() {
               <LazySection threshold={1800} minHeight={400}>
 
               {/* ── 28. IMERSIVE HERO CARD ──────────────────────────────────── */}
-              {showAll && series.length > 1 && (
+              {showAll && pool_immersiveHero.length > 0 && (
                 <FadeInSection delay={130}>
                   <SectionDivider label="SÉRIE DA SEMANA" accentColor={PURPLE} />
                   <GradientSectionHeader
@@ -4349,16 +4360,16 @@ export default function HomeScreen() {
                     accentColor={PURPLE}
                   />
                   <ImmersiveHeroCard
-                    item={series[1]}
+                    item={pool_immersiveHero[0]}
                     accent={PURPLE}
                     label="ESCOLHA DOS EDITORES"
-                    onPress={() => goTo(series[1])}
+                    onPress={() => goTo(pool_immersiveHero[0])}
                   />
                 </FadeInSection>
               )}
 
               {/* ── 29. NOVO ESTA SEMANA ─────────────────────────────────────── */}
-              {showAll && movies.length > 4 && (
+              {showAll && (pool_newWeekMovies.length > 0 || pool_newWeekSeries.length > 0) && (
                 <FadeInSection delay={120}>
                   <SectionDivider label="NOVIDADES" accentColor={GREEN} />
                   <GradientSectionHeader
@@ -4366,17 +4377,17 @@ export default function HomeScreen() {
                     subtitle="Adicionados recentemente"
                     icon="calendar"
                     accentColor={GREEN}
-                    onSeeAll={() => openModal("Novo Esta Semana", [...movies, ...series].slice(0, 20), GREEN)}
+                    onSeeAll={() => openModal("Novo Esta Semana", [...pool_newWeekMovies, ...pool_newWeekSeries], GREEN)}
                   />
                   <NewThisWeekRow
-                    items={[...movies.slice(0, 4), ...series.slice(0, 3)]}
+                    items={[...pool_newWeekMovies, ...pool_newWeekSeries]}
                     onPress={goTo}
                   />
                 </FadeInSection>
               )}
 
               {/* ── 30. MASONRY GRID ────────────────────────────────────────── */}
-              {showAll && movies.length > 4 && (
+              {showAll && pool_masonry.length > 0 && (
                 <FadeInSection delay={120}>
                   <SectionDivider label="DESCOBERTAS" accentColor={TEAL} />
                   <GradientSectionHeader
@@ -4386,7 +4397,7 @@ export default function HomeScreen() {
                     accentColor={TEAL}
                   />
                   <MasonryRow
-                    items={movies.slice(4, 8)}
+                    items={pool_masonry}
                     onPress={goTo}
                   />
                 </FadeInSection>
@@ -4407,7 +4418,7 @@ export default function HomeScreen() {
               )}
 
               {/* ── 32. GLOW POSTER ROW (Filmes Premiados) ──────────────────── */}
-              {showAll && movies.length > 8 && (
+              {showAll && pool_glow.length > 0 && (
                 <FadeInSection delay={130}>
                   <SectionDivider label="PREMIADOS" accentColor={AMBER} />
                   <GradientSectionHeader
@@ -4415,10 +4426,10 @@ export default function HomeScreen() {
                     subtitle="Oscar, Cannes & mais"
                     icon="award"
                     accentColor={AMBER}
-                    onSeeAll={() => openModal("Filmes Premiados", movies.filter(m => m.rating > 7.5).slice(0, 20), AMBER)}
+                    onSeeAll={() => openModal("Filmes Premiados", pool_glow, AMBER)}
                   />
                   <GlowPosterRow
-                    items={movies.filter(m => m.rating > 7.5).slice(0, 8)}
+                    items={pool_glow}
                     onPress={goTo}
                     accent={AMBER}
                   />
@@ -4427,7 +4438,7 @@ export default function HomeScreen() {
 
 
               {/* ── 34. DUO FEATURE BANNER ──────────────────────────────────── */}
-              {showAll && movies.length > 6 && series.length > 2 && (
+              {showAll && pool_duoMovie.length > 0 && pool_duoSeries.length > 0 && (
                 <FadeInSection delay={130}>
                   <SectionDivider label="DESTAQUES" accentColor={PINK} />
                   <GradientSectionHeader
@@ -4437,7 +4448,7 @@ export default function HomeScreen() {
                     accentColor={PINK}
                   />
                   <DuoFeatureBanner
-                    items={[movies[5] ?? movies[0], series[2] ?? series[0]]}
+                    items={[pool_duoMovie[0], pool_duoSeries[0]]}
                     onPress={goTo}
                     labels={["🎬 FILME", "📺 SÉRIE"]}
                     accents={[RED, PURPLE]}
@@ -4446,7 +4457,7 @@ export default function HomeScreen() {
               )}
 
               {/* ── 35. NETPLAY EXCLUSIVOS ──────────────────────────────────── */}
-              {showAll && (movies.length > 5 || series.length > 3) && (
+              {showAll && (pool_netplayMovies.length > 0 || pool_netplaySeries.length > 0) && (
                 <FadeInSection delay={140}>
                   <SectionDivider label="EXCLUSIVOS" accentColor={RED} />
                   <GradientSectionHeader
@@ -4454,10 +4465,10 @@ export default function HomeScreen() {
                     subtitle="Títulos em evidência"
                     icon="zap"
                     accentColor={RED}
-                    onSeeAll={() => openModal("Destaques NETPLAY", [...movies, ...series].slice(0, 16), RED)}
+                    onSeeAll={() => openModal("Destaques NETPLAY", [...pool_netplayMovies, ...pool_netplaySeries], RED)}
                   />
                   <NetplayExclusiveRow
-                    items={[...movies.slice(3, 7), ...series.slice(0, 4)]}
+                    items={[...pool_netplayMovies, ...pool_netplaySeries]}
                     onPress={goTo}
                   />
                   <View style={{ height: 20 }} />
@@ -4465,19 +4476,19 @@ export default function HomeScreen() {
               )}
 
               {/* ── 36. CATEGORY SHOWCASE (Filmes de Ação) ──────────────────── */}
-              {showAll && movies.length > 7 && (
+              {showAll && pool_categoryShowcase.length > 0 && (
                 <FadeInSection delay={130}>
                   <CategoryShowcaseCard
-                    item={movies[7]}
+                    item={pool_categoryShowcase[0]}
                     categoryLabel="AÇÃO"
                     accent={ORANGE}
-                    onPress={() => goTo(movies[7])}
+                    onPress={() => goTo(pool_categoryShowcase[0])}
                   />
                 </FadeInSection>
               )}
 
               {/* ── 37. NETFLIX STYLE DUAL ROW ──────────────────────────────── */}
-              {showAll && movies.length >= 12 && (
+              {showAll && (pool_netflixMovies.length > 0 || pool_netflixSeries.length > 0) && (
                 <FadeInSection delay={120}>
                   <SectionDivider label="MELHORES DO ANO" accentColor={BLUE} />
                   <GradientSectionHeader
@@ -4485,10 +4496,10 @@ export default function HomeScreen() {
                     subtitle="Dois em um — filmes e séries"
                     icon="layout"
                     accentColor={BLUE}
-                    onSeeAll={() => openModal("Grade de Títulos", [...movies, ...series].slice(0, 24), BLUE)}
+                    onSeeAll={() => openModal("Grade de Títulos", [...pool_netflixMovies, ...pool_netflixSeries], BLUE)}
                   />
                   <NetflixStyleDualRow
-                    items={[...movies.slice(0, 6), ...series.slice(0, 6)]}
+                    items={[...pool_netflixMovies, ...pool_netflixSeries]}
                     onPress={goTo}
                   />
                   <View style={{ height: 20 }} />
@@ -4497,7 +4508,7 @@ export default function HomeScreen() {
 
 
               {/* ── 40. PREMIUM LARGE POSTER ROW (Séries Premium) ───────────── */}
-              {showAll && series.length > 4 && (
+              {showAll && pool_premiumSeries.length > 0 && (
                 <FadeInSection delay={130}>
                   <SectionDivider label="SÉRIES PREMIUM" accentColor={PURPLE} />
                   <GradientSectionHeader
@@ -4505,10 +4516,10 @@ export default function HomeScreen() {
                     subtitle="Alta definição, alta qualidade"
                     icon="tv"
                     accentColor={PURPLE}
-                    onSeeAll={() => openModal("Séries Premium", series.slice(0, 20), PURPLE)}
+                    onSeeAll={() => openModal("Séries Premium", pool_premiumSeries, PURPLE)}
                   />
                   <PremiumLargePosterRow
-                    items={series.slice(0, 6)}
+                    items={pool_premiumSeries}
                     onPress={goTo}
                   />
                   <View style={{ height: 20 }} />
@@ -4775,22 +4786,19 @@ const styles = StyleSheet.create({
   categoryPillText: { fontSize: 13, fontWeight: "700", letterSpacing: 0.1 },
 
   // Streaming chips
-  streamingRow: { paddingHorizontal: 16, gap: 8, alignItems: "center" },
+  streamingRow: { paddingHorizontal: 16, gap: 10, alignItems: "center" },
   streamingChip: {
-    borderRadius: 12, overflow: "hidden", width: 104, height: 58,
+    borderRadius: 16, borderWidth: 1, width: 128, height: 82,
     ...Platform.select({
-      ios: { shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.35, shadowRadius: 8 },
-      android: { elevation: 5 },
+      ios: { shadowColor: "#000", shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.45, shadowRadius: 12 },
+      android: { elevation: 6 },
     }),
   },
-  streamingChipGrad: { flex: 1, alignItems: "center", justifyContent: "center", padding: 6 },
-  streamingAccent: {
-    position: "absolute", top: 0, left: 0, right: 0, height: 2.5,
-    borderTopLeftRadius: 12, borderTopRightRadius: 12,
-  },
-  streamingLogo: { width: 88, height: 36 },
-  streamingName: { fontSize: 13, fontWeight: "800", letterSpacing: 0.3 },
-  seeAllChip:    { borderRadius: 12, borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", width: 82, height: 58, overflow: "hidden" },
+  streamingChipInner: { flex: 1, alignItems: "center", justifyContent: "center", gap: 5, paddingHorizontal: 8 },
+  streamingLogo: { width: 108, height: 40 },
+  streamingName: { fontSize: 13, fontWeight: "800", letterSpacing: 0.3, textAlign: "center" },
+  streamingTagline: { fontSize: 9, fontWeight: "700", letterSpacing: 1.5, textAlign: "center" },
+  seeAllChip:    { borderRadius: 16, borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", width: 82, height: 82, overflow: "hidden" },
   seeAllChipInner: { flex: 1, alignItems: "center", justifyContent: "center", gap: 4 },
   seeAllChipText:  { fontSize: 10, fontWeight: "600", color: "rgba(255,255,255,0.4)" },
 
