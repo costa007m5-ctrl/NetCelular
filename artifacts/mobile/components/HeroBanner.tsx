@@ -16,10 +16,9 @@ import type { ContentItem } from "@/constants/content";
 
 const CARD_MARGIN        = 7;   // px each side — small margin like Netflix
 const CARD_POSTER_RATIO  = 1.22; // height / width — slightly taller than wide
-const TMDB_KEY           = "8f0beb08cf016ec8de49e454e09879ec";
 const AUTO_ADVANCE_MS    = 6000;
 
-/* ─── TMDB logo hook ─── */
+/* ─── TMDB logo hook — routes through API server proxy ─── */
 const logoCache = new Map<string, string | null>();
 
 function useTmdbLogo(id?: number, type?: "movie" | "tv") {
@@ -28,22 +27,31 @@ function useTmdbLogo(id?: number, type?: "movie" | "tv") {
     if (!id || !type) return;
     const key = `${type}_${id}`;
     if (logoCache.has(key)) { setLogo(logoCache.get(key) ?? null); return; }
-    fetch(
-      `https://api.themoviedb.org/3/${type}/${id}/images?api_key=${TMDB_KEY}&include_image_language=pt,en,null`
-    )
-      .then((r) => r.json())
-      .then((data) => {
+    let cancelled = false;
+    (async () => {
+      try {
+        // Route through server proxy — avoids browser CORS / rate-limit issues
+        const { getApiBase } = await import("@/lib/api");
+        const base = getApiBase();
+        const r = await fetch(`${base}/tmdb/${type}/${id}/images`);
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const data = await r.json();
+        if (cancelled) return;
         const logos: any[] = data.logos ?? [];
-        const pt   = logos.find((l) => l.iso_639_1 === "pt");
-        const en   = logos.find((l) => l.iso_639_1 === "en");
+        // Prefer pt logo, then en, then first available
+        const pt   = logos.find((l: any) => l.iso_639_1 === "pt");
+        const en   = logos.find((l: any) => l.iso_639_1 === "en");
         const best = pt ?? en ?? logos[0] ?? null;
         const path = best?.file_path
           ? `https://image.tmdb.org/t/p/w500${best.file_path}`
           : null;
         logoCache.set(key, path);
-        setLogo(path);
-      })
-      .catch(() => { logoCache.set(key, null); });
+        if (!cancelled) setLogo(path);
+      } catch {
+        if (!cancelled) { logoCache.set(key, null); }
+      }
+    })();
+    return () => { cancelled = true; };
   }, [id, type]);
   return logo;
 }

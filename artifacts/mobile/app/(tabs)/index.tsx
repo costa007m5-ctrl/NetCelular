@@ -2772,13 +2772,6 @@ export default function HomeScreen() {
 
     if (m.length) {
       setMovies(m);
-      // Hero: prefer items with tmdbId (logos work) + good rating + has image
-      const heroPool = m.filter(
-        (x) => (x.backdropPath || x.posterPath) && (x.tmdbId ?? 0) > 0 && (x.rating ?? 0) >= 6.5
-      );
-      const heroFallback = m.filter((x) => x.backdropPath || x.posterPath);
-      const heroSrc = heroPool.length >= 5 ? heroPool : heroFallback;
-      setHeroItems([...heroSrc].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0)).slice(0, 8));
       setTop10Movies(byRating(m).slice(0, 10));
       setTotals((t) => ({ ...t, movies: m.length }));
     }
@@ -2786,6 +2779,32 @@ export default function HomeScreen() {
       setSeries(s);
       setTop10Series(byRating(s).slice(0, 10));
       setTotals((t) => ({ ...t, series: s.length }));
+    }
+
+    // ── Hero pool: interleave best movies + series for variety ──
+    if (m.length || s.length) {
+      const hasImg = (x: ContentItem) => !!(x.backdropPath || x.posterPath);
+      const goodRating = (x: ContentItem) => (x.tmdbId ?? 0) > 0 && (x.rating ?? 0) >= 6.5;
+
+      const hm = [...m.filter((x) => hasImg(x) && goodRating(x))]
+        .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
+      const hs = [...s.filter((x) => hasImg(x) && goodRating(x))]
+        .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
+
+      // Interleave: movie, series, movie, series … for visual variety
+      const heroMixed: ContentItem[] = [];
+      let mi = 0, si = 0;
+      while (heroMixed.length < 8 && (mi < hm.length || si < hs.length)) {
+        if (mi < hm.length) heroMixed.push(hm[mi++]);
+        if (heroMixed.length < 8 && si < hs.length) heroMixed.push(hs[si++]);
+      }
+
+      // Fallback: any item with an image, sorted by rating
+      const heroFallback = [...m, ...s]
+        .filter(hasImg)
+        .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
+
+      setHeroItems(heroMixed.length >= 5 ? heroMixed : heroFallback.slice(0, 8));
     }
 
     // Async: reorder Top 10 using TMDB weekly trending + real play counts
@@ -3015,10 +3034,11 @@ export default function HomeScreen() {
             };
 
             // Build the final hero list for backdrop enrichment:
-            // Use trending candidates if available, otherwise fall back to rating-sorted movies
+            // Use trending candidates if available, otherwise fall back to rating-sorted movies+series
             const heroFinalList = heroCandidates.length >= 4
               ? heroCandidates.slice(0, 8)
-              : [...m.filter((x) => (x.backdropPath || x.posterPath) && (x.tmdbId ?? 0) > 0 && (x.rating ?? 0) >= 6.5)]
+              : [...m, ...s]
+                  .filter((x) => (x.backdropPath || x.posterPath) && (x.tmdbId ?? 0) > 0 && (x.rating ?? 0) >= 6.5)
                   .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0))
                   .slice(0, 8);
 
