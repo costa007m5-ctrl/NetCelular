@@ -223,9 +223,31 @@ const PosterCard = React.memo(function PosterCard({
   const scale = useRef(new Animated.Value(1)).current;
   const overlayOpacity = useRef(new Animated.Value(0)).current;
   const [imgError, setImgError] = useState(false);
+  const [fallbackUri, setFallbackUri] = useState<string | null>(null);
   const [pressing, setPressing] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
   const accent = accentColor ?? colors.primary;
+
+  const handleImgError = useCallback(async () => {
+    if (fallbackUri) { setImgError(true); return; }
+    const tmdbId = (item as any).tmdbId;
+    if (!tmdbId) { setImgError(true); return; }
+    try {
+      const { getApiBase } = await import("@/lib/api");
+      const base = getApiBase();
+      const mt = item.type === "series" ? "tv" : "movie";
+      const ctrl = new AbortController();
+      const tid = setTimeout(() => ctrl.abort(), 4000);
+      const r = await fetch(`${base}/tmdb/${mt}/${tmdbId}`, { signal: ctrl.signal });
+      clearTimeout(tid);
+      if (r.ok) {
+        const d = await r.json();
+        const uri = d.poster_path ? `https://image.tmdb.org/t/p/w342${d.poster_path}` : null;
+        if (uri) { setFallbackUri(uri); return; }
+      }
+    } catch {}
+    setImgError(true);
+  }, [item, fallbackUri]);
 
   const onPressIn = useCallback(() => {
     setPressing(true);
@@ -266,13 +288,13 @@ const PosterCard = React.memo(function PosterCard({
       <Pressable onPress={onPress} onLongPress={handleLongPress} onPressIn={onPressIn} onPressOut={onPressOut}>
         <Animated.View style={[card.base, { width, height, borderRadius: colors.radius, transform: [{ scale }] }]}>
           {/* Image */}
-          {!imgError && item.posterPath ? (
+          {!imgError && (fallbackUri || item.posterPath) ? (
             <Image
-              source={{ uri: item.posterPath }}
+              source={{ uri: fallbackUri || item.posterPath! }}
               style={[card.image, { borderRadius: colors.radius }]}
               contentFit="cover"
               transition={Platform.OS === "web" ? 200 : 0}
-              onError={() => setImgError(true)}
+              onError={handleImgError}
               cachePolicy="memory-disk"
             />
           ) : (

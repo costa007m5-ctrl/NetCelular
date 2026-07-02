@@ -2783,12 +2783,12 @@ export default function HomeScreen() {
 
     // ── Hero pool: interleave best movies + series for variety ──
     if (m.length || s.length) {
-      const hasImg = (x: ContentItem) => !!(x.backdropPath || x.posterPath);
+      // Include all items with tmdbId > 0 and good rating — TMDB images will be fetched below
       const goodRating = (x: ContentItem) => (x.tmdbId ?? 0) > 0 && (x.rating ?? 0) >= 6.5;
 
-      const hm = [...m.filter((x) => hasImg(x) && goodRating(x))]
+      const hm = [...m.filter(goodRating)]
         .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
-      const hs = [...s.filter((x) => hasImg(x) && goodRating(x))]
+      const hs = [...s.filter(goodRating)]
         .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
 
       // Interleave: movie, series, movie, series … for visual variety
@@ -2799,12 +2799,53 @@ export default function HomeScreen() {
         if (heroMixed.length < 8 && si < hs.length) heroMixed.push(hs[si++]);
       }
 
-      // Fallback: any item with an image, sorted by rating
+      // Fallback: any item with tmdbId or an image, sorted by rating
       const heroFallback = [...m, ...s]
-        .filter(hasImg)
+        .filter((x) => (x.tmdbId ?? 0) > 0 || !!(x.backdropPath || x.posterPath))
         .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
 
       setHeroItems(heroMixed.length >= 5 ? heroMixed : heroFallback.slice(0, 8));
+
+      // Immediately fetch TMDB images for initial hero pool so banners show quickly
+      (async () => {
+        const initialHero = heroMixed.length >= 5 ? heroMixed.slice(0, 8) : heroFallback.slice(0, 8);
+        const needsImg = initialHero.filter((x) => (x.tmdbId ?? 0) > 0);
+        if (!needsImg.length) return;
+        try {
+          const { getApiBase } = await import("@/lib/api");
+          const base = getApiBase();
+          const patches = new Map<number, { posterPath: string; backdropPath: string }>();
+          await Promise.allSettled(
+            needsImg.slice(0, 8).map(async (item) => {
+              const ctrl = new AbortController();
+              const tid = setTimeout(() => ctrl.abort(), 5000);
+              try {
+                const mt = item.type === "movie" || item.mediaType === "movie" ? "movie" : "tv";
+                const r = await fetch(`${base}/tmdb/${mt}/${item.tmdbId}`, { signal: ctrl.signal });
+                if (r.ok) {
+                  const d = await r.json();
+                  patches.set(item.tmdbId!, {
+                    posterPath: d.poster_path ? `https://image.tmdb.org/t/p/w342${d.poster_path}` : item.posterPath ?? "",
+                    backdropPath: d.backdrop_path ? `https://image.tmdb.org/t/p/w1280${d.backdrop_path}` : (d.poster_path ? `https://image.tmdb.org/t/p/w780${d.poster_path}` : item.backdropPath ?? ""),
+                  });
+                }
+              } catch {} finally { clearTimeout(tid); }
+            })
+          );
+          if (!patches.size) return;
+          setHeroItems((prev) =>
+            prev.map((item) => {
+              const p = (item.tmdbId ?? 0) > 0 ? patches.get(item.tmdbId!) : undefined;
+              if (!p) return item;
+              return {
+                ...item,
+                posterPath: p.posterPath || item.posterPath,
+                backdropPath: p.backdropPath || item.backdropPath,
+              };
+            })
+          );
+        } catch {}
+      })();
     }
 
     // Async: reorder Top 10 using TMDB weekly trending + real play counts
@@ -2997,16 +3038,13 @@ export default function HomeScreen() {
               setHeroItems(heroCandidates.slice(0, 8));
             }
 
-            // ── Fetch high-res TMDB backdrops for hero items missing landscape images ──
-            // Uses the TMDB server proxy already available via `base`.
-            // w1280 gives a beautiful wide cinematic backdrop for the full-width banner.
+            // ── Fetch high-res TMDB backdrops for ALL hero items with tmdbId ──
+            // Uses the TMDB server proxy. w1280 gives a beautiful wide cinematic backdrop.
             const fetchHeroBackdrops = async (heroes: ContentItem[]): Promise<void> => {
-              const needsBd = heroes.filter(
-                (x) => (x.tmdbId ?? 0) > 0 && !(x.backdropPath && x.backdropPath.startsWith("http"))
-              );
+              const needsBd = heroes.filter((x) => (x.tmdbId ?? 0) > 0);
               if (!needsBd.length) return;
 
-              const patches = new Map<number, string>();
+              const patches = new Map<number, { backdropPath: string; posterPath?: string }>();
               await Promise.allSettled(
                 needsBd.map(async (item) => {
                   const ctrl = new AbortController();
@@ -3016,9 +3054,9 @@ export default function HomeScreen() {
                     const r  = await fetch(`${base}/tmdb/${mt}/${item.tmdbId}`, { signal: ctrl.signal });
                     if (r.ok) {
                       const d = await r.json();
-                      if (d.backdrop_path) {
-                        patches.set(item.tmdbId!, `https://image.tmdb.org/t/p/w1280${d.backdrop_path}`);
-                      }
+                      const bd = d.backdrop_path ? `https://image.tmdb.org/t/p/w1280${d.backdrop_path}` : undefined;
+                      const pt = d.poster_path   ? `https://image.tmdb.org/t/p/w342${d.poster_path}`   : undefined;
+                      if (bd || pt) patches.set(item.tmdbId!, { backdropPath: bd ?? pt ?? "", posterPath: pt });
                     }
                   } catch {} finally { clearTimeout(tid); }
                 })
@@ -3027,8 +3065,13 @@ export default function HomeScreen() {
               if (!patches.size) return;
               setHeroItems((prev) =>
                 prev.map((item) => {
-                  const bd = (item.tmdbId ?? 0) > 0 ? patches.get(item.tmdbId!) : undefined;
-                  return bd ? { ...item, backdropPath: bd } : item;
+                  const p = (item.tmdbId ?? 0) > 0 ? patches.get(item.tmdbId!) : undefined;
+                  if (!p) return item;
+                  return {
+                    ...item,
+                    backdropPath: p.backdropPath || item.backdropPath,
+                    posterPath: p.posterPath || item.posterPath,
+                  };
                 })
               );
             };
@@ -3038,7 +3081,7 @@ export default function HomeScreen() {
             const heroFinalList = heroCandidates.length >= 4
               ? heroCandidates.slice(0, 8)
               : [...m, ...s]
-                  .filter((x) => (x.backdropPath || x.posterPath) && (x.tmdbId ?? 0) > 0 && (x.rating ?? 0) >= 6.5)
+                  .filter((x) => (x.tmdbId ?? 0) > 0 && (x.rating ?? 0) >= 6.5)
                   .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0))
                   .slice(0, 8);
 
