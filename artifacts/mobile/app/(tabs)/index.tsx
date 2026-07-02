@@ -373,7 +373,9 @@ function StreamingChip({ platform, onPress }: { platform: StreamingPlatform; onP
   const scale = useRef(new Animated.Value(1)).current;
   const pressIn  = () => Animated.spring(scale, { toValue: 0.91, useNativeDriver: true, speed: 28 }).start();
   const pressOut = () => Animated.spring(scale, { toValue: 1,    useNativeDriver: true, speed: 24 }).start();
-  const logoSrc = platform.logoPath
+  const logoSrc = platform.logoUrl
+    ? platform.logoUrl
+    : platform.logoPath
     ? `https://image.tmdb.org/t/p/w185${platform.logoPath}`
     : null;
 

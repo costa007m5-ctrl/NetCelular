@@ -34,7 +34,9 @@ function PlatformCard({
   const pressOut = () =>
     Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 26 }).start();
 
-  const logoUrl = platform.logoPath
+  const logoUrl = platform.logoUrl
+    ? platform.logoUrl
+    : platform.logoPath
     ? `https://image.tmdb.org/t/p/w185${platform.logoPath}`
     : null;
 
