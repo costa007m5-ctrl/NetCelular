@@ -95,20 +95,15 @@ import {
   GlowPosterRow,
   MiniBannerTriple,
   RatingLeaderboard,
-  CountdownLaunchCard,
   NetflixStyleDualRow,
-  CuratedPlaylistRow,
   CategoryShowcaseCard,
   TrendingTickerRow,
   PremiumStatsBar,
   NewThisWeekRow,
-  WatchedProgressBanner,
   GenreShowcaseRow,
   NetplayExclusiveRow,
   DuoFeatureBanner,
-  SectionHighlightCard,
   PremiumLargePosterRow,
-  FloatingActionPromoBanner,
 } from "@/components/HomePremiumSections";
 
 const TAB_BAR_CLEARANCE = 120;
@@ -4479,102 +4474,6 @@ export default function HomeScreen() {
                     onPress={goTo}
                   />
                   <View style={{ height: 20 }} />
-                </FadeInSection>
-              )}
-
-              {/* ── 41. WATCHED PROGRESS BANNER ─────────────────────────────── */}
-              {showAll && (
-                <FadeInSection delay={110}>
-                  <SectionDivider label="SEU PROGRESSO" accentColor={GREEN} />
-                  <WatchedProgressBanner
-                    watched={watchList.length}
-                    total={50}
-                    hoursWatched={Math.round(watchList.length * 1.8)}
-                    streak={3}
-                    accent={GREEN}
-                  />
-                </FadeInSection>
-              )}
-
-              {/* ── 42. SECTION HIGHLIGHT CARDS ─────────────────────────────── */}
-              {showAll && (
-                <FadeInSection delay={110}>
-                  <SectionHighlightCard
-                    title="Modo Offline"
-                    subtitle="Baixe e assista sem internet"
-                    icon="download"
-                    accent={BLUE}
-                    onPress={() => router.push("/(tabs)/profile" as any)}
-                  />
-                  <SectionHighlightCard
-                    title="4K + Dolby Atmos"
-                    subtitle="Experiência cinematográfica"
-                    icon="monitor"
-                    accent={AMBER}
-                    onPress={() => router.push({ pathname: "/genre-browse", params: { genre_id: "0", type: "movie", title: "4K" } } as any)}
-                  />
-                </FadeInSection>
-              )}
-
-              {/* ── 43. CURATED PLAYLIST ROW ────────────────────────────────── */}
-              {showAll && movies.length >= 9 && (
-                <FadeInSection delay={130}>
-                  <SectionDivider label="PLAYLISTS" accentColor={PINK} />
-                  <GradientSectionHeader
-                    title="Playlists Curadas"
-                    subtitle="Seleções especiais"
-                    icon="list"
-                    accentColor={PINK}
-                  />
-                  <CuratedPlaylistRow
-                    playlists={[
-                      { label: "Noite de Sexta", count: 12, accent: RED,    icon: "moon"         as const, items: movies.slice(0,3) },
-                      { label: "Família 🎉",      count: 8,  accent: AMBER,  icon: "users"        as const, items: movies.slice(3,6) },
-                      { label: "Melhores de 2024",count: 15, accent: PURPLE, icon: "award"        as const, items: movies.slice(6,9) },
-                      { label: "Maratona Crime",  count: 10, accent: INDIGO, icon: "shield"       as const, items: series.slice(0,3) },
-                    ]}
-                    onPress={(p) => openModal(p.label, p.items, RED)}
-                  />
-                  <View style={{ height: 20 }} />
-                </FadeInSection>
-              )}
-
-              {/* ── 44. COUNTDOWN LAUNCH CARD ───────────────────────────────── */}
-              {showAll && (
-                <FadeInSection delay={120}>
-                  <SectionDivider label="EM BREVE" accentColor={ORANGE} />
-                  <GradientSectionHeader
-                    title="Próximas Estreias"
-                    subtitle="Reserve na agenda"
-                    icon="calendar"
-                    accentColor={ORANGE}
-                  />
-                  <CountdownLaunchCard
-                    title="Avengers: Secret Wars"
-                    daysLeft={48}
-                    accentColor={RED}
-                    onNotify={() => {}}
-                  />
-                  <CountdownLaunchCard
-                    title="Dune: Messiah"
-                    daysLeft={120}
-                    accentColor={AMBER}
-                    onNotify={() => {}}
-                  />
-                </FadeInSection>
-              )}
-
-              {/* ── 45. FLOATING PROMO BANNER ───────────────────────────────── */}
-              {showAll && (
-                <FadeInSection delay={100}>
-                  <FloatingActionPromoBanner
-                    title="Assistir em Qualquer Lugar"
-                    sub="Disponível em todos os dispositivos"
-                    cta="Explorar"
-                    accent={PURPLE}
-                    icon="smartphone"
-                    onPress={() => router.push("/(tabs)/profile" as any)}
-                  />
                 </FadeInSection>
               )}
 
