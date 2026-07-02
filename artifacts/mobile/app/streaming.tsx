@@ -95,7 +95,9 @@ const PLATFORM_GENRES: Record<string, { id: number; type: "movie" | "tv"; label:
 
 function PlatformLogo({ platform }: { platform: NonNullable<ReturnType<typeof getPlatform>> }) {
   const [logoError, setLogoError] = useState(false);
-  const logoUrl = platform.logoPath
+  const logoUrl = platform.logoUrl
+    ? platform.logoUrl
+    : platform.logoPath
     ? `https://image.tmdb.org/t/p/w300${platform.logoPath}`
     : null;
 
