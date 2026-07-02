@@ -2473,7 +2473,7 @@ function NovidadesVerticalCard({
 }
 
 const nvc = StyleSheet.create({
-  wrap: { width: "100%", backgroundColor: "#050508" },
+  wrap: { width: "100%", backgroundColor: "#000" },
   imgWrap: { width: "100%", aspectRatio: 16 / 9, backgroundColor: "#111", overflow: "hidden" },
   logoOverlay: {
     position: "absolute", bottom: 14, left: 14,
@@ -2522,7 +2522,7 @@ const nvc = StyleSheet.create({
     letterSpacing: 0.5, lineHeight: 11,
   },
   // ── Info section ──────────────────────────────────────────────
-  info: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 24, backgroundColor: "#050508" },
+  info: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 24, backgroundColor: "#000" },
   infoChipsRow: {
     flexDirection: "row", alignItems: "center", gap: 8,
     marginBottom: 10, flexWrap: "wrap",
@@ -2577,7 +2577,7 @@ const nvc = StyleSheet.create({
   btnTxt: { fontSize: 15, fontWeight: "800", color: "#fff" },
   btnInfoTxt: { fontSize: 13, fontWeight: "700", color: "rgba(255,255,255,0.75)" },
   // ── Divider ───────────────────────────────────────────────────
-  divider: { height: 10, backgroundColor: "#111" },
+  divider: { height: 1, backgroundColor: "rgba(255,255,255,0.07)" },
   // ── Episode count ─────────────────────────────────────────────
   epCountRow: { flexDirection: "row", alignItems: "center", marginBottom: 10 },
   epCountBadge: {
