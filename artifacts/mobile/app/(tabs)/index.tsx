@@ -2772,7 +2772,13 @@ export default function HomeScreen() {
 
     if (m.length) {
       setMovies(m);
-      setHeroItems(m.filter((x) => x.backdropPath || x.posterPath).slice(0, 6));
+      // Hero: prefer items with tmdbId (logos work) + good rating + has image
+      const heroPool = m.filter(
+        (x) => (x.backdropPath || x.posterPath) && (x.tmdbId ?? 0) > 0 && (x.rating ?? 0) >= 6.5
+      );
+      const heroFallback = m.filter((x) => x.backdropPath || x.posterPath);
+      const heroSrc = heroPool.length >= 5 ? heroPool : heroFallback;
+      setHeroItems([...heroSrc].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0)).slice(0, 8));
       setTop10Movies(byRating(m).slice(0, 10));
       setTotals((t) => ({ ...t, movies: m.length }));
     }
@@ -2940,6 +2946,37 @@ export default function HomeScreen() {
                 setTop10Movies(enriched.slice(0, 10));
               }
             }).catch(() => {});
+
+            // Enrich hero items: blend trending movies/series into hero pool
+            // Prefer items with backdropPath (landscape = better banner visuals)
+            const buildHeroCandidates = () => {
+              const movieHits = trendMovieIds
+                .map((id) => m.find((x) => x.tmdbId === id))
+                .filter(Boolean) as ContentItem[];
+              const tvHits = trendTvIds
+                .map((id) => s.find((x) => x.tmdbId === id))
+                .filter(Boolean) as ContentItem[];
+              const combined = [...movieHits, ...tvHits];
+              // Enrich with TMDB backdrop/poster URLs from the trending map
+              const enriched = combined.map((item) => {
+                const hasBackdrop = item.backdropPath && item.backdropPath.startsWith("http");
+                const hasPoster   = item.posterPath   && item.posterPath.startsWith("http");
+                const tBackdrop = (item.tmdbId ?? 0) > 0 ? tmdbBackdropMap.get(item.tmdbId!) : undefined;
+                const tPoster   = (item.tmdbId ?? 0) > 0 ? tmdbPosterMap.get(item.tmdbId!)   : undefined;
+                return {
+                  ...item,
+                  backdropPath: hasBackdrop ? item.backdropPath : (tBackdrop ?? item.backdropPath),
+                  posterPath:   hasPoster   ? item.posterPath   : (tPoster   ?? item.posterPath),
+                };
+              });
+              // Only items with images and tmdbId
+              return enriched.filter((x) => (x.backdropPath || x.posterPath) && (x.tmdbId ?? 0) > 0);
+            };
+
+            const heroCandidates = buildHeroCandidates();
+            if (heroCandidates.length >= 4) {
+              setHeroItems(heroCandidates.slice(0, 8));
+            }
           }
           if (s.length > 0) {
             const blended = enrichTop10Posters(blendTop10(s, realTvIds, trendTvIds, trendTvTitles) as ContentItem[]);

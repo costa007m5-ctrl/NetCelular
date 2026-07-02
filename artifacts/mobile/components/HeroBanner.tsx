@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
-  Dimensions,
   Platform,
   Pressable,
   StyleSheet,
@@ -13,16 +12,14 @@ import {
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Feather } from "@expo/vector-icons";
-import { useColors } from "@/hooks/useColors";
 import type { ContentItem } from "@/constants/content";
 
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
-const HERO_HEIGHT = 400;
-const CARD_MARGIN = 16;
-const CARD_POSTER_RATIO = 0.92; // height / width of the poster area inside the card
-const TMDB_KEY = "8f0beb08cf016ec8de49e454e09879ec";
-const AUTO_ADVANCE_MS = 7000;
+const CARD_MARGIN        = 7;   // px each side — small margin like Netflix
+const CARD_POSTER_RATIO  = 1.22; // height / width — slightly taller than wide
+const TMDB_KEY           = "8f0beb08cf016ec8de49e454e09879ec";
+const AUTO_ADVANCE_MS    = 6000;
 
+/* ─── TMDB logo hook ─── */
 const logoCache = new Map<string, string | null>();
 
 function useTmdbLogo(id?: number, type?: "movie" | "tv") {
@@ -31,29 +28,27 @@ function useTmdbLogo(id?: number, type?: "movie" | "tv") {
     if (!id || !type) return;
     const key = `${type}_${id}`;
     if (logoCache.has(key)) { setLogo(logoCache.get(key) ?? null); return; }
-    fetch(`https://api.themoviedb.org/3/${type}/${id}/images?api_key=${TMDB_KEY}&include_image_language=pt,en,null`)
+    fetch(
+      `https://api.themoviedb.org/3/${type}/${id}/images?api_key=${TMDB_KEY}&include_image_language=pt,en,null`
+    )
       .then((r) => r.json())
       .then((data) => {
         const logos: any[] = data.logos ?? [];
-        const pt = logos.find((l) => l.iso_639_1 === "pt");
-        const en = logos.find((l) => l.iso_639_1 === "en");
+        const pt   = logos.find((l) => l.iso_639_1 === "pt");
+        const en   = logos.find((l) => l.iso_639_1 === "en");
         const best = pt ?? en ?? logos[0] ?? null;
-        const path = best?.file_path ? `https://image.tmdb.org/t/p/w300${best.file_path}` : null;
+        const path = best?.file_path
+          ? `https://image.tmdb.org/t/p/w500${best.file_path}`
+          : null;
         logoCache.set(key, path);
         setLogo(path);
       })
-      .catch(() => { logoCache.set(`${type}_${id}`, null); });
+      .catch(() => { logoCache.set(key, null); });
   }, [id, type]);
   return logo;
 }
 
-function formatRuntime(minutes?: number): string | null {
-  if (!minutes) return null;
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  return h > 0 ? `${h}h ${m}min` : `${m}min`;
-}
-
+/* ─── Genre names ─── */
 const GENRE_NAMES: Record<number, string> = {
   28: "Ação", 12: "Aventura", 16: "Animação", 35: "Comédia", 80: "Crime",
   99: "Documentário", 18: "Drama", 10751: "Família", 14: "Fantasia",
@@ -62,6 +57,7 @@ const GENRE_NAMES: Record<number, string> = {
   10765: "Sci-Fi & Fantasia", 10766: "Novela",
 };
 
+/* ─── Props ─── */
 interface HeroBannerProps {
   items: ContentItem[];
   onItemPress?: (item: ContentItem) => void;
@@ -71,7 +67,6 @@ interface HeroBannerProps {
 
 interface HeroItemProps {
   item: ContentItem;
-  colors: ReturnType<typeof useColors>;
   onWatch?: () => void;
   onDetails?: () => void;
   onAddToList?: () => void;
@@ -80,108 +75,72 @@ interface HeroItemProps {
   screenWidth: number;
 }
 
-function ContentTypeBadge({ type, channel }: { type: string; channel?: string }) {
-  if (channel && channel !== "NETPLAY") {
-    return (
-      <View style={heroStyles.typeBadge}>
-        <View style={heroStyles.typeLiveDot} />
-        <Text style={heroStyles.typeBadgeText}>{channel}</Text>
-      </View>
-    );
-  }
-  const label = type === "movie" ? "FILME" : "SÉRIE";
-  const icon: any = type === "movie" ? "film" : "tv";
-  return (
-    <View style={[heroStyles.typeBadge, { backgroundColor: "rgba(229,9,20,0.22)", borderColor: "rgba(229,9,20,0.55)" }]}>
-      <Feather name={icon} size={9} color="#e50914" />
-      <Text style={[heroStyles.typeBadgeText, { color: "#ff3a46" }]}>{label}</Text>
-    </View>
-  );
-}
-
-function IMDbBadge({ rating }: { rating: number }) {
-  return (
-    <View style={heroStyles.imdbBadge}>
-      <Text style={heroStyles.imdbText}>IMDb</Text>
-      <Text style={heroStyles.imdbRating}>{rating.toFixed(1)}</Text>
-    </View>
-  );
-}
-
-function HeroItem({ item, colors, onWatch, onDetails, onAddToList, isActive, screenWidth }: HeroItemProps) {
-  const [imgError, setImgError] = useState(false);
+/* ─── Single hero slide ─── */
+function HeroItem({ item, onWatch, onDetails, onAddToList, isActive, screenWidth }: HeroItemProps) {
+  const [imgError,  setImgError]  = useState(false);
   const [logoError, setLogoError] = useState(false);
-  const [liked, setLiked] = useState(false);
 
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(28)).current;
-  const scaleAnim = useRef(new Animated.Value(1.06)).current;
-  const heartScale = useRef(new Animated.Value(1)).current;
+  const fadeAnim    = useRef(new Animated.Value(0)).current;
   const contentFade = useRef(new Animated.Value(0)).current;
+  const scaleAnim   = useRef(new Animated.Value(1.06)).current;
 
-  const type = item.mediaType === "movie" || item.type === "movie" ? "movie" : "tv";
+  const type   = item.mediaType === "movie" || item.type === "movie" ? "movie" : "tv";
   const tmdbId = item.tmdbId ? Number(item.tmdbId) : undefined;
   const logoUrl = useTmdbLogo(tmdbId, type);
 
   useEffect(() => {
     if (isActive) {
       Animated.parallel([
-        Animated.timing(fadeAnim, { toValue: 1, duration: 500, useNativeDriver: true }),
-        Animated.spring(slideAnim, { toValue: 0, speed: 12, bounciness: 3, useNativeDriver: true }),
-        Animated.timing(scaleAnim, { toValue: 1, duration: 7000, useNativeDriver: true }),
-        Animated.timing(contentFade, { toValue: 1, duration: 700, delay: 150, useNativeDriver: true }),
+        Animated.timing(fadeAnim,    { toValue: 1, duration: 450, useNativeDriver: true }),
+        Animated.timing(contentFade, { toValue: 1, duration: 600, delay: 120, useNativeDriver: true }),
+        Animated.timing(scaleAnim,   { toValue: 1, duration: 7000, useNativeDriver: true }),
       ]).start();
     } else {
       fadeAnim.setValue(0);
-      slideAnim.setValue(28);
-      scaleAnim.setValue(1.06);
       contentFade.setValue(0);
+      scaleAnim.setValue(1.06);
     }
   }, [isActive]);
 
-  const handleLike = useCallback(() => {
-    setLiked((v) => !v);
-    Animated.sequence([
-      Animated.spring(heartScale, { toValue: 1.5, speed: 28, bounciness: 16, useNativeDriver: true }),
-      Animated.spring(heartScale, { toValue: 1, speed: 26, bounciness: 5, useNativeDriver: true }),
-    ]).start();
-  }, [heartScale]);
-
   const displayGenres = useMemo(
-    () => Array.isArray(item.genres)
-      ? (item.genres.filter((g: unknown) => typeof g === "number").slice(0, 3) as number[])
-      : [],
+    () =>
+      Array.isArray(item.genres)
+        ? (item.genres.filter((g: unknown) => typeof g === "number").slice(0, 3) as number[])
+        : [],
     [item.genres]
   );
 
-  const runtime = useMemo(
-    () => formatRuntime(item.duration ? parseInt(String(item.duration)) : undefined),
-    [item.duration]
-  );
+  const cardWidth   = screenWidth - CARD_MARGIN * 2;
+  const cardHeight  = Math.round(cardWidth * CARD_POSTER_RATIO);
 
-  const cardWidth = screenWidth - CARD_MARGIN * 2;
-  const posterHeight = cardWidth * CARD_POSTER_RATIO;
-
-  const HERO_YEAR = new Date().getFullYear();
-  const isNew = item.year >= HERO_YEAR - 1;
+  // Prefer landscape backdrop for the hero image
+  const bannerImg = (!imgError && (item.backdropPath || item.posterPath)) ? (item.backdropPath || item.posterPath) : null;
 
   return (
-    <View style={{ width: screenWidth, alignItems: "center", flexShrink: 0 }}>
+    <View style={{ width: screenWidth, alignItems: "center" }}>
       <Animated.View
-        style={[
-          heroStyles.card,
-          { width: cardWidth, opacity: fadeAnim, transform: [{ translateY: slideAnim }] },
-        ]}
+        style={{
+          width: cardWidth,
+          height: cardHeight,
+          borderRadius: 16,
+          overflow: "hidden",
+          opacity: fadeAnim,
+          backgroundColor: "#0c0c14",
+        }}
       >
-        <Pressable onPress={onDetails ?? onWatch} style={{ width: "100%", height: posterHeight }}>
-          {/* Poster art */}
-          {!imgError && (item.posterPath || item.backdropPath) ? (
+        <Pressable
+          onPress={onDetails ?? onWatch}
+          style={StyleSheet.absoluteFill}
+          android_ripple={{ color: "rgba(255,255,255,0.06)" }}
+        >
+          {/* Banner image */}
+          {bannerImg ? (
             <Animated.View style={{ ...StyleSheet.absoluteFillObject, transform: [{ scale: scaleAnim }] }}>
               <Image
-                source={{ uri: item.posterPath || item.backdropPath }}
+                source={{ uri: bannerImg }}
                 style={StyleSheet.absoluteFill}
                 contentFit="cover"
-                transition={Platform.OS === "web" ? 400 : 0}
+                transition={Platform.OS === "web" ? 350 : 0}
                 cachePolicy="memory-disk"
                 onError={() => setImgError(true)}
               />
@@ -190,35 +149,28 @@ function HeroItem({ item, colors, onWatch, onDetails, onAddToList, isActive, scr
             <LinearGradient colors={["#1a0a14", "#08060e"]} style={StyleSheet.absoluteFill} />
           )}
 
-          {/* Bottom gradient inside poster for logo legibility */}
+          {/* Top fade (subtle darkening for top area legibility) */}
           <LinearGradient
-            colors={["transparent", "rgba(6,10,10,0.55)", "rgba(6,10,10,0.92)"]}
-            locations={[0.55, 0.8, 1]}
+            colors={["rgba(0,0,0,0.52)", "rgba(0,0,0,0.1)", "transparent"]}
+            locations={[0, 0.18, 0.38]}
             style={StyleSheet.absoluteFill}
           />
 
-          {/* Netflix "N" badge */}
+          {/* Bottom gradient — strong, covers bottom 60% for text + buttons */}
+          <LinearGradient
+            colors={["transparent", "rgba(0,0,0,0.55)", "rgba(0,0,0,0.82)", "#060609"]}
+            locations={[0.28, 0.55, 0.78, 1]}
+            style={StyleSheet.absoluteFill}
+          />
+
+          {/* N badge — top left */}
           <View style={heroStyles.nBadge}>
             <Text style={heroStyles.nBadgeText}>N</Text>
           </View>
 
-          {/* Top badges */}
-          <View style={heroStyles.badgeRow}>
-            {isNew && (
-              <View style={heroStyles.newBadge}>
-                <Feather name="zap" size={8} color="#fff" />
-                <Text style={heroStyles.newBadgeText}>NOVO</Text>
-              </View>
-            )}
-            {item.channel === "NETPLAY" && (
-              <View style={heroStyles.exclusiveBadge}>
-                <Text style={heroStyles.exclusiveBadgeText}>✦ DESTAQUE</Text>
-              </View>
-            )}
-          </View>
-
-          {/* Logo or title, anchored near bottom of poster */}
-          <Animated.View style={[heroStyles.logoWrap, { opacity: contentFade }]}>
+          {/* Bottom overlay: logo + genres + buttons */}
+          <Animated.View style={[heroStyles.overlay, { opacity: contentFade }]}>
+            {/* Logo image or title text */}
             {logoUrl && !logoError ? (
               <Image
                 source={{ uri: logoUrl }}
@@ -231,81 +183,54 @@ function HeroItem({ item, colors, onWatch, onDetails, onAddToList, isActive, scr
                 {item.title}
               </Text>
             )}
-          </Animated.View>
-        </Pressable>
 
-        {/* Card footer (below poster) */}
-        <Animated.View style={[heroStyles.cardFooter, { opacity: contentFade }]}>
-          {/* Genre tags row */}
-          {displayGenres.length > 0 && (
-            <View style={heroStyles.genreRow}>
-              {displayGenres.map((g, idx) => {
-                const name = GENRE_NAMES[g];
-                if (!name) return null;
-                return (
-                  <React.Fragment key={g}>
-                    {idx > 0 && <View style={heroStyles.genreSep} />}
-                    <Text style={heroStyles.genreText}>{name}</Text>
-                  </React.Fragment>
-                );
-              })}
-            </View>
-          )}
+            {/* Genre dots */}
+            {displayGenres.length > 0 && (
+              <View style={heroStyles.genreRow}>
+                {displayGenres.map((g, idx) => {
+                  const name = GENRE_NAMES[g];
+                  if (!name) return null;
+                  return (
+                    <React.Fragment key={g}>
+                      {idx > 0 && <View style={heroStyles.genreDot} />}
+                      <Text style={heroStyles.genreText}>{name}</Text>
+                    </React.Fragment>
+                  );
+                })}
+              </View>
+            )}
 
-          {/* Meta info row */}
-          <View style={heroStyles.metaRow}>
-            {item.rating > 0 && <IMDbBadge rating={item.rating} />}
-            <Text style={heroStyles.metaYear}>{item.year}</Text>
-            {runtime && <Text style={heroStyles.metaRuntime}>• {runtime}</Text>}
-          </View>
-
-          {/* Assistir button */}
-          <Pressable
-            onPress={onWatch}
-            style={({ pressed }) => [heroStyles.watchBtn, { opacity: pressed ? 0.85 : 1 }]}
-          >
-            <Feather name="play" size={17} color="#111" style={{ marginRight: 2 }} />
-            <Text style={heroStyles.watchBtnText}>Assistir</Text>
-          </Pressable>
-
-          {/* Minha lista button */}
-          <TouchableOpacity
-            onPress={onAddToList}
-            style={heroStyles.listBtn}
-            activeOpacity={0.8}
-          >
-            <Feather name="plus" size={17} color="rgba(255,255,255,0.9)" style={{ marginRight: 2 }} />
-            <Text style={heroStyles.listBtnText}>Minha lista</Text>
-          </TouchableOpacity>
-
-          {/* Secondary row: details + like */}
-          <View style={heroStyles.secondaryRow}>
+            {/* Assistir button — white, full width */}
             <Pressable
-              onPress={onDetails ?? onWatch}
-              style={({ pressed }) => [heroStyles.glassBtn, { opacity: pressed ? 0.7 : 1 }]}
+              onPress={onWatch}
+              style={({ pressed }) => [heroStyles.watchBtn, { opacity: pressed ? 0.82 : 1 }]}
             >
-              <Feather name="info" size={14} color="rgba(255,255,255,0.9)" />
-              <Text style={heroStyles.glassBtnText}>Detalhes</Text>
+              <Feather name="play" size={16} color="#111" />
+              <Text style={heroStyles.watchBtnText}>Assistir</Text>
             </Pressable>
 
-            <Animated.View style={{ transform: [{ scale: heartScale }] }}>
+            {/* Minha lista + Detalhes row */}
+            <View style={heroStyles.secondaryRow}>
               <TouchableOpacity
-                onPress={handleLike}
-                style={[
-                  heroStyles.iconBtn,
-                  liked && { backgroundColor: "rgba(229,9,20,0.32)", borderColor: "rgba(229,9,20,0.6)" },
-                ]}
-                activeOpacity={0.75}
+                onPress={onAddToList}
+                style={heroStyles.ghostBtn}
+                activeOpacity={0.78}
               >
-                <Feather name="heart" size={16} color={liked ? "#e50914" : "rgba(255,255,255,0.75)"} />
+                <Feather name="plus" size={16} color="rgba(255,255,255,0.92)" />
+                <Text style={heroStyles.ghostBtnText}>Minha lista</Text>
               </TouchableOpacity>
-            </Animated.View>
 
-            <TouchableOpacity style={heroStyles.iconBtn} activeOpacity={0.75}>
-              <Feather name="download" size={16} color="rgba(255,255,255,0.75)" />
-            </TouchableOpacity>
-          </View>
-        </Animated.View>
+              <TouchableOpacity
+                onPress={onDetails ?? onWatch}
+                style={heroStyles.ghostBtnSmall}
+                activeOpacity={0.78}
+              >
+                <Feather name="info" size={15} color="rgba(255,255,255,0.85)" />
+                <Text style={heroStyles.ghostBtnText}>Detalhes</Text>
+              </TouchableOpacity>
+            </View>
+          </Animated.View>
+        </Pressable>
       </Animated.View>
     </View>
   );
@@ -318,33 +243,27 @@ function HeroBannerSkeleton({ width: w }: { width: number }) {
   useEffect(() => {
     const anim = Animated.loop(
       Animated.sequence([
-        Animated.timing(pulse, { toValue: 1, duration: 900, useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 0, duration: 900, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 1, duration: 850, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0, duration: 850, useNativeDriver: true }),
       ])
     );
     anim.start();
     return () => anim.stop();
   }, []);
 
-  const opacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1.0] });
-  const Bone = ({ style }: { style: any }) => (
-    <Animated.View style={[{ backgroundColor: "#2e2e3a", borderRadius: 6 }, style, { opacity }]} />
-  );
-
-  const cardWidth = w - CARD_MARGIN * 2;
-  const posterHeight = cardWidth * CARD_POSTER_RATIO;
-  const skeletonHeight = posterHeight + 180;
+  const opacity  = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.55, 1.0] });
+  const cardWidth  = w - CARD_MARGIN * 2;
+  const cardHeight = Math.round(cardWidth * CARD_POSTER_RATIO);
 
   return (
-    <View style={{ height: skeletonHeight, width: w, backgroundColor: "#0a0a0f", alignItems: "center", paddingTop: 4 }}>
-      <View style={{ width: cardWidth, borderRadius: 16, overflow: "hidden", backgroundColor: "#161620" }}>
-        <Animated.View style={{ width: "100%", height: posterHeight, backgroundColor: "#222230", opacity }} />
-        <View style={{ padding: 16, gap: 11 }}>
-          <View style={{ flexDirection: "row", gap: 8 }}>
-            {[52, 72, 84].map((bw, i) => <Bone key={i} style={{ width: bw, height: 12, borderRadius: 4 }} />)}
-          </View>
-          <Bone style={{ width: "100%", height: 44, borderRadius: 8 }} />
-          <Bone style={{ width: "100%", height: 40, borderRadius: 8 }} />
+    <View style={{ width: w, alignItems: "center" }}>
+      <View style={{ width: cardWidth, height: cardHeight, borderRadius: 16, overflow: "hidden", backgroundColor: "#141420" }}>
+        <Animated.View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: "#1e1e2e", opacity }} />
+        {/* Shimmer at bottom for button area */}
+        <View style={{ position: "absolute", bottom: 0, left: 0, right: 0, padding: 16, gap: 10 }}>
+          <Animated.View style={{ height: 52, width: "85%", alignSelf: "center", backgroundColor: "#2a2a3a", borderRadius: 8, opacity }} />
+          <Animated.View style={{ height: 44, width: "100%", backgroundColor: "#2a2a3a", borderRadius: 8, opacity }} />
+          <Animated.View style={{ height: 38, width: "100%", backgroundColor: "#242432", borderRadius: 8, opacity }} />
         </View>
       </View>
     </View>
@@ -353,17 +272,16 @@ function HeroBannerSkeleton({ width: w }: { width: number }) {
 
 /* ─── Main HeroBanner component ─── */
 export function HeroBanner({ items, onItemPress, onDetailsPress, onAddToList }: HeroBannerProps) {
-  const colors = useColors();
   const { width: w } = useWindowDimensions();
   const [activeIndex, setActiveIndex] = useState(0);
-  const scrollRef = useRef<any>(null);
-  const timerRef = useRef<any>(null);
+  const scrollRef     = useRef<any>(null);
+  const timerRef      = useRef<any>(null);
   const bannerOpacity = useRef(new Animated.Value(0)).current;
-  const hasItems = items.length > 0;
+  const hasItems      = items.length > 0;
 
   useEffect(() => {
     if (hasItems) {
-      Animated.timing(bannerOpacity, { toValue: 1, duration: 550, useNativeDriver: true }).start();
+      Animated.timing(bannerOpacity, { toValue: 1, duration: 500, useNativeDriver: true }).start();
     } else {
       bannerOpacity.setValue(0);
     }
@@ -379,7 +297,7 @@ export function HeroBanner({ items, onItemPress, onDetailsPress, onAddToList }: 
   );
 
   const resetTimer = useCallback(
-    (fromIdx: number) => {
+    (_fromIdx: number) => {
       clearInterval(timerRef.current);
       if (items.length <= 1) return;
       timerRef.current = setInterval(() => {
@@ -422,7 +340,6 @@ export function HeroBanner({ items, onItemPress, onDetailsPress, onAddToList }: 
 
       {hasItems && (
         <Animated.View style={{ opacity: bannerOpacity }}>
-          {/* Scroll carousel */}
           <Animated.ScrollView
             ref={scrollRef}
             horizontal
@@ -443,10 +360,9 @@ export function HeroBanner({ items, onItemPress, onDetailsPress, onAddToList }: 
                 key={item.id}
                 item={item}
                 index={i}
-                colors={colors}
                 screenWidth={w}
                 isActive={i === activeIndex}
-                onWatch={onItemPress ? () => onItemPress(item) : undefined}
+                onWatch={onItemPress  ? () => onItemPress(item)  : undefined}
                 onDetails={
                   onDetailsPress
                     ? () => onDetailsPress(item)
@@ -476,34 +392,12 @@ export function HeroBanner({ items, onItemPress, onDetailsPress, onAddToList }: 
 }
 
 const heroStyles = StyleSheet.create({
-  card: {
-    borderRadius: 20,
-    overflow: "hidden",
-    backgroundColor: "#0c0f0e",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    ...Platform.select({
-      ios: {
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.4,
-        shadowRadius: 20,
-      },
-      android: { elevation: 8 },
-    }),
-  },
-  cardFooter: {
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 18,
-    gap: 10,
-  },
   nBadge: {
     position: "absolute",
     top: 14,
     left: 14,
-    width: 22,
-    height: 22,
+    width: 24,
+    height: 24,
     borderRadius: 4,
     backgroundColor: "#e50914",
     alignItems: "center",
@@ -511,164 +405,63 @@ const heroStyles = StyleSheet.create({
   },
   nBadgeText: {
     color: "#fff",
-    fontSize: 13,
-    fontWeight: "900",
-  },
-  logoWrap: {
-    position: "absolute",
-    bottom: 14,
-    left: 16,
-    right: 16,
-    alignItems: "center",
-  },
-  badgeRow: {
-    position: "absolute",
-    top: 14,
-    right: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 7,
-    flexWrap: "wrap",
-  },
-  typeBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    borderWidth: 1,
-    borderRadius: 6,
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-    backgroundColor: "rgba(255,255,255,0.07)",
-    borderColor: "rgba(255,255,255,0.18)",
-  },
-  typeLiveDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: "#22c55e",
-  },
-  typeBadgeText: {
-    fontSize: 9,
-    fontWeight: "800",
-    letterSpacing: 1.5,
-    color: "rgba(255,255,255,0.85)",
-  },
-  newBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "#e50914",
-    borderRadius: 6,
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-  },
-  newBadgeText: {
-    color: "#fff",
-    fontSize: 9,
-    fontWeight: "800",
-    letterSpacing: 1.2,
-  },
-  exclusiveBadge: {
-    backgroundColor: "rgba(245,158,11,0.15)",
-    borderWidth: 1,
-    borderColor: "rgba(245,158,11,0.38)",
-    borderRadius: 6,
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-  },
-  exclusiveBadgeText: {
-    color: "#f59e0b",
-    fontSize: 9,
-    fontWeight: "800",
-    letterSpacing: 1.2,
-  },
-  logoImg: {
-    width: "82%",
-    height: 74,
-    alignSelf: "center",
-  },
-  heroTitle: {
-    fontSize: 26,
+    fontSize: 14,
     fontWeight: "900",
     letterSpacing: -0.5,
-    lineHeight: 30,
+  },
+
+  /* Bottom content overlay — absolute positioned inside the card */
+  overlay: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 14,
+    paddingBottom: 14,
+    gap: 8,
+  },
+
+  logoImg: {
+    width: "75%",
+    height: 62,
+    alignSelf: "center",
+    marginBottom: 2,
+  },
+  heroTitle: {
+    fontSize: 24,
+    fontWeight: "900",
+    letterSpacing: -0.5,
+    lineHeight: 28,
     color: "#fff",
     textAlign: "center",
-    textShadowColor: "rgba(0,0,0,0.98)",
+    textShadowColor: "rgba(0,0,0,0.95)",
     textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 16,
+    textShadowRadius: 12,
+    marginBottom: 2,
   },
+
   genreRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
     flexWrap: "wrap",
+    marginBottom: 2,
   },
   genreText: {
     fontSize: 12,
-    color: "rgba(255,255,255,0.6)",
+    color: "rgba(255,255,255,0.65)",
     fontWeight: "500",
   },
-  genreSep: {
+  genreDot: {
     width: 3,
     height: 3,
     borderRadius: 2,
-    backgroundColor: "rgba(255,255,255,0.3)",
+    backgroundColor: "rgba(255,255,255,0.35)",
   },
-  metaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
-  },
-  imdbBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    backgroundColor: "#f5c518",
-    borderRadius: 5,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-  },
-  imdbText: {
-    color: "#000",
-    fontSize: 9,
-    fontWeight: "900",
-    letterSpacing: 0.5,
-  },
-  imdbRating: {
-    color: "#000",
-    fontSize: 11,
-    fontWeight: "800",
-  },
-  metaYear: {
-    color: "rgba(255,255,255,0.55)",
-    fontSize: 13,
-    fontWeight: "500",
-  },
-  metaRuntime: {
-    color: "rgba(255,255,255,0.45)",
-    fontSize: 13,
-    fontWeight: "400",
-  },
+
+  /* Primary action — full-width white button */
   watchBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    width: "100%",
-    paddingVertical: 13,
-    borderRadius: 8,
-    backgroundColor: "#fff",
-  },
-  watchBtnText: {
-    color: "#111",
-    fontSize: 15,
-    fontWeight: "800",
-    letterSpacing: 0.2,
-  },
-  listBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -676,66 +469,68 @@ const heroStyles = StyleSheet.create({
     width: "100%",
     paddingVertical: 12,
     borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.25)",
-    backgroundColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "#fff",
   },
-  listBtnText: {
+  watchBtnText: {
+    color: "#111",
     fontSize: 15,
-    fontWeight: "700",
-    color: "rgba(255,255,255,0.92)",
-  },
-  secondaryRow: {
-    flexDirection: "row",
-    gap: 9,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 2,
-  },
-  glassBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 7,
-    paddingHorizontal: 16,
-    paddingVertical: 11,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.2)",
-    backgroundColor: "rgba(255,255,255,0.1)",
-  },
-  glassBtnText: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "rgba(255,255,255,0.88)",
-  },
-  iconBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.18)",
-    backgroundColor: "rgba(255,255,255,0.08)",
-    alignItems: "center",
-    justifyContent: "center",
+    fontWeight: "800",
+    letterSpacing: 0.1,
   },
 
-  /* Dot indicators */
+  /* Secondary row: Minha lista + Detalhes side by side */
+  secondaryRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  ghostBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.28)",
+    backgroundColor: "rgba(255,255,255,0.1)",
+  },
+  ghostBtnSmall: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.18)",
+    backgroundColor: "rgba(255,255,255,0.07)",
+  },
+  ghostBtnText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "rgba(255,255,255,0.9)",
+  },
+
+  /* Dot indicators below banner */
   dotsRow: {
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
-    gap: 6,
-    marginTop: 10,
-    marginBottom: 4,
+    gap: 5,
+    marginTop: 8,
+    marginBottom: 2,
   },
   dot: {
-    width: 6,
-    height: 6,
+    width: 5,
+    height: 5,
     borderRadius: 3,
-    backgroundColor: "rgba(255,255,255,0.25)",
+    backgroundColor: "rgba(255,255,255,0.22)",
   },
   dotActive: {
     backgroundColor: "#e50914",
-    width: 16,
+    width: 18,
+    borderRadius: 3,
   },
 });
