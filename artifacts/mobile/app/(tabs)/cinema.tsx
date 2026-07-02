@@ -37,6 +37,8 @@ const GOLD2  = "#f0c040";
 const RED    = "#e50914";
 const AMBER  = "#f59e0b";
 const DARK   = "#0a0804";
+const VIOLET  = "#7c3aed";
+const VIOLET2 = "#a78bfa";
 
 // ─── Portuguese month labels ──────────────────────────────────────────────────
 const MONTH_PT: Record<number, string> = {
@@ -77,6 +79,7 @@ interface CinemaData {
   total: number;
   topRated: CinemaItem[];
   months: MonthGroup[];
+  upcoming?: CinemaItem[];
 }
 
 function toContent(item: CinemaItem): ContentItem {
@@ -592,6 +595,100 @@ function WorldCinemaSection({ onCountryPress }: { onCountryPress: (c: typeof WOR
   );
 }
 
+// ─── UpcomingCard ─────────────────────────────────────────────────────────────
+function UpcomingCard({ item, onPress }: { item: CinemaItem; onPress: () => void }) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const [err, setErr] = useState(false);
+  const pi = () => Animated.spring(scale, { toValue: 0.92, useNativeDriver: true, speed: 30 }).start();
+  const po = () => Animated.spring(scale, { toValue: 1,    useNativeDriver: true, speed: 26 }).start();
+
+  const relDate = item.release_date
+    ? (() => {
+        const d = new Date(item.release_date + "T12:00:00");
+        return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
+      })()
+    : "";
+
+  return (
+    <Pressable onPress={onPress} onPressIn={pi} onPressOut={po}>
+      <Animated.View style={{ width: 120, marginRight: 10, transform: [{ scale }] }}>
+        <View style={sty.pCard}>
+          {!err && item.poster ? (
+            <Image source={{ uri: item.poster }} style={StyleSheet.absoluteFill}
+              contentFit="cover" cachePolicy="memory-disk" transition={220}
+              onError={() => setErr(true)} />
+          ) : (
+            <LinearGradient colors={["#16102a", "#0a0416"]} style={StyleSheet.absoluteFill}>
+              <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+                <Feather name="clock" size={22} color={`${VIOLET}40`} />
+              </View>
+            </LinearGradient>
+          )}
+          <LinearGradient colors={["transparent", "rgba(0,0,0,0.93)"]}
+            locations={[0.45, 1]} style={StyleSheet.absoluteFill} />
+          {/* Em breve badge */}
+          <View style={sty.upBadge}>
+            <Feather name="clock" size={7} color={VIOLET2} />
+            <Text style={sty.upBadgeText}>EM BREVE</Text>
+          </View>
+          {/* Release date */}
+          {relDate ? (
+            <View style={sty.upDate}>
+              <Text style={sty.upDateText}>{relDate}</Text>
+            </View>
+          ) : null}
+          <View style={sty.pInfo}>
+            <Text style={sty.pTitle} numberOfLines={2}>{item.title}</Text>
+          </View>
+        </View>
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+// ─── UpcomingSection ──────────────────────────────────────────────────────────
+function UpcomingSection({
+  items, currentMonth, onPress,
+}: {
+  items: CinemaItem[];
+  currentMonth: string;
+  onPress: (i: CinemaItem) => void;
+}) {
+  if (!items.length) return null;
+  return (
+    <View style={{ marginBottom: 8 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8,
+        paddingHorizontal: 16, paddingVertical: 12, overflow: "hidden" }}>
+        <LinearGradient
+          colors={["rgba(124,58,237,0.18)", "transparent"]}
+          start={{ x: 0, y: 0 }} end={{ x: 0.7, y: 0 }}
+          style={StyleSheet.absoluteFill} />
+        <View style={{ width: 3, height: 18, borderRadius: 2, backgroundColor: VIOLET2 }} />
+        <View style={{ width: 24, height: 24, borderRadius: 7,
+          alignItems: "center", justifyContent: "center",
+          backgroundColor: "rgba(124,58,237,0.2)" }}>
+          <Feather name="clock" size={12} color={VIOLET2} />
+        </View>
+        <Text style={{ fontSize: 15, fontWeight: "900", color: VIOLET2 }}>Pré-Estreias</Text>
+        <Text style={{ fontSize: 15, fontWeight: "900", color: "#fff" }}>de {currentMonth}</Text>
+        <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8,
+          backgroundColor: "rgba(124,58,237,0.18)", borderWidth: 1,
+          borderColor: "rgba(124,58,237,0.4)" }}>
+          <Text style={{ fontSize: 10, fontWeight: "800", color: VIOLET2 }}>
+            {items.length}
+          </Text>
+        </View>
+      </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ paddingHorizontal: 16 }} decelerationRate="fast">
+        {items.map((item) => (
+          <UpcomingCard key={String(item.id)} item={item} onPress={() => onPress(item)} />
+        ))}
+      </ScrollView>
+    </View>
+  );
+}
+
 // ─── StatsStrip ───────────────────────────────────────────────────────────────
 function StatsStrip({ total, months }: { total: number; months: number }) {
   return (
@@ -627,7 +724,7 @@ export default function CinemaScreen() {
   const [loading, setLoading]       = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [cinemaData, setCinemaData] = useState<CinemaData>({
-    ok: false, total: 0, topRated: [], months: [],
+    ok: false, total: 0, topRated: [], months: [], upcoming: [],
   });
   const [modal, setModal] = useState<{
     visible: boolean; title: string; items: ContentItem[]; accent: string;
@@ -761,6 +858,21 @@ export default function CinemaScreen() {
 
             {/* ── MAIS ASSISTIDOS HOJE ─────────────────────────────────── */}
             <MaisAssistidosRow items={topRatedContent} onItemPress={goTo} />
+
+            {/* ── PRÉ-ESTREIAS DO MÊS CORRENTE ─────────────────────────── */}
+            <UpcomingSection
+              items={cinemaData.upcoming ?? []}
+              currentMonth={MONTH_PT[new Date().getMonth() + 1] ?? "Julho"}
+              onPress={(item) => router.push({
+                pathname: "/detail",
+                params: {
+                  type: "movie",
+                  id: String(item.tmdb_id || item.id),
+                  title: item.title,
+                  poster: item.poster ?? "",
+                },
+              })}
+            />
 
             {/* ── MONTH CAROUSELS ───────────────────────────────────────── */}
             {monthGroups.map((group, groupIdx) => {
@@ -954,6 +1066,21 @@ const sty = StyleSheet.create({
   pRatingText: { color: AMBER, fontSize: 8, fontWeight: "700" },
   pInfo: { position: "absolute", bottom: 0, left: 0, right: 0, padding: 9 },
   pTitle: { color: "#fff", fontSize: 11, fontWeight: "700", lineHeight: 14 },
+
+  // ── Upcoming / Em Breve
+  upBadge: {
+    position: "absolute", top: 7, left: 7,
+    flexDirection: "row", alignItems: "center", gap: 3,
+    backgroundColor: "rgba(124,58,237,0.82)",
+    paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4,
+  },
+  upBadgeText: { color: "#c4b5fd", fontSize: 7, fontWeight: "900", letterSpacing: 0.5 },
+  upDate: {
+    position: "absolute", top: 7, right: 7,
+    backgroundColor: "rgba(0,0,0,0.62)",
+    paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4,
+  },
+  upDateText: { color: "rgba(255,255,255,0.82)", fontSize: 8, fontWeight: "700" },
 
   morePill: {
     width: 70, height: 180, borderRadius: 13, overflow: "hidden",

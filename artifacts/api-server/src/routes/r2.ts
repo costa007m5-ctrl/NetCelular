@@ -5299,7 +5299,42 @@ router.get("/flix2/cinema-2026", async (req, res) => {
       synopsis: i._tmdbEntry?.overview || i._tmdbEntry?.overviewEn || i.synopsis || "",
     }));
 
-  res.json({ ok: true, total: items2026.length, topRated, months });
+  // ── 6. Upcoming: current+future month TMDB entries NOT yet in catalog ────
+  const todayStr       = new Date().toISOString().slice(0, 10); // "2026-07-02"
+  const currentMoKey   = todayStr.slice(0, 7);                  // "2026-07"
+  const catalogTmdbIds = new Set(
+    items2026.map((i) => i._tmdbEntry?.tmdbId ?? 0).filter(Boolean)
+  );
+  const upcomingRaw: Array<{
+    id: number; title: string; tmdb_id: number; year: number;
+    release_date: string; poster: string; backdrop: string;
+    rating: string; synopsis: string;
+  }> = [];
+
+  for (const [, entry] of TMDB_2026_BY_ID) {
+    if (!entry.date || entry.date.slice(0, 7) < currentMoKey) continue; // past months
+    if (catalogTmdbIds.has(entry.tmdbId)) continue;                     // already in catalog
+    if (!entry.posterPath && !entry.backdropPath) continue;             // no imagery
+    upcomingRaw.push({
+      id:           entry.tmdbId,
+      title:        entry.ptTitle || entry.enTitle || "",
+      tmdb_id:      entry.tmdbId,
+      year:         2026,
+      release_date: entry.date,
+      poster:       TMDB_IMG_SRV(entry.posterPath,   "w342") ?? "",
+      backdrop:     TMDB_IMG_SRV(entry.backdropPath, "w780") ?? "",
+      rating:       entry.vote > 0 ? String(entry.vote.toFixed(1)) : "0",
+      synopsis:     entry.overview || entry.overviewEn || "",
+    });
+  }
+  // Sort: soonest release first; ties broken by highest vote
+  upcomingRaw.sort((a, b) => {
+    const dc = a.release_date.localeCompare(b.release_date);
+    return dc !== 0 ? dc : parseFloat(b.rating) - parseFloat(a.rating);
+  });
+  const upcoming = upcomingRaw.slice(0, 30);
+
+  res.json({ ok: true, total: items2026.length, topRated, months, upcoming });
 });
 
 // ── GET /flix2/catalog-diff ───────────────────────────────────────────────────
