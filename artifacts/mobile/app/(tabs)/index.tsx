@@ -4032,27 +4032,6 @@ export default function HomeScreen() {
                 </AnimatedSection>
               )}
 
-              {/* ── 14. CINEMA PELO MUNDO ────────────────────────────────────── */}
-              {showAll && (
-                <>
-                  <PremiumDivider label="PELO MUNDO" accent={BLUE} icon="globe" />
-                  <View style={styles.section}>
-                    <GradientSectionHeader
-                      title="Cinema pelo Mundo"
-                      subtitle="Explore por país de origem"
-                      accent={BLUE}
-                      icon="globe"
-                    />
-                    <CountryFlagRow
-                      countries={COUNTRIES}
-                      onPress={(c) => router.push({
-                        pathname: "/country-browse",
-                        params: { id: c.id, label: c.label, flag: c.flag, color: c.color },
-                      })}
-                    />
-                  </View>
-                </>
-              )}
 
               {/* ── 15. FRANQUIAS ── círculos com logo sobre gradiente ──────── */}
               {(showAll || showMovies) && (

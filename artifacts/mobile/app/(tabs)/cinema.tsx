@@ -506,6 +506,92 @@ function VerTudoModal({ visible, title, items, accentColor = GOLD, onClose, onIt
   );
 }
 
+// ─── WorldCinema ──────────────────────────────────────────────────────────────
+const WORLD_COUNTRIES = [
+  { id: "BR", label: "Brasil",       flagCode: "br", flag: "🇧🇷", color: "#22c55e" },
+  { id: "US", label: "EUA",          flagCode: "us", flag: "🇺🇸", color: "#3b82f6" },
+  { id: "KR", label: "Coreia",       flagCode: "kr", flag: "🇰🇷", color: "#ec4899" },
+  { id: "JP", label: "Japão",        flagCode: "jp", flag: "🇯🇵", color: "#e50914" },
+  { id: "GB", label: "Reino Unido",  flagCode: "gb", flag: "🇬🇧", color: "#8b5cf6" },
+  { id: "FR", label: "França",       flagCode: "fr", flag: "🇫🇷", color: "#f59e0b" },
+  { id: "IT", label: "Itália",       flagCode: "it", flag: "🇮🇹", color: "#f97316" },
+  { id: "ES", label: "Espanha",      flagCode: "es", flag: "🇪🇸", color: "#dc2626" },
+];
+
+function WorldCountryCard({
+  country, onPress,
+}: {
+  country: typeof WORLD_COUNTRIES[0]; onPress: () => void;
+}) {
+  const sc  = useRef(new Animated.Value(1)).current;
+  const [err, setErr] = useState(false);
+  const pi = () => Animated.spring(sc, { toValue: 0.91, useNativeDriver: true, speed: 30 }).start();
+  const po = () => Animated.spring(sc, { toValue: 1,    useNativeDriver: true, speed: 26 }).start();
+  return (
+    <Pressable onPress={onPress} onPressIn={pi} onPressOut={po}>
+      <Animated.View style={[sty.wCard, { borderColor: `${country.color}50`, transform: [{ scale: sc }] }]}>
+        <LinearGradient
+          colors={[`${country.color}28`, `${country.color}10`, "transparent"]}
+          start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
+        {/* Flag image */}
+        <View style={sty.wFlagWrap}>
+          {!err ? (
+            <Image
+              source={{ uri: `https://flagcdn.com/w80/${country.flagCode}.png` }}
+              style={sty.wFlagImg}
+              contentFit="cover"
+              onError={() => setErr(true)}
+            />
+          ) : (
+            <Text style={{ fontSize: 28 }}>{country.flag}</Text>
+          )}
+        </View>
+        {/* Accent line */}
+        <View style={[sty.wAccentLine, { backgroundColor: country.color }]} />
+        <Text style={[sty.wLabel, { color: country.color }]}>{country.label}</Text>
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+function WorldCinemaSection({ onCountryPress }: { onCountryPress: (c: typeof WORLD_COUNTRIES[0]) => void }) {
+  return (
+    <View style={sty.worldWrap}>
+      {/* Section header */}
+      <View style={sty.worldHeader}>
+        <LinearGradient
+          colors={["rgba(59,130,246,0.12)", "transparent"]}
+          start={{ x: 0, y: 0 }} end={{ x: 0.6, y: 0 }}
+          style={StyleSheet.absoluteFill}
+        />
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <View style={[sty.worldBar, { backgroundColor: "#3b82f6" }]} />
+          <View style={sty.worldIconWrap}>
+            <Feather name="globe" size={13} color="#3b82f6" />
+          </View>
+          <View>
+            <Text style={sty.worldTitle}>Cinema pelo Mundo</Text>
+            <Text style={sty.worldSub}>Explore por país de origem</Text>
+          </View>
+        </View>
+      </View>
+      {/* Cards row */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ paddingHorizontal: 16, gap: 10, paddingBottom: 4 }}
+        decelerationRate="fast"
+      >
+        {WORLD_COUNTRIES.map((c) => (
+          <WorldCountryCard key={c.id} country={c} onPress={() => onCountryPress(c)} />
+        ))}
+      </ScrollView>
+    </View>
+  );
+}
+
 // ─── StatsStrip ───────────────────────────────────────────────────────────────
 function StatsStrip({ total, months }: { total: number; months: number }) {
   return (
@@ -664,6 +750,14 @@ export default function CinemaScreen() {
             {allContent.length > 0 && (
               <StatsStrip total={allContent.length} months={monthGroups.length} />
             )}
+
+            {/* ── CINEMA PELO MUNDO ────────────────────────────────────── */}
+            <WorldCinemaSection
+              onCountryPress={(c) => router.push({
+                pathname: "/country-browse",
+                params: { id: c.id, label: c.label, flag: c.flag, color: c.color },
+              })}
+            />
 
             {/* ── MAIS ASSISTIDOS HOJE ─────────────────────────────────── */}
             <MaisAssistidosRow items={topRatedContent} onItemPress={goTo} />
@@ -869,6 +963,38 @@ const sty = StyleSheet.create({
     marginRight: 10,
   },
   morePillText: { fontSize: 14, fontWeight: "900" },
+
+  // ── World Cinema
+  worldWrap: { marginBottom: 20 },
+  worldHeader: {
+    flexDirection: "row", alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16, paddingVertical: 14,
+    overflow: "hidden",
+  },
+  worldBar: { width: 3, height: 20, borderRadius: 2 },
+  worldIconWrap: {
+    width: 28, height: 28, borderRadius: 9,
+    alignItems: "center", justifyContent: "center",
+    backgroundColor: "rgba(59,130,246,0.15)",
+    borderWidth: 1, borderColor: "rgba(59,130,246,0.3)",
+  },
+  worldTitle: { color: "#fff", fontSize: 15, fontWeight: "900", letterSpacing: 0.2 },
+  worldSub:   { color: "rgba(255,255,255,0.38)", fontSize: 11, marginTop: 1 },
+  wCard: {
+    width: 96, height: 90, borderRadius: 16, overflow: "hidden",
+    alignItems: "center", justifyContent: "center",
+    borderWidth: 1, gap: 5,
+    backgroundColor: "rgba(255,255,255,0.03)",
+  },
+  wFlagWrap: {
+    width: 52, height: 36, borderRadius: 6, overflow: "hidden",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.12)",
+    alignItems: "center", justifyContent: "center",
+  },
+  wFlagImg:    { width: 52, height: 36 },
+  wAccentLine: { width: 24, height: 2, borderRadius: 1, opacity: 0.7 },
+  wLabel:      { fontSize: 10, fontWeight: "800", letterSpacing: 0.3 },
 
   emptyState: { alignItems: "center", paddingVertical: 80, gap: 12 },
   emptyTitle: { color: "rgba(255,255,255,0.3)", fontSize: 16, fontWeight: "700" },
