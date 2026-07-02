@@ -17,9 +17,9 @@ import { useColors } from "@/hooks/useColors";
 import type { ContentItem } from "@/constants/content";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
-const HERO_HEIGHT = 480;
+const HERO_HEIGHT = 400;
 const CARD_MARGIN = 16;
-const CARD_POSTER_RATIO = 1.28; // height / width of the poster area inside the card
+const CARD_POSTER_RATIO = 0.92; // height / width of the poster area inside the card
 const TMDB_KEY = "8f0beb08cf016ec8de49e454e09879ec";
 const AUTO_ADVANCE_MS = 7000;
 
@@ -326,25 +326,25 @@ function HeroBannerSkeleton({ width: w }: { width: number }) {
     return () => anim.stop();
   }, []);
 
-  const opacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.28, 0.55] });
+  const opacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1.0] });
   const Bone = ({ style }: { style: any }) => (
-    <Animated.View style={[{ backgroundColor: "#1e1530", borderRadius: 6 }, style, { opacity }]} />
+    <Animated.View style={[{ backgroundColor: "#2e2e3a", borderRadius: 6 }, style, { opacity }]} />
   );
 
   const cardWidth = w - CARD_MARGIN * 2;
   const posterHeight = cardWidth * CARD_POSTER_RATIO;
-  const skeletonHeight = posterHeight + 260;
+  const skeletonHeight = posterHeight + 180;
 
   return (
-    <View style={{ height: skeletonHeight, width: w, backgroundColor: "#050308", alignItems: "center", paddingTop: 4 }}>
-      <View style={{ width: cardWidth, borderRadius: 20, overflow: "hidden", backgroundColor: "#0f0a1c" }}>
-        <Animated.View style={{ width: "100%", height: posterHeight, backgroundColor: "#1a1224", opacity }} />
+    <View style={{ height: skeletonHeight, width: w, backgroundColor: "#0a0a0f", alignItems: "center", paddingTop: 4 }}>
+      <View style={{ width: cardWidth, borderRadius: 16, overflow: "hidden", backgroundColor: "#161620" }}>
+        <Animated.View style={{ width: "100%", height: posterHeight, backgroundColor: "#222230", opacity }} />
         <View style={{ padding: 16, gap: 11 }}>
           <View style={{ flexDirection: "row", gap: 8 }}>
             {[52, 72, 84].map((bw, i) => <Bone key={i} style={{ width: bw, height: 12, borderRadius: 4 }} />)}
           </View>
-          <Bone style={{ width: "100%", height: 48, borderRadius: 24 }} />
-          <Bone style={{ width: "100%", height: 44, borderRadius: 24 }} />
+          <Bone style={{ width: "100%", height: 44, borderRadius: 8 }} />
+          <Bone style={{ width: "100%", height: 40, borderRadius: 8 }} />
         </View>
       </View>
     </View>
