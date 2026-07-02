@@ -2805,9 +2805,10 @@ export default function HomeScreen() {
         try {
           const { getApiBase } = await import("@/lib/api");
           const base = getApiBase();
-          const enriched = await Promise.all(
+          const isTmdbUrl = (u?: string) => !!u && u.startsWith("https://image.tmdb.org/");
+          const enriched = (await Promise.all(
             heroCandidates.map(async (item) => {
-              if ((item.tmdbId ?? 0) <= 0) return item;
+              if ((item.tmdbId ?? 0) <= 0) return null;
               const ctrl = new AbortController();
               const tid = setTimeout(() => ctrl.abort(), 6000);
               try {
@@ -2816,6 +2817,13 @@ export default function HomeScreen() {
                 clearTimeout(tid);
                 if (r.ok) {
                   const d = await r.json();
+                  const posterPath = d.poster_path ? `https://image.tmdb.org/t/p/w342${d.poster_path}` : "";
+                  const backdropPath = d.backdrop_path
+                    ? `https://image.tmdb.org/t/p/w1280${d.backdrop_path}`
+                    : d.poster_path
+                    ? `https://image.tmdb.org/t/p/w780${d.poster_path}`
+                    : "";
+                  if (!posterPath && !backdropPath) return null; // no TMDB images → skip
                   return {
                     ...item,
                     title: d.title || d.name || item.title,
@@ -2823,20 +2831,21 @@ export default function HomeScreen() {
                     genres: d.genre_ids ?? (d.genres?.map((g: any) => g.id) ?? item.genres),
                     year: Number((d.release_date || d.first_air_date || "").slice(0, 4)) || item.year,
                     rating: d.vote_average ?? item.rating,
-                    posterPath: d.poster_path ? `https://image.tmdb.org/t/p/w342${d.poster_path}` : item.posterPath,
-                    backdropPath: d.backdrop_path
-                      ? `https://image.tmdb.org/t/p/w1280${d.backdrop_path}`
-                      : d.poster_path
-                      ? `https://image.tmdb.org/t/p/w780${d.poster_path}`
-                      : item.backdropPath,
+                    posterPath,
+                    backdropPath,
                   };
                 }
               } catch { clearTimeout(tid); }
-              return item;
+              return null; // TMDB failed → exclude from hero
             })
-          );
-          const withImages = enriched.filter((x) => x.backdropPath || x.posterPath);
-          setHeroItems(withImages.length > 0 ? withImages : enriched);
+          )).filter(Boolean) as ContentItem[];
+
+          // Only show if we have at least 2 items with real TMDB images
+          if (enriched.filter((x) => isTmdbUrl(x.backdropPath) || isTmdbUrl(x.posterPath)).length >= 1) {
+            setHeroItems(enriched.filter((x) => isTmdbUrl(x.backdropPath) || isTmdbUrl(x.posterPath)));
+          } else {
+            setHeroItems(heroCandidates); // last resort
+          }
         } catch {
           // Last resort: set candidates as-is
           setHeroItems(heroCandidates);

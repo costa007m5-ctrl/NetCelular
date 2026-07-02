@@ -85,7 +85,8 @@ interface HeroItemProps {
 
 /* ─── Single hero slide ─── */
 function HeroItem({ item, onWatch, onDetails, onAddToList, isActive, screenWidth }: HeroItemProps) {
-  const [imgError,  setImgError]  = useState(false);
+  // Track which URLs have failed so we can fall through: backdrop → poster → gradient
+  const [failedUrls, setFailedUrls] = useState<Set<string>>(new Set());
   const [logoError, setLogoError] = useState(false);
 
   // contentFade: only animates text/buttons — image is ALWAYS visible so swipe doesn't flash black
@@ -119,8 +120,10 @@ function HeroItem({ item, onWatch, onDetails, onAddToList, isActive, screenWidth
   const cardWidth   = screenWidth - CARD_MARGIN * 2;
   const cardHeight  = Math.round(cardWidth * CARD_POSTER_RATIO);
 
-  // Prefer landscape backdrop for the hero image
-  const bannerImg = (!imgError && (item.backdropPath || item.posterPath)) ? (item.backdropPath || item.posterPath) : null;
+  // Cascade: backdropPath → posterPath → gradient
+  // Each URL that fails gets added to failedUrls so we fall through to next
+  const candidates = [item.backdropPath, item.posterPath].filter(Boolean) as string[];
+  const bannerImg = candidates.find((u) => !failedUrls.has(u)) ?? null;
 
   return (
     <View style={{ width: screenWidth, alignItems: "center" }}>
@@ -138,7 +141,7 @@ function HeroItem({ item, onWatch, onDetails, onAddToList, isActive, screenWidth
           style={StyleSheet.absoluteFill}
           android_ripple={{ color: "rgba(255,255,255,0.06)" }}
         >
-          {/* Banner image */}
+          {/* Banner image — cascade through backdrop → poster → gradient on failure */}
           {bannerImg ? (
             <Animated.View style={{ ...StyleSheet.absoluteFillObject, transform: [{ scale: scaleAnim }] }}>
               <Image
@@ -147,7 +150,7 @@ function HeroItem({ item, onWatch, onDetails, onAddToList, isActive, screenWidth
                 contentFit="cover"
                 transition={Platform.OS === "web" ? 350 : 0}
                 cachePolicy="memory-disk"
-                onError={() => setImgError(true)}
+                onError={() => setFailedUrls((prev) => new Set([...prev, bannerImg]))}
               />
             </Animated.View>
           ) : (
