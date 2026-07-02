@@ -372,8 +372,8 @@ function ContinueCard({
 function StreamingChip({ platform, onPress }: { platform: StreamingPlatform; onPress: () => void }) {
   const [err, setErr] = useState(false);
   const scale = useRef(new Animated.Value(1)).current;
-  const pressIn  = () => Animated.spring(scale, { toValue: 0.91, useNativeDriver: true, speed: 28 }).start();
-  const pressOut = () => Animated.spring(scale, { toValue: 1,    useNativeDriver: true, speed: 24 }).start();
+  const pressIn  = () => Animated.spring(scale, { toValue: 0.92, useNativeDriver: true, speed: 30 }).start();
+  const pressOut = () => Animated.spring(scale, { toValue: 1,    useNativeDriver: true, speed: 26 }).start();
   const localLogo = getLocalLogo(platform.id);
   const logoSrc = platform.logoUrl
     ? platform.logoUrl
@@ -383,36 +383,35 @@ function StreamingChip({ platform, onPress }: { platform: StreamingPlatform; onP
 
   return (
     <Pressable onPress={onPress} onPressIn={pressIn} onPressOut={pressOut}>
-      <Animated.View style={[
-        styles.streamingChip,
-        { backgroundColor: platform.bgColor, borderColor: `${platform.brandColor}40`, transform: [{ scale }] },
-      ]}>
-        {/* top accent line */}
-        <View style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, backgroundColor: platform.brandColor, borderTopLeftRadius: 16, borderTopRightRadius: 16, opacity: 0.85 }} />
-        <View style={styles.streamingChipInner}>
-          {localLogo ? (
-            <Image
-              source={localLogo}
-              style={styles.streamingLogo}
-              contentFit="contain"
-            />
-          ) : logoSrc && !err ? (
-            <Image
-              source={{ uri: logoSrc }}
-              style={styles.streamingLogo}
-              contentFit="contain"
-              onError={() => setErr(true)}
-              cachePolicy="memory-disk"
-            />
-          ) : (
-            <Text style={[styles.streamingName, { color: platform.brandColor }]} numberOfLines={1}>
-              {platform.name}
-            </Text>
-          )}
-          <Text style={[styles.streamingTagline, { color: `${platform.brandColor}cc` }]} numberOfLines={1}>
+      <Animated.View style={[styles.streamingChip, { transform: [{ scale }] }]}>
+        <LinearGradient
+          colors={[platform.bgGradient[0], platform.bgGradient[1]] as [string, string]}
+          style={styles.streamingChipGrad}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+        >
+          {/* subtle glow from brand color */}
+          <View style={[styles.streamingGlow, { backgroundColor: platform.brandColor + "20" }]} />
+
+          {/* logo area — takes most of the card */}
+          <View style={styles.streamingLogoArea}>
+            {localLogo ? (
+              <Image source={localLogo} style={styles.streamingLogo} contentFit="contain" />
+            ) : logoSrc && !err ? (
+              <Image source={{ uri: logoSrc }} style={styles.streamingLogo} contentFit="contain"
+                onError={() => setErr(true)} cachePolicy="memory-disk" />
+            ) : (
+              <Text style={[styles.streamingName, { color: platform.brandColor }]} numberOfLines={1} adjustsFontSizeToFit>
+                {platform.name}
+              </Text>
+            )}
+          </View>
+
+          {/* tagline */}
+          <Text style={[styles.streamingTagline, { color: platform.brandColor + "cc" }]} numberOfLines={1}>
             {platform.tagline ?? "PREMIUM"}
           </Text>
-        </View>
+        </LinearGradient>
       </Animated.View>
     </Pressable>
   );
