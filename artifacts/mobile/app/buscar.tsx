@@ -220,6 +220,7 @@ const TMDB_BASE = "https://api.themoviedb.org/3";
 const TMDB_KEY  = "8f0beb08cf016ec8de49e454e09879ec";
 const IMG_W500  = "https://image.tmdb.org/t/p/w500";
 const IMG_W780  = "https://image.tmdb.org/t/p/w780";
+const AMBER     = "#f59e0b";
 
 async function tfetch(path: string, params: Record<string, string> = {}): Promise<any> {
   try {
@@ -544,6 +545,7 @@ export default function BuscarScreen() {
   const [recommended,        setRecommended]        = useState<ContentItem[]>([]);
   const [recommendedLoading, setRecommendedLoading] = useState(true);
   const [relatedRows,        setRelatedRows]        = useState<{ key: string; title: string; entries: ContentItem[] }[]>([]);
+  const [actorResults,       setActorResults]       = useState<Array<{ id: number; name: string; photo: string | null }>>([]);
 
   // Animations
   const barFade  = useRef(new Animated.Value(0)).current;
@@ -613,6 +615,32 @@ export default function BuscarScreen() {
 
     return () => { cancelled = true; };
   }, [results]);
+
+  // ── Actor search (TMDB /search/person) ──────────────────────────────────────
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) { setActorResults([]); return; }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const data = await tfetch("/search/person", { query: q });
+        if (cancelled) return;
+        const actors = (data.results ?? [])
+          .slice(0, 10)
+          .filter((p: any) => p.known_for_department === "Acting" || p.popularity > 1)
+          .slice(0, 8)
+          .map((p: any) => ({
+            id: p.id,
+            name: p.name,
+            photo: p.profile_path ? `${IMG_W500}${p.profile_path}` : null,
+          }));
+        setActorResults(actors);
+      } catch {
+        if (!cancelled) setActorResults([]);
+      }
+    }, 320);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [query]);
 
   // ── Search logic ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -980,6 +1008,58 @@ export default function BuscarScreen() {
             <ScrollView showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
               contentContainerStyle={s.resultsScrollRows}>
+
+              {/* ── Atores ── */}
+              {actorResults.length > 0 && (
+                <View style={s.rowWrap}>
+                  <View style={s.sectionHead}>
+                    <View style={[s.sectionBar, { backgroundColor: AMBER }]} />
+                    <Feather name="users" size={13} color={AMBER} />
+                    <Text style={[s.sectionTitle, { color: AMBER }]}>Atores</Text>
+                  </View>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={{ paddingHorizontal: 16, gap: 16, paddingVertical: 6 }}
+                  >
+                    {actorResults.map((actor) => (
+                      <Pressable
+                        key={actor.id}
+                        onPress={() =>
+                          router.push({
+                            pathname: "/actor-browse",
+                            params: { name: actor.name, color: AMBER },
+                          } as any)
+                        }
+                        style={{ alignItems: "center", gap: 6, width: 70 }}
+                      >
+                        <View style={{
+                          width: 62, height: 62, borderRadius: 31,
+                          overflow: "hidden", borderWidth: 2,
+                          borderColor: `${AMBER}40`, backgroundColor: "#1a1a1a",
+                          alignItems: "center", justifyContent: "center",
+                        }}>
+                          {actor.photo ? (
+                            <Image
+                              source={{ uri: actor.photo }}
+                              style={{ width: "100%", height: "100%" }}
+                              contentFit="cover"
+                            />
+                          ) : (
+                            <Feather name="user" size={22} color="rgba(255,255,255,0.28)" />
+                          )}
+                        </View>
+                        <Text
+                          style={{ color: "#fff", fontSize: 10.5, fontWeight: "600", textAlign: "center", lineHeight: 14 }}
+                          numberOfLines={2}
+                        >
+                          {actor.name}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
 
               {/* Principais sugestões */}
               {topSuggestions.length > 0 && (

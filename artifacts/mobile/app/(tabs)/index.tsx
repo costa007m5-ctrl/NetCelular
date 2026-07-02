@@ -4141,21 +4141,25 @@ export default function HomeScreen() {
               {showAll && (
                 <>
                   <SectionDivider label="TALENTOS" accentColor={AMBER} />
-                  <View style={{ marginBottom: 8 }}>
-                    <SectionHeader title="Atores em Destaque" icon="users"
-                      subtitle="Busque pelo seu ator favorito"
-                      accentColor={AMBER} />
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, marginBottom: 14 }}>
+                    <View>
+                      <Text style={{ fontSize: 18, fontWeight: "900", color: "#fff" }}>Atores em Destaque</Text>
+                      <Text style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", marginTop: 2 }}>Toque para explorar a filmografia</Text>
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => router.push("/atores" as any)}
+                      activeOpacity={0.75}
+                      style={{ flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: `${AMBER}18`, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: `${AMBER}40` }}
+                    >
+                      <Text style={{ color: AMBER, fontSize: 12, fontWeight: "700" }}>Ver tudo</Text>
+                      <Feather name="chevron-right" size={13} color={AMBER} />
+                    </TouchableOpacity>
                   </View>
-                  {ACTOR_CATEGORIES.map((cat) => (
-                    <ActorCategorySection
-                      key={cat.id}
-                      category={cat}
-                      onActorPress={(a) => router.push({
-                        pathname: "/actor-browse",
-                        params: { name: a.name, color: a.color },
-                      })}
-                    />
-                  ))}
+                  <ActorCirclesRow
+                    actors={ACTOR_CATEGORIES.flatMap(c => c.actors).slice(0, 14)}
+                    onPress={(a) => router.push({ pathname: "/actor-browse", params: { name: a.name, color: a.color } })}
+                  />
+                  <View style={{ height: 24 }} />
                 </>
               )}
 
