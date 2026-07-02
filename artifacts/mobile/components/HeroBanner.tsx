@@ -88,8 +88,8 @@ function HeroItem({ item, onWatch, onDetails, onAddToList, isActive, screenWidth
   const [imgError,  setImgError]  = useState(false);
   const [logoError, setLogoError] = useState(false);
 
-  const fadeAnim    = useRef(new Animated.Value(0)).current;
-  const contentFade = useRef(new Animated.Value(0)).current;
+  // contentFade: only animates text/buttons — image is ALWAYS visible so swipe doesn't flash black
+  const contentFade = useRef(new Animated.Value(isActive ? 1 : 0)).current;
   const scaleAnim   = useRef(new Animated.Value(1.06)).current;
 
   const type   = item.mediaType === "movie" || item.type === "movie" ? "movie" : "tv";
@@ -99,12 +99,10 @@ function HeroItem({ item, onWatch, onDetails, onAddToList, isActive, screenWidth
   useEffect(() => {
     if (isActive) {
       Animated.parallel([
-        Animated.timing(fadeAnim,    { toValue: 1, duration: 450, useNativeDriver: true }),
-        Animated.timing(contentFade, { toValue: 1, duration: 600, delay: 120, useNativeDriver: true }),
+        Animated.timing(contentFade, { toValue: 1, duration: 500, delay: 80, useNativeDriver: true }),
         Animated.timing(scaleAnim,   { toValue: 1, duration: 7000, useNativeDriver: true }),
       ]).start();
     } else {
-      fadeAnim.setValue(0);
       contentFade.setValue(0);
       scaleAnim.setValue(1.06);
     }
@@ -126,13 +124,12 @@ function HeroItem({ item, onWatch, onDetails, onAddToList, isActive, screenWidth
 
   return (
     <View style={{ width: screenWidth, alignItems: "center" }}>
-      <Animated.View
+      <View
         style={{
           width: cardWidth,
           height: cardHeight,
           borderRadius: 16,
           overflow: "hidden",
-          opacity: fadeAnim,
           backgroundColor: "#0c0c14",
         }}
       >
@@ -239,7 +236,7 @@ function HeroItem({ item, onWatch, onDetails, onAddToList, isActive, screenWidth
             </View>
           </Animated.View>
         </Pressable>
-      </Animated.View>
+      </View>
     </View>
   );
 }
@@ -286,6 +283,17 @@ export function HeroBanner({ items, onItemPress, onDetailsPress, onAddToList }: 
   const timerRef      = useRef<any>(null);
   const bannerOpacity = useRef(new Animated.Value(0)).current;
   const hasItems      = items.length > 0;
+
+  // Prefetch all banner images so swiping never shows black
+  useEffect(() => {
+    if (!hasItems) return;
+    const urls = items
+      .map((x) => x.backdropPath || x.posterPath)
+      .filter(Boolean) as string[];
+    if (urls.length > 0) {
+      Image.prefetch(urls).catch(() => {});
+    }
+  }, [items]);
 
   useEffect(() => {
     if (hasItems) {
