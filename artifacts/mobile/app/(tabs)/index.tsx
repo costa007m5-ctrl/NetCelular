@@ -373,14 +373,18 @@ function StreamingChip({ platform, onPress }: { platform: StreamingPlatform; onP
   const scale = useRef(new Animated.Value(1)).current;
   const pressIn  = () => Animated.spring(scale, { toValue: 0.91, useNativeDriver: true, speed: 28 }).start();
   const pressOut = () => Animated.spring(scale, { toValue: 1,    useNativeDriver: true, speed: 24 }).start();
-  const logoSrc = platform.logoUrl ?? null;
+  const logoSrc = platform.logoPath
+    ? `https://image.tmdb.org/t/p/w185${platform.logoPath}`
+    : null;
 
   return (
     <Pressable onPress={onPress} onPressIn={pressIn} onPressOut={pressOut}>
       <Animated.View style={[
         styles.streamingChip,
-        { backgroundColor: platform.bgColor, borderColor: `${platform.brandColor}28`, transform: [{ scale }] },
+        { backgroundColor: platform.bgColor, borderColor: `${platform.brandColor}40`, transform: [{ scale }] },
       ]}>
+        {/* top accent line */}
+        <View style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, backgroundColor: platform.brandColor, borderTopLeftRadius: 16, borderTopRightRadius: 16, opacity: 0.85 }} />
         <View style={styles.streamingChipInner}>
           {logoSrc && !err ? (
             <Image
@@ -395,11 +399,9 @@ function StreamingChip({ platform, onPress }: { platform: StreamingPlatform; onP
               {platform.name}
             </Text>
           )}
-          {platform.tagline ? (
-            <Text style={[styles.streamingTagline, { color: `${platform.brandColor}99` }]} numberOfLines={1}>
-              {platform.tagline}
-            </Text>
-          ) : null}
+          <Text style={[styles.streamingTagline, { color: `${platform.brandColor}cc` }]} numberOfLines={1}>
+            {platform.tagline ?? "PREMIUM"}
+          </Text>
         </View>
       </Animated.View>
     </Pressable>
