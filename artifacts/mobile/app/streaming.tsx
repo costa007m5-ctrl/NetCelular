@@ -17,6 +17,7 @@ import { Feather } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getPlatform } from "@/constants/streamings";
+import { getLocalLogo } from "@/constants/streaming-logos";
 import { api, tmdbItemToContent } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
@@ -95,11 +96,22 @@ const PLATFORM_GENRES: Record<string, { id: number; type: "movie" | "tv"; label:
 
 function PlatformLogo({ platform }: { platform: NonNullable<ReturnType<typeof getPlatform>> }) {
   const [logoError, setLogoError] = useState(false);
+  const localLogo = getLocalLogo(platform.id);
   const logoUrl = platform.logoUrl
     ? platform.logoUrl
     : platform.logoPath
     ? `https://image.tmdb.org/t/p/w300${platform.logoPath}`
     : null;
+
+  if (localLogo) {
+    return (
+      <Image
+        source={localLogo}
+        style={styles.platformLogo}
+        resizeMode="contain"
+      />
+    );
+  }
 
   if (logoUrl && !logoError) {
     return (

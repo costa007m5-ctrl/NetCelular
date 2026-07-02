@@ -16,6 +16,7 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MAIN_PLATFORMS, SPECIFIC_PLATFORMS, NICHE_PLATFORMS } from "@/constants/streamings";
 import type { StreamingPlatform } from "@/constants/streamings";
+import { getLocalLogo } from "@/constants/streaming-logos";
 import { useColors } from "@/hooks/useColors";
 
 function PlatformCard({
@@ -34,6 +35,7 @@ function PlatformCard({
   const pressOut = () =>
     Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 26 }).start();
 
+  const localLogo = getLocalLogo(platform.id);
   const logoUrl = platform.logoUrl
     ? platform.logoUrl
     : platform.logoPath
@@ -69,7 +71,13 @@ function PlatformCard({
 
           {/* Logo or text */}
           <View style={styles.logoArea}>
-            {logoUrl && !logoError ? (
+            {localLogo ? (
+              <Image
+                source={localLogo}
+                style={[styles.cardLogo, wide && styles.cardLogoWide]}
+                resizeMode="contain"
+              />
+            ) : logoUrl && !logoError ? (
               <Image
                 source={{ uri: logoUrl }}
                 style={[styles.cardLogo, wide && styles.cardLogoWide]}

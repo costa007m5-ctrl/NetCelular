@@ -48,6 +48,7 @@ import { db, isSupabaseConfigured } from "@/lib/supabase";
 import type { ContentItem } from "@/constants/content";
 import { MAIN_PLATFORMS } from "@/constants/streamings";
 import type { StreamingPlatform } from "@/constants/streamings";
+import { getLocalLogo } from "@/constants/streaming-logos";
 import { subscribePrefetch, forceRefreshCatalog, type PrefetchPhase } from "@/lib/flix2-prefetch";
 import { getCacheItemCount } from "@/lib/catalog-cache";
 import { preloadImages, clearPreloadQueue } from "@/lib/image-preloader";
@@ -373,6 +374,7 @@ function StreamingChip({ platform, onPress }: { platform: StreamingPlatform; onP
   const scale = useRef(new Animated.Value(1)).current;
   const pressIn  = () => Animated.spring(scale, { toValue: 0.91, useNativeDriver: true, speed: 28 }).start();
   const pressOut = () => Animated.spring(scale, { toValue: 1,    useNativeDriver: true, speed: 24 }).start();
+  const localLogo = getLocalLogo(platform.id);
   const logoSrc = platform.logoUrl
     ? platform.logoUrl
     : platform.logoPath
@@ -388,7 +390,13 @@ function StreamingChip({ platform, onPress }: { platform: StreamingPlatform; onP
         {/* top accent line */}
         <View style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, backgroundColor: platform.brandColor, borderTopLeftRadius: 16, borderTopRightRadius: 16, opacity: 0.85 }} />
         <View style={styles.streamingChipInner}>
-          {logoSrc && !err ? (
+          {localLogo ? (
+            <Image
+              source={localLogo}
+              style={styles.streamingLogo}
+              contentFit="contain"
+            />
+          ) : logoSrc && !err ? (
             <Image
               source={{ uri: logoSrc }}
               style={styles.streamingLogo}
