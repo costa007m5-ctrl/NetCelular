@@ -2842,49 +2842,6 @@ function TrendingFlatList({
   );
 }
 
-// ─── UpcomingFlatList (Em breve) ───────────────────────────────────────────────
-function UpcomingFlatList({
-  items, topPad, refreshing, onRefresh, onPress,
-}: {
-  items: Array<{ item: ContentItem; releaseDate: string }>;
-  topPad: number;
-  refreshing: boolean;
-  onRefresh: () => void;
-  onPress: (item: ContentItem) => void;
-}) {
-  const contentItems = useMemo(() => items.map(i => i.item), [items]);
-  const enrichMap = useTmdbEnrichMap(contentItems);
-  return (
-    <FlatList
-      data={items}
-      keyExtractor={(_, i) => `up_${i}`}
-      showsVerticalScrollIndicator={false}
-      contentContainerStyle={{ paddingTop: topPad + 96, paddingBottom: 160 }}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh}
-          tintColor={RED} colors={[RED]} progressViewOffset={topPad + 96} />
-      }
-      renderItem={({ item: { item, releaseDate } }) => (
-        <NovidadesVerticalCard
-          item={item}
-          releaseDate={releaseDate}
-          type="upcoming"
-          onPress={() => onPress(item)}
-          enrich={enrichMap.get(item.id)}
-        />
-      )}
-      ListEmptyComponent={
-        <View style={{ alignItems: "center", paddingTop: 80 }}>
-          <Feather name="calendar" size={40} color="rgba(255,255,255,0.12)" />
-          <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 14, marginTop: 12 }}>
-            Nenhum lançamento em breve
-          </Text>
-        </View>
-      }
-    />
-  );
-}
-
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function NovidadesScreen() {
   const colors = useColors();
@@ -2903,7 +2860,7 @@ export default function NovidadesScreen() {
     visible: false, title: "", items: [], accent: RED,
   });
 
-  const [activeTab, setActiveTab] = useState<"embreve" | "assistindo" | "filmes" | "series" | "dorama" | "animes" | "animacao">("embreve");
+  const [activeTab, setActiveTab] = useState<"assistindo" | "filmes" | "series" | "dorama" | "animes" | "animacao">("assistindo");
   const [doramas, setDoramas] = useState<ContentItem[]>([]);
   const [animations, setAnimations] = useState<ContentItem[]>([]);
   const [jpAnimes, setJpAnimes] = useState<ContentItem[]>([]);
@@ -3206,19 +3163,6 @@ export default function NovidadesScreen() {
     return data.nowPlaying.map(tmdbItemToContent);
   }, [data]);
 
-  const upcomingItems = useMemo<Array<{ item: ContentItem; releaseDate: string }>>(() => {
-    if (!data) return [];
-    return data.upcoming
-      .filter((i) => {
-        const date = i.release_date ?? i.first_air_date;
-        return date && daysUntil(date) >= -3; // include up to 3 days ago (timezone buffer)
-      })
-      .map((i) => {
-        const date = (i.release_date ?? i.first_air_date)!;
-        return { item: tmdbItemToContent(i), releaseDate: date };
-      });
-  }, [data]);
-
   const onTheAirItems = useMemo<ContentItem[]>(() => {
     if (!data) return [];
     return data.onTheAir.map(tmdbItemToContent);
@@ -3369,7 +3313,6 @@ export default function NovidadesScreen() {
         >
           {(
             [
-              { id: "embreve" as const,    emoji: "🍿", label: "Em breve" },
               { id: "assistindo" as const, emoji: "🔥", label: "Todo mundo" },
               { id: "filmes" as const,     emoji: "🎬", label: "Filmes" },
               { id: "series" as const,     emoji: "📺", label: "Séries" },
@@ -3398,14 +3341,6 @@ export default function NovidadesScreen() {
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingTop: topPad + 100 }}>
           <NetplayLoaderV29 />
         </View>
-      ) : activeTab === "embreve" ? (
-        <UpcomingFlatList
-          items={upcomingItems}
-          topPad={topPad}
-          refreshing={refreshing}
-          onRefresh={onRefresh}
-          onPress={goTo}
-        />
       ) : activeTab === "filmes" ? (
         wnLoading && newMovies.length === 0 ? (
           <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
