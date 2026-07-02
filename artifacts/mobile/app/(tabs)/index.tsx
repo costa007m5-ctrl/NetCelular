@@ -2977,6 +2977,53 @@ export default function HomeScreen() {
             if (heroCandidates.length >= 4) {
               setHeroItems(heroCandidates.slice(0, 8));
             }
+
+            // ── Fetch high-res TMDB backdrops for hero items missing landscape images ──
+            // Uses the TMDB server proxy already available via `base`.
+            // w1280 gives a beautiful wide cinematic backdrop for the full-width banner.
+            const fetchHeroBackdrops = async (heroes: ContentItem[]): Promise<void> => {
+              const needsBd = heroes.filter(
+                (x) => (x.tmdbId ?? 0) > 0 && !(x.backdropPath && x.backdropPath.startsWith("http"))
+              );
+              if (!needsBd.length) return;
+
+              const patches = new Map<number, string>();
+              await Promise.allSettled(
+                needsBd.map(async (item) => {
+                  const ctrl = new AbortController();
+                  const tid  = setTimeout(() => ctrl.abort(), 5000);
+                  try {
+                    const mt = item.type === "movie" || (item as any).mediaType === "movie" ? "movie" : "tv";
+                    const r  = await fetch(`${base}/tmdb/${mt}/${item.tmdbId}`, { signal: ctrl.signal });
+                    if (r.ok) {
+                      const d = await r.json();
+                      if (d.backdrop_path) {
+                        patches.set(item.tmdbId!, `https://image.tmdb.org/t/p/w1280${d.backdrop_path}`);
+                      }
+                    }
+                  } catch {} finally { clearTimeout(tid); }
+                })
+              );
+
+              if (!patches.size) return;
+              setHeroItems((prev) =>
+                prev.map((item) => {
+                  const bd = (item.tmdbId ?? 0) > 0 ? patches.get(item.tmdbId!) : undefined;
+                  return bd ? { ...item, backdropPath: bd } : item;
+                })
+              );
+            };
+
+            // Build the final hero list for backdrop enrichment:
+            // Use trending candidates if available, otherwise fall back to rating-sorted movies
+            const heroFinalList = heroCandidates.length >= 4
+              ? heroCandidates.slice(0, 8)
+              : [...m.filter((x) => (x.backdropPath || x.posterPath) && (x.tmdbId ?? 0) > 0 && (x.rating ?? 0) >= 6.5)]
+                  .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0))
+                  .slice(0, 8);
+
+            // Run concurrently — don't await, backdrop fetch is non-blocking
+            fetchHeroBackdrops(heroFinalList).catch(() => {});
           }
           if (s.length > 0) {
             const blended = enrichTop10Posters(blendTop10(s, realTvIds, trendTvIds, trendTvTitles) as ContentItem[]);
