@@ -2781,17 +2781,14 @@ export default function HomeScreen() {
       setTotals((t) => ({ ...t, series: s.length }));
     }
 
-    // ── Hero pool: interleave best movies + series for variety ──
+    // ── Hero pool: fetch TMDB images first, then set items (no broken flix2 URLs) ──
     if (m.length || s.length) {
-      // Include all items with tmdbId > 0 and good rating — TMDB images will be fetched below
       const goodRating = (x: ContentItem) => (x.tmdbId ?? 0) > 0 && (x.rating ?? 0) >= 6.5;
 
-      const hm = [...m.filter(goodRating)]
-        .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
-      const hs = [...s.filter(goodRating)]
-        .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
+      const hm = [...m.filter(goodRating)].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
+      const hs = [...s.filter(goodRating)].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
 
-      // Interleave: movie, series, movie, series … for visual variety
+      // Interleave: movie, series … for visual variety
       const heroMixed: ContentItem[] = [];
       let mi = 0, si = 0;
       while (heroMixed.length < 8 && (mi < hm.length || si < hs.length)) {
@@ -2799,52 +2796,51 @@ export default function HomeScreen() {
         if (heroMixed.length < 8 && si < hs.length) heroMixed.push(hs[si++]);
       }
 
-      // Fallback: any item with tmdbId or an image, sorted by rating
-      const heroFallback = [...m, ...s]
-        .filter((x) => (x.tmdbId ?? 0) > 0 || !!(x.backdropPath || x.posterPath))
-        .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
+      const heroCandidates = heroMixed.length >= 5
+        ? heroMixed.slice(0, 8)
+        : [...m, ...s].filter((x) => (x.tmdbId ?? 0) > 0).sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0)).slice(0, 8);
 
-      setHeroItems(heroMixed.length >= 5 ? heroMixed : heroFallback.slice(0, 8));
-
-      // Immediately fetch TMDB images for initial hero pool so banners show quickly
+      // Fetch TMDB images BEFORE showing banner — skeleton stays visible until ready
       (async () => {
-        const initialHero = heroMixed.length >= 5 ? heroMixed.slice(0, 8) : heroFallback.slice(0, 8);
-        const needsImg = initialHero.filter((x) => (x.tmdbId ?? 0) > 0);
-        if (!needsImg.length) return;
         try {
           const { getApiBase } = await import("@/lib/api");
           const base = getApiBase();
-          const patches = new Map<number, { posterPath: string; backdropPath: string }>();
-          await Promise.allSettled(
-            needsImg.slice(0, 8).map(async (item) => {
+          const enriched = await Promise.all(
+            heroCandidates.map(async (item) => {
+              if ((item.tmdbId ?? 0) <= 0) return item;
               const ctrl = new AbortController();
-              const tid = setTimeout(() => ctrl.abort(), 5000);
+              const tid = setTimeout(() => ctrl.abort(), 6000);
               try {
                 const mt = item.type === "movie" || item.mediaType === "movie" ? "movie" : "tv";
                 const r = await fetch(`${base}/tmdb/${mt}/${item.tmdbId}`, { signal: ctrl.signal });
+                clearTimeout(tid);
                 if (r.ok) {
                   const d = await r.json();
-                  patches.set(item.tmdbId!, {
-                    posterPath: d.poster_path ? `https://image.tmdb.org/t/p/w342${d.poster_path}` : item.posterPath ?? "",
-                    backdropPath: d.backdrop_path ? `https://image.tmdb.org/t/p/w1280${d.backdrop_path}` : (d.poster_path ? `https://image.tmdb.org/t/p/w780${d.poster_path}` : item.backdropPath ?? ""),
-                  });
+                  return {
+                    ...item,
+                    title: d.title || d.name || item.title,
+                    description: d.overview || item.description,
+                    genres: d.genre_ids ?? (d.genres?.map((g: any) => g.id) ?? item.genres),
+                    year: Number((d.release_date || d.first_air_date || "").slice(0, 4)) || item.year,
+                    rating: d.vote_average ?? item.rating,
+                    posterPath: d.poster_path ? `https://image.tmdb.org/t/p/w342${d.poster_path}` : item.posterPath,
+                    backdropPath: d.backdrop_path
+                      ? `https://image.tmdb.org/t/p/w1280${d.backdrop_path}`
+                      : d.poster_path
+                      ? `https://image.tmdb.org/t/p/w780${d.poster_path}`
+                      : item.backdropPath,
+                  };
                 }
-              } catch {} finally { clearTimeout(tid); }
+              } catch { clearTimeout(tid); }
+              return item;
             })
           );
-          if (!patches.size) return;
-          setHeroItems((prev) =>
-            prev.map((item) => {
-              const p = (item.tmdbId ?? 0) > 0 ? patches.get(item.tmdbId!) : undefined;
-              if (!p) return item;
-              return {
-                ...item,
-                posterPath: p.posterPath || item.posterPath,
-                backdropPath: p.backdropPath || item.backdropPath,
-              };
-            })
-          );
-        } catch {}
+          const withImages = enriched.filter((x) => x.backdropPath || x.posterPath);
+          setHeroItems(withImages.length > 0 ? withImages : enriched);
+        } catch {
+          // Last resort: set candidates as-is
+          setHeroItems(heroCandidates);
+        }
       })();
     }
 

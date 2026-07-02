@@ -69,7 +69,7 @@ export async function fetchTopShortsWeek(): Promise<ContentItem[]> {
     const base = getApiBase();
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
-    const res = await fetch(`${base}/api/tmdb/trending`, { signal: ctrl.signal });
+    const res = await fetch(`${base}/tmdb/trending`, { signal: ctrl.signal });
     clearTimeout(t);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
