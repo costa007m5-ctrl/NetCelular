@@ -2389,28 +2389,45 @@ function NovidadesVerticalCard({
 
       {/* ── Info Section ── */}
       <View style={nvc.info}>
-        {!!dateLabel && <Text style={nvc.dateLabel}>{dateLabel}</Text>}
-        {/* Text title only as fallback when logo is unavailable */}
-        {!logoUrl && (
-          <Text style={nvc.title} numberOfLines={2}>{item.title}</Text>
-        )}
-        {/* Quality / audio badges — HD, FHD, 4K, CAM, DUB, LEG, DUAL */}
-        {(qualBadge.q || qualBadge.audio) && (
-          <View style={nvc.qualRow}>
-            {qualBadge.q && (
-              <View style={[nvc.qualPill, qualBadge.q === "CAM" ? nvc.qualPillCam : qualBadge.q === "4K" ? nvc.qualPill4k : nvc.qualPillHd]}>
-                <Text style={nvc.qualPillTxt}>{qualBadge.q}</Text>
-              </View>
-            )}
-            {qualBadge.audio && (
-              <View style={nvc.qualPill}>
-                <Text style={nvc.qualPillTxt}>{qualBadge.audio}</Text>
-              </View>
-            )}
+        {/* Chips row: type + meta */}
+        <View style={nvc.infoChipsRow}>
+          <View style={[nvc.typePill, item.type === "movie" ? nvc.typePillMovie : nvc.typePillSeries]}>
+            <Feather name={item.type === "movie" ? "film" : "tv"} size={9}
+              color={item.type === "movie" ? RED : BLUE} />
+            <Text style={[nvc.typePillTxt, { color: item.type === "movie" ? RED : BLUE }]}>
+              {item.type === "movie" ? "FILME" : "SÉRIE"}
+            </Text>
           </View>
+          {item.year > 0 && <Text style={nvc.metaYear}>{item.year}</Text>}
+          {item.rating > 0 && (
+            <View style={nvc.metaStar}>
+              <Feather name="star" size={10} color={AMBER} />
+              <Text style={nvc.metaRating}>{item.rating.toFixed(1)}</Text>
+            </View>
+          )}
+          {/* Quality badges */}
+          {qualBadge.q && (
+            <View style={[nvc.qualPill, qualBadge.q === "CAM" ? nvc.qualPillCam : qualBadge.q === "4K" ? nvc.qualPill4k : nvc.qualPillHd]}>
+              <Text style={nvc.qualPillTxt}>{qualBadge.q}</Text>
+            </View>
+          )}
+          {qualBadge.audio && (
+            <View style={nvc.qualPill}><Text style={nvc.qualPillTxt}>{qualBadge.audio}</Text></View>
+          )}
+        </View>
+
+        {/* Title — always large, prominent */}
+        <Text style={nvc.title} numberOfLines={3}>{item.title}</Text>
+
+        {/* Date subtitle for upcoming */}
+        {!!dateLabel && type === "upcoming" && (
+          <Text style={nvc.dateSubtitle}>
+            <Text style={{ color: "rgba(255,255,255,0.5)" }}>Disponível em: </Text>
+            {dateLabel}
+          </Text>
         )}
 
-        {/* Episode count badge — always visible for series once loaded */}
+        {/* Episode count badge */}
         {epCount != null && item.type !== "movie" && (
           <View style={nvc.epCountRow}>
             <View style={nvc.epCountBadge}>
@@ -2421,27 +2438,33 @@ function NovidadesVerticalCard({
             </View>
           </View>
         )}
-        {item.rating > 0 && (
-          <View style={nvc.metaRow}>
-            {item.year > 0 && <Text style={nvc.metaYear}>{item.year}</Text>}
-            <View style={nvc.metaStar}>
-              <Feather name="star" size={10} color={AMBER} />
-              <Text style={nvc.metaRating}>{item.rating.toFixed(1)}</Text>
-            </View>
-            {!!(item.genres?.[0]) && <Text style={nvc.metaGenre}>{item.genres[0]}</Text>}
-          </View>
-        )}
+
+        {/* Description */}
         {!!overview && (
           <Text style={nvc.desc} numberOfLines={3}>{overview}</Text>
         )}
-        <TouchableOpacity
-          style={type === "upcoming" ? nvc.btnOutline : nvc.btnFill}
-          onPress={onPress}
-          activeOpacity={0.82}
-        >
-          <Feather name={type === "upcoming" ? "bell" : "play"} size={15} color="#fff" />
-          <Text style={nvc.btnTxt}>{type === "upcoming" ? "Receber aviso" : "Assistir"}</Text>
-        </TouchableOpacity>
+
+        {/* Action buttons row */}
+        <View style={nvc.btnsRow}>
+          <TouchableOpacity
+            style={type === "upcoming" ? nvc.btnBell : nvc.btnPlay}
+            onPress={onPress}
+            activeOpacity={0.82}
+          >
+            <Feather
+              name={type === "upcoming" ? "bell" : "play"}
+              size={16}
+              color={type === "upcoming" ? "#fff" : "#fff"}
+            />
+            <Text style={nvc.btnTxt}>
+              {type === "upcoming" ? "Receber aviso" : "Assistir"}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={nvc.btnInfo} onPress={onPress} activeOpacity={0.78}>
+            <Feather name="info" size={16} color="rgba(255,255,255,0.75)" />
+            <Text style={nvc.btnInfoTxt}>Detalhes</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={nvc.divider} />
@@ -2498,41 +2521,73 @@ const nvc = StyleSheet.create({
     fontSize: 8, fontWeight: "700", color: "rgba(255,255,255,0.85)",
     letterSpacing: 0.5, lineHeight: 11,
   },
-  info: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 20 },
-  dateLabel: { fontSize: 11, fontWeight: "700", color: RED, letterSpacing: 1.2, marginBottom: 5 },
-  title: { fontSize: 22, fontWeight: "900", color: "#fff", lineHeight: 28, marginBottom: 6 },
-  metaRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 },
+  // ── Info section ──────────────────────────────────────────────
+  info: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 24, backgroundColor: "#050508" },
+  infoChipsRow: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    marginBottom: 10, flexWrap: "wrap",
+  },
+  typePill: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4,
+    borderWidth: 1,
+  },
+  typePillMovie: {
+    backgroundColor: `${RED}18`, borderColor: `${RED}55`,
+  },
+  typePillSeries: {
+    backgroundColor: `${BLUE}18`, borderColor: `${BLUE}55`,
+  },
+  typePillTxt: { fontSize: 9, fontWeight: "900", letterSpacing: 0.9 },
+  title: {
+    fontSize: 28, fontWeight: "900", color: "#fff",
+    lineHeight: 34, marginBottom: 6, letterSpacing: -0.4,
+  },
+  dateSubtitle: {
+    fontSize: 14, fontWeight: "700", color: RED,
+    marginBottom: 10, letterSpacing: 0.2,
+  },
   metaYear: { fontSize: 12, color: "rgba(255,255,255,0.4)", fontWeight: "600" },
   metaStar: { flexDirection: "row", alignItems: "center", gap: 3 },
   metaRating: { fontSize: 12, fontWeight: "700", color: AMBER },
-  metaGenre: { fontSize: 11, color: "rgba(255,255,255,0.35)", fontStyle: "italic" },
-  desc: { fontSize: 14, color: "rgba(255,255,255,0.58)", lineHeight: 20, marginBottom: 16 },
-  btnFill: {
-    flexDirection: "row", alignItems: "center", gap: 8,
-    backgroundColor: RED, paddingVertical: 12, paddingHorizontal: 22,
-    borderRadius: 6, alignSelf: "flex-start",
+  desc: { fontSize: 14, color: "rgba(255,255,255,0.55)", lineHeight: 21, marginBottom: 18 },
+  // ── Buttons ───────────────────────────────────────────────────
+  btnsRow: {
+    flexDirection: "row", gap: 10, alignItems: "stretch",
   },
-  btnOutline: {
-    flexDirection: "row", alignItems: "center", gap: 8,
-    backgroundColor: "rgba(255,255,255,0.10)",
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.3)",
-    paddingVertical: 12, paddingHorizontal: 22,
-    borderRadius: 6, alignSelf: "flex-start",
+  btnPlay: {
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
+    gap: 8, backgroundColor: RED,
+    paddingVertical: 13, borderRadius: 6,
+  },
+  btnBell: {
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
+    gap: 8,
+    backgroundColor: "rgba(255,255,255,0.13)",
+    borderWidth: 1.5, borderColor: "rgba(255,255,255,0.28)",
+    paddingVertical: 13, borderRadius: 6,
+  },
+  btnInfo: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center",
+    gap: 6,
+    backgroundColor: "rgba(255,255,255,0.09)",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.18)",
+    paddingVertical: 13, paddingHorizontal: 18, borderRadius: 6,
   },
   btnTxt: { fontSize: 15, fontWeight: "800", color: "#fff" },
-  divider: { height: 8, backgroundColor: "rgba(255,255,255,0.035)" },
-  epCountRow: {
-    flexDirection: "row", alignItems: "center", marginBottom: 8,
-  },
+  btnInfoTxt: { fontSize: 13, fontWeight: "700", color: "rgba(255,255,255,0.75)" },
+  // ── Divider ───────────────────────────────────────────────────
+  divider: { height: 10, backgroundColor: "#111" },
+  // ── Episode count ─────────────────────────────────────────────
+  epCountRow: { flexDirection: "row", alignItems: "center", marginBottom: 10 },
   epCountBadge: {
     flexDirection: "row", alignItems: "center", gap: 5,
     backgroundColor: `${GREEN}22`, borderRadius: 12,
     borderWidth: 1, borderColor: `${GREEN}55`,
     paddingHorizontal: 9, paddingVertical: 4,
   },
-  epCountTxt: {
-    fontSize: 11, fontWeight: "800", color: GREEN, letterSpacing: 0.3,
-  },
+  epCountTxt: { fontSize: 11, fontWeight: "800", color: GREEN, letterSpacing: 0.3 },
+  // ── Video preview overlays ────────────────────────────────────
   previewPlayBtn: {
     position: "absolute", bottom: 12, right: 12,
     flexDirection: "row", alignItems: "center", gap: 6,
@@ -2561,14 +2616,15 @@ const nvc = StyleSheet.create({
     alignItems: "center", justifyContent: "center",
   },
   playBtnCircle: {
-    width: 58, height: 58, borderRadius: 29,
-    backgroundColor: "rgba(0,0,0,0.58)",
-    borderWidth: 2, borderColor: "rgba(255,255,255,0.55)",
+    width: 64, height: 64, borderRadius: 32,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    borderWidth: 2.5, borderColor: "rgba(255,255,255,0.6)",
     alignItems: "center", justifyContent: "center",
   },
+  // ── Quality badges ────────────────────────────────────────────
   qualRow: { flexDirection: "row", gap: 6, marginBottom: 8 },
   qualPill: {
-    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4,
+    paddingHorizontal: 7, paddingVertical: 3, borderRadius: 4,
     backgroundColor: "rgba(255,255,255,0.12)",
     borderWidth: 1, borderColor: "rgba(255,255,255,0.22)",
   },
