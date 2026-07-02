@@ -419,11 +419,11 @@ function CategoryPill({ label, active, onPress, color = RED }: {
       <Animated.View style={[
         styles.categoryPill,
         active
-          ? { backgroundColor: color, borderColor: color }
-          : { backgroundColor: "rgba(255,255,255,0.06)", borderColor: "rgba(255,255,255,0.1)" },
+          ? { backgroundColor: "transparent", borderColor: "rgba(255,255,255,0.85)", borderWidth: 1.5 }
+          : { backgroundColor: "transparent", borderColor: "transparent", borderWidth: 1.5 },
         { transform: [{ scale }] },
       ]}>
-        <Text style={[styles.categoryPillText, { color: active ? "#fff" : "rgba(255,255,255,0.5)" }]}>
+        <Text style={[styles.categoryPillText, { color: active ? "#fff" : "rgba(255,255,255,0.55)", fontWeight: active ? "800" : "500" }]}>
           {label}
         </Text>
       </Animated.View>
@@ -3229,7 +3229,7 @@ export default function HomeScreen() {
         {/* ── 1. CATEGORY PILLS (island above the hero banner) ────────────── */}
         <AnimatedSection anim={s[0]}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.pillsRow} style={{ marginTop: topPad + 8, marginBottom: 12 }}>
+            contentContainerStyle={styles.pillsRow} style={{ marginTop: topPad + 54, marginBottom: 12 }}>
             {CATEGORIES.map((cat) => (
               <CategoryPill key={cat.id} label={cat.label}
                 active={activeCategory === cat.id}

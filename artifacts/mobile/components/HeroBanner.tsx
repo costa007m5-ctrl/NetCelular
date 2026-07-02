@@ -17,9 +17,9 @@ import { useColors } from "@/hooks/useColors";
 import type { ContentItem } from "@/constants/content";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
-const HERO_HEIGHT = 560;
+const HERO_HEIGHT = 480;
 const CARD_MARGIN = 16;
-const CARD_POSTER_RATIO = 1.62; // height / width of the poster area inside the card
+const CARD_POSTER_RATIO = 1.28; // height / width of the poster area inside the card
 const TMDB_KEY = "8f0beb08cf016ec8de49e454e09879ec";
 const AUTO_ADVANCE_MS = 7000;
 
