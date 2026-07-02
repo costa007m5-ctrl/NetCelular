@@ -3264,10 +3264,8 @@ export async function warmTmdb2026(): Promise<void> {
 
   TMDB_2026_WARMING = true;
   try {
-    const today = new Date().toISOString().slice(0, 10);
     const base  = `https://api.themoviedb.org/3/discover/movie?api_key=${TMDB_KEY}`
                 + `&primary_release_year=2026&language=pt-BR`
-                + `&primary_release_date.lte=${today}`
                 + `&sort_by=popularity.desc`;
 
     // Fetch page 1 to learn total_pages
@@ -3323,7 +3321,6 @@ export async function warmTmdb2026(): Promise<void> {
     // Second pass: fetch same pages in English to back-fill empty pt-BR overviews
     const baseEn = `https://api.themoviedb.org/3/discover/movie?api_key=${TMDB_KEY}`
                  + `&primary_release_year=2026&language=en-US`
-                 + `&primary_release_date.lte=${new Date().toISOString().slice(0, 10)}`
                  + `&sort_by=popularity.desc`;
     const firstEn = await fetch(`${baseEn}&page=1`).then((r) => r.json() as any).catch(() => ({ results: [] }));
     addPage(firstEn, "en");
