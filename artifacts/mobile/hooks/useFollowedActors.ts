@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const KEY = "@netplay_followed_actors";
+const NOTIF_KEY = "@netplay_actor_notifications";
 
 export interface FollowedActor {
   name: string;
@@ -11,14 +12,17 @@ export interface FollowedActor {
 
 export function useFollowedActors() {
   const [followedActors, setFollowedActors] = useState<FollowedActor[]>([]);
+  const [actorNotifs, setActorNotifs] = useState<Record<string, boolean>>({});
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    AsyncStorage.getItem(KEY)
-      .then((raw) => {
-        if (raw) setFollowedActors(JSON.parse(raw));
-      })
-      .finally(() => setLoaded(true));
+    Promise.all([
+      AsyncStorage.getItem(KEY),
+      AsyncStorage.getItem(NOTIF_KEY),
+    ]).then(([raw, rawNotifs]) => {
+      if (raw) setFollowedActors(JSON.parse(raw));
+      if (rawNotifs) setActorNotifs(JSON.parse(rawNotifs));
+    }).finally(() => setLoaded(true));
   }, []);
 
   const followActor = useCallback(
@@ -29,8 +33,16 @@ export function useFollowedActors() {
         : [...followedActors, actor];
       setFollowedActors(next);
       await AsyncStorage.setItem(KEY, JSON.stringify(next));
+
+      // Remove notification pref when unfollowing
+      if (isAlready) {
+        const nextNotifs = { ...actorNotifs };
+        delete nextNotifs[actor.name];
+        setActorNotifs(nextNotifs);
+        await AsyncStorage.setItem(NOTIF_KEY, JSON.stringify(nextNotifs));
+      }
     },
-    [followedActors]
+    [followedActors, actorNotifs]
   );
 
   const isFollowing = useCallback(
@@ -38,5 +50,21 @@ export function useFollowedActors() {
     [followedActors]
   );
 
-  return { followedActors, followActor, isFollowing, loaded };
+  const toggleNotification = useCallback(
+    async (actorName: string) => {
+      const current = actorNotifs[actorName] ?? false;
+      const next = { ...actorNotifs, [actorName]: !current };
+      setActorNotifs(next);
+      await AsyncStorage.setItem(NOTIF_KEY, JSON.stringify(next));
+      return !current;
+    },
+    [actorNotifs]
+  );
+
+  const isNotifEnabled = useCallback(
+    (actorName: string) => actorNotifs[actorName] ?? false,
+    [actorNotifs]
+  );
+
+  return { followedActors, followActor, isFollowing, toggleNotification, isNotifEnabled, loaded };
 }

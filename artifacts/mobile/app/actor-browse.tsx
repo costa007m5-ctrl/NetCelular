@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useColors } from "@/hooks/useColors";
+import { useFollowedActors } from "@/hooks/useFollowedActors";
 import { api, tmdbItemToContent, type TmdbItem, type TmdbPerson } from "@/lib/api";
 import type { ContentItem } from "@/constants/content";
 
@@ -122,6 +123,35 @@ export default function ActorBrowseScreen() {
   const insets = useSafeAreaInsets();
   const colors = useColors();
   const accentColor = color ?? "#e50914";
+
+  const { isFollowing, followActor, isNotifEnabled, toggleNotification } = useFollowedActors();
+  const followed = isFollowing(name ?? "");
+  const notifOn = isNotifEnabled(name ?? "");
+
+  const actorObj = {
+    name: name ?? "",
+    initial: (name ?? "?").split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase(),
+    color: accentColor,
+  };
+
+  const followScale = useRef(new Animated.Value(1)).current;
+  const notifScale  = useRef(new Animated.Value(1)).current;
+
+  const handleFollow = () => {
+    Animated.sequence([
+      Animated.timing(followScale, { toValue: 0.75, duration: 80, useNativeDriver: true }),
+      Animated.spring(followScale, { toValue: 1, useNativeDriver: true, tension: 320, friction: 5 }),
+    ]).start();
+    followActor(actorObj);
+  };
+
+  const handleNotif = async () => {
+    Animated.sequence([
+      Animated.timing(notifScale, { toValue: 0.75, duration: 80, useNativeDriver: true }),
+      Animated.spring(notifScale, { toValue: 1, useNativeDriver: true, tension: 320, friction: 5 }),
+    ]).start();
+    await toggleNotification(name ?? "");
+  };
 
   const [activeTab, setActiveTab] = useState<Tab>("bio");
   const tabAnim = useRef(new Animated.Value(0)).current;
@@ -258,8 +288,53 @@ export default function ActorBrowseScreen() {
           <Feather name="arrow-left" size={22} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle} numberOfLines={1}>{name ?? "Ator"}</Text>
-        <View style={{ width: 40 }} />
+
+        {/* Follow + notification buttons */}
+        <View style={{ flexDirection: "row", gap: 8, alignItems: "center" }}>
+          {followed && (
+            <Animated.View style={{ transform: [{ scale: notifScale }] }}>
+              <TouchableOpacity
+                onPress={handleNotif}
+                style={[styles.headerIconBtn, {
+                  backgroundColor: notifOn ? `${accentColor}30` : "rgba(255,255,255,0.08)",
+                  borderColor: notifOn ? `${accentColor}70` : "rgba(255,255,255,0.12)",
+                }]}
+              >
+                <Feather name={notifOn ? "bell" : "bell-off"} size={16}
+                  color={notifOn ? accentColor : "rgba(255,255,255,0.5)"} />
+              </TouchableOpacity>
+            </Animated.View>
+          )}
+          <Animated.View style={{ transform: [{ scale: followScale }] }}>
+            <TouchableOpacity
+              onPress={handleFollow}
+              style={[styles.followHeaderBtn, {
+                backgroundColor: followed ? accentColor : "rgba(255,255,255,0.08)",
+                borderColor: followed ? accentColor : "rgba(255,255,255,0.18)",
+              }]}
+            >
+              <Feather name={followed ? "user-check" : "user-plus"} size={14}
+                color={followed ? "#fff" : "rgba(255,255,255,0.75)"} />
+              <Text style={[styles.followHeaderText, { color: followed ? "#fff" : "rgba(255,255,255,0.75)" }]}>
+                {followed ? "Seguindo" : "Seguir"}
+              </Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </View>
       </View>
+
+      {/* ── Notification banner (shown when notif is on) ── */}
+      {followed && notifOn && (
+        <View style={[styles.notifBanner, { backgroundColor: `${accentColor}14`, borderColor: `${accentColor}30` }]}>
+          <Feather name="bell" size={12} color={accentColor} />
+          <Text style={[styles.notifBannerText, { color: accentColor }]}>
+            Você receberá notificações de novos lançamentos de {name?.split(" ")[0]}
+          </Text>
+          <TouchableOpacity onPress={handleNotif} hitSlop={8}>
+            <Feather name="x" size={12} color={`${accentColor}80`} />
+          </TouchableOpacity>
+        </View>
+      )}
 
       {loadState === "loading" ? (
         <View style={styles.centered}>
@@ -741,4 +816,24 @@ const styles = StyleSheet.create({
   emptyState: { alignItems: "center", paddingTop: 60, paddingHorizontal: 32, gap: 10 },
   emptyText: { color: "#555", fontSize: 15, fontWeight: "600", textAlign: "center" },
   emptySubText: { color: "#444", fontSize: 13, textAlign: "center", lineHeight: 18 },
+
+  headerIconBtn: {
+    width: 36, height: 36, borderRadius: 18,
+    alignItems: "center", justifyContent: "center",
+    borderWidth: 1,
+  },
+  followHeaderBtn: {
+    flexDirection: "row", alignItems: "center", gap: 5,
+    paddingHorizontal: 12, paddingVertical: 7,
+    borderRadius: 18, borderWidth: 1,
+  },
+  followHeaderText: { fontSize: 12, fontWeight: "700" },
+
+  notifBanner: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    marginHorizontal: 16, marginTop: 2, marginBottom: 4,
+    paddingHorizontal: 12, paddingVertical: 8,
+    borderRadius: 10, borderWidth: 1,
+  },
+  notifBannerText: { flex: 1, fontSize: 11, fontWeight: "600", lineHeight: 15 },
 });

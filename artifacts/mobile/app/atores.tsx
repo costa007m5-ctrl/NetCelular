@@ -1,5 +1,6 @@
-import React, { useEffect, useRef, useState, useMemo } from "react";
+import React, { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import {
+  ActivityIndicator,
   Animated,
   Pressable,
   ScrollView,
@@ -26,8 +27,21 @@ const GREEN  = "#22c55e";
 const TEAL   = "#0891b2";
 const ORANGE = "#f97316";
 
-const TMDB_IMG = "https://image.tmdb.org/t/p/w185";
+const PALETTE = [RED, PINK, PURPLE, BLUE, GREEN, TEAL, ORANGE, AMBER];
 const TMDB_KEY = "8f0beb08cf016ec8de49e454e09879ec";
+const TMDB_IMG = "https://image.tmdb.org/t/p/w185";
+
+function colorForName(name: string): string {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffffffff;
+  return PALETTE[Math.abs(h) % PALETTE.length];
+}
+
+function initialsFor(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
 
 const ACTOR_CATEGORIES: Array<{
   id: string;
@@ -138,25 +152,25 @@ function drainQueue() {
 
 function ActorCircle({
   actor,
+  photoUrl,
   onPress,
   isFollowed,
   onFollow,
 }: {
   actor: { name: string; initial: string; color: string };
+  photoUrl?: string | null;
   onPress: () => void;
   isFollowed: boolean;
   onFollow: () => void;
 }) {
-  const [photo, setPhoto] = useState<string | null>(null);
+  const [photo, setPhoto] = useState<string | null>(photoUrl ?? null);
   const [photoErr, setPhotoErr] = useState(false);
   const sc = useRef(new Animated.Value(1)).current;
   const followScale = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    if (_photoCache[actor.name] !== undefined) {
-      setPhoto(_photoCache[actor.name]);
-      return;
-    }
+    if (photoUrl !== undefined) { setPhoto(photoUrl); return; }
+    if (_photoCache[actor.name] !== undefined) { setPhoto(_photoCache[actor.name]); return; }
     let cancelled = false;
     const doFetch = () => {
       fetch(
@@ -170,15 +184,12 @@ function ActorCircle({
           if (!cancelled) setPhoto(url);
         })
         .catch(() => { _photoCache[actor.name] = null; })
-        .finally(() => {
-          _fetchActive = Math.max(0, _fetchActive - 1);
-          drainQueue();
-        });
+        .finally(() => { _fetchActive = Math.max(0, _fetchActive - 1); drainQueue(); });
     };
     if (_fetchActive < 4) { _fetchActive++; doFetch(); }
     else { _fetchQueue.push(doFetch); }
     return () => { cancelled = true; };
-  }, [actor.name]);
+  }, [actor.name, photoUrl]);
 
   const handleFollow = () => {
     Animated.sequence([
@@ -191,34 +202,22 @@ function ActorCircle({
   return (
     <Pressable
       onPress={onPress}
-      onPressIn={() =>
-        Animated.spring(sc, { toValue: 0.88, useNativeDriver: true, speed: 30 }).start()
-      }
-      onPressOut={() =>
-        Animated.spring(sc, { toValue: 1, useNativeDriver: true, speed: 26 }).start()
-      }
+      onPressIn={() => Animated.spring(sc, { toValue: 0.88, useNativeDriver: true, speed: 30 }).start()}
+      onPressOut={() => Animated.spring(sc, { toValue: 1, useNativeDriver: true, speed: 26 }).start()}
     >
       <Animated.View style={[st.circleWrap, { transform: [{ scale: sc }] }]}>
         <View style={{ position: "relative" }}>
           <View style={[st.circle, { borderColor: isFollowed ? actor.color : `${actor.color}55` }]}>
             {!photoErr && photo ? (
-              <Image
-                source={{ uri: photo }}
-                style={{ width: "100%", height: "100%" }}
-                contentFit="cover"
-                onError={() => setPhotoErr(true)}
-              />
+              <Image source={{ uri: photo }} style={{ width: "100%", height: "100%" }}
+                contentFit="cover" onError={() => setPhotoErr(true)} />
             ) : (
               <>
-                <LinearGradient
-                  colors={[`${actor.color}45`, `${actor.color}18`]}
-                  style={StyleSheet.absoluteFill}
-                />
+                <LinearGradient colors={[`${actor.color}45`, `${actor.color}18`]} style={StyleSheet.absoluteFill} />
                 <Text style={[st.initial, { color: actor.color }]}>{actor.initial}</Text>
               </>
             )}
           </View>
-          {/* Follow button */}
           <Animated.View style={[st.followBtn, { transform: [{ scale: followScale }] }]}>
             <Pressable onPress={handleFollow} hitSlop={6} style={[
               st.followBtnInner,
@@ -226,11 +225,8 @@ function ActorCircle({
                 ? { backgroundColor: actor.color }
                 : { backgroundColor: "rgba(0,0,0,0.7)", borderWidth: 1.5, borderColor: `${actor.color}88` }
             ]}>
-              <Feather
-                name={isFollowed ? "user-check" : "user-plus"}
-                size={10}
-                color={isFollowed ? "#fff" : actor.color}
-              />
+              <Feather name={isFollowed ? "user-check" : "user-plus"} size={10}
+                color={isFollowed ? "#fff" : actor.color} />
             </Pressable>
           </Animated.View>
         </View>
@@ -245,6 +241,13 @@ function ActorCircle({
   );
 }
 
+interface TmdbActorResult {
+  id: number;
+  name: string;
+  profile_path: string | null;
+  popularity: number;
+}
+
 export default function AtoresScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -252,6 +255,32 @@ export default function AtoresScreen() {
   const { followedActors, followActor, isFollowing } = useFollowedActors();
   const [searchQuery, setSearchQuery] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);
+  const [tmdbResults, setTmdbResults] = useState<TmdbActorResult[]>([]);
+  const [tmdbSearching, setTmdbSearching] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Debounced TMDB search ────────────────────────────────────────────────
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (!q || q.length < 2) { setTmdbResults([]); setTmdbSearching(false); return; }
+    setTmdbSearching(true);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const r = await fetch(
+          `https://api.themoviedb.org/3/search/person?api_key=${TMDB_KEY}&query=${encodeURIComponent(q)}&language=pt-BR`
+        );
+        if (!r.ok) return;
+        const d = await r.json() as any;
+        const results: TmdbActorResult[] = (d.results ?? [])
+          .filter((x: any) => x.known_for_department === "Acting" || x.popularity > 1)
+          .slice(0, 20);
+        setTmdbResults(results);
+      } catch { setTmdbResults([]); }
+      finally { setTmdbSearching(false); }
+    }, 400);
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, [searchQuery]);
 
   const filteredCategories = useMemo(() => {
     if (!searchQuery.trim()) return ACTOR_CATEGORIES;
@@ -261,6 +290,21 @@ export default function AtoresScreen() {
       actors: cat.actors.filter((a) => a.name.toLowerCase().includes(q)),
     })).filter((cat) => cat.actors.length > 0);
   }, [searchQuery]);
+
+  // Merge hardcoded names so we don't duplicate in TMDB results
+  const allHardcodedNames = useMemo(() => {
+    const s = new Set<string>();
+    ACTOR_CATEGORIES.forEach((c) => c.actors.forEach((a) => s.add(a.name.toLowerCase())));
+    return s;
+  }, []);
+
+  const dedupedTmdbResults = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return [];
+    return tmdbResults.filter((r) => !allHardcodedNames.has(r.name.toLowerCase()));
+  }, [tmdbResults, searchQuery, allHardcodedNames]);
+
+  const isSearching = searchQuery.trim().length >= 2;
 
   return (
     <View style={st.root}>
@@ -282,10 +326,13 @@ export default function AtoresScreen() {
       {/* ── Search bar ── */}
       <View style={st.searchWrap}>
         <View style={[st.searchBar, searchFocused && st.searchBarFocused]}>
-          <Feather name="search" size={15} color={searchFocused ? AMBER : "rgba(255,255,255,0.4)"} />
+          {tmdbSearching
+            ? <ActivityIndicator size="small" color={AMBER} />
+            : <Feather name="search" size={15} color={searchFocused ? AMBER : "rgba(255,255,255,0.4)"} />
+          }
           <TextInput
             style={st.searchInput}
-            placeholder="Buscar ator..."
+            placeholder="Buscar qualquer ator no TMDB..."
             placeholderTextColor="rgba(255,255,255,0.3)"
             value={searchQuery}
             onChangeText={setSearchQuery}
@@ -300,18 +347,21 @@ export default function AtoresScreen() {
             </Pressable>
           )}
         </View>
+        {isSearching && (
+          <Text style={st.searchHint}>🔍 Buscando em toda a base do TMDB</Text>
+        )}
       </View>
 
       {/* ── Subtitle ── */}
       {!searchQuery && (
         <View style={{ paddingHorizontal: 16, paddingBottom: 12 }}>
           <Text style={st.subtitle}>
-            Toque em qualquer ator para explorar sua filmografia completa
+            Toque em qualquer ator para explorar sua filmografia · Toque em + para seguir
           </Text>
         </View>
       )}
 
-      {/* ── Categories ── */}
+      {/* ── Content ── */}
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 120 }}
@@ -328,58 +378,100 @@ export default function AtoresScreen() {
                 <Text style={[st.followCountText, { color: AMBER }]}>{followedActors.length}</Text>
               </View>
             </View>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={st.actorRow}
-              decelerationRate="fast"
-            >
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}
+              contentContainerStyle={st.actorRow} decelerationRate="fast">
               {followedActors.map((a) => (
-                <ActorCircle
-                  key={`seguindo-${a.name}`}
-                  actor={a}
-                  isFollowed={true}
+                <ActorCircle key={`seguindo-${a.name}`} actor={a} isFollowed={true}
                   onFollow={() => followActor(a)}
-                  onPress={() =>
-                    router.push({
-                      pathname: "/actor-browse",
-                      params: { name: a.name, color: a.color },
-                    })
-                  }
+                  onPress={() => router.push({ pathname: "/actor-browse", params: { name: a.name, color: a.color } })}
                 />
               ))}
             </ScrollView>
           </View>
         )}
 
-        {filteredCategories.map((cat) => (
+        {/* ── TMDB search results ── */}
+        {isSearching && (
+          <View style={st.catSection}>
+            <View style={st.catHeader}>
+              <View style={[st.catBar, { backgroundColor: BLUE }]} />
+              <Text style={st.catEmoji}>🌐</Text>
+              <Text style={[st.catLabel, { color: BLUE }]}>Resultados TMDB</Text>
+              {tmdbSearching && <ActivityIndicator size="small" color={BLUE} style={{ marginLeft: 6 }} />}
+              {!tmdbSearching && (
+                <View style={[st.followCountBadge, { backgroundColor: `${BLUE}22`, borderColor: `${BLUE}44` }]}>
+                  <Text style={[st.followCountText, { color: BLUE }]}>
+                    {filteredCategories.reduce((n, c) => n + c.actors.length, 0) + dedupedTmdbResults.length}
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            {/* Hardcoded matches first */}
+            {filteredCategories.length > 0 && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}
+                contentContainerStyle={st.actorRow} decelerationRate="fast">
+                {filteredCategories.flatMap((cat) =>
+                  cat.actors.map((a) => (
+                    <ActorCircle key={`search-${cat.id}-${a.name}`} actor={a}
+                      isFollowed={isFollowing(a.name)}
+                      onFollow={() => followActor(a)}
+                      onPress={() => router.push({ pathname: "/actor-browse", params: { name: a.name, color: a.color } })}
+                    />
+                  ))
+                )}
+              </ScrollView>
+            )}
+
+            {/* TMDB-only results */}
+            {dedupedTmdbResults.length > 0 && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}
+                contentContainerStyle={[st.actorRow, { marginTop: filteredCategories.length > 0 ? 14 : 0 }]}
+                decelerationRate="fast">
+                {dedupedTmdbResults.map((r) => {
+                  const actor = {
+                    name: r.name,
+                    initial: initialsFor(r.name),
+                    color: colorForName(r.name),
+                  };
+                  const photoUrl = r.profile_path ? `${TMDB_IMG}${r.profile_path}` : null;
+                  return (
+                    <ActorCircle key={`tmdb-${r.id}`} actor={actor} photoUrl={photoUrl}
+                      isFollowed={isFollowing(r.name)}
+                      onFollow={() => followActor(actor)}
+                      onPress={() => router.push({ pathname: "/actor-browse", params: { name: r.name, color: actor.color } })}
+                    />
+                  );
+                })}
+              </ScrollView>
+            )}
+
+            {!tmdbSearching && filteredCategories.length === 0 && dedupedTmdbResults.length === 0 && (
+              <View style={{ paddingHorizontal: 16, paddingVertical: 20, alignItems: "center", gap: 8 }}>
+                <Feather name="user-x" size={32} color="rgba(255,255,255,0.12)" />
+                <Text style={{ color: "rgba(255,255,255,0.3)", fontSize: 13 }}>
+                  Nenhum ator encontrado para "{searchQuery}"
+                </Text>
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* ── Hardcoded categories (when not searching) ── */}
+        {!isSearching && filteredCategories.map((cat) => (
           <View key={cat.id} style={st.catSection}>
-            {/* Category header */}
             <View style={st.catHeader}>
               <View style={[st.catBar, { backgroundColor: cat.color }]} />
               <Text style={st.catEmoji}>{cat.emoji}</Text>
               <Text style={[st.catLabel, { color: cat.color }]}>{cat.label}</Text>
             </View>
-
-            {/* Actor row */}
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={st.actorRow}
-              decelerationRate="fast"
-            >
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}
+              contentContainerStyle={st.actorRow} decelerationRate="fast">
               {cat.actors.map((a) => (
-                <ActorCircle
-                  key={`${cat.id}-${a.name}`}
-                  actor={a}
+                <ActorCircle key={`${cat.id}-${a.name}`} actor={a}
                   isFollowed={isFollowing(a.name)}
                   onFollow={() => followActor(a)}
-                  onPress={() =>
-                    router.push({
-                      pathname: "/actor-browse",
-                      params: { name: a.name, color: a.color },
-                    })
-                  }
+                  onPress={() => router.push({ pathname: "/actor-browse", params: { name: a.name, color: a.color } })}
                 />
               ))}
             </ScrollView>
@@ -387,23 +479,20 @@ export default function AtoresScreen() {
         ))}
 
         {/* ── "Não encontrou?" search prompt ── */}
-        <Pressable
-          style={st.notFoundWrap}
-          onPress={() => setSearchFocused(true)}
-        >
-          <LinearGradient
-            colors={["rgba(245,158,11,0.08)", "rgba(245,158,11,0.02)"]}
-            style={StyleSheet.absoluteFill}
-          />
-          <View style={st.notFoundIcon}>
-            <Feather name="search" size={20} color={AMBER} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={st.notFoundTitle}>Não encontrou seu favorito?</Text>
-            <Text style={st.notFoundSub}>Use a busca acima para encontrar qualquer ator</Text>
-          </View>
-          <Feather name="chevron-right" size={16} color="rgba(245,158,11,0.5)" />
-        </Pressable>
+        {!isSearching && (
+          <Pressable style={st.notFoundWrap} onPress={() => setSearchFocused(true)}>
+            <LinearGradient colors={["rgba(245,158,11,0.08)", "rgba(245,158,11,0.02)"]}
+              style={StyleSheet.absoluteFill} />
+            <View style={st.notFoundIcon}>
+              <Feather name="search" size={20} color={AMBER} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={st.notFoundTitle}>Não encontrou seu favorito?</Text>
+              <Text style={st.notFoundSub}>Digite o nome para buscar qualquer ator no TMDB</Text>
+            </View>
+            <Feather name="chevron-right" size={16} color="rgba(245,158,11,0.5)" />
+          </Pressable>
+        )}
       </ScrollView>
     </View>
   );
@@ -412,11 +501,8 @@ export default function AtoresScreen() {
 const st = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#000" },
   header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingBottom: 12,
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingHorizontal: 16, paddingBottom: 12,
   },
   backBtn: {
     width: 38, height: 38, borderRadius: 19,
@@ -427,23 +513,21 @@ const st = StyleSheet.create({
   logoAccent: { width: 3, height: 22, borderRadius: 2, backgroundColor: AMBER },
   logoA: { fontSize: 22, fontWeight: "900", letterSpacing: 1 },
   logoB: { fontSize: 22, fontWeight: "900", color: "#fff", letterSpacing: 1 },
-  searchWrap: { paddingHorizontal: 16, marginBottom: 12 },
+  searchWrap: { paddingHorizontal: 16, marginBottom: 8 },
   searchBar: {
     flexDirection: "row", alignItems: "center", gap: 10,
     backgroundColor: "rgba(255,255,255,0.07)",
     borderRadius: 12, borderWidth: 1, borderColor: "rgba(255,255,255,0.1)",
     paddingHorizontal: 14, paddingVertical: 10,
   },
-  searchBarFocused: {
-    borderColor: `${AMBER}55`,
-    backgroundColor: "rgba(245,158,11,0.06)",
-  },
-  searchInput: {
-    flex: 1, color: "#fff", fontSize: 14, fontWeight: "500",
+  searchBarFocused: { borderColor: `${AMBER}55`, backgroundColor: "rgba(245,158,11,0.06)" },
+  searchInput: { flex: 1, color: "#fff", fontSize: 14, fontWeight: "500" },
+  searchHint: {
+    marginTop: 6, marginLeft: 4,
+    fontSize: 11, color: "rgba(255,255,255,0.3)", fontStyle: "italic",
   },
   subtitle: {
-    fontSize: 12, color: "rgba(255,255,255,0.38)",
-    lineHeight: 18, fontStyle: "italic",
+    fontSize: 12, color: "rgba(255,255,255,0.38)", lineHeight: 18, fontStyle: "italic",
   },
   catSection: { marginBottom: 30 },
   catHeader: {
@@ -454,37 +538,23 @@ const st = StyleSheet.create({
   catEmoji: { fontSize: 15 },
   catLabel: { fontSize: 14, fontWeight: "800", letterSpacing: 0.3 },
   followCountBadge: {
-    paddingHorizontal: 8, paddingVertical: 2,
-    borderRadius: 10, borderWidth: 1,
-    marginLeft: 4,
+    paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, borderWidth: 1, marginLeft: 4,
   },
   followCountText: { fontSize: 11, fontWeight: "800" },
   actorRow: { paddingHorizontal: 16, gap: 14, alignItems: "flex-start" },
   circleWrap: { alignItems: "center", gap: 5, width: 76 },
   circle: {
-    width: 68, height: 68, borderRadius: 34,
-    overflow: "hidden",
-    borderWidth: 2,
-    alignItems: "center", justifyContent: "center",
-    backgroundColor: "#111",
+    width: 68, height: 68, borderRadius: 34, overflow: "hidden",
+    borderWidth: 2, alignItems: "center", justifyContent: "center", backgroundColor: "#111",
   },
   initial: { fontSize: 22, fontWeight: "900" },
-  name: {
-    fontSize: 11, fontWeight: "600", color: "#fff",
-    textAlign: "center", lineHeight: 15,
-  },
-  followBtn: {
-    position: "absolute",
-    bottom: -2, right: -2,
-  },
+  name: { fontSize: 11, fontWeight: "600", color: "#fff", textAlign: "center", lineHeight: 15 },
+  followBtn: { position: "absolute", bottom: -2, right: -2 },
   followBtnInner: {
-    width: 22, height: 22, borderRadius: 11,
-    alignItems: "center", justifyContent: "center",
+    width: 22, height: 22, borderRadius: 11, alignItems: "center", justifyContent: "center",
   },
   followingBadge: {
-    paddingHorizontal: 6, paddingVertical: 2,
-    borderRadius: 6, borderWidth: 1,
-    marginTop: 2,
+    paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, borderWidth: 1, marginTop: 2,
   },
   followingText: { fontSize: 9, fontWeight: "800", letterSpacing: 0.3 },
   notFoundWrap: {
@@ -495,13 +565,8 @@ const st = StyleSheet.create({
   },
   notFoundIcon: {
     width: 40, height: 40, borderRadius: 20,
-    backgroundColor: "rgba(245,158,11,0.12)",
-    alignItems: "center", justifyContent: "center",
+    backgroundColor: "rgba(245,158,11,0.12)", alignItems: "center", justifyContent: "center",
   },
-  notFoundTitle: {
-    fontSize: 14, fontWeight: "700", color: "#fff", marginBottom: 3,
-  },
-  notFoundSub: {
-    fontSize: 12, color: "rgba(255,255,255,0.45)", lineHeight: 16,
-  },
+  notFoundTitle: { fontSize: 14, fontWeight: "700", color: "#fff", marginBottom: 3 },
+  notFoundSub: { fontSize: 12, color: "rgba(255,255,255,0.45)", lineHeight: 16 },
 });
