@@ -18,6 +18,8 @@ import type { ContentItem } from "@/constants/content";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const HERO_HEIGHT = 560;
+const CARD_MARGIN = 16;
+const CARD_POSTER_RATIO = 1.62; // height / width of the poster area inside the card
 const TMDB_KEY = "8f0beb08cf016ec8de49e454e09879ec";
 const AUTO_ADVANCE_MS = 7000;
 
@@ -157,288 +159,155 @@ function HeroItem({ item, colors, onWatch, onDetails, onAddToList, isActive, scr
     [item.duration]
   );
 
+  const cardWidth = screenWidth - CARD_MARGIN * 2;
+  const posterHeight = cardWidth * CARD_POSTER_RATIO;
+
   const HERO_YEAR = new Date().getFullYear();
   const isNew = item.year >= HERO_YEAR - 1;
 
   return (
-    <Pressable
-      style={{ width: screenWidth, height: HERO_HEIGHT, flexShrink: 0, overflow: "hidden" }}
-      onPress={onDetails ?? onWatch}
-    >
-      {/* Background image */}
-      {!imgError && item.backdropPath ? (
-        <Animated.View style={[heroStyles.heroImageWrap, { transform: [{ scale: scaleAnim }] }]}>
-          <Image
-            source={{ uri: item.backdropPath }}
-            style={heroStyles.heroImage}
-            contentFit="cover"
-            transition={Platform.OS === "web" ? 400 : 0}
-            cachePolicy="memory-disk"
-            onError={() => setImgError(true)}
-          />
-        </Animated.View>
-      ) : (
-        <LinearGradient colors={["#1a0a14", "#08060e"]} style={heroStyles.heroImage} />
-      )}
-
-      {/* Cinematic left-to-right dark gradient */}
-      <LinearGradient
-        colors={["rgba(5,5,8,0.85)", "rgba(5,5,8,0.3)", "transparent"]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 0.6, y: 0 }}
-        style={StyleSheet.absoluteFill}
-      />
-
-      {/* Bottom gradient */}
-      <LinearGradient
-        colors={["transparent", "rgba(3,3,6,0.55)", "rgba(3,3,6,0.85)", "rgba(3,3,6,0.98)"]}
-        locations={[0.3, 0.58, 0.78, 1]}
-        style={heroStyles.gradient}
-      />
-
-      {/* Top gradient */}
-      <LinearGradient
-        colors={["rgba(3,3,6,0.6)", "transparent"]}
-        style={heroStyles.topFade}
-      />
-
-      {/* Red accent glow from bottom-left */}
-      <LinearGradient
-        colors={["rgba(229,9,20,0.06)", "transparent"]}
-        start={{ x: 0, y: 1 }}
-        end={{ x: 0.5, y: 0.4 }}
-        style={StyleSheet.absoluteFill}
-        pointerEvents="none"
-      />
-
-      {/* Content */}
-      <Animated.View style={[heroStyles.heroContent, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
-
-        {/* Top badges */}
-        <View style={heroStyles.badgeRow}>
-          <ContentTypeBadge type={type} channel={item.channel} />
-          {isNew && (
-            <View style={heroStyles.newBadge}>
-              <Feather name="zap" size={8} color="#fff" />
-              <Text style={heroStyles.newBadgeText}>NOVO</Text>
-            </View>
-          )}
-          {item.channel === "NETPLAY" && (
-            <View style={heroStyles.exclusiveBadge}>
-              <Text style={heroStyles.exclusiveBadgeText}>✦ DESTAQUE</Text>
-            </View>
-          )}
-        </View>
-
-        {/* Logo or title */}
-        <Animated.View style={{ opacity: contentFade }}>
-          {logoUrl && !logoError ? (
-            <Image
-              source={{ uri: logoUrl }}
-              style={heroStyles.logoImg}
-              contentFit="contain"
-              onError={() => setLogoError(true)}
-            />
+    <View style={{ width: screenWidth, alignItems: "center", flexShrink: 0 }}>
+      <Animated.View
+        style={[
+          heroStyles.card,
+          { width: cardWidth, opacity: fadeAnim, transform: [{ translateY: slideAnim }] },
+        ]}
+      >
+        <Pressable onPress={onDetails ?? onWatch} style={{ width: "100%", height: posterHeight }}>
+          {/* Poster art */}
+          {!imgError && (item.posterPath || item.backdropPath) ? (
+            <Animated.View style={{ ...StyleSheet.absoluteFillObject, transform: [{ scale: scaleAnim }] }}>
+              <Image
+                source={{ uri: item.posterPath || item.backdropPath }}
+                style={StyleSheet.absoluteFill}
+                contentFit="cover"
+                transition={Platform.OS === "web" ? 400 : 0}
+                cachePolicy="memory-disk"
+                onError={() => setImgError(true)}
+              />
+            </Animated.View>
           ) : (
-            <Text style={heroStyles.heroTitle} numberOfLines={2}>
-              {item.title}
-            </Text>
+            <LinearGradient colors={["#1a0a14", "#08060e"]} style={StyleSheet.absoluteFill} />
           )}
-        </Animated.View>
 
-        {/* Genre pills */}
-        {displayGenres.length > 0 && (
-          <Animated.View style={[heroStyles.genreRow, { opacity: contentFade }]}>
-            {displayGenres.map((g, idx) => {
-              const name = GENRE_NAMES[g];
-              if (!name) return null;
-              return (
-                <React.Fragment key={g}>
-                  {idx > 0 && <View style={heroStyles.genreSep} />}
-                  <Text style={heroStyles.genreText}>{name}</Text>
-                </React.Fragment>
-              );
-            })}
+          {/* Bottom gradient inside poster for logo legibility */}
+          <LinearGradient
+            colors={["transparent", "rgba(6,10,10,0.55)", "rgba(6,10,10,0.92)"]}
+            locations={[0.55, 0.8, 1]}
+            style={StyleSheet.absoluteFill}
+          />
+
+          {/* Netflix "N" badge */}
+          <View style={heroStyles.nBadge}>
+            <Text style={heroStyles.nBadgeText}>N</Text>
+          </View>
+
+          {/* Top badges */}
+          <View style={heroStyles.badgeRow}>
+            {isNew && (
+              <View style={heroStyles.newBadge}>
+                <Feather name="zap" size={8} color="#fff" />
+                <Text style={heroStyles.newBadgeText}>NOVO</Text>
+              </View>
+            )}
+            {item.channel === "NETPLAY" && (
+              <View style={heroStyles.exclusiveBadge}>
+                <Text style={heroStyles.exclusiveBadgeText}>✦ DESTAQUE</Text>
+              </View>
+            )}
+          </View>
+
+          {/* Logo or title, anchored near bottom of poster */}
+          <Animated.View style={[heroStyles.logoWrap, { opacity: contentFade }]}>
+            {logoUrl && !logoError ? (
+              <Image
+                source={{ uri: logoUrl }}
+                style={heroStyles.logoImg}
+                contentFit="contain"
+                onError={() => setLogoError(true)}
+              />
+            ) : (
+              <Text style={heroStyles.heroTitle} numberOfLines={2}>
+                {item.title}
+              </Text>
+            )}
           </Animated.View>
-        )}
+        </Pressable>
 
-        {/* Meta info row */}
-        <Animated.View style={[heroStyles.metaRow, { opacity: contentFade }]}>
-          {item.rating > 0 && <IMDbBadge rating={item.rating} />}
-          <Text style={heroStyles.metaYear}>{item.year}</Text>
-          {runtime && <Text style={heroStyles.metaRuntime}>• {runtime}</Text>}
-        </Animated.View>
+        {/* Card footer (below poster) */}
+        <Animated.View style={[heroStyles.cardFooter, { opacity: contentFade }]}>
+          {/* Genre tags row */}
+          {displayGenres.length > 0 && (
+            <View style={heroStyles.genreRow}>
+              {displayGenres.map((g, idx) => {
+                const name = GENRE_NAMES[g];
+                if (!name) return null;
+                return (
+                  <React.Fragment key={g}>
+                    {idx > 0 && <View style={heroStyles.genreSep} />}
+                    <Text style={heroStyles.genreText}>{name}</Text>
+                  </React.Fragment>
+                );
+              })}
+            </View>
+          )}
 
-        {/* Description */}
-        {item.description ? (
-          <Animated.Text style={[heroStyles.heroDesc, { opacity: contentFade }]} numberOfLines={2}>
-            {item.description}
-          </Animated.Text>
-        ) : null}
+          {/* Meta info row */}
+          <View style={heroStyles.metaRow}>
+            {item.rating > 0 && <IMDbBadge rating={item.rating} />}
+            <Text style={heroStyles.metaYear}>{item.year}</Text>
+            {runtime && <Text style={heroStyles.metaRuntime}>• {runtime}</Text>}
+          </View>
 
-        {/* Action buttons */}
-        <Animated.View style={[heroStyles.actions, { opacity: contentFade }]}>
-          {/* Play button */}
+          {/* Assistir button */}
           <Pressable
             onPress={onWatch}
-            style={({ pressed }) => [heroStyles.watchBtn, { opacity: pressed ? 0.82 : 1 }]}
+            style={({ pressed }) => [heroStyles.watchBtn, { opacity: pressed ? 0.85 : 1 }]}
           >
-            <LinearGradient
-              colors={["#ff1a26", "#c8000c"]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={heroStyles.watchBtnGradient}
-            >
-              <Feather name="play" size={16} color="#fff" style={{ marginLeft: 2 }} />
-              <Text style={heroStyles.watchBtnText}>Assistir</Text>
-            </LinearGradient>
+            <Feather name="play" size={17} color="#111" style={{ marginRight: 2 }} />
+            <Text style={heroStyles.watchBtnText}>Assistir</Text>
           </Pressable>
 
-          {/* Details button */}
-          <Pressable
-            onPress={onDetails ?? onWatch}
-            style={({ pressed }) => [heroStyles.glassBtn, { opacity: pressed ? 0.7 : 1 }]}
+          {/* Minha lista button */}
+          <TouchableOpacity
+            onPress={onAddToList}
+            style={heroStyles.listBtn}
+            activeOpacity={0.8}
           >
-            <Feather name="info" size={15} color="rgba(255,255,255,0.9)" />
-            <Text style={heroStyles.glassBtnText}>Detalhes</Text>
-          </Pressable>
-
-          {/* Like button */}
-          <Animated.View style={{ transform: [{ scale: heartScale }] }}>
-            <TouchableOpacity
-              onPress={handleLike}
-              style={[
-                heroStyles.iconBtn,
-                liked && { backgroundColor: "rgba(229,9,20,0.32)", borderColor: "rgba(229,9,20,0.6)" },
-              ]}
-              activeOpacity={0.75}
-            >
-              <Feather name="heart" size={17} color={liked ? "#e50914" : "rgba(255,255,255,0.75)"} />
-            </TouchableOpacity>
-          </Animated.View>
-
-          {/* Add to list */}
-          {onAddToList && (
-            <TouchableOpacity onPress={onAddToList} style={heroStyles.iconBtn} activeOpacity={0.75}>
-              <Feather name="plus" size={19} color="rgba(255,255,255,0.75)" />
-            </TouchableOpacity>
-          )}
-
-          {/* Download */}
-          <TouchableOpacity style={heroStyles.iconBtn} activeOpacity={0.75}>
-            <Feather name="download" size={17} color="rgba(255,255,255,0.75)" />
+            <Feather name="plus" size={17} color="rgba(255,255,255,0.9)" style={{ marginRight: 2 }} />
+            <Text style={heroStyles.listBtnText}>Minha lista</Text>
           </TouchableOpacity>
+
+          {/* Secondary row: details + like */}
+          <View style={heroStyles.secondaryRow}>
+            <Pressable
+              onPress={onDetails ?? onWatch}
+              style={({ pressed }) => [heroStyles.glassBtn, { opacity: pressed ? 0.7 : 1 }]}
+            >
+              <Feather name="info" size={14} color="rgba(255,255,255,0.9)" />
+              <Text style={heroStyles.glassBtnText}>Detalhes</Text>
+            </Pressable>
+
+            <Animated.View style={{ transform: [{ scale: heartScale }] }}>
+              <TouchableOpacity
+                onPress={handleLike}
+                style={[
+                  heroStyles.iconBtn,
+                  liked && { backgroundColor: "rgba(229,9,20,0.32)", borderColor: "rgba(229,9,20,0.6)" },
+                ]}
+                activeOpacity={0.75}
+              >
+                <Feather name="heart" size={16} color={liked ? "#e50914" : "rgba(255,255,255,0.75)"} />
+              </TouchableOpacity>
+            </Animated.View>
+
+            <TouchableOpacity style={heroStyles.iconBtn} activeOpacity={0.75}>
+              <Feather name="download" size={16} color="rgba(255,255,255,0.75)" />
+            </TouchableOpacity>
+          </View>
         </Animated.View>
       </Animated.View>
-    </Pressable>
-  );
-}
-
-/* ─── Animated progress bar for active slide ─── */
-const ProgressBar = React.memo(function ProgressBar({
-  active,
-  duration,
-  index,
-  total,
-  onPress,
-}: {
-  active: boolean;
-  duration: number;
-  index: number;
-  total: number;
-  onPress: () => void;
-}) {
-  const progress = useRef(new Animated.Value(0)).current;
-  const animRef = useRef<Animated.CompositeAnimation | null>(null);
-
-  useEffect(() => {
-    if (animRef.current) animRef.current.stop();
-    if (active) {
-      progress.setValue(0);
-      animRef.current = Animated.timing(progress, {
-        toValue: 1,
-        duration,
-        useNativeDriver: false,
-      });
-      animRef.current.start();
-    } else {
-      progress.setValue(0);
-    }
-    return () => { animRef.current?.stop(); };
-  }, [active]);
-
-  return (
-    <Pressable onPress={onPress} style={heroStyles.progressBarWrap} hitSlop={10}>
-      <View style={heroStyles.progressTrack}>
-        {active ? (
-          <Animated.View
-            style={[
-              heroStyles.progressFill,
-              { width: progress.interpolate({ inputRange: [0, 1], outputRange: ["0%", "100%"] }) },
-            ]}
-          />
-        ) : (
-          <View style={[heroStyles.progressFill, { width: index < total ? "100%" : "0%" }]} />
-        )}
-      </View>
-    </Pressable>
-  );
-});
-
-/* ─── Thumbnail strip item ─── */
-function ThumbItem({
-  item,
-  active,
-  onPress,
-}: {
-  item: ContentItem;
-  active: boolean;
-  onPress: () => void;
-}) {
-  const scaleAnim = useRef(new Animated.Value(active ? 1 : 0.88)).current;
-  const borderAnim = useRef(new Animated.Value(active ? 1 : 0)).current;
-
-  useEffect(() => {
-    Animated.parallel([
-      Animated.spring(scaleAnim, { toValue: active ? 1 : 0.88, speed: 14, bounciness: 4, useNativeDriver: true }),
-      Animated.timing(borderAnim, { toValue: active ? 1 : 0, duration: 260, useNativeDriver: false }),
-    ]).start();
-  }, [active]);
-
-  const borderColor = borderAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ["rgba(255,255,255,0)", "rgba(229,9,20,0.9)"],
-  });
-
-  return (
-    <Pressable onPress={onPress}>
-      <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
-        <Animated.View style={[heroStyles.thumbWrap, { borderColor }]}>
-          {item.posterPath || item.backdropPath ? (
-            <Image
-              source={{ uri: item.posterPath ?? item.backdropPath }}
-              style={heroStyles.thumbImg}
-              contentFit="cover"
-              cachePolicy="memory-disk"
-            />
-          ) : (
-            <LinearGradient colors={["#2a1020", "#0a0810"]} style={heroStyles.thumbImg} />
-          )}
-          {active && (
-            <View style={heroStyles.thumbActiveOverlay}>
-              <Feather name="play" size={12} color="#fff" />
-            </View>
-          )}
-          {!active && (
-            <LinearGradient
-              colors={["transparent", "rgba(0,0,0,0.45)"]}
-              style={StyleSheet.absoluteFill}
-            />
-          )}
-        </Animated.View>
-        {active && <View style={heroStyles.thumbActiveDot} />}
-      </Animated.View>
-    </Pressable>
+    </View>
   );
 }
 
@@ -462,41 +331,21 @@ function HeroBannerSkeleton({ width: w }: { width: number }) {
     <Animated.View style={[{ backgroundColor: "#1e1530", borderRadius: 6 }, style, { opacity }]} />
   );
 
+  const cardWidth = w - CARD_MARGIN * 2;
+  const posterHeight = cardWidth * CARD_POSTER_RATIO;
+  const skeletonHeight = posterHeight + 260;
+
   return (
-    <View style={{ height: HERO_HEIGHT, width: w, backgroundColor: "#050308", overflow: "hidden" }}>
-      <Animated.View style={{ ...StyleSheet.absoluteFillObject, backgroundColor: "#0f0a1c", opacity }} />
-      <LinearGradient
-        colors={["transparent", "rgba(5,3,8,0.88)", "#050308"]}
-        locations={[0.3, 0.7, 1]}
-        style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: HERO_HEIGHT * 0.7 }}
-      />
-      <View style={{ position: "absolute", bottom: 100, left: 20, right: 20, gap: 11 }}>
-        <Bone style={{ width: 72, height: 20, borderRadius: 5 }} />
-        <Bone style={{ width: w * 0.75, height: 40, borderRadius: 8 }} />
-        <Bone style={{ width: w * 0.55, height: 32, borderRadius: 8, marginTop: -4 }} />
-        <View style={{ flexDirection: "row", gap: 8, marginTop: 2 }}>
-          {[52, 72, 84].map((bw, i) => <Bone key={i} style={{ width: bw, height: 13, borderRadius: 4 }} />)}
+    <View style={{ height: skeletonHeight, width: w, backgroundColor: "#050308", alignItems: "center", paddingTop: 4 }}>
+      <View style={{ width: cardWidth, borderRadius: 20, overflow: "hidden", backgroundColor: "#0f0a1c" }}>
+        <Animated.View style={{ width: "100%", height: posterHeight, backgroundColor: "#1a1224", opacity }} />
+        <View style={{ padding: 16, gap: 11 }}>
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            {[52, 72, 84].map((bw, i) => <Bone key={i} style={{ width: bw, height: 12, borderRadius: 4 }} />)}
+          </View>
+          <Bone style={{ width: "100%", height: 48, borderRadius: 24 }} />
+          <Bone style={{ width: "100%", height: 44, borderRadius: 24 }} />
         </View>
-        <Bone style={{ width: w * 0.88, height: 13, borderRadius: 4, marginTop: 2 }} />
-        <Bone style={{ width: w * 0.65, height: 13, borderRadius: 4 }} />
-        <View style={{ flexDirection: "row", gap: 10, marginTop: 8 }}>
-          <Bone style={{ width: 130, height: 48, borderRadius: 14 }} />
-          <Bone style={{ width: 110, height: 48, borderRadius: 14 }} />
-          <Bone style={{ width: 48, height: 48, borderRadius: 14 }} />
-          <Bone style={{ width: 48, height: 48, borderRadius: 14 }} />
-        </View>
-      </View>
-      {/* Progress bars skeleton */}
-      <View style={{ position: "absolute", bottom: 60, left: 20, right: 20, flexDirection: "row", gap: 4 }}>
-        {[1, 0, 0, 0, 0].map((full, i) => (
-          <Bone key={i} style={{ flex: 1, height: 3, borderRadius: 2, opacity: full ? undefined : 0.4 }} />
-        ))}
-      </View>
-      {/* Thumbnail strip skeleton */}
-      <View style={{ position: "absolute", bottom: 10, left: 20, flexDirection: "row", gap: 8 }}>
-        {[1, 0.7, 0.7, 0.7, 0.7].map((op, i) => (
-          <Bone key={i} style={{ width: 44, height: 62, borderRadius: 8, opacity: op }} />
-        ))}
       </View>
     </View>
   );
@@ -568,18 +417,11 @@ export function HeroBanner({ items, onItemPress, onDetailsPress, onAddToList }: 
   );
 
   return (
-    <View style={{ height: HERO_HEIGHT, width: w, overflow: "hidden" }}>
-      <HeroBannerSkeleton width={w} />
+    <View style={{ width: w }}>
+      {!hasItems && <HeroBannerSkeleton width={w} />}
 
       {hasItems && (
-        <Animated.View
-          style={{
-            position: "absolute",
-            top: 0, left: 0, right: 0, bottom: 0,
-            overflow: "hidden",
-            opacity: bannerOpacity,
-          }}
-        >
+        <Animated.View style={{ opacity: bannerOpacity }}>
           {/* Scroll carousel */}
           <Animated.ScrollView
             ref={scrollRef}
@@ -617,48 +459,14 @@ export function HeroBanner({ items, onItemPress, onDetailsPress, onAddToList }: 
             ))}
           </Animated.ScrollView>
 
-          {/* Bottom overlay: progress bars + thumbnails */}
+          {/* Dot indicators */}
           {items.length > 1 && (
-            <View style={heroStyles.bottomOverlay}>
-              {/* Progress bars */}
-              <View style={heroStyles.progressRow}>
-                {items.map((_, i) => (
-                  <ProgressBar
-                    key={i}
-                    active={i === activeIndex}
-                    duration={AUTO_ADVANCE_MS}
-                    index={i < activeIndex ? items.length : 0}
-                    total={activeIndex}
-                    onPress={() => handleThumbPress(i)}
-                  />
-                ))}
-              </View>
-
-              {/* Thumbnail strip */}
-              <View style={heroStyles.thumbStrip}>
-                {items.slice(0, 7).map((item, i) => (
-                  <ThumbItem
-                    key={item.id}
-                    item={item}
-                    active={i === activeIndex}
-                    onPress={() => handleThumbPress(i)}
-                  />
-                ))}
-                {items.length > 7 && (
-                  <View style={heroStyles.moreThumb}>
-                    <Text style={heroStyles.moreThumbText}>+{items.length - 7}</Text>
-                  </View>
-                )}
-              </View>
-            </View>
-          )}
-
-          {/* Slide counter top-right */}
-          {items.length > 1 && (
-            <View style={heroStyles.slideCounter}>
-              <Text style={heroStyles.slideCounterText}>
-                {activeIndex + 1}<Text style={heroStyles.slideCounterTotal}>/{items.length}</Text>
-              </Text>
+            <View style={heroStyles.dotsRow}>
+              {items.map((_, i) => (
+                <Pressable key={i} onPress={() => handleThumbPress(i)} hitSlop={8}>
+                  <View style={[heroStyles.dot, i === activeIndex && heroStyles.dotActive]} />
+                </Pressable>
+              ))}
             </View>
           )}
         </Animated.View>
@@ -668,37 +476,58 @@ export function HeroBanner({ items, onItemPress, onDetailsPress, onAddToList }: 
 }
 
 const heroStyles = StyleSheet.create({
-  heroImageWrap: {
-    position: "absolute",
-    top: 0, left: 0, right: 0, bottom: 0,
+  card: {
+    borderRadius: 20,
+    overflow: "hidden",
+    backgroundColor: "#0c0f0e",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    ...Platform.select({
+      ios: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.4,
+        shadowRadius: 20,
+      },
+      android: { elevation: 8 },
+    }),
   },
-  heroImage: {
-    width: "100%",
-    height: HERO_HEIGHT,
-    position: "absolute",
-    top: 0, left: 0,
+  cardFooter: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 18,
+    gap: 10,
   },
-  gradient: {
+  nBadge: {
     position: "absolute",
-    bottom: 0, left: 0, right: 0,
-    height: HERO_HEIGHT,
+    top: 14,
+    left: 14,
+    width: 22,
+    height: 22,
+    borderRadius: 4,
+    backgroundColor: "#e50914",
+    alignItems: "center",
+    justifyContent: "center",
   },
-  topFade: {
-    position: "absolute",
-    top: 0, left: 0, right: 0,
-    height: 120,
+  nBadgeText: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "900",
   },
-  heroContent: {
+  logoWrap: {
     position: "absolute",
-    bottom: 110,
-    left: 20,
-    right: 20,
+    bottom: 14,
+    left: 16,
+    right: 16,
+    alignItems: "center",
   },
   badgeRow: {
+    position: "absolute",
+    top: 14,
+    right: 14,
     flexDirection: "row",
     alignItems: "center",
     gap: 7,
-    marginBottom: 16,
     flexWrap: "wrap",
   },
   typeBadge: {
@@ -754,18 +583,17 @@ const heroStyles = StyleSheet.create({
     letterSpacing: 1.2,
   },
   logoImg: {
-    width: "65%",
-    height: 84,
-    marginBottom: 12,
-    alignSelf: "flex-start",
+    width: "82%",
+    height: 74,
+    alignSelf: "center",
   },
   heroTitle: {
-    fontSize: 36,
+    fontSize: 26,
     fontWeight: "900",
-    letterSpacing: -1,
-    lineHeight: 40,
-    marginBottom: 12,
+    letterSpacing: -0.5,
+    lineHeight: 30,
     color: "#fff",
+    textAlign: "center",
     textShadowColor: "rgba(0,0,0,0.98)",
     textShadowOffset: { width: 0, height: 2 },
     textShadowRadius: 16,
@@ -773,8 +601,8 @@ const heroStyles = StyleSheet.create({
   genreRow: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: 6,
-    marginBottom: 10,
     flexWrap: "wrap",
   },
   genreText: {
@@ -791,8 +619,8 @@ const heroStyles = StyleSheet.create({
   metaRow: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: 10,
-    marginBottom: 11,
   },
   imdbBadge: {
     flexDirection: "row",
@@ -824,65 +652,66 @@ const heroStyles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "400",
   },
-  heroDesc: {
-    fontSize: 13,
-    lineHeight: 20,
-    marginBottom: 18,
-    fontWeight: "400",
-    color: "rgba(255,255,255,0.58)",
-    letterSpacing: 0.1,
-  },
-  actions: {
-    flexDirection: "row",
-    gap: 9,
-    alignItems: "center",
-  },
   watchBtn: {
-    borderRadius: 14,
-    overflow: "hidden",
-    ...Platform.select({
-      ios: {
-        shadowColor: "#e50914",
-        shadowOffset: { width: 0, height: 6 },
-        shadowOpacity: 0.55,
-        shadowRadius: 16,
-      },
-      android: { elevation: 10 },
-    }),
-  },
-  watchBtnGradient: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: 8,
-    paddingHorizontal: 22,
-    paddingVertical: 14,
+    width: "100%",
+    paddingVertical: 13,
+    borderRadius: 8,
+    backgroundColor: "#fff",
   },
   watchBtnText: {
-    color: "#fff",
+    color: "#111",
     fontSize: 15,
     fontWeight: "800",
     letterSpacing: 0.2,
+  },
+  listBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    width: "100%",
+    paddingVertical: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.25)",
+    backgroundColor: "rgba(255,255,255,0.08)",
+  },
+  listBtnText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "rgba(255,255,255,0.92)",
+  },
+  secondaryRow: {
+    flexDirection: "row",
+    gap: 9,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 2,
   },
   glassBtn: {
     flexDirection: "row",
     alignItems: "center",
     gap: 7,
-    paddingHorizontal: 18,
-    paddingVertical: 14,
-    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 11,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.2)",
     backgroundColor: "rgba(255,255,255,0.1)",
   },
   glassBtnText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "700",
     color: "rgba(255,255,255,0.88)",
   },
   iconBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
+    width: 42,
+    height: 42,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.18)",
     backgroundColor: "rgba(255,255,255,0.08)",
@@ -890,102 +719,23 @@ const heroStyles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  /* Bottom overlay */
-  bottomOverlay: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    paddingHorizontal: 16,
-    paddingBottom: 10,
-    gap: 10,
-  },
-  progressRow: {
+  /* Dot indicators */
+  dotsRow: {
     flexDirection: "row",
-    gap: 4,
-    alignItems: "center",
-  },
-  progressBarWrap: {
-    flex: 1,
-    paddingVertical: 6,
-  },
-  progressTrack: {
-    height: 3,
-    borderRadius: 2,
-    backgroundColor: "rgba(255,255,255,0.22)",
-    overflow: "hidden",
-  },
-  progressFill: {
-    height: "100%",
-    backgroundColor: "#e50914",
-    borderRadius: 2,
-  },
-  thumbStrip: {
-    flexDirection: "row",
-    gap: 8,
-    alignItems: "center",
-  },
-  thumbWrap: {
-    width: 46,
-    height: 66,
-    borderRadius: 9,
-    overflow: "hidden",
-    borderWidth: 2,
-    borderColor: "rgba(255,255,255,0)",
-  },
-  thumbImg: {
-    width: "100%",
-    height: "100%",
-  },
-  thumbActiveOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(229,9,20,0.25)",
-    alignItems: "center",
     justifyContent: "center",
-  },
-  thumbActiveDot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "#e50914",
-    alignSelf: "center",
-    marginTop: 4,
-  },
-  moreThumb: {
-    width: 46,
-    height: 66,
-    borderRadius: 9,
-    backgroundColor: "rgba(255,255,255,0.08)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.15)",
     alignItems: "center",
-    justifyContent: "center",
+    gap: 6,
+    marginTop: 10,
+    marginBottom: 4,
   },
-  moreThumbText: {
-    color: "rgba(255,255,255,0.6)",
-    fontSize: 12,
-    fontWeight: "700",
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "rgba(255,255,255,0.25)",
   },
-
-  /* Slide counter */
-  slideCounter: {
-    position: "absolute",
-    top: 52,
-    right: 16,
-    backgroundColor: "rgba(0,0,0,0.45)",
-    borderRadius: 20,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
-  },
-  slideCounterText: {
-    color: "#fff",
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  slideCounterTotal: {
-    color: "rgba(255,255,255,0.45)",
-    fontWeight: "400",
+  dotActive: {
+    backgroundColor: "#e50914",
+    width: 16,
   },
 });

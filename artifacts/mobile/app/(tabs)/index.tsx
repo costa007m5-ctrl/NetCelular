@@ -3226,7 +3226,25 @@ export default function HomeScreen() {
             tintColor={RED} colors={[RED]} />
         }
       >
-        {/* ── 1. HERO BANNER ─────────────────────────────────────────────── */}
+        {/* ── 1. CATEGORY PILLS (island above the hero banner) ────────────── */}
+        <AnimatedSection anim={s[0]}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.pillsRow} style={{ marginTop: topPad + 8, marginBottom: 12 }}>
+            {CATEGORIES.map((cat) => (
+              <CategoryPill key={cat.id} label={cat.label}
+                active={activeCategory === cat.id}
+                onPress={() => {
+                  if (cat.id === "new") {
+                    router.push("/(tabs)/novidades" as any);
+                  } else {
+                    setActiveCategory(cat.id);
+                  }
+                }} />
+            ))}
+          </ScrollView>
+        </AnimatedSection>
+
+        {/* ── 2. HERO BANNER ─────────────────────────────────────────────── */}
         <Animated.View style={{ transform: [{ translateY: heroParallax }] }}>
           <HeroBanner
             items={activeBannerItems}
@@ -3235,27 +3253,9 @@ export default function HomeScreen() {
         </Animated.View>
 
         <View style={styles.body}>
-          {/* ── 2. SEARCH BAR ──────────────────────────────────────────────── */}
-          <AnimatedSection anim={s[0]}>
-            <SearchTriggerBar placeholder="Buscar filmes, séries, atores, canais..." />
-          </AnimatedSection>
-
-          {/* ── 3. CATEGORY PILLS ──────────────────────────────────────────── */}
+          {/* ── 3. SEARCH BAR ──────────────────────────────────────────────── */}
           <AnimatedSection anim={s[1]}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.pillsRow} style={{ marginBottom: 18 }}>
-              {CATEGORIES.map((cat) => (
-                <CategoryPill key={cat.id} label={cat.label}
-                  active={activeCategory === cat.id}
-                  onPress={() => {
-                    if (cat.id === "new") {
-                      router.push("/(tabs)/novidades" as any);
-                    } else {
-                      setActiveCategory(cat.id);
-                    }
-                  }} />
-              ))}
-            </ScrollView>
+            <SearchTriggerBar placeholder="Buscar filmes, séries, atores, canais..." />
           </AnimatedSection>
 
           {/* ── 4. PLATAFORMAS DE STREAMING ────────────────────────────── */}
