@@ -3385,12 +3385,98 @@ export default function HomeScreen() {
     });
   }, [router]);
 
-  // ── derived slices — offset past Top 10 so each row shows unique content ──
-  // Hero  = movies[0-5], Top10Movies = movies[0-9], Top10Series = series[0-9]
-  // → "Em Alta" rows start AFTER the Top 10 to avoid any repetition
-  const emAltaMovies   = useMemo(() => movies.slice(10, 16),  [movies]);
-  const emAltaSeries   = useMemo(() => series.slice(10, 16),  [series]);
-  const emAltaAnimes   = useMemo(() => animes.slice(0,  6),   [animes]);
+  const emAltaAnimes = useMemo(() => animes.slice(0, 6), [animes]);
+
+  // ── Global section pools — each item appears in AT MOST ONE section ────────
+  // Items are distributed in render order: each "take" call consumes from a
+  // global seen-set so subsequent sections never duplicate earlier ones.
+  const {
+    pool_cinematic,
+    pool_emAltaMovies,
+    pool_daily,
+    pool_glass,
+    pool_award,
+    pool_quickPlay,
+    pool_squareDestaques,
+    pool_masonry,
+    pool_glow,
+    pool_duoMovie,
+    pool_netplayMovies,
+    pool_netflixMovies,
+    pool_categoryShowcase,
+    pool_newWeekMovies,
+    pool_binge,
+    pool_emAltaSeries,
+    pool_immersiveHero,
+    pool_duoSeries,
+    pool_editorPick,
+    pool_seriesMaraton,
+    pool_netplaySeries,
+    pool_netflixSeries,
+    pool_premiumSeries,
+    pool_newWeekSeries,
+  } = useMemo(() => {
+    const seenM = new Set<string>(top10Movies.map((i) => i.id));
+    const seenS = new Set<string>(top10Series.map((i) => i.id));
+
+    const takeM = (n: number, filter?: (i: ContentItem) => boolean): ContentItem[] => {
+      const r: ContentItem[] = [];
+      for (const item of movies) {
+        if (r.length >= n) break;
+        if (!seenM.has(item.id) && (!filter || filter(item))) { seenM.add(item.id); r.push(item); }
+      }
+      return r;
+    };
+    const takeS = (n: number, filter?: (i: ContentItem) => boolean): ContentItem[] => {
+      const r: ContentItem[] = [];
+      for (const item of series) {
+        if (r.length >= n) break;
+        if (!seenS.has(item.id) && (!filter || filter(item))) { seenS.add(item.id); r.push(item); }
+      }
+      return r;
+    };
+
+    // Allocation order matches render order so first-visible sections claim items first
+    const pool_cinematic        = takeM(5);
+    const pool_daily            = takeM(1);
+    const pool_emAltaMovies     = takeM(6);
+    const pool_glass            = takeM(1);
+    const pool_award            = takeM(8);
+    const pool_quickPlay        = takeM(6);
+    const pool_squareDestaques  = takeM(8);
+    const pool_masonry          = takeM(4);
+    const pool_glow             = takeM(8, (m) => (m.rating ?? 0) > 7.5);
+    const pool_duoMovie         = takeM(1);
+    const pool_netplayMovies    = takeM(4);
+    const pool_categoryShowcase = takeM(1);
+    const pool_netflixMovies    = takeM(6);
+    const pool_newWeekMovies    = takeM(4);
+
+    const pool_binge            = takeS(8);
+    const pool_immersiveHero    = takeS(1);
+    const pool_duoSeries        = takeS(1);
+    const pool_editorPick       = takeS(1);
+    const pool_emAltaSeries     = takeS(6);
+    const pool_seriesMaraton    = takeS(10);
+    const pool_netplaySeries    = takeS(4);
+    const pool_netflixSeries    = takeS(6);
+    const pool_premiumSeries    = takeS(6);
+    const pool_newWeekSeries    = takeS(3);
+
+    return {
+      pool_cinematic, pool_emAltaMovies, pool_daily, pool_glass,
+      pool_award, pool_quickPlay, pool_squareDestaques, pool_masonry,
+      pool_glow, pool_duoMovie, pool_netplayMovies, pool_netflixMovies,
+      pool_categoryShowcase, pool_newWeekMovies,
+      pool_binge, pool_emAltaSeries, pool_immersiveHero, pool_duoSeries,
+      pool_editorPick, pool_seriesMaraton, pool_netplaySeries, pool_netflixSeries,
+      pool_premiumSeries, pool_newWeekSeries,
+    };
+  }, [movies, series, top10Movies, top10Series]);
+
+  // Convenience aliases so guards like `emAltaMovies.length > 0` still work
+  const emAltaMovies = pool_emAltaMovies;
+  const emAltaSeries = pool_emAltaSeries;
 
   const showMovies     = activeCategory === "all" || activeCategory === "movie";
   const showSeries     = activeCategory === "all" || activeCategory === "tv";
@@ -3876,7 +3962,7 @@ export default function HomeScreen() {
               {showAll && movies.length > 3 && (
                 <AnimatedSection anim={s[5]}>
                   <FadeInSection>
-                    <CinematicBanner items={movies.slice(2, 7)} onPress={goTo} />
+                    <CinematicBanner items={pool_cinematic} onPress={goTo} />
                   </FadeInSection>
                 </AnimatedSection>
               )}
@@ -3900,7 +3986,7 @@ export default function HomeScreen() {
               {/* ── 7.5 DAILY PICK ───────────────────────────────────────────── */}
               {showAll && movies.length > 5 && (
                 <AnimatedSection anim={s[5]}>
-                  <DailyPickBanner item={movies[5]} onPress={() => goTo(movies[5])} />
+                  {pool_daily.length > 0 && <DailyPickBanner item={pool_daily[0]} onPress={() => goTo(pool_daily[0])} />}
                 </AnimatedSection>
               )}
 
