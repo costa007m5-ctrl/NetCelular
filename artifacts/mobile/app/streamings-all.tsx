@@ -24,8 +24,8 @@ const H_PAD = 14;
 const COL_GAP = 10;
 const SCREEN_W = Dimensions.get("window").width;
 const CARD_W = Math.floor((SCREEN_W - H_PAD * 2 - COL_GAP) / 2);
-const CARD_H = Math.floor(CARD_W * 0.65); // landscape ratio ~65%
-const LOGO_H = Math.floor(CARD_H * 0.52);
+const CARD_H = Math.floor(CARD_W * 0.68); // landscape ratio ~68%
+const LOGO_H = Math.floor(CARD_H * 0.62);
 
 const FEAT_H = 148;
 const FEAT_LOGO_H = 82;
@@ -106,8 +106,13 @@ function PlatformCard({
             }}
           />
 
-          {/* Logo or text fallback */}
-          <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+          {/* Logo — centered, ignoring tagline height */}
+          <View style={{
+            position: "absolute",
+            top: 0, left: 0, right: 0, bottom: 20,
+            alignItems: "center",
+            justifyContent: "center",
+          }}>
             {localLogo ? (
               <Image
                 source={localLogo}
@@ -126,7 +131,7 @@ function PlatformCard({
                 <Text
                   style={{
                     color: platform.brandColor,
-                    fontSize: featured ? 26 : 18,
+                    fontSize: featured ? 26 : 20,
                     fontWeight: "900",
                     letterSpacing: 0.5,
                   }}
@@ -153,9 +158,11 @@ function PlatformCard({
             )}
           </View>
 
-          {/* Footer */}
+          {/* Tagline pinned at bottom */}
           <Text
             style={{
+              position: "absolute",
+              bottom: 9, left: 8, right: 8,
               color: platform.brandColor + "bb",
               fontSize: 8,
               fontWeight: "700",
