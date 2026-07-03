@@ -55,7 +55,7 @@ const TEAL   = "#0891b2";
 const PINK   = "#ec4899";
 const ORANGE = "#f97316";
 
-const HERO_H = Math.round(H * 0.52);
+const HERO_H = Math.round(H * 0.38);
 const BANNER_INTERVAL = 6000;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -2529,7 +2529,7 @@ const nvc = StyleSheet.create({
     letterSpacing: 0.5, lineHeight: 11,
   },
   // ── Info section ──────────────────────────────────────────────
-  info: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 24, backgroundColor: "#000" },
+  info: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 16, backgroundColor: "#000" },
   infoChipsRow: {
     flexDirection: "row", alignItems: "center", gap: 8,
     marginBottom: 10, flexWrap: "wrap",
