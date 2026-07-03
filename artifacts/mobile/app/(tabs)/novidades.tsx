@@ -109,6 +109,11 @@ let WebViewEp: any = null;
 try { WebViewEp = require("react-native-webview").WebView; } catch {}
 const IS_NATIVE_EP = Platform.OS !== "web";
 
+// Sticky sound preference shared across all Novidades preview cards — once the user
+// unmutes any preview, every card that becomes active afterwards starts unmuted too
+// (until the user mutes again). Starts muted by default (autoplay-safe).
+let novidadesSoundMuted = true;
+
 function buildEpPreviewHtml(uri: string, muted = true): string {
   const escaped = uri.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
   const mutedStr = muted ? "true" : "false";
@@ -1884,7 +1889,7 @@ function NovidadesVerticalCard({
   const [epCount, setEpCount]           = useState<number | null>(null);
   const [stillUrls, setStillUrls]       = useState<string[]>([]);
   const [stillIdx, setStillIdx]         = useState(0);
-  const [muted, setMuted]               = useState(true);
+  const [muted, setMuted]               = useState(novidadesSoundMuted);
   const [vidReady, setVidReady]         = useState(false);
   const [vidErrored, setVidErrored]     = useState(false);
   const [userRequestedPlay, setUserRequestedPlay] = useState(false);
@@ -1970,6 +1975,8 @@ function NovidadesVerticalCard({
   useEffect(() => {
     const isTrailer = !!trailerKeyRef.current;
     if (wasActiveRef.current && !isActive) {
+      // Leaving active: always silence this card while it's not on screen — but this is
+      // just a temporary playback-level mute, it does NOT change the sticky sound preference.
       setMuted(true);
       if (IS_NATIVE_EP) {
         nativeWebViewRef.current?.injectJavaScript(
@@ -1987,18 +1994,27 @@ function NovidadesVerticalCard({
         try { webVideoRef.current.pause?.(); } catch {}
       }
     } else if (!wasActiveRef.current && isActive) {
+      // Becoming active: resume playback honoring the sticky sound preference — if the
+      // user unmuted a previous preview, this one starts unmuted too.
+      const wantUnmuted = !novidadesSoundMuted;
+      setMuted(novidadesSoundMuted);
       if (IS_NATIVE_EP) {
         nativeWebViewRef.current?.injectJavaScript(
           isTrailer
-            ? `(function(){try{var d=JSON.stringify({type:'play'});document.dispatchEvent(new MessageEvent('message',{data:d}));window.dispatchEvent(new MessageEvent('message',{data:d}));}catch(e){}})();true;`
-            : `(function(){var v=document.getElementById('v');if(v)v.play().catch(function(){});})();true;`
+            ? `(function(){try{var d=JSON.stringify({type:'play'});document.dispatchEvent(new MessageEvent('message',{data:d}));window.dispatchEvent(new MessageEvent('message',{data:d}));var d2=JSON.stringify({type:'mute',value:${!wantUnmuted}});document.dispatchEvent(new MessageEvent('message',{data:d2}));window.dispatchEvent(new MessageEvent('message',{data:d2}));}catch(e){}})();true;`
+            : `(function(){var v=document.getElementById('v');if(v){v.play().catch(function(){});v.muted=${!wantUnmuted};}})();true;`
         );
       } else if (isTrailer && trailerIframeRef.current) {
         try {
           trailerIframeRef.current.contentWindow?.postMessage(
             JSON.stringify({ event: "command", func: "playVideo", args: [] }), "*"
           );
+          trailerIframeRef.current.contentWindow?.postMessage(
+            JSON.stringify({ event: "command", func: wantUnmuted ? "unMute" : "mute", args: [] }), "*"
+          );
         } catch {}
+      } else if (webVideoRef.current) {
+        try { webVideoRef.current.muted = !wantUnmuted; webVideoRef.current.play?.().catch(() => {}); } catch {}
       }
     }
     wasActiveRef.current = isActive;
@@ -2011,6 +2027,7 @@ function NovidadesVerticalCard({
   const handleMuteToggle = useCallback(() => {
     setMuted(m => {
       const next = !m;
+      novidadesSoundMuted = next;
       const isTrailer = !!trailerKeyRef.current;
       if (IS_NATIVE_EP) {
         if (isTrailer) {
