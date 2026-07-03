@@ -431,7 +431,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingVertical: 14,
   },
   headerLogoWrap: {
     flex: 1,
@@ -447,22 +447,22 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   platformLogo: {
-    width: 180,
-    height: 60,
+    width: 240,
+    height: 72,
   },
   textLogo: {
     alignItems: "center",
   },
   textLogoMain: {
-    fontSize: 28,
+    fontSize: 38,
     fontWeight: "900",
-    letterSpacing: 1,
-    lineHeight: 32,
+    letterSpacing: 1.5,
+    lineHeight: 44,
   },
   textLogoSub: {
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: "700",
-    letterSpacing: 2.5,
+    letterSpacing: 3,
   },
   topTenSection: { marginBottom: 32 },
   sectionHeader: {
