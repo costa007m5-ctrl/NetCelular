@@ -22,16 +22,16 @@ import { useColors } from "@/hooks/useColors";
 function PlatformCard({
   platform,
   onPress,
-  wide = false,
+  featured = false,
 }: {
   platform: StreamingPlatform;
   onPress: () => void;
-  wide?: boolean;
+  featured?: boolean;
 }) {
   const [logoError, setLogoError] = React.useState(false);
   const scale = React.useRef(new Animated.Value(1)).current;
   const pressIn = () =>
-    Animated.spring(scale, { toValue: 0.94, useNativeDriver: true, speed: 30 }).start();
+    Animated.spring(scale, { toValue: 0.93, useNativeDriver: true, speed: 30 }).start();
   const pressOut = () =>
     Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 26 }).start();
 
@@ -42,81 +42,71 @@ function PlatformCard({
     ? `https://image.tmdb.org/t/p/w185${platform.logoPath}`
     : null;
 
+  const cardStyle = featured ? styles.cardFeatured : styles.card;
+  const gradStyle = featured ? styles.gradFeatured : styles.grad;
+  const logoStyle = featured ? styles.logoFeatured : styles.logo;
+
   return (
-    <Pressable
-      onPress={onPress}
-      onPressIn={pressIn}
-      onPressOut={pressOut}
-      style={wide ? styles.cardWide : styles.card}
-    >
-      <Animated.View style={[wide ? styles.cardWide : styles.card, { transform: [{ scale }] }]}>
+    <Pressable onPress={onPress} onPressIn={pressIn} onPressOut={pressOut} style={cardStyle}>
+      <Animated.View style={[cardStyle, { transform: [{ scale }] }]}>
         <LinearGradient
           colors={[platform.bgGradient[0], platform.bgGradient[1]] as [string, string]}
-          style={[styles.cardGradient, wide && styles.cardGradientWide]}
+          style={gradStyle}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
         >
-          {/* Glow overlay */}
-          <View
-            style={[
-              styles.glowOverlay,
-              { backgroundColor: platform.brandColor + "18" },
-            ]}
-          />
+          {/* Brand glow overlay */}
+          <View style={[styles.glow, { backgroundColor: platform.brandColor + "28" }]} />
 
-          {/* Top accent bar */}
-          <View
-            style={[styles.accentBar, { backgroundColor: platform.brandColor }]}
-          />
+          {/* Top accent line */}
+          <View style={[styles.accentLine, { backgroundColor: platform.brandColor }]} />
 
-          {/* Logo or text */}
+          {/* Logo area */}
           <View style={styles.logoArea}>
             {localLogo ? (
-              <Image
-                source={localLogo}
-                style={[styles.cardLogo, wide && styles.cardLogoWide]}
-                resizeMode="contain"
-              />
+              <Image source={localLogo} style={logoStyle} resizeMode="contain" />
             ) : logoUrl && !logoError ? (
               <Image
                 source={{ uri: logoUrl }}
-                style={[styles.cardLogo, wide && styles.cardLogoWide]}
+                style={logoStyle}
                 resizeMode="contain"
                 onError={() => setLogoError(true)}
               />
             ) : (
-              <View style={styles.textLogoContainer}>
+              <View style={styles.textLogo}>
                 <Text
-                  style={[styles.textLogoFirst, { color: platform.brandColor }]}
+                  style={[
+                    styles.textLogoMain,
+                    { color: platform.brandColor, fontSize: featured ? 26 : 20 },
+                  ]}
                   numberOfLines={1}
+                  adjustsFontSizeToFit
                 >
                   {platform.name.split(" ")[0].toUpperCase()}
                 </Text>
                 {platform.name.split(" ").length > 1 && (
                   <Text
-                    style={[styles.textLogoRest, { color: platform.accentColor }]}
+                    style={[styles.textLogoSub, { color: platform.accentColor }]}
                     numberOfLines={1}
                   >
-                    {platform.name.split(" ").slice(1).join(" ")}
+                    {platform.name.split(" ").slice(1).join(" ").toUpperCase()}
                   </Text>
                 )}
               </View>
             )}
           </View>
 
-          {/* Tagline */}
-          {platform.tagline ? (
+          {/* Tagline + arrow row */}
+          <View style={styles.footer}>
             <Text
-              style={[styles.tagline, { color: platform.brandColor + "aa" }]}
+              style={[styles.tagline, { color: platform.brandColor + "cc" }]}
               numberOfLines={1}
             >
-              {platform.tagline}
+              {platform.tagline ?? "PREMIUM"}
             </Text>
-          ) : null}
-
-          {/* Bottom right arrow */}
-          <View style={[styles.arrowBadge, { backgroundColor: platform.brandColor + "22" }]}>
-            <Feather name="chevron-right" size={12} color={platform.brandColor} />
+            <View style={[styles.arrowCircle, { backgroundColor: platform.brandColor + "25" }]}>
+              <Feather name="chevron-right" size={11} color={platform.brandColor} />
+            </View>
           </View>
         </LinearGradient>
       </Animated.View>
@@ -124,7 +114,7 @@ function PlatformCard({
   );
 }
 
-function SectionHeader({ title, icon }: { title: string; icon?: string }) {
+function SectionHeader({ title }: { title: string }) {
   const colors = useColors();
   return (
     <View style={styles.sectionHeader}>
@@ -145,8 +135,7 @@ export default function StreamingsAllScreen() {
     router.push({ pathname: "/streaming", params: { id } });
   };
 
-  // First platform gets a wide card, rest normal
-  const [mainFirst, ...mainRest] = MAIN_PLATFORMS;
+  const [featuredPlatform, ...restMain] = MAIN_PLATFORMS;
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -166,33 +155,28 @@ export default function StreamingsAllScreen() {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={[
-          styles.scrollContent,
-          { paddingBottom: insets.bottom + 80 },
-        ]}
+        contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 80 }]}
       >
-        {/* Main Platforms */}
         <SectionHeader title="Filmes e Séries" />
 
-        {/* First platform wide */}
-        {mainFirst && (
-          <View style={styles.wideRow}>
+        {/* Featured first platform */}
+        {featuredPlatform && (
+          <View style={styles.featuredRow}>
             <PlatformCard
-              platform={mainFirst}
-              onPress={() => goTo(mainFirst.id)}
-              wide
+              platform={featuredPlatform}
+              onPress={() => goTo(featuredPlatform.id)}
+              featured
             />
           </View>
         )}
 
-        {/* Rest in 2-column grid */}
+        {/* Rest of main in 2-col grid */}
         <View style={styles.grid}>
-          {mainRest.map((p) => (
+          {restMain.map((p) => (
             <PlatformCard key={p.id} platform={p} onPress={() => goTo(p.id)} />
           ))}
         </View>
 
-        {/* Specific */}
         <SectionHeader title="Cineastas e Premium" />
         <View style={styles.grid}>
           {SPECIFIC_PLATFORMS.map((p) => (
@@ -200,7 +184,6 @@ export default function StreamingsAllScreen() {
           ))}
         </View>
 
-        {/* Niche */}
         <SectionHeader title="Anime, Esporte e Nichos" />
         <View style={styles.grid}>
           {NICHE_PLATFORMS.map((p) => (
@@ -212,8 +195,11 @@ export default function StreamingsAllScreen() {
   );
 }
 
+const CARD_RADIUS = 22;
+
 const styles = StyleSheet.create({
   container: { flex: 1 },
+
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -227,10 +213,11 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.07)",
+    backgroundColor: "rgba(255,255,255,0.08)",
   },
-  headerTitle: { fontSize: 21, fontWeight: "800", letterSpacing: -0.4 },
-  scrollContent: { paddingHorizontal: 14, paddingTop: 4 },
+  headerTitle: { fontSize: 22, fontWeight: "800", letterSpacing: -0.4 },
+
+  scroll: { paddingHorizontal: 14, paddingTop: 4 },
 
   sectionHeader: {
     flexDirection: "row",
@@ -242,95 +229,105 @@ const styles = StyleSheet.create({
   sectionBar: { width: 3, height: 18, borderRadius: 2 },
   sectionTitle: { fontSize: 17, fontWeight: "800", letterSpacing: -0.2 },
 
-  // Grid layout
+  featuredRow: { marginBottom: 10 },
+
   grid: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 10,
   },
-  wideRow: {
-    marginBottom: 10,
-  },
 
-  // Cards
+  // ── Normal card (2-col grid) ──────────────────────────────
   card: {
-    width: "48%",
-    borderRadius: 22,
+    width: "48.5%",
+    borderRadius: CARD_RADIUS,
     overflow: "hidden",
+    ...Platform.select({
+      ios: { shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.5, shadowRadius: 10 },
+      android: { elevation: 5 },
+    }),
   },
-  cardWide: {
-    width: "100%",
-    borderRadius: 22,
-    overflow: "hidden",
-  },
-  cardGradient: {
-    height: 104,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 14,
-    position: "relative",
-    borderRadius: 22,
+  grad: {
+    height: 130,
+    borderRadius: CARD_RADIUS,
     overflow: "hidden",
     borderWidth: 0.5,
     borderColor: "rgba(255,255,255,0.08)",
-  },
-  cardGradientWide: {
-    height: 118,
-  },
-
-  glowOverlay: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+    paddingHorizontal: 10,
+    paddingTop: 10,
+    paddingBottom: 10,
+    justifyContent: "space-between",
   },
 
-  accentBar: {
+  // ── Featured card (full width) ────────────────────────────
+  cardFeatured: {
+    width: "100%",
+    borderRadius: CARD_RADIUS,
+    overflow: "hidden",
+    ...Platform.select({
+      ios: { shadowColor: "#000", shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.55, shadowRadius: 14 },
+      android: { elevation: 7 },
+    }),
+  },
+  gradFeatured: {
+    height: 156,
+    borderRadius: CARD_RADIUS,
+    overflow: "hidden",
+    borderWidth: 0.5,
+    borderColor: "rgba(255,255,255,0.1)",
+    paddingHorizontal: 20,
+    paddingTop: 14,
+    paddingBottom: 14,
+    justifyContent: "space-between",
+  },
+
+  // ── Shared inner elements ─────────────────────────────────
+  glow: {
     position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 2.5,
-    borderTopLeftRadius: 22,
-    borderTopRightRadius: 22,
+    top: 0, left: 0, right: 0, bottom: 0,
+  },
+  accentLine: {
+    position: "absolute",
+    top: 0, left: 0, right: 0,
+    height: 3,
+    borderTopLeftRadius: CARD_RADIUS,
+    borderTopRightRadius: CARD_RADIUS,
   },
 
   logoArea: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    width: "100%",
   },
-  cardLogo: {
-    width: "86%",
-    height: 58,
-  },
-  cardLogoWide: {
+  logo: {
+    width: "90%",
     height: 68,
-    width: "55%",
+  },
+  logoFeatured: {
+    width: "52%",
+    height: 86,
   },
 
-  textLogoContainer: { alignItems: "center" },
-  textLogoFirst: { fontSize: 20, fontWeight: "900", letterSpacing: 0.3 },
-  textLogoRest: { fontSize: 10, fontWeight: "700", letterSpacing: 2, marginTop: 2 },
+  textLogo: { alignItems: "center" },
+  textLogoMain: { fontWeight: "900", letterSpacing: 0.3, lineHeight: 28 },
+  textLogoSub: { fontSize: 10, fontWeight: "700", letterSpacing: 2 },
 
+  footer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 4,
+  },
   tagline: {
     fontSize: 9,
     fontWeight: "700",
-    letterSpacing: 1.2,
+    letterSpacing: 1.4,
     textTransform: "uppercase",
-    textAlign: "center",
-    marginTop: 4,
   },
-
-  arrowBadge: {
-    position: "absolute",
-    bottom: 8,
-    right: 8,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+  arrowCircle: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
   },
