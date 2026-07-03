@@ -185,6 +185,9 @@ export default function Flix2PlayerScreen() {
   // automatically is pointless — skip the 5s auto-retry countdown for that error.
   const skipAutoRetryRef = useRef(false);
   const [isDeadLinkError, setIsDeadLinkError] = useState(false);
+  // When a direct CDN URL fails with MEDIA_ELEMENT_ERROR (mixed content redirect or CDN block),
+  // this ref holds the CF Worker fallback URL to try before giving up.
+  const webViewErrorFallbackRef = useRef<string | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [videoSourceHeaders, setVideoSourceHeaders] = useState<Record<string, string> | undefined>(undefined);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -566,6 +569,7 @@ export default function Flix2PlayerScreen() {
 
     phaseRef.current = "loading";
     skipAutoRetryRef.current = false;
+    webViewErrorFallbackRef.current = null;
     setIsDeadLinkError(false);
     setPhase("loading");
     setVideoUrl(null);
@@ -622,7 +626,10 @@ export default function Flix2PlayerScreen() {
       }
     }
     // Direct CDN URLs (hubby.cx Xtream Codes or fontedecanais) — play without redirect
-    const isFonteUrl = (u: string) => ["72yrci50ppqp71.com", "fontedecanais.me", "hubby.cx"].some((r) => u.includes(r));
+    // Fontedecanais CDN nodes use randomised hash domains (e.g. 72yrci50ppqp71.com, 57uzwi52nuuz71.com)
+    // AND subdomains containing "fontecanais" (e.g. www-fontecanais-dev.57uzwi52nuuz71.com).
+    // Match broadly so new CDN nodes are automatically recognised.
+    const isFonteUrl = (u: string) => ["fontedecanais", "fontecanais", "72yrci50ppqp71.com", "hubby.cx"].some((r) => u.includes(r));
     // Fontedecanais suporta HTTPS:443 — upgrade http:// com :80 → https:// sem porta.
     const fonteToHttps = (u: string) =>
       u.startsWith("http://")
@@ -897,6 +904,11 @@ export default function Flix2PlayerScreen() {
         setResolvedCdnType(cdnLabel);
         setUseWebViewPlayer(true);
         setVideoUrl(playerUrl);
+        // Set CF Worker as fallback for MEDIA_ELEMENT_ERROR (mixed-content redirect / CDN block).
+        // Only set if we're not already using the Worker (nixplay-cf / hubby-proxy via Worker).
+        if (cdnLabel !== "nixplay-cf" && cdnLabel !== "hubby-proxy") {
+          webViewErrorFallbackRef.current = `${CF_WORKER_URL}/?url=${encodeURIComponent(rawFlix2Url)}`;
+        }
       }
     } catch (e: any) {
       fakeAnim.current?.stop();
@@ -1617,19 +1629,34 @@ export default function Flix2PlayerScreen() {
           onLoad={onVideoLoad}
           onPlaybackStatusUpdate={onPlaybackStatusUpdate}
           onError={(errStr) => {
-            if (phaseRef.current !== "error") {
-              appLog.error("player.flix2", `onError WebView: ${errStr}`, {
-                error: errStr,
-                platform: Platform.OS,
-                title,
-                tmdbId,
-                cdnType: resolvedCdnType,
-                videoUrl: videoUrl?.slice(0, 120),
+            if (phaseRef.current === "error") return;
+            // MEDIA_ELEMENT_ERROR: Format error usually means the CDN blocked the request
+            // (HTTPS→HTTP mixed content, or IP-bound token). Try CF Worker as a fallback
+            // before showing the error screen — the Worker proxies from a clean HTTPS origin.
+            const isFmt = errStr.includes("Format error") || errStr.includes("MEDIA_ELEMENT");
+            const fallbackUrl = webViewErrorFallbackRef.current;
+            if (isFmt && fallbackUrl) {
+              webViewErrorFallbackRef.current = null; // use fallback only once
+              appLog.info("player.flix2", "WebView Format error → retrying via CF Worker", {
+                fallbackUrl: fallbackUrl.slice(0, 80),
+                originalError: errStr,
               });
-              setPhase("error");
-              setErrorMsg(errStr);
-              phaseRef.current = "error";
+              setVideoUrl(fallbackUrl);
+              setWebViewBaseUrl(CF_WORKER_URL);
+              setResolvedCdnType("nixplay-cf");
+              return; // don't transition to error yet — let the Worker attempt play
             }
+            appLog.error("player.flix2", `onError WebView: ${errStr}`, {
+              error: errStr,
+              platform: Platform.OS,
+              title,
+              tmdbId,
+              cdnType: resolvedCdnType,
+              videoUrl: videoUrl?.slice(0, 120),
+            });
+            setPhase("error");
+            setErrorMsg(errStr);
+            phaseRef.current = "error";
           }}
           onPreviewFrame={(dataUrl) => {
             if (dataUrl) setSeekFrameUrl(dataUrl);

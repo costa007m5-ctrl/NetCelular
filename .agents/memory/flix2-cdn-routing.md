@@ -50,8 +50,26 @@ BUT: ExoPlayer then requests from device IP → CDN rejects (IP mismatch with to
 Confirmed in logs: Replit's production reverse proxy strips all `Range` headers from inbound
 requests. ExoPlayer Range seek loop → abort. WebView is immune since it runs on device.
 
-### CF Worker (legacy — no longer used for primary routing)
+### isFonteUrl — match all fontedecanais CDN nodes
+
+Fontedecanais uses multiple randomised hash domains AND subdomains containing "fontecanais":
+- Old node: `72yrci50ppqp71.com` (explicit match kept)
+- New node: `www-fontecanais-dev.57uzwi52nuuz71.com` → matched via `"fontecanais"` substring
+- Old domain: `fontedecanais.me` → matched via `"fontedecanais"` substring
+
+Pattern: `["fontedecanais", "fontecanais", "72yrci50ppqp71.com", "hubby.cx"]`
+Use BROAD substring patterns — do NOT list individual hash domains or they'll break on new CDN nodes.
+
+### CF Worker — automatic fallback on MEDIA_ELEMENT_ERROR
+
+`MEDIA_ELEMENT_ERROR: Format error` from WebView's `<video>` element happens when:
+1. CDN redirects HTTPS→HTTP (Android WebView blocks this even with `mixedContentMode="always"`)
+2. CDN blocks the device IP (IP-bound token mismatch)
+
+Fix (June 2026): `webViewErrorFallbackRef` in flix2-player.tsx holds a CF Worker URL.
+When `onError` fires with Format error and fallback exists → silently switches `videoUrl` to CF Worker.
+CF Worker proxies the stream via Cloudflare's HTTPS, bypassing both redirect and IP issues.
+Fallback is used only ONCE per play attempt; cleared on next `loadVideoUrl()` call.
 
 Worker URL: `https://netplay-stream-proxy.netplay.workers.dev`
-Still available at `artifacts/cf-worker/stream-proxy.js` if needed for other purposes.
-Not used for Flix2 player routing anymore.
+Format: `${CF_WORKER_URL}/?url=${encodeURIComponent(rawFlix2Url)}`
