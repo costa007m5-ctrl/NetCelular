@@ -338,6 +338,22 @@ function daysUntil(dateStr: string): number {
   return Math.ceil((target.getTime() - today.getTime()) / 86400000);
 }
 
+// Only allow items into the main feeds ("Em breve", "Todo mundo", "No ar" etc.)
+// when TMDB actually has localized (pt-BR) data for them — a non-empty title
+// and overview. This filters out obscure JP/KR titles that TMDB has no PT-BR
+// translation for (they'd otherwise show untitled/undescribed cards). Those
+// titles still surface normally in the dedicated "Dorama" and "Animes JP" tabs.
+function hasLocalizedData(i: TmdbItem): boolean {
+  const title = (i.title ?? i.name ?? "").trim();
+  const overview = (i.overview ?? "").trim();
+  if (!title || !overview) return false;
+  // Heuristic: reject titles made up mostly of CJK/Hangul characters — a sign
+  // TMDB fell back to the original (non-Latin) title because no PT-BR one exists.
+  const nonLatin = (title.match(/[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/g) ?? []).length;
+  if (nonLatin / title.length > 0.3) return false;
+  return true;
+}
+
 function formatDate(dateStr: string): string {
   if (!dateStr) return "";
   const d = new Date(dateStr + "T00:00:00");
@@ -3225,7 +3241,8 @@ export default function NovidadesScreen() {
     return data.upcoming
       .filter((i) => {
         const date = i.release_date ?? i.first_air_date;
-        return date && daysUntil(date) >= -3; // include up to 3 days ago (timezone buffer)
+        if (!date || daysUntil(date) < -3) return false; // include up to 3 days ago (timezone buffer)
+        return hasLocalizedData(i);
       })
       .map((i) => {
         const date = (i.release_date ?? i.first_air_date)!;
@@ -3235,22 +3252,22 @@ export default function NovidadesScreen() {
 
   const onTheAirItems = useMemo<ContentItem[]>(() => {
     if (!data) return [];
-    return data.onTheAir.map(tmdbItemToContent);
+    return data.onTheAir.filter(hasLocalizedData).map(tmdbItemToContent);
   }, [data]);
 
   const airingTodayItems = useMemo<ContentItem[]>(() => {
     if (!data) return [];
-    return data.airingToday.map(tmdbItemToContent);
+    return data.airingToday.filter(hasLocalizedData).map(tmdbItemToContent);
   }, [data]);
 
   const trendingMovieItems = useMemo<ContentItem[]>(() => {
     if (!data) return [];
-    return data.trendingMovies.map(tmdbItemToContent);
+    return data.trendingMovies.filter(hasLocalizedData).map(tmdbItemToContent);
   }, [data]);
 
   const trendingTvItems = useMemo<ContentItem[]>(() => {
     if (!data) return [];
-    return data.trendingTv.map(tmdbItemToContent);
+    return data.trendingTv.filter(hasLocalizedData).map(tmdbItemToContent);
   }, [data]);
 
   const newMovies = useMemo<ContentItem[]>(() => {
