@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Animated,
+  Dimensions,
   Image,
   Platform,
   Pressable,
@@ -11,6 +12,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+
 import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
 import { Feather } from "@expo/vector-icons";
@@ -29,6 +31,7 @@ import { StreamingGenreRow } from "@/components/StreamingGenreRow";
 import { SkeletonRow } from "@/components/SkeletonLoader";
 
 const TAB_BAR_CLEARANCE = 40;
+const SCREEN_W = Dimensions.get("window").width;
 
 const PLATFORM_GENRES: Record<string, { id: number; type: "movie" | "tv"; label: string }[]> = {
   netflix: [
@@ -379,24 +382,25 @@ export default function StreamingScreen() {
 
       {/* Sticky header */}
       <Animated.View
-        style={[styles.header, { paddingTop: topPad, top: 0 }]}
+        style={[styles.header, { top: 0 }]}
         pointerEvents="box-none"
       >
         <Animated.View
-          style={[
-            StyleSheet.absoluteFill,
-            { backgroundColor: bgColor, opacity: headerOpacity },
-          ]}
+          style={[StyleSheet.absoluteFill, { backgroundColor: bgColor, opacity: headerOpacity }]}
         />
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.circleBtn}>
-            <Feather name="arrow-left" size={20} color="#fff" />
-          </TouchableOpacity>
-          <View style={styles.headerLogoWrap}>
+        {/* Full-width logo centered */}
+        <View style={[styles.headerLogoRow, { paddingTop: topPad }]}>
+          <View style={styles.headerLogoCenter}>
             <PlatformLogo platform={platform} />
           </View>
-          <View style={{ width: 40 }} />
         </View>
+        {/* Back button overlaid on top-left */}
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={[styles.circleBtn, { position: "absolute", left: 16, top: topPad + 10 }]}
+        >
+          <Feather name="arrow-left" size={20} color="#fff" />
+        </TouchableOpacity>
       </Animated.View>
     </View>
   );
@@ -426,15 +430,14 @@ const styles = StyleSheet.create({
     right: 0,
     zIndex: 10,
   },
-  headerContent: {
-    flexDirection: "row",
+  headerLogoRow: {
+    width: "100%",
+    height: 72,
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    justifyContent: "center",
   },
-  headerLogoWrap: {
-    flex: 1,
+  headerLogoCenter: {
+    width: SCREEN_W - 100,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -447,8 +450,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   platformLogo: {
-    width: 240,
-    height: 72,
+    width: SCREEN_W - 100,
+    height: 60,
   },
   textLogo: {
     alignItems: "center",
