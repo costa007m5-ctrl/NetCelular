@@ -1869,12 +1869,14 @@ function NovidadesVerticalCard({
   type,
   onPress,
   enrich,
+  isActive = true,
 }: {
   item: ContentItem;
   releaseDate?: string;
   type: "upcoming" | "trending";
   onPress: () => void;
   enrich?: EnrichData;
+  isActive?: boolean;
 }) {
   const [imgErr, setImgErr]             = useState(false);
   const [logoErr, setLogoErr]           = useState(false);
@@ -1887,7 +1889,6 @@ function NovidadesVerticalCard({
   const [vidErrored, setVidErrored]     = useState(false);
   const [userRequestedPlay, setUserRequestedPlay] = useState(false);
   const [streamResolved, setStreamResolved]       = useState(false);
-  const [isVisible, setIsVisible]       = useState(false);
   const [webVidPlaying, setWebVidPlaying] = useState(false);
   const [webVidFailed, setWebVidFailed]   = useState(false);
   // Series: array of 2 random recent episode URLs that cycle every 20s
@@ -1955,10 +1956,28 @@ function NovidadesVerticalCard({
 
   // For video preview: episode still (series) takes priority over backdrop
   const backdropShown    = !imgErr ? (epStillUrl || backdropUrl) : null;
-  const canPlayTrailer   = IS_NATIVE_EP && !!trailerKey && WebViewEp !== null;
-  const canPlayTrailerWeb = !IS_NATIVE_EP && !!trailerKey;
-  const canPlayVideo     = !trailerKey && IS_NATIVE_EP && !!streamUrl && WebViewEp !== null;
-  const canPlayVideoWeb  = !trailerKey && !IS_NATIVE_EP && !!streamUrl && !webVidFailed;
+  // Only the single "active" (mostly-visible) card is allowed to mount/play video —
+  // prevents several previews from playing (and being audible) at the same time while scrolling.
+  const canPlayTrailer   = isActive && IS_NATIVE_EP && !!trailerKey && WebViewEp !== null;
+  const canPlayTrailerWeb = isActive && !IS_NATIVE_EP && !!trailerKey;
+  const canPlayVideo     = isActive && !trailerKey && IS_NATIVE_EP && !!streamUrl && WebViewEp !== null;
+  const canPlayVideoWeb  = isActive && !trailerKey && !IS_NATIVE_EP && !!streamUrl && !webVidFailed;
+
+  // When this card stops being active (scrolled away), reset playback state so it
+  // starts fresh (paused, muted, play-button showing) next time it becomes active.
+  const wasActiveRef = useRef(isActive);
+  useEffect(() => {
+    if (wasActiveRef.current && !isActive) {
+      setMuted(true);
+      setUserRequestedPlay(false);
+      setVidReady(false);
+      setWebVidPlaying(false);
+      if (webVideoRef.current) {
+        try { webVideoRef.current.pause?.(); } catch {}
+      }
+    }
+    wasActiveRef.current = isActive;
+  }, [isActive]);
 
   // Quality / audio badges — extracted from the raw catalog title
   const qualBadge = useMemo(() => _extractQuality(item.title), [item.title]);
@@ -1992,29 +2011,17 @@ function NovidadesVerticalCard({
     });
   }, []);
 
-  // Web-only: IntersectionObserver to detect when card enters/leaves viewport
-  useEffect(() => {
-    if (Platform.OS !== "web" || typeof IntersectionObserver === "undefined") return;
-    const el = containerRef.current as unknown as Element;
-    if (!el) return;
-    const obs = new IntersectionObserver(
-      ([entry]) => setIsVisible(entry.intersectionRatio >= 0.5),
-      { threshold: 0.5 }
-    );
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, []);
-
-  // Web: auto-play when visible or user tapped play; pause when scrolled away
+  // Web: auto-play when this card is the single active one, or user tapped play;
+  // pause immediately once it stops being active (scrolled away) or another card takes over.
   useEffect(() => {
     if (IS_NATIVE_EP || !webVideoRef.current) return;
-    const shouldPlay = (isVisible || userRequestedPlay) && !!streamUrl;
+    const shouldPlay = (isActive || userRequestedPlay) && !!streamUrl;
     if (shouldPlay) {
       webVideoRef.current.play?.().catch(() => {});
     } else {
       webVideoRef.current.pause?.();
     }
-  }, [isVisible, userRequestedPlay, streamUrl]);
+  }, [isActive, userRequestedPlay, streamUrl]);
 
   // Lazy-fetch stream URL using the same system as Shorts (lookup + tryClientDirect fallback)
   useEffect(() => {
@@ -2801,6 +2808,13 @@ function CategoryFlatList({
   listHeader?: React.ReactNode;
 }) {
   const enrichMap = useTmdbEnrichMap(items);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60, minimumViewTime: 100 }).current;
+  const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
+    if (viewableItems.length > 0 && viewableItems[0].index != null) {
+      setActiveIndex(viewableItems[0].index);
+    }
+  }).current;
 
   return (
     <FlatList
@@ -2809,16 +2823,19 @@ function CategoryFlatList({
       showsVerticalScrollIndicator={false}
       contentContainerStyle={{ paddingTop: topPad + 114, paddingBottom: 160 }}
       ListHeaderComponent={listHeader ? <>{listHeader}</> : null}
+      viewabilityConfig={viewabilityConfig}
+      onViewableItemsChanged={onViewableItemsChanged}
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh}
           tintColor={RED} colors={[RED]} progressViewOffset={topPad + 114} />
       }
-      renderItem={({ item }) => (
+      renderItem={({ item, index }) => (
         <NovidadesVerticalCard
           item={item}
           type="trending"
           onPress={() => onPress(item)}
           enrich={enrichMap.get(item.id)}
+          isActive={index === activeIndex}
         />
       )}
       ListEmptyComponent={
@@ -2845,22 +2862,32 @@ function TrendingFlatList({
   onPress: (item: ContentItem) => void;
 }) {
   const enrichMap = useTmdbEnrichMap(items);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60, minimumViewTime: 100 }).current;
+  const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
+    if (viewableItems.length > 0 && viewableItems[0].index != null) {
+      setActiveIndex(viewableItems[0].index);
+    }
+  }).current;
   return (
     <FlatList
       data={items}
       keyExtractor={(item, i) => `tr_${item.id}_${i}`}
       showsVerticalScrollIndicator={false}
       contentContainerStyle={{ paddingTop: topPad + 114, paddingBottom: 160 }}
+      viewabilityConfig={viewabilityConfig}
+      onViewableItemsChanged={onViewableItemsChanged}
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh}
           tintColor={RED} colors={[RED]} progressViewOffset={topPad + 114} />
       }
-      renderItem={({ item }) => (
+      renderItem={({ item, index }) => (
         <NovidadesVerticalCard
           item={item}
           type="trending"
           onPress={() => onPress(item)}
           enrich={enrichMap.get(item.id)}
+          isActive={index === activeIndex}
         />
       )}
       ListEmptyComponent={
@@ -2884,23 +2911,33 @@ function UpcomingFlatList({
 }) {
   const contentItems = useMemo(() => items.map(i => i.item), [items]);
   const enrichMap = useTmdbEnrichMap(contentItems);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60, minimumViewTime: 100 }).current;
+  const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
+    if (viewableItems.length > 0 && viewableItems[0].index != null) {
+      setActiveIndex(viewableItems[0].index);
+    }
+  }).current;
   return (
     <FlatList
       data={items}
       keyExtractor={(_, i) => `up_${i}`}
       showsVerticalScrollIndicator={false}
       contentContainerStyle={{ paddingTop: topPad + 114, paddingBottom: 160 }}
+      viewabilityConfig={viewabilityConfig}
+      onViewableItemsChanged={onViewableItemsChanged}
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh}
           tintColor={RED} colors={[RED]} progressViewOffset={topPad + 114} />
       }
-      renderItem={({ item: { item, releaseDate } }) => (
+      renderItem={({ item: { item, releaseDate }, index }) => (
         <NovidadesVerticalCard
           item={item}
           releaseDate={releaseDate}
           type="upcoming"
           onPress={() => onPress(item)}
           enrich={enrichMap.get(item.id)}
+          isActive={index === activeIndex}
         />
       )}
       ListEmptyComponent={
