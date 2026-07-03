@@ -2473,15 +2473,24 @@ function NovidadesVerticalCard({
 const nvc = StyleSheet.create({
   wrap: {
     width: "100%",
-    backgroundColor: "#000",
-    marginHorizontal: 14,
-    marginBottom: 16,
-    borderRadius: 12,
+    maxWidth: 560,
+    alignSelf: "center",
+    backgroundColor: "#0b0b0d",
+    marginHorizontal: 16,
+    marginBottom: 22,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.14)",
+    borderColor: "rgba(255,255,255,0.08)",
     overflow: "hidden",
+    ...Platform.select({
+      web: { boxShadow: "0 6px 18px rgba(0,0,0,0.45)" } as any,
+      default: {
+        shadowColor: "#000", shadowOpacity: 0.4, shadowRadius: 10,
+        shadowOffset: { width: 0, height: 4 }, elevation: 6,
+      },
+    }),
   },
-  imgWrap: { width: "100%", aspectRatio: 16 / 9, backgroundColor: "#111", overflow: "hidden" },
+  imgWrap: { width: "100%", aspectRatio: 1.9, backgroundColor: "#111", overflow: "hidden" },
   logoOverlay: {
     position: "absolute", bottom: 14, left: 14,
     width: 160, height: 52,
@@ -2529,7 +2538,7 @@ const nvc = StyleSheet.create({
     letterSpacing: 0.5, lineHeight: 11,
   },
   // ── Info section ──────────────────────────────────────────────
-  info: { paddingHorizontal: 14, paddingTop: 14, paddingBottom: 16, backgroundColor: "#000" },
+  info: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 16, backgroundColor: "#0b0b0d" },
   infoChipsRow: {
     flexDirection: "row", alignItems: "center", gap: 8,
     marginBottom: 10, flexWrap: "wrap",
@@ -2547,17 +2556,17 @@ const nvc = StyleSheet.create({
   },
   typePillTxt: { fontSize: 9, fontWeight: "900", letterSpacing: 0.9 },
   title: {
-    fontSize: 28, fontWeight: "900", color: "#fff",
-    lineHeight: 34, marginBottom: 6, letterSpacing: -0.4,
+    fontSize: 21, fontWeight: "900", color: "#fff",
+    lineHeight: 26, marginBottom: 6, letterSpacing: -0.3,
   },
   dateSubtitle: {
-    fontSize: 14, fontWeight: "700", color: RED,
+    fontSize: 13, fontWeight: "700", color: RED,
     marginBottom: 10, letterSpacing: 0.2,
   },
   metaYear: { fontSize: 12, color: "rgba(255,255,255,0.4)", fontWeight: "600" },
   metaStar: { flexDirection: "row", alignItems: "center", gap: 3 },
   metaRating: { fontSize: 12, fontWeight: "700", color: AMBER },
-  desc: { fontSize: 14, color: "rgba(255,255,255,0.55)", lineHeight: 21, marginBottom: 18 },
+  desc: { fontSize: 13, color: "rgba(255,255,255,0.55)", lineHeight: 19, marginBottom: 14 },
   // ── Buttons ───────────────────────────────────────────────────
   btnsRow: {
     flexDirection: "row", gap: 10, alignItems: "stretch",
@@ -2565,21 +2574,21 @@ const nvc = StyleSheet.create({
   btnPlay: {
     flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
     gap: 8, backgroundColor: RED,
-    paddingVertical: 13, borderRadius: 6,
+    paddingVertical: 11, borderRadius: 6,
   },
   btnBell: {
     flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
     gap: 8,
     backgroundColor: "rgba(255,255,255,0.13)",
     borderWidth: 1.5, borderColor: "rgba(255,255,255,0.28)",
-    paddingVertical: 13, borderRadius: 6,
+    paddingVertical: 11, borderRadius: 6,
   },
   btnInfo: {
     flexDirection: "row", alignItems: "center", justifyContent: "center",
     gap: 6,
     backgroundColor: "rgba(255,255,255,0.09)",
     borderWidth: 1, borderColor: "rgba(255,255,255,0.18)",
-    paddingVertical: 13, paddingHorizontal: 18, borderRadius: 6,
+    paddingVertical: 11, paddingHorizontal: 16, borderRadius: 6,
   },
   btnTxt: { fontSize: 15, fontWeight: "800", color: "#fff" },
   btnInfoTxt: { fontSize: 13, fontWeight: "700", color: "rgba(255,255,255,0.75)" },

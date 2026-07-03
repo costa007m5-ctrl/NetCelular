@@ -1,4 +1,5 @@
 - [Mobile build port conflicts](mobile-build-port-conflicts.md) — orphaned mockup-sandbox vite processes from repeated workflow restarts can occupy 8081+8082, blocking Metro static-build rebuilds.
+- [App preview splash stuck](app-preview-splash-stuck.md) — screenshot tool on port 5000 (static build) can hang on the animated NETPLAY splash screen indefinitely; don't loop retrying, trust code review + ask user to confirm in their own browser instead.
 - [AI Personalization Architecture](ai-personalization-arch.md) — Gemini cross-tab system: behavior tracker (AsyncStorage), home AI row with dynamic label, novidades genre filter, profile AI card.
 - [TeraBox xAPIverse integration](terabox-xapiverse.md) — normalizeTeraboxUrl must target 1024tera.com (not www.terabox.com); use fast_stream_url HLS first (stream_url returns verify_v2 error); never HEAD-check tokens.
 - [Detail screen navigation](detail-nav.md) — all screens navigate to /detail (not /player) with params {type, id, title}; player is only opened from detail screen.
