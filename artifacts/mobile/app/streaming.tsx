@@ -392,7 +392,10 @@ export default function StreamingScreen() {
           <TouchableOpacity onPress={() => router.back()} style={styles.circleBtn}>
             <Feather name="arrow-left" size={20} color="#fff" />
           </TouchableOpacity>
-          <PlatformLogo platform={platform} />
+          <View style={styles.headerLogoWrap}>
+            <PlatformLogo platform={platform} />
+          </View>
+          <View style={{ width: 40 }} />
         </View>
       </Animated.View>
     </View>
@@ -428,7 +431,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingVertical: 6,
+    paddingVertical: 10,
+  },
+  headerLogoWrap: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
   circleBtn: {
     width: 40,
@@ -439,23 +447,22 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   platformLogo: {
-    width: 140,
-    height: 44,
-    flexShrink: 0,
+    width: 180,
+    height: 60,
   },
   textLogo: {
     alignItems: "center",
   },
   textLogoMain: {
-    fontSize: 22,
+    fontSize: 28,
     fontWeight: "900",
     letterSpacing: 1,
-    lineHeight: 26,
+    lineHeight: 32,
   },
   textLogoSub: {
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: "700",
-    letterSpacing: 2,
+    letterSpacing: 2.5,
   },
   topTenSection: { marginBottom: 32 },
   sectionHeader: {
