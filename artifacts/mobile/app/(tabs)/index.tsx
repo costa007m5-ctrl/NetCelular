@@ -4799,17 +4799,37 @@ const styles = StyleSheet.create({
   // Streaming chips
   streamingRow: { paddingHorizontal: 16, gap: 10, alignItems: "center" },
   streamingChip: {
-    borderRadius: 16, borderWidth: 1, width: 128, height: 82,
+    borderRadius: 22, borderWidth: 1, width: 128, height: 88, overflow: "hidden",
     ...Platform.select({
       ios: { shadowColor: "#000", shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.45, shadowRadius: 12 },
       android: { elevation: 6 },
     }),
   },
+  streamingChipGrad: {
+    flex: 1,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    overflow: "hidden",
+  },
+  streamingGlow: {
+    position: "absolute",
+    top: 0, left: 0, right: 0, bottom: 0,
+    borderRadius: 22,
+  },
+  streamingLogoArea: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    width: "100%",
+  },
   streamingChipInner: { flex: 1, alignItems: "center", justifyContent: "center", gap: 5, paddingHorizontal: 6 },
   streamingLogo: { width: "88%", height: 42, alignSelf: "center" },
   streamingName: { fontSize: 13, fontWeight: "800", letterSpacing: 0.3, textAlign: "center" },
   streamingTagline: { fontSize: 9, fontWeight: "700", letterSpacing: 1.5, textAlign: "center" },
-  seeAllChip:    { borderRadius: 16, borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", width: 82, height: 82, overflow: "hidden" },
+  seeAllChip:    { borderRadius: 22, borderWidth: 1, borderColor: "rgba(255,255,255,0.1)", width: 88, height: 88, overflow: "hidden" },
   seeAllChipInner: { flex: 1, alignItems: "center", justifyContent: "center", gap: 4 },
   seeAllChipText:  { fontSize: 10, fontWeight: "600", color: "rgba(255,255,255,0.4)" },
 

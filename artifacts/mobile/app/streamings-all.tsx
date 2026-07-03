@@ -255,27 +255,27 @@ const styles = StyleSheet.create({
   // Cards
   card: {
     width: "48%",
-    borderRadius: 16,
+    borderRadius: 22,
     overflow: "hidden",
   },
   cardWide: {
     width: "100%",
-    borderRadius: 16,
+    borderRadius: 22,
     overflow: "hidden",
   },
   cardGradient: {
-    height: 96,
+    height: 104,
     alignItems: "center",
     justifyContent: "center",
     padding: 14,
     position: "relative",
-    borderRadius: 16,
+    borderRadius: 22,
     overflow: "hidden",
     borderWidth: 0.5,
     borderColor: "rgba(255,255,255,0.08)",
   },
   cardGradientWide: {
-    height: 110,
+    height: 118,
   },
 
   glowOverlay: {
@@ -292,8 +292,8 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: 2.5,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
   },
 
   logoArea: {
