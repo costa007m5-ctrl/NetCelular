@@ -2466,14 +2466,21 @@ function NovidadesVerticalCard({
           </TouchableOpacity>
         </View>
       </View>
-
-      <View style={nvc.divider} />
     </View>
   );
 }
 
 const nvc = StyleSheet.create({
-  wrap: { width: "100%", backgroundColor: "#000" },
+  wrap: {
+    width: "100%",
+    backgroundColor: "#000",
+    marginHorizontal: 12,
+    marginBottom: 16,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+    overflow: "hidden",
+  },
   imgWrap: { width: "100%", aspectRatio: 16 / 9, backgroundColor: "#111", overflow: "hidden" },
   logoOverlay: {
     position: "absolute", bottom: 14, left: 14,
@@ -2576,8 +2583,6 @@ const nvc = StyleSheet.create({
   },
   btnTxt: { fontSize: 15, fontWeight: "800", color: "#fff" },
   btnInfoTxt: { fontSize: 13, fontWeight: "700", color: "rgba(255,255,255,0.75)" },
-  // ── Divider ───────────────────────────────────────────────────
-  divider: { height: 1, backgroundColor: "rgba(255,255,255,0.07)" },
   // ── Episode count ─────────────────────────────────────────────
   epCountRow: { flexDirection: "row", alignItems: "center", marginBottom: 10 },
   epCountBadge: {
