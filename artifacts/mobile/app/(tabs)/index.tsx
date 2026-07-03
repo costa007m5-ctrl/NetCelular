@@ -37,7 +37,6 @@ import { HeroBanner } from "@/components/HeroBanner";
 import { TopTenCard } from "@/components/TopTenCard";
 import { NotificationBell } from "@/components/NotificationBell";
 import NetplayLogo from "@/components/NetplayLogo";
-import { SearchTriggerBar } from "@/components/SearchTriggerBar";
 import { r2Route } from "@/lib/r2-direct";
 import { useR2Catalog } from "@/lib/r2-catalog-hook";
 import { getCached, setCached, getCacheTimestamp } from "@/lib/catalog-cache";
@@ -65,7 +64,6 @@ import {
   GlassStatsRow,
   GlassFeaturedCard,
   EditorPickBanner,
-  TimeGreetingBanner,
   NewEpisodeBanner,
   WeekendPickBanner,
   BingeWorthyRow,
@@ -91,9 +89,7 @@ import {
   // ── Novos componentes premium ──────────────────────────────────────────────
   MasonryRow,
   ImmersiveHeroCard,
-  GlowPosterRow,
   MiniBannerTriple,
-  NetflixStyleDualRow,
   CategoryShowcaseCard,
   NewThisWeekRow,
   NetplayExclusiveRow,
@@ -114,14 +110,6 @@ const ORANGE = "#f97316";
 const INDIGO = "#6366f1";
 
 // ── helpers ────────────────────────────────────────────────────────────────────
-function getTimeGreeting(): string {
-  const h = new Date().getHours();
-  if (h < 5)  return "Boa madrugada";
-  if (h < 12) return "Bom dia";
-  if (h < 18) return "Boa tarde";
-  return "Boa noite";
-}
-
 const toHttps = (url: string): string =>
   url ? url.replace(/^http:\/\//i, "https://") : url;
 
@@ -3421,10 +3409,8 @@ export default function HomeScreen() {
     pool_quickPlay,
     pool_squareDestaques,
     pool_masonry,
-    pool_glow,
     pool_duoMovie,
     pool_netplayMovies,
-    pool_netflixMovies,
     pool_categoryShowcase,
     pool_newWeekMovies,
     pool_binge,
@@ -3434,7 +3420,6 @@ export default function HomeScreen() {
     pool_editorPick,
     pool_seriesMaraton,
     pool_netplaySeries,
-    pool_netflixSeries,
     pool_premiumSeries,
     pool_newWeekSeries,
   } = useMemo(() => {
@@ -3467,11 +3452,9 @@ export default function HomeScreen() {
     const pool_quickPlay        = takeM(6);
     const pool_squareDestaques  = takeM(8);
     const pool_masonry          = takeM(4);
-    const pool_glow             = takeM(8, (m) => (m.rating ?? 0) > 7.5);
     const pool_duoMovie         = takeM(1);
     const pool_netplayMovies    = takeM(4);
     const pool_categoryShowcase = takeM(1);
-    const pool_netflixMovies    = takeM(6);
     const pool_newWeekMovies    = takeM(4);
 
     const pool_binge            = takeS(8);
@@ -3481,17 +3464,16 @@ export default function HomeScreen() {
     const pool_emAltaSeries     = takeS(6);
     const pool_seriesMaraton    = takeS(10);
     const pool_netplaySeries    = takeS(4);
-    const pool_netflixSeries    = takeS(6);
     const pool_premiumSeries    = takeS(6);
     const pool_newWeekSeries    = takeS(3);
 
     return {
       pool_cinematic, pool_emAltaMovies, pool_daily, pool_glass,
       pool_award, pool_quickPlay, pool_squareDestaques, pool_masonry,
-      pool_glow, pool_duoMovie, pool_netplayMovies, pool_netflixMovies,
+      pool_duoMovie, pool_netplayMovies,
       pool_categoryShowcase, pool_newWeekMovies,
       pool_binge, pool_emAltaSeries, pool_immersiveHero, pool_duoSeries,
-      pool_editorPick, pool_seriesMaraton, pool_netplaySeries, pool_netflixSeries,
+      pool_editorPick, pool_seriesMaraton, pool_netplaySeries,
       pool_premiumSeries, pool_newWeekSeries,
     };
   }, [movies, series, top10Movies, top10Series]);
@@ -3571,11 +3553,6 @@ export default function HomeScreen() {
         </Animated.View>
 
         <View style={styles.body}>
-          {/* ── 3. SEARCH BAR ──────────────────────────────────────────────── */}
-          <AnimatedSection anim={s[1]}>
-            <SearchTriggerBar placeholder="Buscar filmes, séries, atores, canais..." />
-          </AnimatedSection>
-
           {/* ── 4. PLATAFORMAS DE STREAMING ────────────────────────────── */}
           <AnimatedSection anim={s[2]}>
             <View style={{ marginBottom: 20 }}>
@@ -3616,15 +3593,6 @@ export default function HomeScreen() {
             </View>
           ) : (
             <>
-              {/* ── 5. TIME GREETING ─────────────────────────────────────────── */}
-              <AnimatedSection anim={s[3]}>
-                <TimeGreetingBanner
-                  name={activeProfile?.name ?? user?.name}
-                  accentColor={INDIGO}
-                  timeOfDay={getTimeGreeting()}
-                />
-              </AnimatedSection>
-
               {/* ── 6. CONTINUE ASSISTINDO ───────────────────────────────────── */}
               {continueItems.length > 0 && (
                 <AnimatedSection anim={s[4]}>
@@ -4428,26 +4396,6 @@ export default function HomeScreen() {
                 </FadeInSection>
               )}
 
-              {/* ── 32. GLOW POSTER ROW (Filmes Premiados) ──────────────────── */}
-              {showAll && pool_glow.length > 0 && (
-                <FadeInSection delay={130}>
-                  <SectionDivider label="PREMIADOS" accentColor={AMBER} />
-                  <GradientSectionHeader
-                    title="Filmes Premiados"
-                    subtitle="Oscar, Cannes & mais"
-                    icon="award"
-                    accentColor={AMBER}
-                    onSeeAll={() => openModal("Filmes Premiados", pool_glow, AMBER)}
-                  />
-                  <GlowPosterRow
-                    items={pool_glow}
-                    onPress={goTo}
-                    accent={AMBER}
-                  />
-                </FadeInSection>
-              )}
-
-
               {/* ── 34. DUO FEATURE BANNER ──────────────────────────────────── */}
               {showAll && pool_duoMovie.length > 0 && pool_duoSeries.length > 0 && (
                 <FadeInSection delay={130}>
@@ -4498,24 +4446,6 @@ export default function HomeScreen() {
                 </FadeInSection>
               )}
 
-              {/* ── 37. NETFLIX STYLE DUAL ROW ──────────────────────────────── */}
-              {showAll && (pool_netflixMovies.length > 0 || pool_netflixSeries.length > 0) && (
-                <FadeInSection delay={120}>
-                  <SectionDivider label="MELHORES DO ANO" accentColor={BLUE} />
-                  <GradientSectionHeader
-                    title="Grade de Títulos"
-                    subtitle="Dois em um — filmes e séries"
-                    icon="layout"
-                    accentColor={BLUE}
-                    onSeeAll={() => openModal("Grade de Títulos", [...pool_netflixMovies, ...pool_netflixSeries], BLUE)}
-                  />
-                  <NetflixStyleDualRow
-                    items={[...pool_netflixMovies, ...pool_netflixSeries]}
-                    onPress={goTo}
-                  />
-                  <View style={{ height: 20 }} />
-                </FadeInSection>
-              )}
 
 
               {/* ── 40. PREMIUM LARGE POSTER ROW (Séries Premium) ───────────── */}
