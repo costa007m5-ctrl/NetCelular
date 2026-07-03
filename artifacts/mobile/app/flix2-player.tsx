@@ -181,6 +181,10 @@ export default function Flix2PlayerScreen() {
   const [retryCount, setRetryCount] = useState(0);
   const [autoRetryCountdown, setAutoRetryCountdown] = useState<number | null>(null);
   const autoRetryTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // When a preflight probe confirms the source is permanently gone (404/403), retrying
+  // automatically is pointless — skip the 5s auto-retry countdown for that error.
+  const skipAutoRetryRef = useRef(false);
+  const [isDeadLinkError, setIsDeadLinkError] = useState(false);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [videoSourceHeaders, setVideoSourceHeaders] = useState<Record<string, string> | undefined>(undefined);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -561,6 +565,8 @@ export default function Flix2PlayerScreen() {
     if (!rawFlix2Url) { setPhase("error"); setErrorMsg("URL não especificada"); return; }
 
     phaseRef.current = "loading";
+    skipAutoRetryRef.current = false;
+    setIsDeadLinkError(false);
     setPhase("loading");
     setVideoUrl(null);
     setVideoSourceHeaders(undefined);
@@ -589,6 +595,32 @@ export default function Flix2PlayerScreen() {
     };
     const TERABOX_HOSTS = ["terabox.com", "1024terabox.com", "teraboxapp.com", "1024tera.com", "4funbox.com"];
     const isTeraboxUrl = (u: string) => TERABOX_HOSTS.some((h) => u.includes(h));
+    // Quick preflight probe: some Flix 2.0 sources (mostly hubby.cx episodes) resolve to
+    // dead/expired CDN paths (e.g. "-dev" hosts that 404) — that's a source-content problem,
+    // not a playback bug. Probing before handing the URL to the player lets us show an
+    // accurate "vídeo indisponível" message instantly instead of the misleading generic
+    // "verifique sua conexão" after the player times out, and avoids a pointless auto-retry
+    // loop against a URL that will never succeed.
+    const probeUrlStatus = async (url: string, extraHeaders?: Record<string, string>): Promise<number | null> => {
+      try {
+        const pCtrl = new AbortController();
+        const pTimeout = setTimeout(() => pCtrl.abort(), 7_000);
+        const resp = await fetch(url, {
+          method: "GET",
+          headers: { Range: "bytes=0-1", ...(extraHeaders ?? {}) },
+          signal: pCtrl.signal,
+        });
+        clearTimeout(pTimeout);
+        return resp.status;
+      } catch {
+        return null; // network/timeout during probe — inconclusive, let the player try normally
+      }
+    };
+    class DeadLinkError extends Error {
+      constructor(public status: number) {
+        super(status === 404 ? "Este vídeo não está mais disponível nesta fonte." : "Acesso negado pela fonte de vídeo (bloqueio da CDN).");
+      }
+    }
     // Direct CDN URLs (hubby.cx Xtream Codes or fontedecanais) — play without redirect
     const isFonteUrl = (u: string) => ["72yrci50ppqp71.com", "fontedecanais.me", "hubby.cx"].some((r) => u.includes(r));
     // Fontedecanais suporta HTTPS:443 — upgrade http:// com :80 → https:// sem porta.
@@ -654,6 +686,13 @@ export default function Flix2PlayerScreen() {
           appLog.info("player.flix2", "Reprodução via proxy (web)", {
             proxyUrl: webUrl.slice(0, 80),
           });
+        }
+        const probeStatus = await probeUrlStatus(webUrl);
+        if (probeStatus === 404 || probeStatus === 403 || probeStatus === 410) {
+          appLog.error("player.flix2", `Preflight detectou fonte indisponível (${probeStatus})`, {
+            rawUrl: rawFlix2Url?.slice(0, 120), status: probeStatus, platform: Platform.OS, title, tmdbId,
+          });
+          throw new DeadLinkError(probeStatus);
         }
         setResolvedCdnType("flix2");
         setVideoUrl(webUrl);
@@ -838,6 +877,19 @@ export default function Flix2PlayerScreen() {
           setWebViewBaseUrl("https://nixplay.lat");
         }
 
+        // Preflight probe: fontedecanais/cineveo/hubby-proxy URLs are fetched directly by the
+        // device — a 404/403 here means the source content is gone, not a network hiccup.
+        if (["fontedecanais", "cineveo", "hubby-proxy"].includes(cdnLabel)) {
+          const probeHeaders = cdnLabel === "fontedecanais" ? FLIX2_HEADERS : undefined;
+          const probeStatus = await probeUrlStatus(playerUrl, probeHeaders);
+          if (probeStatus === 404 || probeStatus === 403 || probeStatus === 410) {
+            appLog.error("player.flix2", `Preflight detectou fonte indisponível (${probeStatus})`, {
+              rawUrl: rawFlix2Url?.slice(0, 120), status: probeStatus, cdnLabel, platform: Platform.OS, title, tmdbId,
+            });
+            throw new DeadLinkError(probeStatus);
+          }
+        }
+
         appLog.info("player.flix2", `Reprodução via WebView Chrome (${cdnLabel})`, {
           url: playerUrl?.slice(0, 100),
           platform: Platform.OS,
@@ -849,6 +901,7 @@ export default function Flix2PlayerScreen() {
     } catch (e: any) {
       fakeAnim.current?.stop();
       const errMsg = e.message ?? "Erro ao carregar vídeo";
+      const isDeadLink = e instanceof DeadLinkError;
       appLog.error("player.flix2", `Falha ao carregar stream: ${errMsg}`, {
         rawUrl: rawFlix2Url?.slice(0, 120),
         error: errMsg,
@@ -856,7 +909,10 @@ export default function Flix2PlayerScreen() {
         title,
         tmdbId,
         retryCount,
+        deadLink: isDeadLink,
       });
+      if (isDeadLink) skipAutoRetryRef.current = true;
+      setIsDeadLinkError(isDeadLink);
       setPhase("error");
       setErrorMsg(errMsg);
     }
@@ -872,7 +928,7 @@ export default function Flix2PlayerScreen() {
 
   // ── Auto-retry on error ──────────────────────────────────────────────────────
   useEffect(() => {
-    if (phase === "error" && retryCount === 0) {
+    if (phase === "error" && retryCount === 0 && !skipAutoRetryRef.current) {
       setAutoRetryCountdown(5);
       autoRetryTimerRef.current = setInterval(() => {
         setAutoRetryCountdown((prev) => {
@@ -1645,14 +1701,16 @@ export default function Flix2PlayerScreen() {
           {phase === "error" ? (
             <View style={styles.loadCenter}>
               <Feather name="alert-circle" size={44} color={RED} />
-              <Text style={[styles.loadTitle, { marginTop: 12 }]}>Erro ao reproduzir vídeo</Text>
+              <Text style={[styles.loadTitle, { marginTop: 12 }]}>{isDeadLinkError ? "Vídeo indisponível" : "Erro ao reproduzir vídeo"}</Text>
               {errorMsg && errorMsg !== "Erro ao reproduzir vídeo" ? (
                 <Text style={[styles.loadEp, { color: "#ef4444", fontSize: 11, marginBottom: 4, textAlign: "center", maxWidth: 280 }]}>{errorMsg}</Text>
               ) : null}
               {resolvedCdnType ? (
                 <Text style={[styles.loadEp, { color: "#888", fontSize: 10, marginBottom: 4 }]}>CDN: {resolvedCdnType}</Text>
               ) : null}
-              <Text style={styles.loadEp}>Verifique sua conexão e tente novamente</Text>
+              <Text style={styles.loadEp}>
+                {isDeadLinkError ? "Tente o Player Alternativo ou outra fonte." : "Verifique sua conexão e tente novamente"}
+              </Text>
               {autoRetryCountdown !== null ? (
                 <View style={{ alignItems: "center", gap: 6, marginTop: 20 }}>
                   <View style={styles.retryCountdown}>
