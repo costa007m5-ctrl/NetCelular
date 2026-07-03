@@ -303,12 +303,12 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   cardLogo: {
-    width: "80%",
-    height: 44,
+    width: "86%",
+    height: 58,
   },
   cardLogoWide: {
-    height: 56,
-    width: "60%",
+    height: 68,
+    width: "55%",
   },
 
   textLogoContainer: { alignItems: "center" },
