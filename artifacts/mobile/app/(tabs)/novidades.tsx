@@ -1956,24 +1956,49 @@ function NovidadesVerticalCard({
 
   // For video preview: episode still (series) takes priority over backdrop
   const backdropShown    = !imgErr ? (epStillUrl || backdropUrl) : null;
-  // Only the single "active" (mostly-visible) card is allowed to mount/play video —
-  // prevents several previews from playing (and being audible) at the same time while scrolling.
-  const canPlayTrailer   = isActive && IS_NATIVE_EP && !!trailerKey && WebViewEp !== null;
-  const canPlayTrailerWeb = isActive && !IS_NATIVE_EP && !!trailerKey;
-  const canPlayVideo     = isActive && !trailerKey && IS_NATIVE_EP && !!streamUrl && WebViewEp !== null;
-  const canPlayVideoWeb  = isActive && !trailerKey && !IS_NATIVE_EP && !!streamUrl && !webVidFailed;
+  // Video/trailer stays mounted regardless of which card is "active" — we only
+  // pause/resume + force-mute it, so scrolling back doesn't reload/re-buffer it.
+  const canPlayTrailer   = IS_NATIVE_EP && !!trailerKey && WebViewEp !== null;
+  const canPlayTrailerWeb = !IS_NATIVE_EP && !!trailerKey;
+  const canPlayVideo     = !trailerKey && IS_NATIVE_EP && !!streamUrl && WebViewEp !== null;
+  const canPlayVideoWeb  = !trailerKey && !IS_NATIVE_EP && !!streamUrl && !webVidFailed;
 
-  // When this card stops being active (scrolled away), reset playback state so it
-  // starts fresh (paused, muted, play-button showing) next time it becomes active.
+  // Only the single "active" (mostly-visible) card may play with sound / be playing at all —
+  // when another card becomes active, this one is paused + force-muted (but stays loaded,
+  // so coming back to it is instant instead of reloading/re-buffering).
   const wasActiveRef = useRef(isActive);
   useEffect(() => {
+    const isTrailer = !!trailerKeyRef.current;
     if (wasActiveRef.current && !isActive) {
       setMuted(true);
-      setUserRequestedPlay(false);
-      setVidReady(false);
-      setWebVidPlaying(false);
-      if (webVideoRef.current) {
+      if (IS_NATIVE_EP) {
+        nativeWebViewRef.current?.injectJavaScript(
+          isTrailer
+            ? `(function(){try{var d=JSON.stringify({type:'pause'});document.dispatchEvent(new MessageEvent('message',{data:d}));window.dispatchEvent(new MessageEvent('message',{data:d}));}catch(e){}})();true;`
+            : `(function(){var v=document.getElementById('v');if(v){v.pause();v.muted=true;}})();true;`
+        );
+      } else if (isTrailer && trailerIframeRef.current) {
+        try {
+          trailerIframeRef.current.contentWindow?.postMessage(
+            JSON.stringify({ event: "command", func: "pauseVideo", args: [] }), "*"
+          );
+        } catch {}
+      } else if (webVideoRef.current) {
         try { webVideoRef.current.pause?.(); } catch {}
+      }
+    } else if (!wasActiveRef.current && isActive) {
+      if (IS_NATIVE_EP) {
+        nativeWebViewRef.current?.injectJavaScript(
+          isTrailer
+            ? `(function(){try{var d=JSON.stringify({type:'play'});document.dispatchEvent(new MessageEvent('message',{data:d}));window.dispatchEvent(new MessageEvent('message',{data:d}));}catch(e){}})();true;`
+            : `(function(){var v=document.getElementById('v');if(v)v.play().catch(function(){});})();true;`
+        );
+      } else if (isTrailer && trailerIframeRef.current) {
+        try {
+          trailerIframeRef.current.contentWindow?.postMessage(
+            JSON.stringify({ event: "command", func: "playVideo", args: [] }), "*"
+          );
+        } catch {}
       }
     }
     wasActiveRef.current = isActive;
