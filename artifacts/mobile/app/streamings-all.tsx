@@ -1,5 +1,6 @@
 import React from "react";
 import {
+  Dimensions,
   Image,
   Platform,
   Pressable,
@@ -18,6 +19,18 @@ import { MAIN_PLATFORMS, SPECIFIC_PLATFORMS, NICHE_PLATFORMS } from "@/constants
 import type { StreamingPlatform } from "@/constants/streamings";
 import { getLocalLogo } from "@/constants/streaming-logos";
 import { useColors } from "@/hooks/useColors";
+
+const H_PAD = 14;
+const COL_GAP = 10;
+const SCREEN_W = Dimensions.get("window").width;
+const CARD_W = Math.floor((SCREEN_W - H_PAD * 2 - COL_GAP) / 2);
+const CARD_H = Math.floor(CARD_W * 0.65); // landscape ratio ~65%
+const LOGO_H = Math.floor(CARD_H * 0.52);
+
+const FEAT_H = 148;
+const FEAT_LOGO_H = 82;
+
+const RADIUS = 20;
 
 function PlatformCard({
   platform,
@@ -42,43 +55,81 @@ function PlatformCard({
     ? `https://image.tmdb.org/t/p/w185${platform.logoPath}`
     : null;
 
-  const cardStyle = featured ? styles.cardFeatured : styles.card;
-  const gradStyle = featured ? styles.gradFeatured : styles.grad;
-  const logoStyle = featured ? styles.logoFeatured : styles.logo;
+  const cardWidth = featured ? SCREEN_W - H_PAD * 2 : CARD_W;
+  const cardHeight = featured ? FEAT_H : CARD_H;
+  const logoHeight = featured ? FEAT_LOGO_H : LOGO_H;
+  const logoWidth = featured ? "48%" : "88%";
 
   return (
-    <Pressable onPress={onPress} onPressIn={pressIn} onPressOut={pressOut} style={cardStyle}>
-      <Animated.View style={[cardStyle, { transform: [{ scale }] }]}>
+    <Pressable
+      onPress={onPress}
+      onPressIn={pressIn}
+      onPressOut={pressOut}
+      style={{ width: cardWidth, borderRadius: RADIUS, overflow: "hidden" }}
+    >
+      <Animated.View style={{ transform: [{ scale }] }}>
         <LinearGradient
           colors={[platform.bgGradient[0], platform.bgGradient[1]] as [string, string]}
-          style={gradStyle}
+          style={{
+            width: cardWidth,
+            height: cardHeight,
+            borderRadius: RADIUS,
+            overflow: "hidden",
+            borderWidth: 0.5,
+            borderColor: "rgba(255,255,255,0.09)",
+            justifyContent: "space-between",
+            paddingTop: 12,
+            paddingBottom: 10,
+            paddingHorizontal: featured ? 20 : 10,
+          }}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
         >
-          {/* Brand glow overlay */}
-          <View style={[styles.glow, { backgroundColor: platform.brandColor + "28" }]} />
+          {/* Brand glow */}
+          <View
+            style={{
+              position: "absolute",
+              top: 0, left: 0, right: 0, bottom: 0,
+              backgroundColor: platform.brandColor + "22",
+            }}
+          />
 
-          {/* Top accent line */}
-          <View style={[styles.accentLine, { backgroundColor: platform.brandColor }]} />
+          {/* Accent top line */}
+          <View
+            style={{
+              position: "absolute",
+              top: 0, left: 0, right: 0,
+              height: 3,
+              borderTopLeftRadius: RADIUS,
+              borderTopRightRadius: RADIUS,
+              backgroundColor: platform.brandColor,
+            }}
+          />
 
-          {/* Logo area */}
-          <View style={styles.logoArea}>
+          {/* Logo or text fallback */}
+          <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
             {localLogo ? (
-              <Image source={localLogo} style={logoStyle} resizeMode="contain" />
+              <Image
+                source={localLogo}
+                style={{ width: logoWidth as any, height: logoHeight }}
+                resizeMode="contain"
+              />
             ) : logoUrl && !logoError ? (
               <Image
                 source={{ uri: logoUrl }}
-                style={logoStyle}
+                style={{ width: logoWidth as any, height: logoHeight }}
                 resizeMode="contain"
                 onError={() => setLogoError(true)}
               />
             ) : (
-              <View style={styles.textLogo}>
+              <View style={{ alignItems: "center" }}>
                 <Text
-                  style={[
-                    styles.textLogoMain,
-                    { color: platform.brandColor, fontSize: featured ? 26 : 20 },
-                  ]}
+                  style={{
+                    color: platform.brandColor,
+                    fontSize: featured ? 26 : 18,
+                    fontWeight: "900",
+                    letterSpacing: 0.5,
+                  }}
                   numberOfLines={1}
                   adjustsFontSizeToFit
                 >
@@ -86,7 +137,13 @@ function PlatformCard({
                 </Text>
                 {platform.name.split(" ").length > 1 && (
                   <Text
-                    style={[styles.textLogoSub, { color: platform.accentColor }]}
+                    style={{
+                      color: platform.accentColor,
+                      fontSize: 9,
+                      fontWeight: "700",
+                      letterSpacing: 2,
+                      marginTop: 2,
+                    }}
                     numberOfLines={1}
                   >
                     {platform.name.split(" ").slice(1).join(" ").toUpperCase()}
@@ -96,18 +153,20 @@ function PlatformCard({
             )}
           </View>
 
-          {/* Tagline + arrow row */}
-          <View style={styles.footer}>
-            <Text
-              style={[styles.tagline, { color: platform.brandColor + "cc" }]}
-              numberOfLines={1}
-            >
-              {platform.tagline ?? "PREMIUM"}
-            </Text>
-            <View style={[styles.arrowCircle, { backgroundColor: platform.brandColor + "25" }]}>
-              <Feather name="chevron-right" size={11} color={platform.brandColor} />
-            </View>
-          </View>
+          {/* Footer */}
+          <Text
+            style={{
+              color: platform.brandColor + "bb",
+              fontSize: 8,
+              fontWeight: "700",
+              letterSpacing: 1.4,
+              textTransform: "uppercase",
+              textAlign: "center",
+            }}
+            numberOfLines={1}
+          >
+            {platform.tagline ?? "PREMIUM"}
+          </Text>
         </LinearGradient>
       </Animated.View>
     </Pressable>
@@ -159,18 +218,14 @@ export default function StreamingsAllScreen() {
       >
         <SectionHeader title="Filmes e Séries" />
 
-        {/* Featured first platform */}
+        {/* Featured Netflix */}
         {featuredPlatform && (
-          <View style={styles.featuredRow}>
-            <PlatformCard
-              platform={featuredPlatform}
-              onPress={() => goTo(featuredPlatform.id)}
-              featured
-            />
+          <View style={{ marginBottom: COL_GAP }}>
+            <PlatformCard platform={featuredPlatform} onPress={() => goTo(featuredPlatform.id)} featured />
           </View>
         )}
 
-        {/* Rest of main in 2-col grid */}
+        {/* 2-col grid */}
         <View style={styles.grid}>
           {restMain.map((p) => (
             <PlatformCard key={p.id} platform={p} onPress={() => goTo(p.id)} />
@@ -195,8 +250,6 @@ export default function StreamingsAllScreen() {
   );
 }
 
-const CARD_RADIUS = 22;
-
 const styles = StyleSheet.create({
   container: { flex: 1 },
 
@@ -217,7 +270,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: { fontSize: 22, fontWeight: "800", letterSpacing: -0.4 },
 
-  scroll: { paddingHorizontal: 14, paddingTop: 4 },
+  scroll: { paddingHorizontal: H_PAD, paddingTop: 4 },
 
   sectionHeader: {
     flexDirection: "row",
@@ -229,106 +282,9 @@ const styles = StyleSheet.create({
   sectionBar: { width: 3, height: 18, borderRadius: 2 },
   sectionTitle: { fontSize: 17, fontWeight: "800", letterSpacing: -0.2 },
 
-  featuredRow: { marginBottom: 10 },
-
   grid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 10,
-  },
-
-  // ── Normal card (2-col grid) ──────────────────────────────
-  card: {
-    width: "48.5%",
-    borderRadius: CARD_RADIUS,
-    overflow: "hidden",
-    ...Platform.select({
-      ios: { shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.5, shadowRadius: 10 },
-      android: { elevation: 5 },
-    }),
-  },
-  grad: {
-    height: 130,
-    borderRadius: CARD_RADIUS,
-    overflow: "hidden",
-    borderWidth: 0.5,
-    borderColor: "rgba(255,255,255,0.08)",
-    paddingHorizontal: 10,
-    paddingTop: 10,
-    paddingBottom: 10,
-    justifyContent: "space-between",
-  },
-
-  // ── Featured card (full width) ────────────────────────────
-  cardFeatured: {
-    width: "100%",
-    borderRadius: CARD_RADIUS,
-    overflow: "hidden",
-    ...Platform.select({
-      ios: { shadowColor: "#000", shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.55, shadowRadius: 14 },
-      android: { elevation: 7 },
-    }),
-  },
-  gradFeatured: {
-    height: 156,
-    borderRadius: CARD_RADIUS,
-    overflow: "hidden",
-    borderWidth: 0.5,
-    borderColor: "rgba(255,255,255,0.1)",
-    paddingHorizontal: 20,
-    paddingTop: 14,
-    paddingBottom: 14,
-    justifyContent: "space-between",
-  },
-
-  // ── Shared inner elements ─────────────────────────────────
-  glow: {
-    position: "absolute",
-    top: 0, left: 0, right: 0, bottom: 0,
-  },
-  accentLine: {
-    position: "absolute",
-    top: 0, left: 0, right: 0,
-    height: 3,
-    borderTopLeftRadius: CARD_RADIUS,
-    borderTopRightRadius: CARD_RADIUS,
-  },
-
-  logoArea: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  logo: {
-    width: "90%",
-    height: 68,
-  },
-  logoFeatured: {
-    width: "52%",
-    height: 86,
-  },
-
-  textLogo: { alignItems: "center" },
-  textLogoMain: { fontWeight: "900", letterSpacing: 0.3, lineHeight: 28 },
-  textLogoSub: { fontSize: 10, fontWeight: "700", letterSpacing: 2 },
-
-  footer: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginTop: 4,
-  },
-  tagline: {
-    fontSize: 9,
-    fontWeight: "700",
-    letterSpacing: 1.4,
-    textTransform: "uppercase",
-  },
-  arrowCircle: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
+    gap: COL_GAP,
   },
 });
