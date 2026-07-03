@@ -2851,7 +2851,16 @@ export default function HomeScreen() {
 
     // ── Hero pool: fetch TMDB images first, then set items (no broken flix2 URLs) ──
     if (m.length || s.length) {
-      const goodRating = (x: ContentItem) => (x.tmdbId ?? 0) > 0 && (x.rating ?? 0) >= 6.5;
+      // TMDB genre IDs: 10762=Kids, 10751=Family, 16=Animation (only excluded when sole genre)
+      const HERO_KIDS_GENRES = new Set([10762]);
+      const isHeroSuitable = (x: ContentItem) => {
+        if (!x.genres || x.genres.length === 0) return true;
+        if (x.genres.some((g) => HERO_KIDS_GENRES.has(g))) return false;
+        if (x.genres.length === 1 && x.genres[0] === 16) return false;
+        return true;
+      };
+      const goodRating = (x: ContentItem) =>
+        (x.tmdbId ?? 0) > 0 && (x.rating ?? 0) >= 7.0 && isHeroSuitable(x);
 
       const hm = [...m.filter(goodRating)].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
       const hs = [...s.filter(goodRating)].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
@@ -2908,9 +2917,17 @@ export default function HomeScreen() {
             })
           )).filter(Boolean) as ContentItem[];
 
-          // Only show if we have at least 2 items with real TMDB images
-          if (enriched.filter((x) => isTmdbUrl(x.backdropPath) || isTmdbUrl(x.posterPath)).length >= 1) {
-            setHeroItems(enriched.filter((x) => isTmdbUrl(x.backdropPath) || isTmdbUrl(x.posterPath)));
+          // Only show if we have at least 1 item with real TMDB images, excluding kids content
+          const HERO_KIDS_IDS = new Set([10762]);
+          const heroSuitable = (x: ContentItem) => {
+            if (!x.genres || x.genres.length === 0) return true;
+            if (x.genres.some((g) => HERO_KIDS_IDS.has(g))) return false;
+            if (x.genres.length === 1 && x.genres[0] === 16) return false;
+            return true;
+          };
+          const filtered = enriched.filter((x) => (isTmdbUrl(x.backdropPath) || isTmdbUrl(x.posterPath)) && heroSuitable(x));
+          if (filtered.length >= 1) {
+            setHeroItems(filtered);
           } else {
             setHeroItems(heroCandidates); // last resort
           }
@@ -3102,8 +3119,15 @@ export default function HomeScreen() {
                   posterPath:   hasPoster   ? item.posterPath   : (tPoster   ?? item.posterPath),
                 };
               });
-              // Only items with images and tmdbId
-              return enriched.filter((x) => (x.backdropPath || x.posterPath) && (x.tmdbId ?? 0) > 0);
+              // Only items with images, tmdbId, and not kids-only content
+              const TREND_KIDS_IDS = new Set([10762]);
+              const trendHeroOk = (x: ContentItem) => {
+                if (!x.genres || x.genres.length === 0) return true;
+                if (x.genres.some((g) => TREND_KIDS_IDS.has(g))) return false;
+                if (x.genres.length === 1 && x.genres[0] === 16) return false;
+                return true;
+              };
+              return enriched.filter((x) => (x.backdropPath || x.posterPath) && (x.tmdbId ?? 0) > 0 && trendHeroOk(x));
             };
 
             const heroCandidates = buildHeroCandidates();
