@@ -2807,11 +2807,11 @@ function CategoryFlatList({
       data={items}
       keyExtractor={(item, i) => `${keyPrefix}_${item.id}_${i}`}
       showsVerticalScrollIndicator={false}
-      contentContainerStyle={{ paddingTop: topPad + 96, paddingBottom: 160 }}
+      contentContainerStyle={{ paddingTop: topPad + 114, paddingBottom: 160 }}
       ListHeaderComponent={listHeader ? <>{listHeader}</> : null}
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh}
-          tintColor={RED} colors={[RED]} progressViewOffset={topPad + 96} />
+          tintColor={RED} colors={[RED]} progressViewOffset={topPad + 114} />
       }
       renderItem={({ item }) => (
         <NovidadesVerticalCard
@@ -2850,10 +2850,10 @@ function TrendingFlatList({
       data={items}
       keyExtractor={(item, i) => `tr_${item.id}_${i}`}
       showsVerticalScrollIndicator={false}
-      contentContainerStyle={{ paddingTop: topPad + 96, paddingBottom: 160 }}
+      contentContainerStyle={{ paddingTop: topPad + 114, paddingBottom: 160 }}
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh}
-          tintColor={RED} colors={[RED]} progressViewOffset={topPad + 96} />
+          tintColor={RED} colors={[RED]} progressViewOffset={topPad + 114} />
       }
       renderItem={({ item }) => (
         <NovidadesVerticalCard
@@ -2889,10 +2889,10 @@ function UpcomingFlatList({
       data={items}
       keyExtractor={(_, i) => `up_${i}`}
       showsVerticalScrollIndicator={false}
-      contentContainerStyle={{ paddingTop: topPad + 96, paddingBottom: 160 }}
+      contentContainerStyle={{ paddingTop: topPad + 114, paddingBottom: 160 }}
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh}
-          tintColor={RED} colors={[RED]} progressViewOffset={topPad + 96} />
+          tintColor={RED} colors={[RED]} progressViewOffset={topPad + 114} />
       }
       renderItem={({ item: { item, releaseDate } }) => (
         <NovidadesVerticalCard
