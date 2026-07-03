@@ -113,6 +113,13 @@ async function fetchCinema(attempt = 0): Promise<CinemaData> {
     }
     return res;
   } catch {
+    // Retry on network error — domain may not be initialized yet (race condition).
+    // initApiDomain() runs async on startup; first 3-8s getApiBase() may return
+    // stale dev domain. Retry a few times until init completes.
+    if (attempt < 4) {
+      await new Promise((resolve) => setTimeout(resolve, attempt === 0 ? 3000 : 5000));
+      return fetchCinema(attempt + 1);
+    }
     return { ok: false, total: 0, topRated: [], months: [] };
   }
 }

@@ -22,7 +22,10 @@ const SUPABASE_ANON_KEY =
 // Este domínio é estável (não muda entre sessões Replit como os domínios dev).
 const PRODUCTION_DOMAIN = "net-celular--happylion157.replit.app";
 
-let _dynamicDomain: string | null = null;
+// Inicializa com o production domain imediatamente — garante que getApiBase()
+// nunca retorna um dev domain morto antes de initApiDomain() completar.
+// initApiDomain() pode sobrescrever com um domain mais específico se encontrar um melhor.
+let _dynamicDomain: string | null = PRODUCTION_DOMAIN;
 
 async function _fetchDomainFromSupabase(): Promise<string | null> {
   try {

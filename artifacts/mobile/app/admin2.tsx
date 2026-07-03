@@ -273,9 +273,9 @@ export default function Admin2Screen() {
     }
   }, [seriesLoading]);
 
-  const fetchSeriesEpisodes = useCallback(async (seriesId: number) => {
+  const fetchSeriesEpisodes = useCallback(async (seriesId: number, attempt = 0) => {
     setSeriesEpLoading(true);
-    setSeriesEpisodes([]);
+    if (attempt === 0) setSeriesEpisodes([]);
     try {
       // Estratégia: API proxy primeiro (funciona em todos os ambientes sem problema
       // de redirect HTTP). Fallback direto ao Xtream apenas no native se proxy falhar.
@@ -289,19 +289,32 @@ export default function Admin2Screen() {
 
       if (!proxyOk && Platform.OS !== "web") {
         // Fallback nativo: chama Xtream diretamente (sem CORS no native)
-        const res = await fetch(`${API_BASE}&action=get_series_info&series_id=${seriesId}`, { signal: mkSignal(20000) });
+        const res = await fetch(`${API_BASE}&action=get_series_info&series_id=${seriesId}`, { signal: mkSignal(25000) });
         if (!res.ok) throw new Error(`Xtream HTTP ${res.status}`);
         json = await res.json();
       }
 
       if (!json) throw new Error("Sem dados do servidor");
       const eps = json.episodes ?? {};
+
+      // Retry se episódios vazios — proxy pode ter retornado 200 com body vazio
+      // por race condition de domain (initApiDomain ainda não terminou)
+      if (Object.keys(eps).length === 0 && attempt < 2) {
+        await new Promise((r) => setTimeout(r, 3000));
+        return fetchSeriesEpisodes(seriesId, attempt + 1);
+      }
+
       const seasons: { season: string; eps: SeriesEpisode[] }[] = Object.entries(eps)
         .map(([s, epArr]) => ({ season: s, eps: epArr as SeriesEpisode[] }))
         .sort((a, b) => Number(a.season) - Number(b.season));
       setSeriesEpisodes(seasons);
     } catch (err: any) {
       console.error("[admin2] fetchSeriesEpisodes error:", err?.message ?? err);
+      // Retry on network error (domain race condition)
+      if (attempt < 2) {
+        await new Promise((r) => setTimeout(r, 3000));
+        return fetchSeriesEpisodes(seriesId, attempt + 1);
+      }
     } finally {
       setSeriesEpLoading(false);
     }

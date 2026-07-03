@@ -1407,7 +1407,7 @@ function getTopGenreIds(prefs: Record<number, number>, n = 5): number[] {
 
 // ─── Fetch shorts feed ────────────────────────────────────────────────────────
 
-async function fetchShortsFeed(page = 1, preferGenres: number[] = []): Promise<{ items: ShortItem[]; personalized: boolean }> {
+async function fetchShortsFeed(page = 1, preferGenres: number[] = [], attempt = 0): Promise<{ items: ShortItem[]; personalized: boolean }> {
   // AbortSignal.timeout() crashes on Hermes — use AbortController+setTimeout
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 10000);
@@ -1431,6 +1431,13 @@ async function fetchShortsFeed(page = 1, preferGenres: number[] = []): Promise<{
     };
   } catch {
     clearTimeout(t);
+    // Retry on network error — domain may not be initialized yet (race condition).
+    // initApiDomain() runs async on startup; first few seconds getApiBase() may
+    // return a stale dev domain. Retry until init completes.
+    if (attempt < 3 && page === 1) {
+      await new Promise((resolve) => setTimeout(resolve, attempt === 0 ? 3000 : 5000));
+      return fetchShortsFeed(page, preferGenres, attempt + 1);
+    }
     return { items: [], personalized: false };
   }
 }
