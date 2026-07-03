@@ -2474,9 +2474,9 @@ const nvc = StyleSheet.create({
   wrap: {
     width: "100%",
     backgroundColor: "#000",
-    marginHorizontal: 12,
+    marginHorizontal: 14,
     marginBottom: 16,
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.14)",
     overflow: "hidden",
@@ -2529,7 +2529,7 @@ const nvc = StyleSheet.create({
     letterSpacing: 0.5, lineHeight: 11,
   },
   // ── Info section ──────────────────────────────────────────────
-  info: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 16, backgroundColor: "#000" },
+  info: { paddingHorizontal: 14, paddingTop: 14, paddingBottom: 16, backgroundColor: "#000" },
   infoChipsRow: {
     flexDirection: "row", alignItems: "center", gap: 8,
     marginBottom: 10, flexWrap: "wrap",
