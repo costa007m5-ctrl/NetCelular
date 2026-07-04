@@ -64,6 +64,30 @@ const DEFAULT_SRC: SourceSettings = { r2: false, drive: true, flix2: true, regul
 const isDriveItem = (i: RegistryItem) => !!i.driveUrl || i.driveFilePath != null;
 const isFlixItem  = (i: RegistryItem) => !!i.flix2Url;
 
+// Resolves a real, directly-downloadable file URL for offline download (native only).
+// Priority: R2 (signed URL, no proxy needed) → Google Drive (resolved + proxied for Cloudflare UA).
+// Flix 2.0 / IPTV sources are intentionally skipped — those are usually HLS/live-style feeds
+// that don't download reliably as a single progressive file.
+async function resolveRealDownloadUrl(r2Item?: RegistryItem, driveItem?: RegistryItem): Promise<string | undefined> {
+  if (Platform.OS === "web") return undefined;
+  if (r2Item?.r2Key) {
+    try {
+      const { apiSignedUrl } = await import("@/lib/r2-direct");
+      const signed = await apiSignedUrl(r2Item.r2Key, 86400);
+      if (signed?.url) return signed.url;
+    } catch {}
+  }
+  if (driveItem) {
+    try {
+      const { drivePlayDirect } = await import("@/lib/r2-direct");
+      const { getProxiedStreamUrl } = await import("@/lib/gdrive-index");
+      const resolved = await drivePlayDirect(driveItem.id);
+      if (resolved?.url) return getProxiedStreamUrl(resolved.url);
+    } catch {}
+  }
+  return undefined;
+}
+
 let WebView: any = null;
 try { WebView = require("react-native-webview").WebView; } catch {}
 
@@ -94,6 +118,8 @@ function EpisodeRow({
   onR2Press,
   onDrivePress,
   onFlixPress,
+  onDownloadPress,
+  downloadState,
 }: {
   ep: TmdbEpisode;
   watched: boolean;
@@ -104,6 +130,8 @@ function EpisodeRow({
   onR2Press?: () => void;
   onDrivePress?: () => void;
   onFlixPress?: () => void;
+  onDownloadPress?: () => void;
+  downloadState?: "idle" | "downloading" | "downloaded";
 }) {
   const [expanded, setExpanded] = useState(false);
   const [imgFailed, setImgFailed] = useState(false);
@@ -249,6 +277,42 @@ function EpisodeRow({
               <Feather name="cloud" size={14} color="#fff" />
             </Pressable>
           )}
+          {onDownloadPress && (
+            <Pressable
+              onPress={onDownloadPress}
+              disabled={downloadState === "downloading"}
+              style={[styles.epPlayBtn, { borderRadius: 8, padding: 4, marginTop: 4 }]}
+            >
+              {downloadState === "downloading" ? (
+                <ActivityIndicator size="small" color={colors.mutedForeground} />
+              ) : (
+                <Feather
+                  name={downloadState === "downloaded" ? "check-circle" : "download"}
+                  size={16}
+                  color={downloadState === "downloaded" ? "#4ade80" : colors.mutedForeground}
+                />
+              )}
+            </Pressable>
+          )}
+        </View>
+      )}
+      {flixOnly && onDownloadPress && (
+        <View style={[styles.epPlayCol, { justifyContent: "flex-start" }]}>
+          <Pressable
+            onPress={onDownloadPress}
+            disabled={downloadState === "downloading"}
+            style={[styles.epPlayBtn, { borderRadius: 8, padding: 4 }]}
+          >
+            {downloadState === "downloading" ? (
+              <ActivityIndicator size="small" color={colors.mutedForeground} />
+            ) : (
+              <Feather
+                name={downloadState === "downloaded" ? "check-circle" : "download"}
+                size={16}
+                color={downloadState === "downloaded" ? "#4ade80" : colors.mutedForeground}
+              />
+            )}
+          </Pressable>
         </View>
       )}
     </View>
@@ -501,6 +565,7 @@ export default function DetailScreen() {
   const [watchingCatalog, setWatchingCatalog] = useState(false);
   const [isDownloaded, setIsDownloaded] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [episodeDlState, setEpisodeDlState] = useState<Record<string, "idle" | "downloading" | "downloaded">>({});
   const [driveMatches, setDriveMatches] = useState<DriveMatch[]>([]);
   const [driveEpisodeMap, setDriveEpisodeMap] = useState<Record<number, DriveItem>>({});
   const [driveSeasonItems, setDriveSeasonItems] = useState<DriveItem[]>([]);
@@ -1376,6 +1441,80 @@ export default function DetailScreen() {
     isWatchingCatalog(tmdbId, type).then(setWatchingCatalog);
   }, [tmdbId, type]);
 
+  // Check which episodes of the currently selected season are already downloaded.
+  useEffect(() => {
+    if (!tmdbId || type !== "tv" || episodeList.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const entries = await Promise.all(
+        episodeList.map(async (ep) => {
+          const downloaded = await downloadsManager.isDownloaded(type, tmdbId, selectedSeason, ep.episode_number);
+          return [`s${selectedSeason}e${ep.episode_number}`, downloaded ? "downloaded" : "idle"] as const;
+        })
+      );
+      if (cancelled) return;
+      setEpisodeDlState((prev) => {
+        const next = { ...prev };
+        for (const [k, v] of entries) next[k] = v as "idle" | "downloaded";
+        return next;
+      });
+    })();
+    return () => { cancelled = true; };
+  }, [tmdbId, type, selectedSeason, episodeList]);
+
+  const handleEpisodeDownload = useCallback(async (
+    ep: TmdbEpisode,
+    r2Item: RegistryItem | undefined,
+    driveItem: RegistryItem | undefined,
+  ) => {
+    const epKey = `s${selectedSeason}e${ep.episode_number}`;
+    const currentState = episodeDlState[epKey] ?? "idle";
+
+    if (currentState === "downloaded") {
+      Alert.alert(
+        "Remover download",
+        `Remover "${ep.name || `Episódio ${ep.episode_number}`}" dos downloads?`,
+        [
+          { text: "Cancelar", style: "cancel" },
+          {
+            text: "Remover",
+            style: "destructive",
+            onPress: async () => {
+              await downloadsManager.remove(`${type}_${tmdbId}_s${selectedSeason}e${ep.episode_number}`);
+              setEpisodeDlState((prev) => ({ ...prev, [epKey]: "idle" }));
+            },
+          },
+        ]
+      );
+      return;
+    }
+    if (currentState === "downloading") return;
+
+    setEpisodeDlState((prev) => ({ ...prev, [epKey]: "downloading" }));
+    try {
+      const streamUrl = await resolveRealDownloadUrl(r2Item, driveItem);
+      const result = await downloadsManager.download({
+        tmdb_id: tmdbId,
+        type,
+        title: `${details?.title ?? details?.name ?? ""} — Ep. ${ep.episode_number}: ${ep.name ?? ""}`,
+        poster_path: TMDB_IMG(ep.still_path ?? effectivePosterPath, "w500") ?? "",
+        backdrop_path: TMDB_IMG(effectiveBackdropPath, "w1280") ?? "",
+        season: selectedSeason,
+        episode: ep.episode_number,
+        streamUrl,
+      });
+      if (result.error) {
+        Alert.alert("Erro", result.error);
+        setEpisodeDlState((prev) => ({ ...prev, [epKey]: "idle" }));
+        return;
+      }
+      setEpisodeDlState((prev) => ({ ...prev, [epKey]: "downloaded" }));
+    } catch {
+      Alert.alert("Erro", "Não foi possível baixar este episódio. Tente novamente.");
+      setEpisodeDlState((prev) => ({ ...prev, [epKey]: "idle" }));
+    }
+  }, [selectedSeason, episodeDlState, type, tmdbId, details, effectivePosterPath, effectiveBackdropPath]);
+
   // Load details
   useEffect(() => {
     if (!tmdbId) {
@@ -1903,17 +2042,9 @@ export default function DetailScreen() {
     }
     setDownloading(true);
     try {
-      let streamUrl: string | undefined;
-      if (Platform.OS !== "web") {
-        try {
-          const r2Item = r2Items.find((i) => !isDriveItem(i) && !isFlixItem(i) && i.r2Key);
-          if (r2Item?.r2Key) {
-            const { apiSignedUrl } = await import("@/lib/r2-direct");
-            const signed = await apiSignedUrl(r2Item.r2Key, 86400);
-            streamUrl = signed.url;
-          }
-        } catch {}
-      }
+      const r2Item = r2Items.find((i) => !isDriveItem(i) && !isFlixItem(i) && i.r2Key);
+      const driveItem = r2Items.find((i) => isDriveItem(i) && i.episode == null);
+      const streamUrl = await resolveRealDownloadUrl(r2Item, driveItem);
       const result = await downloadsManager.download({
         tmdb_id: tmdbId,
         type,
