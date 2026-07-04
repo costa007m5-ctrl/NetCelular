@@ -14,6 +14,9 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Feather } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
 import type { ContentItem } from "@/constants/content";
+import { useAuth } from "@/lib/auth-context";
+import { useAppliedContentItem } from "@/lib/content-edits";
+import { EditPosterModal } from "./EditPosterModal";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 export type CardVariant =
@@ -215,17 +218,21 @@ function QuickMenu({
 
 // ─── Poster Card (2:3) ────────────────────────────────────────────────────────
 const PosterCard = React.memo(function PosterCard({
-  item, width = 118, height = 170,
+  item: rawItem, width = 118, height = 170,
   showProgress, showRating, showBadge, showMatchScore, rank, isLive, accentColor,
   onPress, onLongPress,
 }: ContentCardProps) {
   const colors = useColors();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+  const item = useAppliedContentItem(rawItem);
   const scale = useRef(new Animated.Value(1)).current;
   const overlayOpacity = useRef(new Animated.Value(0)).current;
   const [imgError, setImgError] = useState(false);
   const [fallbackUri, setFallbackUri] = useState<string | null>(null);
   const [pressing, setPressing] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
+  const [editVisible, setEditVisible] = useState(false);
   const accent = accentColor ?? colors.primary;
 
   const handleImgError = useCallback(async () => {
@@ -395,21 +402,46 @@ const PosterCard = React.memo(function PosterCard({
 
           {/* Long press hint dot */}
           <View style={card.longPressHint} />
+
+          {/* Admin edit button */}
+          {isAdmin && (
+            <TouchableOpacity
+              onPress={(e) => { e.stopPropagation?.(); setEditVisible(true); }}
+              style={card.adminEditBtn}
+              hitSlop={8}
+              activeOpacity={0.75}
+            >
+              <Feather name="edit-2" size={11} color="#fff" />
+            </TouchableOpacity>
+          )}
         </Animated.View>
       </Pressable>
+      {isAdmin && (
+        <EditPosterModal
+          visible={editVisible}
+          onClose={() => setEditVisible(false)}
+          itemKey={item.id}
+          initialTitle={item.title}
+          initialType={item.type === "series" ? "series" : "movie"}
+        />
+      )}
     </>
   );
 });
 
 // ─── Backdrop Card (16:9 wide) ────────────────────────────────────────────────
 const BackdropCard = React.memo(function BackdropCard({
-  item, width = 260, height = 150,
+  item: rawItem, width = 260, height = 150,
   showProgress, showRating, showBadge, isLive, onPress, onLongPress,
 }: ContentCardProps) {
   const colors = useColors();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+  const item = useAppliedContentItem(rawItem);
   const scale = useRef(new Animated.Value(1)).current;
   const [imgError, setImgError] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
+  const [editVisible, setEditVisible] = useState(false);
 
   const onPressIn = useCallback(() =>
     Animated.spring(scale, { toValue: 0.95, useNativeDriver: true, speed: 28, bounciness: 3 }).start(), []);
@@ -499,8 +531,29 @@ const BackdropCard = React.memo(function BackdropCard({
               </View>
             </View>
           )}
+
+          {/* Admin edit button */}
+          {isAdmin && (
+            <TouchableOpacity
+              onPress={(e) => { e.stopPropagation?.(); setEditVisible(true); }}
+              style={card.adminEditBtn}
+              hitSlop={8}
+              activeOpacity={0.75}
+            >
+              <Feather name="edit-2" size={11} color="#fff" />
+            </TouchableOpacity>
+          )}
         </Animated.View>
       </Pressable>
+      {isAdmin && (
+        <EditPosterModal
+          visible={editVisible}
+          onClose={() => setEditVisible(false)}
+          itemKey={item.id}
+          initialTitle={item.title}
+          initialType={item.type === "series" ? "series" : "movie"}
+        />
+      )}
     </>
   );
 });
@@ -898,6 +951,14 @@ const card = StyleSheet.create({
     position: "absolute", bottom: 6, right: 6,
     width: 4, height: 4, borderRadius: 2,
     backgroundColor: "rgba(255,255,255,0.15)",
+  },
+  adminEditBtn: {
+    position: "absolute", top: 6, left: 6,
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.25)",
+    alignItems: "center", justifyContent: "center",
+    zIndex: 20,
   },
 });
 
