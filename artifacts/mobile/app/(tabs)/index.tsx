@@ -4248,21 +4248,6 @@ export default function HomeScreen() {
                 </>
               )}
 
-              {/* ── 17. DESTAQUES (square 1:1 cards) ────────────────────────── */}
-              {showMovies && pool_squareDestaques.length > 0 && (
-                <View style={styles.section}>
-                  <SectionHeader title="Destaques do Dia" icon="sun"
-                    accentColor={PINK}
-                    onSeeAll={() => openModal("Destaques do Dia", pool_squareDestaques, PINK)} />
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }} decelerationRate="fast">
-                    {pool_squareDestaques.map((item) => (
-                      <SquareCard key={item.id} item={item} onPress={() => goTo(item)} accentColor={PINK} />
-                    ))}
-                  </ScrollView>
-                </View>
-              )}
-
               {/* ── 18. SÉRIES MARATONA (tall portrait cards) ───────────────── */}
               {showSeries && pool_seriesMaraton.length > 0 && (
                 <View style={styles.section}>
@@ -4416,25 +4401,6 @@ export default function HomeScreen() {
                       else if (i === 1) router.push({ pathname: "/genre-browse", params: { genre_id: "18", type: "tv", title: "Série Maratona" } } as any);
                       else router.push("/novidades" as any);
                     }}
-                  />
-                </FadeInSection>
-              )}
-
-              {/* ── 34. DUO FEATURE BANNER ──────────────────────────────────── */}
-              {showAll && pool_duoMovie.length > 0 && pool_duoSeries.length > 0 && (
-                <FadeInSection delay={130}>
-                  <SectionDivider label="DESTAQUES" accentColor={PINK} />
-                  <GradientSectionHeader
-                    title="Não Perca"
-                    subtitle="Filme + Série em destaque"
-                    icon="star"
-                    accentColor={PINK}
-                  />
-                  <DuoFeatureBanner
-                    items={[pool_duoMovie[0], pool_duoSeries[0]]}
-                    onPress={goTo}
-                    labels={["🎬 FILME", "📺 SÉRIE"]}
-                    accents={[RED, PURPLE]}
                   />
                 </FadeInSection>
               )}
