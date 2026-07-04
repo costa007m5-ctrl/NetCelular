@@ -3506,6 +3506,18 @@ export default function HomeScreen() {
   const emAltaMovies = pool_emAltaMovies;
   const emAltaSeries = pool_emAltaSeries;
 
+  // ── Em Destaque Esta Semana — top-rated mix, offset past Top 10 ──────────────
+  const weeklyFeatured = useMemo(() => {
+    const top10Ids = new Set([...top10Movies, ...top10Series].map((i) => i.id));
+    return [...movies, ...series]
+      .filter((i) => (i.rating ?? 0) >= 7.0 && !top10Ids.has(i.id))
+      .sort((a, b) => {
+        const rd = (b.rating ?? 0) - (a.rating ?? 0);
+        return rd !== 0 ? rd : (b.year ?? 0) - (a.year ?? 0);
+      })
+      .slice(0, 12);
+  }, [movies, series, top10Movies, top10Series]);
+
   const showMovies     = activeCategory === "all" || activeCategory === "movie";
   const showSeries     = activeCategory === "all" || activeCategory === "tv";
   const showAnimes     = activeCategory === "all" || activeCategory === "anime";
@@ -4246,6 +4258,24 @@ export default function HomeScreen() {
                     <WideRow items={nowPlayingItems} onPress={goTo} />
                   </View>
                 </>
+              )}
+
+              {/* ── 17. EM DESTAQUE ESTA SEMANA (top-rated mix) ─────────────── */}
+              {weeklyFeatured.length > 0 && (
+                <View style={styles.section}>
+                  <SectionHeader
+                    title="Em Destaque Esta Semana"
+                    icon="star"
+                    accentColor={AMBER}
+                    onSeeAll={() => openModal("Em Destaque Esta Semana", weeklyFeatured, AMBER)}
+                  />
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }} decelerationRate="fast">
+                    {weeklyFeatured.map((item) => (
+                      <FeaturedCard key={item.id} item={item} onPress={() => goTo(item)} accentColor={AMBER} />
+                    ))}
+                  </ScrollView>
+                </View>
               )}
 
               {/* ── 18. SÉRIES MARATONA (tall portrait cards) ───────────────── */}
