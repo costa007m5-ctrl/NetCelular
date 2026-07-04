@@ -13,6 +13,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Feather } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
 import type { ContentItem } from "@/constants/content";
+import { AdminEditOverlay } from "@/components/AdminEditOverlay";
 
 interface TopTenCardProps {
   item: ContentItem;
@@ -208,6 +209,13 @@ export const TopTenCard = React.memo(function TopTenCard({ item, rank, onPress }
               <Feather name="heart" size={11} color={liked ? "#e50914" : "rgba(255,255,255,0.6)"} />
             </TouchableOpacity>
           </Animated.View>
+
+          {/* Admin edit overlay */}
+          <AdminEditOverlay
+            itemKey={item.id}
+            title={item.title}
+            type={item.type}
+          />
         </View>
 
         {/* Title + meta */}

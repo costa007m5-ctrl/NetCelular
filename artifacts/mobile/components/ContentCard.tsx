@@ -17,6 +17,7 @@ import type { ContentItem } from "@/constants/content";
 import { useAuth } from "@/lib/auth-context";
 import { useAppliedContentItem } from "@/lib/content-edits";
 import { EditPosterModal } from "./EditPosterModal";
+import { AdminEditOverlay } from "./AdminEditOverlay";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 export type CardVariant =
@@ -633,6 +634,9 @@ const SpotlightCard = React.memo(function SpotlightCard({
           <View style={sp.featuredPill}>
             <Text style={sp.featuredText}>✦ EM DESTAQUE</Text>
           </View>
+
+          {/* Admin edit overlay */}
+          <AdminEditOverlay itemKey={item.id} title={item.title} type={item.type} />
         </Animated.View>
       </Pressable>
     </>
@@ -710,6 +714,9 @@ const MiniCard = React.memo(function MiniCard({
         <TouchableOpacity onPress={onPress} style={mi.actionBtn} activeOpacity={0.7}>
           <Feather name="play" size={14} color="#e50914" />
         </TouchableOpacity>
+
+        {/* Admin edit overlay */}
+        <AdminEditOverlay itemKey={item.id} title={item.title} type={item.type} />
       </Animated.View>
     </Pressable>
   );
@@ -787,6 +794,9 @@ const FeaturedCard = React.memo(function FeaturedCard({
               </TouchableOpacity>
             </View>
           </View>
+
+          {/* Admin edit overlay */}
+          <AdminEditOverlay itemKey={item.id} title={item.title} type={item.type} />
         </Animated.View>
       </Pressable>
     </>
@@ -839,6 +849,9 @@ const SquareCard = React.memo(function SquareCard({
             <Text style={sq.rating}>★ {item.rating.toFixed(1)}</Text>
           )}
         </View>
+
+        {/* Admin edit overlay */}
+        <AdminEditOverlay itemKey={item.id} title={item.title} type={item.type} />
       </Animated.View>
     </Pressable>
   );

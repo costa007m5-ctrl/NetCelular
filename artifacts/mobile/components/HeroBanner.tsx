@@ -13,6 +13,7 @@ import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Feather } from "@expo/vector-icons";
 import type { ContentItem } from "@/constants/content";
+import { AdminEditOverlay } from "@/components/AdminEditOverlay";
 
 const CARD_MARGIN        = 7;   // px each side — small margin like Netflix
 const CARD_POSTER_RATIO  = 1.22; // height / width — slightly taller than wide
@@ -239,6 +240,9 @@ function HeroItem({ item, onWatch, onDetails, onAddToList, isActive, screenWidth
             </View>
           </Animated.View>
         </Pressable>
+
+        {/* Admin edit overlay — outside Pressable so it renders on top */}
+        <AdminEditOverlay itemKey={item.id} title={item.title} type={item.type} />
       </View>
     </View>
   );

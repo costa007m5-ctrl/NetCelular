@@ -10,5 +10,41 @@
     "year": 2023,
     "rating": 6.9,
     "updatedAt": 1783179529703
+  },
+  {
+    "key": "4156",
+    "tmdbId": 94664,
+    "tmdbType": "tv",
+    "title": "Mushoku Tensei: Jobless Reincarnation",
+    "posterPath": "https://image.tmdb.org/t/p/w342/sviEqFIPJW5gFtuYy8XyE0Uscid.jpg",
+    "backdropPath": "https://image.tmdb.org/t/p/w780/j9fRIimor0AMFJR9kjZubXcABzZ.jpg",
+    "overview": "Quando um fracassado de 34 anos é atropelado por um ônibus, sua história não acaba. Reencarnado em um novo mundo como criança, Rudy aproveitará cada oportunidade para viver a vida que sempre quis. Com novos amigos, habilidades mágicas e coragem para fazer tudo o que sempre sonhou, ele embarca em uma aventura épica – com toda a sua experiência do passado intacta!",
+    "year": 2021,
+    "rating": 8.6,
+    "updatedAt": 1783180506075
+  },
+  {
+    "key": "2985",
+    "tmdbId": 94997,
+    "tmdbType": "tv",
+    "title": "A Casa do Dragão",
+    "posterPath": "https://image.tmdb.org/t/p/w342/oKJDm4QCKbp6mR4FnxXrFlPJP8Y.jpg",
+    "backdropPath": "https://image.tmdb.org/t/p/w780/577eXC8wFQT0eUrJcgznSiFPRmk.jpg",
+    "overview": "200 anos antes dos eventos de \"Game of Thrones\", os Targaryen estavam no ápice de seu poder, tendo inúmeros dragões sob seu comando, mas nem tudo dura para sempre. O início do fim da dinastia Targaryen.",
+    "year": 2022,
+    "rating": 8.4,
+    "updatedAt": 1783180552859
+  },
+  {
+    "key": "3236",
+    "tmdbId": 136315,
+    "tmdbType": "tv",
+    "title": "O Urso",
+    "posterPath": "https://image.tmdb.org/t/p/w342/tAJYUFaWot3jn5vtDUoxNNIw9aF.jpg",
+    "backdropPath": "https://image.tmdb.org/t/p/w780/aJtG4txtmiRHwAAqENQHZvBs6kY.jpg",
+    "overview": "Carmy, um jovem chefe requintado, volta para Chicago para administrar a lanchonete de sua família. Enquanto ele luta para transformar a loja e a si mesmo, ele trabalha ao lado de uma equipe medíocre que acaba se transformando na sua família.",
+    "year": 2022,
+    "rating": 8.1,
+    "updatedAt": 1783180517319
   }
 ]

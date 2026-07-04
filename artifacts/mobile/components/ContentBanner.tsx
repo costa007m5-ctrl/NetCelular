@@ -10,6 +10,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Feather } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
 import type { ContentItem } from "@/constants/content";
+import { AdminEditOverlay } from "@/components/AdminEditOverlay";
 
 interface ContentBannerProps {
   item: ContentItem;
@@ -93,6 +94,9 @@ export function ContentBanner({
         <View style={styles.playCircle}>
           <Feather name="play" size={18} color="#fff" />
         </View>
+
+        {/* Admin edit overlay */}
+        <AdminEditOverlay itemKey={item.id} title={item.title} type={item.type} />
       </Pressable>
     </View>
   );
