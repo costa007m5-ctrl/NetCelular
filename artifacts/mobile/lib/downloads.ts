@@ -32,7 +32,7 @@ export interface ActiveDownload {
 }
 
 const STORAGE_KEY = "netplay_downloads_v1";
-const EXPIRY_DAYS = 20;
+const EXPIRY_DAYS = 7;
 export const MAX_STORAGE_MB = 10240;
 
 const _active = new Map<string, ActiveDownload>();
@@ -144,15 +144,40 @@ export const downloadsManager = {
     if (content.streamUrl && Platform.OS === "web") {
       // ── Web: real download via fetch + ReadableStream → Blob → <a download> ──
       // Progress is tracked byte-by-byte. File lands in the device's Downloads folder.
+
+      // Request notification permission (must be in user-gesture context)
+      let _dlNotif: Notification | null = null;
+      if (typeof Notification !== "undefined") {
+        if (Notification.permission === "default") {
+          Notification.requestPermission().catch(() => {});
+        }
+        if (Notification.permission === "granted") {
+          try {
+            _dlNotif = new Notification("⬇️ Baixando conteúdo...", {
+              body: content.title,
+              tag: `netplay-dl-${key}`,
+              silent: true,
+            });
+          } catch {}
+        }
+      }
+
       try {
         const response = await fetch(content.streamUrl);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+        // Detect HLS streams — cannot be downloaded as a single file
+        const ct = response.headers.get("content-type") ?? "";
+        if (ct.includes("mpegurl") || ct.includes("x-mpegURL")) {
+          throw new Error("Streams HLS não podem ser baixados como arquivo único. Use um player.");
+        }
+
         const reader = response.body?.getReader();
         if (!reader) throw new Error("Stream indisponível");
 
         const contentLength = +(response.headers.get("content-length") || "0");
         const estimatedBytes = contentLength || size_mb * 1024 * 1024;
-        const chunks: Uint8Array[] = [];
+        const chunks: BlobPart[] = [];
         let received = 0;
         const startTime = Date.now();
 
@@ -201,7 +226,19 @@ export const downloadsManager = {
 
         const finalCurr = _active.get(key);
         if (finalCurr) { finalCurr.progress = 100; finalCurr.size_mb = actualSizeMb; notify(); }
+
+        // Close "Downloading" notification and show "Done"
+        try { _dlNotif?.close(); } catch {}
+        if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+          try {
+            new Notification("✅ Download concluído!", {
+              body: `${content.title} — salvo nos Downloads`,
+              tag: `netplay-dl-done-${key}`,
+            });
+          } catch {}
+        }
       } catch (e: any) {
+        try { _dlNotif?.close(); } catch {}
         _active.delete(key);
         notify();
         return { error: `Falha no download: ${e?.message ?? "erro desconhecido"}` };

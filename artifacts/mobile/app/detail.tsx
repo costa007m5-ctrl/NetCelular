@@ -64,17 +64,25 @@ const DEFAULT_SRC: SourceSettings = { r2: false, drive: true, flix2: true, regul
 const isDriveItem = (i: RegistryItem) => !!i.driveUrl || i.driveFilePath != null;
 const isFlixItem  = (i: RegistryItem) => !!i.flix2Url;
 
+// Returns true for HLS manifest URLs that cannot be downloaded as a single file.
+function isHLSUrl(url: string): boolean {
+  return url.includes(".m3u8") || url.includes("type=m3u8") || url.includes("manifest.mpd");
+}
+
 // Resolves a real, directly-downloadable file URL for offline download.
-// Web: uses same-origin API proxy URL (no signing needed, browser downloads it directly).
-// Native: uses signed R2 URL or proxied Drive URL via expo-file-system.
-// Flix 2.0 / IPTV sources are intentionally skipped — those are HLS/live-style feeds
-// that don't download reliably as a single progressive file.
-async function resolveRealDownloadUrl(r2Item?: RegistryItem, driveItem?: RegistryItem): Promise<string | undefined> {
+// Priority: R2 → Drive → Flix2/Veo (MP4 only — HLS streams are skipped).
+// Web: same-origin API proxy (no signing needed). Native: signed/direct URLs.
+async function resolveRealDownloadUrl(
+  r2Item?: RegistryItem,
+  driveItem?: RegistryItem,
+  flixItem?: RegistryItem,
+): Promise<string | undefined> {
   if (Platform.OS === "web") {
-    // Same-origin proxy URL — browser can download it directly with <a download>
+    // R2: same-origin proxy URL — browser downloads it directly with <a download>
     if (r2Item?.r2Key) {
       return `/api/r2/stream?key=${encodeURIComponent(r2Item.r2Key)}`;
     }
+    // Drive: proxied stream URL
     if (driveItem) {
       try {
         const { drivePlayDirect } = await import("@/lib/r2-direct");
@@ -83,9 +91,14 @@ async function resolveRealDownloadUrl(r2Item?: RegistryItem, driveItem?: Registr
         if (resolved?.url) return getProxiedStreamUrl(resolved.url);
       } catch {}
     }
+    // Flix2/Veo: proxy through API server (same-origin). Skip HLS manifests.
+    if (flixItem?.flix2Url && !isHLSUrl(flixItem.flix2Url)) {
+      return `/api/stream/proxy?url=${encodeURIComponent(flixItem.flix2Url)}`;
+    }
     return undefined;
   }
-  // Native: signed R2 URL (bypasses proxy, faster) or proxied Drive URL
+
+  // Native: signed R2 URL (bypasses proxy, faster)
   if (r2Item?.r2Key) {
     try {
       const { apiSignedUrl } = await import("@/lib/r2-direct");
@@ -93,6 +106,7 @@ async function resolveRealDownloadUrl(r2Item?: RegistryItem, driveItem?: Registr
       if (signed?.url) return signed.url;
     } catch {}
   }
+  // Native: proxied Drive URL
   if (driveItem) {
     try {
       const { drivePlayDirect } = await import("@/lib/r2-direct");
@@ -100,6 +114,10 @@ async function resolveRealDownloadUrl(r2Item?: RegistryItem, driveItem?: Registr
       const resolved = await drivePlayDirect(driveItem.id);
       if (resolved?.url) return getProxiedStreamUrl(resolved.url);
     } catch {}
+  }
+  // Native: Flix2/Veo direct URL (skip HLS)
+  if (flixItem?.flix2Url && !isHLSUrl(flixItem.flix2Url)) {
+    return flixItem.flix2Url;
   }
   return undefined;
 }
@@ -136,6 +154,7 @@ function EpisodeRow({
   onFlixPress,
   onDownloadPress,
   downloadState,
+  downloadProgress,
 }: {
   ep: TmdbEpisode;
   watched: boolean;
@@ -148,6 +167,7 @@ function EpisodeRow({
   onFlixPress?: () => void;
   onDownloadPress?: () => void;
   downloadState?: "idle" | "downloading" | "downloaded";
+  downloadProgress?: number;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [imgFailed, setImgFailed] = useState(false);
@@ -297,10 +317,17 @@ function EpisodeRow({
             <Pressable
               onPress={onDownloadPress}
               disabled={downloadState === "downloading"}
-              style={[styles.epPlayBtn, { borderRadius: 8, padding: 4, marginTop: 4 }]}
+              style={[styles.epPlayBtn, { borderRadius: 8, padding: 4, marginTop: 4, alignItems: "center" }]}
             >
               {downloadState === "downloading" ? (
-                <ActivityIndicator size="small" color={colors.mutedForeground} />
+                <>
+                  <ActivityIndicator size="small" color={colors.mutedForeground} />
+                  {(downloadProgress ?? 0) > 0 && (
+                    <Text style={{ color: colors.mutedForeground, fontSize: 8, marginTop: 2, fontWeight: "700" }}>
+                      {downloadProgress}%
+                    </Text>
+                  )}
+                </>
               ) : (
                 <Feather
                   name={downloadState === "downloaded" ? "check-circle" : "download"}
@@ -317,10 +344,17 @@ function EpisodeRow({
           <Pressable
             onPress={onDownloadPress}
             disabled={downloadState === "downloading"}
-            style={[styles.epPlayBtn, { borderRadius: 8, padding: 4 }]}
+            style={[styles.epPlayBtn, { borderRadius: 8, padding: 4, alignItems: "center" }]}
           >
             {downloadState === "downloading" ? (
-              <ActivityIndicator size="small" color={colors.mutedForeground} />
+              <>
+                <ActivityIndicator size="small" color={colors.mutedForeground} />
+                {(downloadProgress ?? 0) > 0 && (
+                  <Text style={{ color: colors.mutedForeground, fontSize: 8, marginTop: 2, fontWeight: "700" }}>
+                    {downloadProgress}%
+                  </Text>
+                )}
+              </>
             ) : (
               <Feather
                 name={downloadState === "downloaded" ? "check-circle" : "download"}
@@ -582,6 +616,7 @@ export default function DetailScreen() {
   const [isDownloaded, setIsDownloaded] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [episodeDlState, setEpisodeDlState] = useState<Record<string, "idle" | "downloading" | "downloaded">>({});
+  const [episodeDlProgress, setEpisodeDlProgress] = useState<Record<string, number>>({});
   const [driveMatches, setDriveMatches] = useState<DriveMatch[]>([]);
   const [driveEpisodeMap, setDriveEpisodeMap] = useState<Record<number, DriveItem>>({});
   const [driveSeasonItems, setDriveSeasonItems] = useState<DriveItem[]>([]);
@@ -1482,6 +1517,7 @@ export default function DetailScreen() {
     ep: TmdbEpisode,
     r2Item: RegistryItem | undefined,
     driveItem: RegistryItem | undefined,
+    flixItem?: RegistryItem,
   ) => {
     const epKey = `s${selectedSeason}e${ep.episode_number}`;
     const currentState = episodeDlState[epKey] ?? "idle";
@@ -1498,6 +1534,7 @@ export default function DetailScreen() {
             onPress: async () => {
               await downloadsManager.remove(`${type}_${tmdbId}_s${selectedSeason}e${ep.episode_number}`);
               setEpisodeDlState((prev) => ({ ...prev, [epKey]: "idle" }));
+              setEpisodeDlProgress((prev) => { const n = { ...prev }; delete n[epKey]; return n; });
             },
           },
         ]
@@ -1506,30 +1543,44 @@ export default function DetailScreen() {
     }
     if (currentState === "downloading") return;
 
+    // Request notification permission on first user gesture (web only)
+    if (Platform.OS === "web" && typeof Notification !== "undefined" && Notification.permission === "default") {
+      Notification.requestPermission().catch(() => {});
+    }
+
     setEpisodeDlState((prev) => ({ ...prev, [epKey]: "downloading" }));
+    setEpisodeDlProgress((prev) => ({ ...prev, [epKey]: 0 }));
     try {
       const posterPath = details?.poster_path ?? contentOverride?.poster_path ?? overridePoster ?? null;
       const backdropPath = details?.backdrop_path ?? contentOverride?.backdrop_path ?? overrideBackdrop ?? null;
-      const streamUrl = await resolveRealDownloadUrl(r2Item, driveItem);
-      const result = await downloadsManager.download({
-        tmdb_id: tmdbId,
-        type,
-        title: `${details?.title ?? details?.name ?? ""} — Ep. ${ep.episode_number}: ${ep.name ?? ""}`,
-        poster_path: TMDB_IMG(ep.still_path ?? posterPath, "w500") ?? "",
-        backdrop_path: TMDB_IMG(backdropPath, "w1280") ?? "",
-        season: selectedSeason,
-        episode: ep.episode_number,
-        streamUrl,
-      });
+      const streamUrl = await resolveRealDownloadUrl(r2Item, driveItem, flixItem);
+      const result = await downloadsManager.download(
+        {
+          tmdb_id: tmdbId,
+          type,
+          title: `${details?.title ?? details?.name ?? ""} — Ep. ${ep.episode_number}: ${ep.name ?? ""}`,
+          poster_path: TMDB_IMG(ep.still_path ?? posterPath, "w500") ?? "",
+          backdrop_path: TMDB_IMG(backdropPath, "w1280") ?? "",
+          season: selectedSeason,
+          episode: ep.episode_number,
+          streamUrl,
+        },
+        (pct) => {
+          setEpisodeDlProgress((prev) => ({ ...prev, [epKey]: pct }));
+        }
+      );
       if (result.error) {
         Alert.alert("Erro", result.error);
         setEpisodeDlState((prev) => ({ ...prev, [epKey]: "idle" }));
+        setEpisodeDlProgress((prev) => { const n = { ...prev }; delete n[epKey]; return n; });
         return;
       }
       setEpisodeDlState((prev) => ({ ...prev, [epKey]: "downloaded" }));
+      setEpisodeDlProgress((prev) => ({ ...prev, [epKey]: 100 }));
     } catch {
       Alert.alert("Erro", "Não foi possível baixar este episódio. Tente novamente.");
       setEpisodeDlState((prev) => ({ ...prev, [epKey]: "idle" }));
+      setEpisodeDlProgress((prev) => { const n = { ...prev }; delete n[epKey]; return n; });
     }
   }, [selectedSeason, episodeDlState, type, tmdbId, details, contentOverride, overridePoster, overrideBackdrop]);
 
@@ -5195,7 +5246,8 @@ export default function DetailScreen() {
                             return undefined;
                           })()}
                           downloadState={episodeDlState[epDlKey] ?? "idle"}
-                          onDownloadPress={hasSource ? () => handleEpisodeDownload(ep, r2Ep, anyDriveItem) : undefined}
+                          downloadProgress={episodeDlProgress[epDlKey] ?? 0}
+                          onDownloadPress={hasSource ? () => handleEpisodeDownload(ep, r2Ep, anyDriveItem, anyFlixItem) : undefined}
                         />
                       );
                     });
