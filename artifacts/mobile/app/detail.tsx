@@ -1492,13 +1492,15 @@ export default function DetailScreen() {
 
     setEpisodeDlState((prev) => ({ ...prev, [epKey]: "downloading" }));
     try {
+      const posterPath = details?.poster_path ?? contentOverride?.poster_path ?? overridePoster ?? null;
+      const backdropPath = details?.backdrop_path ?? contentOverride?.backdrop_path ?? overrideBackdrop ?? null;
       const streamUrl = await resolveRealDownloadUrl(r2Item, driveItem);
       const result = await downloadsManager.download({
         tmdb_id: tmdbId,
         type,
         title: `${details?.title ?? details?.name ?? ""} — Ep. ${ep.episode_number}: ${ep.name ?? ""}`,
-        poster_path: TMDB_IMG(ep.still_path ?? effectivePosterPath, "w500") ?? "",
-        backdrop_path: TMDB_IMG(effectiveBackdropPath, "w1280") ?? "",
+        poster_path: TMDB_IMG(ep.still_path ?? posterPath, "w500") ?? "",
+        backdrop_path: TMDB_IMG(backdropPath, "w1280") ?? "",
         season: selectedSeason,
         episode: ep.episode_number,
         streamUrl,
@@ -1513,7 +1515,7 @@ export default function DetailScreen() {
       Alert.alert("Erro", "Não foi possível baixar este episódio. Tente novamente.");
       setEpisodeDlState((prev) => ({ ...prev, [epKey]: "idle" }));
     }
-  }, [selectedSeason, episodeDlState, type, tmdbId, details, effectivePosterPath, effectiveBackdropPath]);
+  }, [selectedSeason, episodeDlState, type, tmdbId, details, contentOverride, overridePoster, overrideBackdrop]);
 
   // Load details
   useEffect(() => {
