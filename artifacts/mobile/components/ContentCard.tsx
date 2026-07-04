@@ -236,6 +236,16 @@ const PosterCard = React.memo(function PosterCard({
   const [editVisible, setEditVisible] = useState(false);
   const accent = accentColor ?? colors.primary;
 
+  // Reset image error when poster changes (e.g. after admin saves an edit)
+  const posterRef = useRef(item.posterPath);
+  useEffect(() => {
+    if (posterRef.current !== item.posterPath) {
+      posterRef.current = item.posterPath;
+      setImgError(false);
+      setFallbackUri(null);
+    }
+  }, [item.posterPath]);
+
   const handleImgError = useCallback(async () => {
     if (fallbackUri) { setImgError(true); return; }
     const tmdbId = (item as any).tmdbId;
@@ -443,6 +453,16 @@ const BackdropCard = React.memo(function BackdropCard({
   const [imgError, setImgError] = useState(false);
   const [menuVisible, setMenuVisible] = useState(false);
   const [editVisible, setEditVisible] = useState(false);
+
+  // Reset image error when poster/backdrop changes (e.g. after admin saves an edit)
+  const imgKeyRef = useRef(`${item.backdropPath}|${item.posterPath}`);
+  useEffect(() => {
+    const next = `${item.backdropPath}|${item.posterPath}`;
+    if (imgKeyRef.current !== next) {
+      imgKeyRef.current = next;
+      setImgError(false);
+    }
+  }, [item.backdropPath, item.posterPath]);
 
   const onPressIn = useCallback(() =>
     Animated.spring(scale, { toValue: 0.95, useNativeDriver: true, speed: 28, bounciness: 3 }).start(), []);

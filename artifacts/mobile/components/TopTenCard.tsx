@@ -14,6 +14,7 @@ import { Feather } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
 import type { ContentItem } from "@/constants/content";
 import { AdminEditOverlay } from "@/components/AdminEditOverlay";
+import { useAppliedContentItem } from "@/lib/content-edits";
 
 interface TopTenCardProps {
   item: ContentItem;
@@ -93,12 +94,22 @@ function TrendBadge({ rank, change }: { rank: number; change?: number }) {
   );
 }
 
-export const TopTenCard = React.memo(function TopTenCard({ item, rank, onPress }: TopTenCardProps) {
+export const TopTenCard = React.memo(function TopTenCard({ item: rawItem, rank, onPress }: TopTenCardProps) {
   const colors = useColors();
+  const item = useAppliedContentItem(rawItem);
   const scale = useRef(new Animated.Value(0.92)).current;
   const [imgError, setImgError] = useState(false);
   const [liked, setLiked] = useState(false);
   const heartScale = useRef(new Animated.Value(1)).current;
+
+  // Reset image error whenever the poster URL changes (e.g. after an admin edit)
+  const posterRef = useRef(item.posterPath);
+  useEffect(() => {
+    if (posterRef.current !== item.posterPath) {
+      posterRef.current = item.posterPath;
+      setImgError(false);
+    }
+  }, [item.posterPath]);
 
   const cfg = RANK_CFG[rank];
   const accent = cfg?.colors[0] ?? "#e50914";
