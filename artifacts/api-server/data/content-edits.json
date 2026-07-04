@@ -21,7 +21,7 @@
     "overview": "Quando um fracassado de 34 anos é atropelado por um ônibus, sua história não acaba. Reencarnado em um novo mundo como criança, Rudy aproveitará cada oportunidade para viver a vida que sempre quis. Com novos amigos, habilidades mágicas e coragem para fazer tudo o que sempre sonhou, ele embarca em uma aventura épica – com toda a sua experiência do passado intacta!",
     "year": 2021,
     "rating": 8.6,
-    "updatedAt": 1783180965876
+    "updatedAt": 1783181592019
   },
   {
     "key": "2985",
@@ -46,5 +46,77 @@
     "year": 2022,
     "rating": 8.1,
     "updatedAt": 1783180517319
+  },
+  {
+    "key": "30",
+    "tmdbId": 42009,
+    "tmdbType": "tv",
+    "title": "Black Mirror",
+    "posterPath": "https://image.tmdb.org/t/p/w342/aCTL24B8ZuiI2osMwoUI5rqBXoF.jpg",
+    "backdropPath": "https://image.tmdb.org/t/p/w780/dg3OindVAGZBjlT3xYKqIAdukPL.jpg",
+    "overview": "As histórias bizarras não têm limite nesta série antológica que revela o pior da humanidade, suas maiores invenções e muito mais.",
+    "year": 2011,
+    "rating": 8.3,
+    "updatedAt": 1783181691405
+  },
+  {
+    "key": "31",
+    "tmdbId": 62710,
+    "tmdbType": "tv",
+    "title": "Ponto Cego",
+    "posterPath": "https://image.tmdb.org/t/p/w342/pYyKZZlb3nd5ASbiuIxva718bp2.jpg",
+    "backdropPath": "https://image.tmdb.org/t/p/w780/1GWiao0QYuKsoTvUmd7ivnE3qDY.jpg",
+    "overview": "Misteriosa mulher é encontrada na Times Square, sem quaisquer lembranças de quem ela é e de como chegou ali. As únicas pistas que ela possui são as tatuagens que cobrem todo o seu corpo. Um agente do FBI passa a ajudá-la enquanto buscam a verdade.",
+    "year": 2015,
+    "rating": 7.4,
+    "updatedAt": 1783181695870
+  },
+  {
+    "key": "34",
+    "tmdbId": 1911,
+    "tmdbType": "tv",
+    "title": "Bones",
+    "posterPath": "https://image.tmdb.org/t/p/w342/rElaRnNez2dXBCMv1THHdVcroFY.jpg",
+    "backdropPath": "https://image.tmdb.org/t/p/w780/aSye04zKzWtUP3U6Cl4bOXc5Ih9.jpg",
+    "overview": "A Dra. Temperance Brennan é uma antropóloga forense altamente qualificada que trabalha no Instituto Jeffersonian e escreve romances. Ela possui um talento impressionante para enxergar pistas em ossos de vítimas, e por isso a polícia a chama para ajudar em investigações quando os restos mortais estão tão decompostos, queimados ou destruídos que métodos de identificação padrão são inúteis. Temperance frequentemente trabalha em parceria com o agente especial Seeley Booth, ex-atirador de elite do exército que não confia na ciência ou em cientistas para resolver crimes, mas desenvolveu um respeito pessoal e profissional por Temperance.",
+    "year": 2005,
+    "rating": 8.2,
+    "updatedAt": 1783181702190
+  },
+  {
+    "key": "36",
+    "tmdbId": 70484,
+    "tmdbType": "tv",
+    "title": "Britannia",
+    "posterPath": "https://image.tmdb.org/t/p/w342/fjdXymXAas9NSehc6GCOHQcEM05.jpg",
+    "backdropPath": "https://image.tmdb.org/t/p/w780/9I27ONgKUNlboFFT35el1MZYKnN.jpg",
+    "overview": "Em 43 d.C., a misteriosa e conturbada Britannia, ocupada por várias tribos em guerra, é invadida por um exército forasteiro que provoca o caos. Logo, os rivais celtas Kerra e Antedia devem enfrentar a invasão romana liderada por Aulus Plautius.",
+    "year": 2018,
+    "rating": 6.9,
+    "updatedAt": 1783181712505
+  },
+  {
+    "key": "37",
+    "tmdbId": 48891,
+    "tmdbType": "tv",
+    "title": "Brooklyn Nine-Nine: Lei e Desordem",
+    "posterPath": "https://image.tmdb.org/t/p/w342/A3SymGlOHefSKbz1bCOz56moupS.jpg",
+    "backdropPath": "https://image.tmdb.org/t/p/w780/9AeiA1XtP5sel2tAf9LaGeUjhDb.jpg",
+    "overview": "O brilhante e imaturo detetive Jake Peralta precisa aprender a seguir as regras e trabalhar em equipe quando um capitão exigente assume o comando de seu esquadrão.",
+    "year": 2013,
+    "rating": 8.2,
+    "updatedAt": 1783181718490
+  },
+  {
+    "key": "38",
+    "tmdbId": 74175,
+    "tmdbType": "tv",
+    "title": "Carcereiros",
+    "posterPath": "https://image.tmdb.org/t/p/w342/odn7gdoSfOwXZbm3Tf1JBOkAkdr.jpg",
+    "backdropPath": "https://image.tmdb.org/t/p/w780/7hKVJT7ru9TeMOpj1w9dNDALN3U.jpg",
+    "overview": "Adriano é um carcereiro responsável por passar o cadeado e controlar o acesso às celas de um presídio. Íntegro e avesso à violência, ele tenta garantir a tranquilidade no ambiente de trabalho, enquanto os dilemas em casa tomam proporções inesperadas.",
+    "year": 2017,
+    "rating": 8.3,
+    "updatedAt": 1783181726901
   }
 ]

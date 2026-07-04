@@ -4,6 +4,8 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AdminEditOverlay } from "@/components/AdminEditOverlay";
+import { useAppliedContentItem } from "@/lib/content-edits";
 import {
   Animated,
   Dimensions,
@@ -404,14 +406,20 @@ export function TimeGreetingBanner({ name, accentColor = C.indigo, timeOfDay }: 
 }
 
 // ─── 11. Glassmorphism Featured Card ─────────────────────────────────────────
-export function GlassFeaturedCard({ item, accent = C.purple, onPress }: { item: ContentItem; accent?: string; onPress: () => void }) {
+export function GlassFeaturedCard({ item: rawItem, accent = C.purple, onPress }: { item: ContentItem; accent?: string; onPress: () => void }) {
+  const item = useAppliedContentItem(rawItem);
   const { scale, pi, po } = usePressAnim(0.95);
   const [err, setErr] = useState(false);
+  const imgKey = useRef(`${item.backdropPath}|${item.posterPath}`);
+  useEffect(() => {
+    const next = `${item.backdropPath}|${item.posterPath}`;
+    if (imgKey.current !== next) { imgKey.current = next; setErr(false); }
+  }, [item.backdropPath, item.posterPath]);
   return (
     <Pressable onPress={onPress} onPressIn={pi} onPressOut={po} style={{ marginHorizontal: 16, marginBottom: 24 }}>
       <Animated.View style={[gf.card, { borderColor: `${accent}33`, transform: [{ scale }] }]}>
-        {!err && item.backdropPath
-          ? <Image source={{ uri: item.backdropPath }} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" onError={() => setErr(true)} />
+        {!err && (item.backdropPath || item.posterPath)
+          ? <Image source={{ uri: item.backdropPath || item.posterPath }} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" onError={() => setErr(true)} />
           : <LinearGradient colors={["#1a1030", "#0a0814"]} style={StyleSheet.absoluteFill} />}
         <LinearGradient colors={["transparent", "rgba(6,4,14,0.96)"]} locations={[0.3, 1]} style={StyleSheet.absoluteFill} />
         {/* Glow border */}
@@ -445,6 +453,7 @@ export function GlassFeaturedCard({ item, accent = C.purple, onPress }: { item: 
             </View>
           </View>
         </View>
+        <AdminEditOverlay itemKey={item.id} title={item.title} type={item.type} />
       </Animated.View>
     </Pressable>
   );
@@ -1390,15 +1399,21 @@ export function SpotlightCarousel({ items, onPress }: { items: ContentItem[]; on
     </View>
   );
 }
-function SpotlightCard({ item, scale, opacity, onPress }: { item: ContentItem; scale: any; opacity: any; onPress: () => void }) {
+function SpotlightCard({ item: rawItem, scale, opacity, onPress }: { item: ContentItem; scale: any; opacity: any; onPress: () => void }) {
+  const item = useAppliedContentItem(rawItem);
   const [err, setErr] = useState(false);
   const { scale: sc, pi, po } = usePressAnim(0.97);
+  const imgKey = useRef(`${item.backdropPath}|${item.posterPath}`);
+  useEffect(() => {
+    const next = `${item.backdropPath}|${item.posterPath}`;
+    if (imgKey.current !== next) { imgKey.current = next; setErr(false); }
+  }, [item.backdropPath, item.posterPath]);
   return (
     <Pressable onPress={onPress} onPressIn={pi} onPressOut={po}>
       <Animated.View style={{ width: SPOT_CARD_W, height: 220, borderRadius: 20, overflow: "hidden", transform: [{ scale: Animated.multiply(scale, sc) }], opacity,
         ...Platform.select({ ios: { shadowColor: "#000", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.5, shadowRadius: 20 }, android: { elevation: 14 } }) }}>
-        {!err && item.backdropPath
-          ? <Image source={{ uri: item.backdropPath }} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" onError={() => setErr(true)} />
+        {!err && (item.backdropPath || item.posterPath)
+          ? <Image source={{ uri: item.backdropPath || item.posterPath }} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" onError={() => setErr(true)} />
           : <LinearGradient colors={["#1a0a14","#08060e"]} style={StyleSheet.absoluteFill} />}
         <LinearGradient colors={["rgba(0,0,0,0.05)","rgba(0,0,0,0.38)","rgba(0,0,0,0.95)"]} locations={[0,0.45,1]} style={StyleSheet.absoluteFill} />
         <LinearGradient colors={["rgba(0,0,0,0.5)","transparent"]} start={{ x:0,y:0 }} end={{ x:0.4,y:0 }} style={StyleSheet.absoluteFill} />
@@ -1420,6 +1435,7 @@ function SpotlightCard({ item, scale, opacity, onPress }: { item: ContentItem; s
             </View>
           </View>
         </View>
+        <AdminEditOverlay itemKey={item.id} title={item.title} type={item.type} />
       </Animated.View>
     </Pressable>
   );

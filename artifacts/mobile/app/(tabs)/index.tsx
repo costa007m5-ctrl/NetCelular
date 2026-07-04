@@ -2287,13 +2287,19 @@ const FranchiseCircleItem = React.memo(function FranchiseCircleItem({
 });
 
 // ── Square card (1:1 ratio) ───────────────────────────────────────────────────
-function SquareCard({ item, onPress, accentColor = RED }: {
+function SquareCard({ item: rawItem, onPress, accentColor = RED }: {
   item: ContentItem; onPress: () => void; accentColor?: string;
 }) {
+  const item = useAppliedContentItem(rawItem);
   const sc = useRef(new Animated.Value(1)).current;
   const [err, setErr] = useState(false);
   const pi = () => Animated.spring(sc, { toValue: 0.92, useNativeDriver: true, speed: 30 }).start();
   const po = () => Animated.spring(sc, { toValue: 1,    useNativeDriver: true, speed: 26 }).start();
+  const imgKey = useRef(`${item.backdropPath}|${item.posterPath}`);
+  useEffect(() => {
+    const next = `${item.backdropPath}|${item.posterPath}`;
+    if (imgKey.current !== next) { imgKey.current = next; setErr(false); }
+  }, [item.backdropPath, item.posterPath]);
   return (
     <Pressable onPress={onPress} onPressIn={pi} onPressOut={po}>
       <Animated.View style={[styles.squareCard, { transform: [{ scale: sc }] }]}>
@@ -2316,17 +2322,23 @@ function SquareCard({ item, onPress, accentColor = RED }: {
           <Text style={styles.squareTitle} numberOfLines={2}>{item.title}</Text>
           <Text style={styles.squareMeta}>{item.type === "movie" ? "Filme" : "Série"}</Text>
         </View>
+        <AdminEditOverlay itemKey={item.id} title={item.title} type={item.type} />
       </Animated.View>
     </Pressable>
   );
 }
 
 // ── Tall poster card (portrait 2:3.5) ────────────────────────────────────────
-function TallCard({ item, onPress }: { item: ContentItem; onPress: () => void }) {
+function TallCard({ item: rawItem, onPress }: { item: ContentItem; onPress: () => void }) {
+  const item = useAppliedContentItem(rawItem);
   const sc = useRef(new Animated.Value(1)).current;
   const [err, setErr] = useState(false);
   const pi = () => Animated.spring(sc, { toValue: 0.93, useNativeDriver: true, speed: 30 }).start();
   const po = () => Animated.spring(sc, { toValue: 1,    useNativeDriver: true, speed: 26 }).start();
+  const posterRef = useRef(item.posterPath);
+  useEffect(() => {
+    if (posterRef.current !== item.posterPath) { posterRef.current = item.posterPath; setErr(false); }
+  }, [item.posterPath]);
   return (
     <Pressable onPress={onPress} onPressIn={pi} onPressOut={po}>
       <Animated.View style={[styles.tallCard, { transform: [{ scale: sc }] }]}>
@@ -2347,6 +2359,7 @@ function TallCard({ item, onPress }: { item: ContentItem; onPress: () => void })
           )}
           <Text style={styles.tallTitle} numberOfLines={2}>{item.title}</Text>
         </View>
+        <AdminEditOverlay itemKey={item.id} title={item.title} type={item.type} />
       </Animated.View>
     </Pressable>
   );
