@@ -118,5 +118,17 @@
     "year": 2017,
     "rating": 8.3,
     "updatedAt": 1783181726901
+  },
+  {
+    "key": "24h_simpsons",
+    "tmdbId": 456,
+    "tmdbType": "tv",
+    "title": "Os Simpsons",
+    "posterPath": "https://image.tmdb.org/t/p/w342/1jGPgDDcmg3Xgs3WO8sfYfbnFoA.jpg",
+    "backdropPath": "https://image.tmdb.org/t/p/w780/jIArNHIekrCSVgdMbKPAXpPY03Y.jpg",
+    "overview": "Uma animação sobre uma típica família dos Estados Unidos. Homer é o pai de família nada saudável ou inteligente, que adora beber cerveja. Marge é a esposa e mãe de família dedicada. Bart é o filho de 10 anos, que não leva a escola a sério e tem orgulho disso. Lisa é a garota de 8 anos, um gênio não apreciado. E Maggie é a bebê que não larga a chupeta.",
+    "year": 1989,
+    "rating": 8,
+    "updatedAt": 1783197330149
   }
 ]
