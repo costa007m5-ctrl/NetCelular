@@ -6097,4 +6097,60 @@ router.get("/flix2/check-ids", (req: any, res: any) => {
   }
 });
 
+// ── POST /report/player-error ─────────────────────────────────────────────────
+// Receives player error reports from users. Logs server-side and persists to
+// Supabase `player_error_reports` table (created automatically on first use).
+router.post("/report/player-error", async (req: any, res: any) => {
+  try {
+    const { title, errorMessage, flix2Url, cdnType, platform, userId } = req.body ?? {};
+    const ts = new Date().toISOString();
+
+    console.log(`[player-report] ${ts} | "${title}" | cdn=${cdnType} | os=${platform} | err=${String(errorMessage).slice(0, 120)} | user=${userId ?? "anon"}`);
+
+    const supabaseUrl = process.env["SUPABASE_URL"];
+    const supabaseKey = process.env["SUPABASE_SERVICE_KEY"];
+    if (supabaseUrl && supabaseKey) {
+      // Ensure table exists (idempotent — runs on first report)
+      const initSql = `
+        CREATE TABLE IF NOT EXISTS player_error_reports (
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          user_id UUID,
+          title TEXT,
+          error_message TEXT,
+          flix2_url TEXT,
+          cdn_type TEXT,
+          platform TEXT,
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        );`;
+      await fetch(`${supabaseUrl}/rest/v1/rpc/exec_sql`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` },
+        body: JSON.stringify({ sql: initSql }),
+      }).catch(() => {});
+
+      await fetch(`${supabaseUrl}/rest/v1/player_error_reports`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: supabaseKey,
+          Authorization: `Bearer ${supabaseKey}`,
+          Prefer: "return=minimal",
+        },
+        body: JSON.stringify({
+          user_id: userId ?? null,
+          title: String(title ?? "").slice(0, 200),
+          error_message: String(errorMessage ?? "").slice(0, 500),
+          flix2_url: String(flix2Url ?? "").slice(0, 500),
+          cdn_type: String(cdnType ?? "").slice(0, 50),
+          platform: String(platform ?? "").slice(0, 20),
+        }),
+      }).catch(() => {});
+    }
+
+    res.json({ ok: true });
+  } catch {
+    res.json({ ok: true }); // always 200 — don't fail the user
+  }
+});
+
 export default router;

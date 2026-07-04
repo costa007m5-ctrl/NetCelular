@@ -185,6 +185,8 @@ export default function Flix2PlayerScreen() {
   // automatically is pointless — skip the 5s auto-retry countdown for that error.
   const skipAutoRetryRef = useRef(false);
   const [isDeadLinkError, setIsDeadLinkError] = useState(false);
+  // Whether the user has already submitted an error report for the current failure.
+  const [reportSent, setReportSent] = useState(false);
   // When a direct CDN URL fails with MEDIA_ELEMENT_ERROR (mixed content redirect or CDN block),
   // this ref holds the CF Worker fallback URL to try before giving up.
   const webViewErrorFallbackRef = useRef<string | null>(null);
@@ -561,6 +563,28 @@ export default function Flix2PlayerScreen() {
     return () => { if (tipTimerRef.current) { clearInterval(tipTimerRef.current); tipTimerRef.current = null; } };
   }, [loadingTips, phase]);
 
+  // ── Report player error to admin ─────────────────────────────────────────────
+  const sendErrorReport = useCallback(async () => {
+    setReportSent(true);
+    try {
+      const apiBase = await getApiBase();
+      await fetch(`${apiBase}/report/player-error`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: params.title ?? "",
+          errorMessage: errorMsg,
+          flix2Url: String(params.flix2Url ?? "").slice(0, 300),
+          cdnType: resolvedCdnType ?? "",
+          platform: Platform.OS,
+          userId: user?.id ?? null,
+        }),
+      });
+    } catch {
+      // Silent fail — confirmation already shown to user
+    }
+  }, [params.title, params.flix2Url, errorMsg, resolvedCdnType, user]);
+
   // ── Load video URL ───────────────────────────────────────────────────────────
   const loadVideoUrl = useCallback(async () => {
     // Use the quality-overridden URL if set, otherwise fall back to the route param.
@@ -571,6 +595,7 @@ export default function Flix2PlayerScreen() {
     skipAutoRetryRef.current = false;
     webViewErrorFallbackRef.current = null;
     setIsDeadLinkError(false);
+    setReportSent(false);
     setPhase("loading");
     setVideoUrl(null);
     setVideoSourceHeaders(undefined);
@@ -1727,17 +1752,31 @@ export default function Flix2PlayerScreen() {
 
           {phase === "error" ? (
             <View style={styles.loadCenter}>
-              <Feather name="alert-circle" size={44} color={RED} />
-              <Text style={[styles.loadTitle, { marginTop: 12 }]}>{isDeadLinkError ? "Vídeo indisponível" : "Erro ao reproduzir vídeo"}</Text>
-              {errorMsg && errorMsg !== "Erro ao reproduzir vídeo" ? (
-                <Text style={[styles.loadEp, { color: "#ef4444", fontSize: 11, marginBottom: 4, textAlign: "center", maxWidth: 280 }]}>{errorMsg}</Text>
-              ) : null}
+              {/* ── Ícone e título por tipo de erro ── */}
+              {isDeadLinkError ? (
+                <>
+                  <Feather name="alert-circle" size={44} color={RED} />
+                  <Text style={[styles.loadTitle, { marginTop: 12 }]}>Vídeo indisponível</Text>
+                  <Text style={[styles.loadEp, { textAlign: "center", maxWidth: 300, lineHeight: 20 }]}>
+                    Este conteúdo foi removido ou bloqueado pela fonte de vídeo. Tente o Player Alternativo.
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <Feather name="alert-triangle" size={44} color="#f59e0b" />
+                  <Text style={[styles.loadTitle, { marginTop: 12, color: "#f8fafc" }]}>Instabilidade temporária</Text>
+                  <Text style={[styles.loadEp, { textAlign: "center", maxWidth: 300, lineHeight: 20 }]}>
+                    A fonte de vídeo está com instabilidade no momento. Tente novamente em alguns minutos.
+                  </Text>
+                </>
+              )}
+
+              {/* ── Info técnica pequena ── */}
               {resolvedCdnType ? (
-                <Text style={[styles.loadEp, { color: "#888", fontSize: 10, marginBottom: 4 }]}>CDN: {resolvedCdnType}</Text>
+                <Text style={[styles.loadEp, { color: "#4b5563", fontSize: 10 }]}>fonte: {resolvedCdnType}</Text>
               ) : null}
-              <Text style={styles.loadEp}>
-                {isDeadLinkError ? "Tente o Player Alternativo ou outra fonte." : "Verifique sua conexão e tente novamente"}
-              </Text>
+
+              {/* ── Contagem regressiva de auto-retry ── */}
               {autoRetryCountdown !== null ? (
                 <View style={{ alignItems: "center", gap: 6, marginTop: 20 }}>
                   <View style={styles.retryCountdown}>
@@ -1750,6 +1789,7 @@ export default function Flix2PlayerScreen() {
                 </View>
               ) : (
                 <View style={{ gap: 10, marginTop: 20, alignItems: "center" }}>
+                  {/* ── Botões principais ── */}
                   <View style={{ flexDirection: "row", gap: 12 }}>
                     <Pressable style={styles.retryBtn} onPress={() => { setRetryCount((c) => c + 1); loadVideoUrl(); }}>
                       <Feather name="refresh-cw" size={14} color="#fff" />
@@ -1759,6 +1799,22 @@ export default function Flix2PlayerScreen() {
                       <Text style={styles.retryText}>Voltar</Text>
                     </Pressable>
                   </View>
+
+                  {/* ── Reportar ocorrência (só para instabilidade, não dead-link) ── */}
+                  {!isDeadLinkError && (
+                    <Pressable
+                      style={[styles.reportBtn, reportSent && styles.reportBtnSent]}
+                      onPress={reportSent ? undefined : sendErrorReport}
+                      disabled={reportSent}
+                    >
+                      <Feather name={reportSent ? "check-circle" : "flag"} size={13} color={reportSent ? "#4ade80" : "#f59e0b"} />
+                      <Text style={[styles.reportBtnText, reportSent && { color: "#4ade80" }]}>
+                        {reportSent ? "Relatório enviado!" : "Reportar Ocorrência"}
+                      </Text>
+                    </Pressable>
+                  )}
+
+                  {/* ── Player alternativo ── */}
                   {tmdbId && (
                     <Pressable
                       style={styles.altPlayerBtn}
@@ -2529,6 +2585,9 @@ const styles = StyleSheet.create({
   retryText: { color: "#fff", fontSize: 14, fontWeight: "700" },
   altPlayerBtn: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 20, paddingVertical: 11, borderRadius: 10, backgroundColor: "rgba(139,92,246,0.18)", borderWidth: 1, borderColor: "rgba(139,92,246,0.35)" },
   altPlayerText: { color: "#a78bfa", fontSize: 13, fontWeight: "600" },
+  reportBtn: { flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: "rgba(245,158,11,0.4)", backgroundColor: "rgba(245,158,11,0.08)" },
+  reportBtnSent: { borderColor: "rgba(74,222,128,0.35)", backgroundColor: "rgba(74,222,128,0.08)" },
+  reportBtnText: { color: "#f59e0b", fontSize: 13, fontWeight: "600" },
 
   // ── Buffering ─────────────────────────────────────────────────────────────────
   bufferingOverlay: { ...StyleSheet.absoluteFillObject, justifyContent: "center", alignItems: "center" },
