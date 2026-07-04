@@ -5143,6 +5143,8 @@ export default function DetailScreen() {
                         ?? r2Items.find((i) => isDriveItem(i) && i.season == null && i.episode == null);
                       const anyFlixUrl   = anyFlixItem?.flix2Url;
 
+                      const epDlKey = `s${selectedSeason}e${ep.episode_number}`;
+                      const hasSource = !!(r2Ep || anyDriveItem || anyFlixItem);
                       return (
                         <EpisodeRow
                           key={ep.episode_number}
@@ -5174,6 +5176,8 @@ export default function DetailScreen() {
                             if (anyDriveItem) return () => goToDrivePlayer(anyDriveItem, selectedSeason, ep.episode_number, anyFlixUrl);
                             return undefined;
                           })()}
+                          downloadState={episodeDlState[epDlKey] ?? "idle"}
+                          onDownloadPress={hasSource ? () => handleEpisodeDownload(ep, r2Ep, anyDriveItem) : undefined}
                         />
                       );
                     });
