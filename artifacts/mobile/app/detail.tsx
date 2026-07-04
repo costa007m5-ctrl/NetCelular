@@ -41,6 +41,7 @@ import type { ContentOverride, WatchProgress, ContentReport } from "@/lib/supaba
 import type { ContentItem } from "@/constants/content";
 import { searchDriveByTitle, getDriveSeasonEpisodes, DriveMatch } from "@/lib/gdrive-search";
 import { DriveItem, parseEpisodeInfo, listFolderAll, isVideo } from "@/lib/gdrive-index";
+import { loadContentEdits, getContentEdit, subscribeContentEdits } from "@/lib/content-edits";
 
 interface RegistryItem {
   id: string; r2Key: string; teraboxUrl?: string; flix2Url?: string;
@@ -315,6 +316,7 @@ export default function DetailScreen() {
   const [loadingEpisodes, setLoadingEpisodes] = useState(false);
   const [loading, setLoading] = useState(true);
   const [imgError, setImgError] = useState(false);
+  const [, setEditTick] = useState(0);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [watchProgress, setWatchProgress] = useState<WatchProgress | null>(null);
   const [localProgress, setLocalProgress] = useState<WatchEntry | null>(null);
@@ -354,6 +356,16 @@ export default function DetailScreen() {
   // (avoids race condition where localProgress for new content fires effect with old r2Items)
   const localProgressRef = useRef<typeof localProgress>(null);
   React.useEffect(() => { localProgressRef.current = localProgress; }, [localProgress]);
+
+  // Load content-edits once and re-render when an admin saves an edit.
+  // Also reset imgError so the banner retries loading if a new poster/backdrop was saved.
+  React.useEffect(() => {
+    loadContentEdits();
+    return subscribeContentEdits(() => {
+      setEditTick((t) => t + 1);
+      setImgError(false);
+    });
+  }, []);
 
   // Set banner video URL from: R2 server-proxy (priority 1) or Flix2 stream (priority 2)
   React.useEffect(() => {
@@ -2755,12 +2767,18 @@ export default function DetailScreen() {
     );
   }
 
-  // Fallback chain: TMDB backdrop → override backdrop → TMDB poster → override poster → nav-param poster
+  // Saved admin edit for this item (keyed by TMDB id string, same as tmdbItemToContent)
+  const _contentEdit = getContentEdit(resolvedTmdbId ? String(resolvedTmdbId) : undefined);
+
+  // Fallback chain: TMDB backdrop → admin edit → override backdrop → TMDB poster → admin edit poster → override poster → nav-param poster
+  // Note: content-edit paths are already full URLs — do NOT wrap with TMDB_IMG
   const backdropUri =
     TMDB_IMG(details?.backdrop_path ?? null, "w1280") ||
+    _contentEdit?.backdropPath ||
     TMDB_IMG(overrideBackdrop, "w1280") ||
     TMDB_IMG(contentOverride?.backdrop_path ?? null, "w1280") ||
     TMDB_IMG(details?.poster_path ?? null, "w780") ||
+    _contentEdit?.posterPath ||
     TMDB_IMG(overridePoster, "w780") ||
     TMDB_IMG(contentOverride?.poster_path ?? null, "w780") ||
     params.poster ||
