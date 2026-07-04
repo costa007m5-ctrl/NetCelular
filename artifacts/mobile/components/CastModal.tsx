@@ -13,6 +13,14 @@ import {
 import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
+import {
+  buildCastMediaInfo,
+  chromecastSupported,
+  openChromecastPicker,
+  useChromecastClient,
+  useChromecastState,
+  whyChromecastUnavailable,
+} from "@/lib/chromecast";
 
 const RED    = "#e50914";
 const DARK   = "#0a0a0a";
@@ -126,13 +134,18 @@ function detectCastSupport(): Promise<"remote-playback" | "presentation" | "none
   });
 }
 
-export function CastModal({ visible, onClose, castUrl, title }: CastModalProps) {
+export function CastModal({ visible, onClose, castUrl, title, videoUrl }: CastModalProps) {
   const slideAnim = useRef(new Animated.Value(500)).current;
   const fadeAnim  = useRef(new Animated.Value(0)).current;
 
   const [castState, setCastState]       = useState<CastState>("scanning");
   const [copied, setCopied]             = useState(false);
-  const [castSupport, setCastSupport]   = useState<"remote-playback" | "presentation" | "none">("none");
+  const [castSupport, setCastSupport]   = useState<"remote-playback" | "presentation" | "chromecast" | "none">("none");
+
+  const chromecastState  = useChromecastState();
+  const chromecastClient = useChromecastClient();
+  const mediaUrl = videoUrl || castUrl;
+  const unavailableReason = whyChromecastUnavailable();
 
   const scanning = castState === "scanning";
   const { ring1, ring2, ring3 } = useRadarAnim(scanning || castState === "ready");
@@ -157,13 +170,44 @@ export function CastModal({ visible, onClose, castUrl, title }: CastModalProps) 
   // Detect cast support when modal opens
   useEffect(() => {
     if (!visible) return;
+    if (chromecastSupported) {
+      setCastSupport("chromecast");
+      setCastState(
+        chromecastState === "connected" ? "connected" : "ready"
+      );
+      return;
+    }
     detectCastSupport().then((support) => {
       setCastSupport(support);
       setCastState(support !== "none" ? "ready" : "unsupported");
     });
   }, [visible]);
 
+  // React to Chromecast session state changes while the modal is open
+  useEffect(() => {
+    if (!visible || !chromecastSupported) return;
+    if (chromecastState === "connecting") {
+      setCastState("connecting");
+    } else if (chromecastState === "connected") {
+      if (chromecastClient && mediaUrl) {
+        chromecastClient
+          .loadMedia({ mediaInfo: buildCastMediaInfo(mediaUrl, title) })
+          .catch(() => {});
+      }
+      setCastState("connected");
+    }
+  }, [chromecastState, chromecastClient, visible, mediaUrl, title]);
+
   const handleCast = async () => {
+    if (chromecastSupported) {
+      setCastState("connecting");
+      try {
+        await openChromecastPicker();
+      } catch {
+        setCastState("ready");
+      }
+      return;
+    }
     setCastState("connecting");
     try {
       const success = await triggerNativeCast(castUrl);
@@ -248,11 +292,15 @@ export function CastModal({ visible, onClose, castUrl, title }: CastModalProps) 
               : castState === "unsupported" ? "rgba(255,255,255,0.3)"
               : "rgba(255,255,255,0.55)",
           }]}>
-            {castState === "scanning"    && "Detectando suporte..."}
-            {castState === "ready"       && "Dispositivos disponíveis na rede"}
-            {castState === "connecting"  && "Abrindo seletor de dispositivos..."}
-            {castState === "connected"   && "Transmissão iniciada!"}
-            {castState === "unsupported" && "Cast não disponível neste navegador"}
+            {castState === "scanning" && "Detectando suporte..."}
+            {castState === "ready" &&
+              (castSupport === "chromecast"
+                ? "Toque para buscar Chromecast e TVs na rede"
+                : "Dispositivos disponíveis na rede")}
+            {castState === "connecting" && "Abrindo seletor de dispositivos..."}
+            {castState === "connected" && "Transmissão iniciada!"}
+            {castState === "unsupported" &&
+              (unavailableReason ?? "Cast não disponível neste navegador")}
           </Text>
 
           {title && (
@@ -264,7 +312,9 @@ export function CastModal({ visible, onClose, castUrl, title }: CastModalProps) 
         {castState === "ready" && (
           <Pressable style={s.castBtn} onPress={handleCast}>
             <Feather name="cast" size={18} color="#fff" />
-            <Text style={s.castBtnText}>Buscar e Conectar à TV</Text>
+            <Text style={s.castBtnText}>
+              {castSupport === "chromecast" ? "Buscar Chromecast" : "Buscar e Conectar à TV"}
+            </Text>
           </Pressable>
         )}
 
@@ -314,8 +364,8 @@ export function CastModal({ visible, onClose, castUrl, title }: CastModalProps) 
             <Text style={s.tipsTitle}>Como assistir manualmente</Text>
             {[
               { icon: "tv" as const,      label: "Samsung / LG Smart TV",  desc: "Abra o navegador da TV e cole o link" },
-              { icon: "cast" as const,    label: "Chromecast",              desc: "No Chrome: Menu → Transmitir → Aba" },
-              { icon: "airplay" as const, label: "Apple TV / AirPlay",      desc: "Abra no Safari e use AirPlay" },
+              { icon: "cast" as const,    label: "Chromecast",              desc: Platform.OS === "web" ? "No Chrome: Menu → Transmitir → Aba" : "Disponível na versão instalada do app" },
+              { icon: "airplay" as const, label: "Apple TV / AirPlay",      desc: "Abra no Safari e use AirPlay, ou deslize a Central de Controle" },
             ].map((t) => (
               <View key={t.label} style={tip.row}>
                 <View style={tip.iconWrap}>

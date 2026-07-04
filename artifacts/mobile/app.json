@@ -102,7 +102,13 @@
           }
         }
       ],
-      "./plugins/withBuildConfig"
+      "./plugins/withBuildConfig",
+      [
+        "react-native-google-cast",
+        {
+          "receiverAppId": "CC1AD845"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
