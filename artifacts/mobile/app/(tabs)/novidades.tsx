@@ -28,6 +28,8 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { AdminEditOverlay } from "@/components/AdminEditOverlay";
+import { useAppliedContentItem } from "@/lib/content-edits";
 import { useColors } from "@/hooks/useColors";
 import { ProfileAvatarButton } from "@/components/ProfileAvatarButton";
 import { r2Route } from "@/lib/r2-direct";
@@ -506,10 +508,11 @@ const sh = StyleSheet.create({
 
 // ─── PosterCard ───────────────────────────────────────────────────────────────
 function PosterCard({
-  item, onPress, isNew, badge, badgeColor = GREEN,
+  item: rawItem, onPress, isNew, badge, badgeColor = GREEN,
 }: {
   item: ContentItem; onPress: () => void; isNew?: boolean; badge?: string; badgeColor?: string;
 }) {
+  const item = useAppliedContentItem(rawItem);
   const scale = useRef(new Animated.Value(1)).current;
   const [err, setErr] = useState(false);
   const prevPosterRef = useRef<string>("");
@@ -547,6 +550,7 @@ function PosterCard({
               <Text style={pc.ratingText}>{item.rating.toFixed(1)}</Text>
             </View>
           )}
+          <AdminEditOverlay itemKey={item.id} title={item.title} type={item.type} />
         </View>
         <Text style={pc.title} numberOfLines={2}>{item.title}</Text>
         <Text style={pc.meta}>

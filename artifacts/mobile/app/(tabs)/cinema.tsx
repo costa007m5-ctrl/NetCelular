@@ -23,6 +23,8 @@ import {
 import { Image } from "expo-image";
 import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
+import { AdminEditOverlay } from "@/components/AdminEditOverlay";
+import { useAppliedContentItem } from "@/lib/content-edits";
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -287,7 +289,8 @@ function RotatingBanner({
 }
 
 // ─── PosterCard ───────────────────────────────────────────────────────────────
-function PosterCard({ item, onPress }: { item: ContentItem; onPress: () => void }) {
+function PosterCard({ item: rawItem, onPress }: { item: ContentItem; onPress: () => void }) {
+  const item = useAppliedContentItem(rawItem);
   const scale = useRef(new Animated.Value(1)).current;
   const [err, setErr] = useState(false);
   const pi = () => Animated.spring(scale, { toValue: 0.92, useNativeDriver: true, speed: 30 }).start();
@@ -321,6 +324,7 @@ function PosterCard({ item, onPress }: { item: ContentItem; onPress: () => void 
           <View style={sty.pInfo}>
             <Text style={sty.pTitle} numberOfLines={2}>{item.title}</Text>
           </View>
+          <AdminEditOverlay itemKey={item.id} title={item.title} type={item.type} />
         </View>
       </Animated.View>
     </Pressable>

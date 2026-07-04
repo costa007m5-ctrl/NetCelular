@@ -23,6 +23,8 @@ import {
 import { Image } from "expo-image";
 import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
+import { AdminEditOverlay } from "@/components/AdminEditOverlay";
+import { useAppliedContentItem } from "@/lib/content-edits";
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -122,9 +124,10 @@ function SkeletonRow({ shimmer, wide }: { shimmer: Animated.Value; wide?: boolea
 }
 
 // ─── PosterCard ────────────────────────────────────────────────────────────────
-function PosterCard({ item, onPress, w = 118, h = 172, showTitle = false, badge = "" }: {
+function PosterCard({ item: rawItem, onPress, w = 118, h = 172, showTitle = false, badge = "" }: {
   item: ContentItem; onPress: () => void; w?: number; h?: number; showTitle?: boolean; badge?: string;
 }) {
+  const item = useAppliedContentItem(rawItem);
   const sc = useRef(new Animated.Value(1)).current;
   const [err, setErr] = useState(false);
   const pi = () => Animated.spring(sc, { toValue: 0.92, useNativeDriver: true, speed: 30 }).start();
@@ -140,6 +143,7 @@ function PosterCard({ item, onPress, w = 118, h = 172, showTitle = false, badge 
           <LinearGradient colors={["transparent", "rgba(0,0,0,0.88)"]} locations={[0.55, 1]} style={StyleSheet.absoluteFill} />
           {badge ? <View style={s.pBadge}><Text style={s.pBadgeT}>{badge}</Text></View> : null}
           {item.rating > 0 && <View style={s.pRating}><Feather name="star" size={8} color={AMBER} /><Text style={s.pRatingT}>{item.rating.toFixed(1)}</Text></View>}
+          <AdminEditOverlay itemKey={item.id} title={item.title} type={item.type} />
         </View>
         {showTitle && <Text style={s.pTitle} numberOfLines={1}>{item.title}</Text>}
       </Animated.View>
@@ -148,9 +152,10 @@ function PosterCard({ item, onPress, w = 118, h = 172, showTitle = false, badge 
 }
 
 // ─── WideCard ──────────────────────────────────────────────────────────────────
-function WideCard({ item, onPress, badge = "", accentColor = RED }: {
+function WideCard({ item: rawItem, onPress, badge = "", accentColor = RED }: {
   item: ContentItem; onPress: () => void; badge?: string; accentColor?: string;
 }) {
+  const item = useAppliedContentItem(rawItem);
   const sc = useRef(new Animated.Value(1)).current;
   const [err, setErr] = useState(false);
   const pi = () => Animated.spring(sc, { toValue: 0.94, useNativeDriver: true, speed: 28 }).start();
@@ -169,15 +174,17 @@ function WideCard({ item, onPress, badge = "", accentColor = RED }: {
           <Text style={s.wMeta}>{item.year} · {item.type === "movie" ? "Filme" : "Série"}</Text>
         </View>
         {item.rating > 0 && <View style={s.wRating}><Feather name="star" size={8} color={AMBER} /><Text style={s.wRatingT}>{item.rating.toFixed(1)}</Text></View>}
+        <AdminEditOverlay itemKey={item.id} title={item.title} type={item.type} />
       </Animated.View>
     </Pressable>
   );
 }
 
 // ─── FeaturedCard ──────────────────────────────────────────────────────────────
-function FeaturedCard({ item, onPress, accentColor = RED }: {
+function FeaturedCard({ item: rawItem, onPress, accentColor = RED }: {
   item: ContentItem; onPress: () => void; accentColor?: string;
 }) {
+  const item = useAppliedContentItem(rawItem);
   const sc = useRef(new Animated.Value(1)).current;
   const [err, setErr] = useState(false);
   const pi = () => Animated.spring(sc, { toValue: 0.93, useNativeDriver: true, speed: 28 }).start();
@@ -200,15 +207,17 @@ function FeaturedCard({ item, onPress, accentColor = RED }: {
           <Text style={s.fTitle} numberOfLines={2}>{item.title}</Text>
           <View style={[s.fPlay, { backgroundColor: accentColor }]}><Feather name="play" size={10} color="#fff" /></View>
         </View>
+        <AdminEditOverlay itemKey={item.id} title={item.title} type={item.type} />
       </Animated.View>
     </Pressable>
   );
 }
 
 // ─── CinemaCard (extra-wide, franchise focused) ────────────────────────────────
-function CinemaCard({ item, onPress, accentColor = AMBER, label = "" }: {
+function CinemaCard({ item: rawItem, onPress, accentColor = AMBER, label = "" }: {
   item: ContentItem; onPress: () => void; accentColor?: string; label?: string;
 }) {
+  const item = useAppliedContentItem(rawItem);
   const sc = useRef(new Animated.Value(1)).current;
   const [err, setErr] = useState(false);
   const pi = () => Animated.spring(sc, { toValue: 0.96, useNativeDriver: true, speed: 28 }).start();
@@ -228,15 +237,17 @@ function CinemaCard({ item, onPress, accentColor = AMBER, label = "" }: {
           <Text style={s.ccMeta}>{item.year} · {item.type === "movie" ? "Filme" : "Série"}</Text>
         </View>
         {item.rating > 0 && <View style={s.ccRating}><Feather name="star" size={8} color={AMBER} /><Text style={s.ccRatingT}>{item.rating.toFixed(1)}</Text></View>}
+        <AdminEditOverlay itemKey={item.id} title={item.title} type={item.type} />
       </Animated.View>
     </Pressable>
   );
 }
 
 // ─── MoodCard ──────────────────────────────────────────────────────────────────
-function MoodCard({ item, onPress, label = "", accentColor = RED }: {
+function MoodCard({ item: rawItem, onPress, label = "", accentColor = RED }: {
   item: ContentItem; onPress: () => void; label?: string; accentColor?: string;
 }) {
+  const item = useAppliedContentItem(rawItem);
   const sc = useRef(new Animated.Value(1)).current;
   const [err, setErr] = useState(false);
   const pi = () => Animated.spring(sc, { toValue: 0.96, useNativeDriver: true, speed: 28 }).start();
@@ -254,6 +265,7 @@ function MoodCard({ item, onPress, label = "", accentColor = RED }: {
           <Text style={s.mTitle} numberOfLines={1}>{item.title}</Text>
           <View style={[s.mPlay, { backgroundColor: accentColor }]}><Feather name="play" size={11} color="#fff" /></View>
         </View>
+        <AdminEditOverlay itemKey={item.id} title={item.title} type={item.type} />
       </Animated.View>
     </Pressable>
   );

@@ -21,6 +21,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
 import { ProfileAvatarButton } from "@/components/ProfileAvatarButton";
+import { AdminEditOverlay } from "@/components/AdminEditOverlay";
 import { tvApi, TodayEpisode } from "@/lib/api";
 import { loadFavorites, toggleFavorite, isFavorite } from "@/lib/tv-favorites";
 import {
@@ -324,6 +325,7 @@ function FeaturedCard({
             </View>
           )}
         </View>
+        <AdminEditOverlay itemKey={channel.id} title={channel.name} type="movie" />
       </Animated.View>
     </Pressable>
   );
@@ -497,6 +499,7 @@ function GridCard({
             colors={["transparent", accent + "18"]}
             style={styles.gridCardGlow}
           />
+          <AdminEditOverlay itemKey={channel.id} title={channel.name} type="movie" />
         </View>
         <Text style={styles.gridCardName} numberOfLines={1}>
           {channel.name}

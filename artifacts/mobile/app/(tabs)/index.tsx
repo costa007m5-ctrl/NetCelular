@@ -43,6 +43,8 @@ import { getCached, setCached, getCacheTimestamp } from "@/lib/catalog-cache";
 import { getModalHistory, addToModalHistory, clearModalHistory, removeFromModalHistory } from "@/lib/modal-search-history";
 import { checkCatalogWatchAndNotify } from "@/lib/catalog-watch";
 import { useAuth } from "@/lib/auth-context";
+import { AdminEditOverlay } from "@/components/AdminEditOverlay";
+import { useAppliedContentItem } from "@/lib/content-edits";
 import { db, isSupabaseConfigured } from "@/lib/supabase";
 import type { ContentItem } from "@/constants/content";
 import { MAIN_PLATFORMS } from "@/constants/streamings";
@@ -134,10 +136,11 @@ const flix2ToContent = (item: any): ContentItem => {
 // ── MINI COMPONENTS ────────────────────────────────────────────────────────────
 
 // Standard poster card
-function PosterCard({ item, onPress, width = 118, height = 172, showTitle = false }: {
+function PosterCard({ item: rawItem, onPress, width = 118, height = 172, showTitle = false }: {
   item: ContentItem; onPress: () => void;
   width?: number; height?: number; showTitle?: boolean;
 }) {
+  const item = useAppliedContentItem(rawItem);
   const scale = useRef(new Animated.Value(1)).current;
   const [err, setErr] = useState(false);
   const pressIn  = () => Animated.spring(scale, { toValue: 0.92, useNativeDriver: true, speed: 30 }).start();
@@ -159,6 +162,7 @@ function PosterCard({ item, onPress, width = 118, height = 172, showTitle = fals
           )}
           <LinearGradient colors={["transparent","rgba(0,0,0,0.8)"]} locations={[0.6,1]}
             style={StyleSheet.absoluteFill} />
+          <AdminEditOverlay itemKey={item.id} title={item.title} type={item.type} />
         </View>
         {showTitle && (
           <Text style={styles.cardTitle} numberOfLines={1}>{item.title}</Text>
@@ -169,9 +173,10 @@ function PosterCard({ item, onPress, width = 118, height = 172, showTitle = fals
 }
 
 // Wide landscape card
-function WideCard({ item, onPress, badge }: {
+function WideCard({ item: rawItem, onPress, badge }: {
   item: ContentItem; onPress: () => void; badge?: string;
 }) {
+  const item = useAppliedContentItem(rawItem);
   const scale = useRef(new Animated.Value(1)).current;
   const [err, setErr] = useState(false);
   const pressIn  = () => Animated.spring(scale, { toValue: 0.94, useNativeDriver: true, speed: 28 }).start();
@@ -197,15 +202,17 @@ function WideCard({ item, onPress, badge }: {
           <Text style={styles.wideTitle} numberOfLines={1}>{item.title}</Text>
           <Text style={styles.wideMeta}>{item.year} · {item.type === "movie" ? "Filme" : "Série"}</Text>
         </View>
+        <AdminEditOverlay itemKey={item.id} title={item.title} type={item.type} />
       </Animated.View>
     </Pressable>
   );
 }
 
 // Large featured card with gradient and rating
-function FeaturedCard({ item, onPress, accentColor = RED }: {
+function FeaturedCard({ item: rawItem, onPress, accentColor = RED }: {
   item: ContentItem; onPress: () => void; accentColor?: string;
 }) {
+  const item = useAppliedContentItem(rawItem);
   const scale = useRef(new Animated.Value(1)).current;
   const [err, setErr] = useState(false);
   const pressIn  = () => Animated.spring(scale, { toValue: 0.93, useNativeDriver: true, speed: 28 }).start();
@@ -237,6 +244,7 @@ function FeaturedCard({ item, onPress, accentColor = RED }: {
             <Feather name="play" size={11} color="#fff" />
           </View>
         </View>
+        <AdminEditOverlay itemKey={item.id} title={item.title} type={item.type} />
       </Animated.View>
     </Pressable>
   );

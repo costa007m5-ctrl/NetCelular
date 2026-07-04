@@ -23,6 +23,8 @@ import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Feather } from "@expo/vector-icons";
 import { useRouter, useLocalSearchParams } from "expo-router";
+import { AdminEditOverlay } from "@/components/AdminEditOverlay";
+import { useAppliedContentItem } from "@/lib/content-edits";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import type { ContentItem } from "@/constants/content";
@@ -284,13 +286,14 @@ const SUGGESTIONS = [
 
 // ─── Components ───────────────────────────────────────────────────────────────
 
-function PosterCard({ item, onPress, inFlix2 = false, variantLabel, compact = false }: {
+function PosterCard({ item: rawItem, onPress, inFlix2 = false, variantLabel, compact = false }: {
   item: ContentItem;
   onPress: () => void;
   inFlix2?: boolean;
   variantLabel?: string;
   compact?: boolean;
 }) {
+  const item = useAppliedContentItem(rawItem);
   const variantColor = variantLabel === "LEG" ? "#3b82f6" : variantLabel === "DUB" ? "#f59e0b" : "#6366f1";
   return (
     <Pressable style={compact ? s.hPosterCard : s.card} onPress={onPress}>
@@ -330,6 +333,7 @@ function PosterCard({ item, onPress, inFlix2 = false, variantLabel, compact = fa
             <Text style={s.flix2BadgeText}>FLIX</Text>
           </View>
         ) : null}
+        <AdminEditOverlay itemKey={item.id} title={item.title} type={item.type} />
       </View>
 
       <Text style={s.cardTitle} numberOfLines={2}>
