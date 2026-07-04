@@ -2372,7 +2372,7 @@ function NovidadesVerticalCard({
         </View>
 
         {/* Play button overlay — tap to start preview (web) or native loading */}
-        {!canPlayVideo && !webVidPlaying && (
+        {!canPlayVideo && !canPlayTrailer && !webVidPlaying && (
           <TouchableOpacity
             style={nvc.playBtnOverlay}
             onPress={() => { if (streamUrl || !streamResolved) setUserRequestedPlay(true); }}
@@ -2393,7 +2393,7 @@ function NovidadesVerticalCard({
         )}
 
         {/* Loading spinner — native buffering */}
-        {canPlayVideo && !vidReady && !vidErrored && (
+        {(canPlayVideo || canPlayTrailer) && !vidReady && !vidErrored && (
           <View style={nvc.previewLoading}>
             <ActivityIndicator size="small" color="#fff" />
           </View>

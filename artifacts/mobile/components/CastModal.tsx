@@ -5,6 +5,7 @@ import {
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   Share,
   StyleSheet,
   Text,
@@ -262,11 +263,16 @@ export function CastModal({ visible, onClose, castUrl, title, videoUrl }: CastMo
           </Pressable>
         </View>
 
+        <ScrollView
+          style={{ flexGrow: 0 }}
+          contentContainerStyle={{ paddingBottom: 24 }}
+          showsVerticalScrollIndicator={false}
+        >
         {/* Radar scanner */}
         <View style={s.radarArea}>
-          <RadarRing anim={ring1} size={220} />
-          <RadarRing anim={ring2} size={160} />
-          <RadarRing anim={ring3} size={100} />
+          <RadarRing anim={ring1} size={170} />
+          <RadarRing anim={ring2} size={125} />
+          <RadarRing anim={ring3} size={82} />
 
           {/* Center icon */}
           <View style={[s.radarCenter, {
@@ -379,8 +385,7 @@ export function CastModal({ visible, onClose, castUrl, title, videoUrl }: CastMo
             ))}
           </View>
         )}
-
-        <View style={{ height: 32 }} />
+        </ScrollView>
       </Animated.View>
     </Animated.View>
   );
@@ -409,17 +414,17 @@ const s = StyleSheet.create({
     bottom: 0, left: 0, right: 0,
     borderTopLeftRadius: 24, borderTopRightRadius: 24,
     overflow: "hidden",
-    maxHeight: "92%",
+    maxHeight: "88%",
   },
   handle: {
     width: 36, height: 4, borderRadius: 2,
     backgroundColor: "rgba(255,255,255,0.15)",
     alignSelf: "center",
-    marginTop: 10, marginBottom: 4,
+    marginTop: 8, marginBottom: 2,
   },
   header: {
     flexDirection: "row", alignItems: "center",
-    paddingHorizontal: 20, paddingVertical: 14, gap: 12,
+    paddingHorizontal: 20, paddingVertical: 10, gap: 12,
   },
   castIconWrap: {
     width: 44, height: 44, borderRadius: 14,
@@ -437,10 +442,10 @@ const s = StyleSheet.create({
 
   radarArea: {
     alignItems: "center", justifyContent: "center",
-    height: 230, marginTop: 8, gap: 14,
+    height: 180, marginTop: 4, gap: 10,
   },
   radarCenter: {
-    width: 72, height: 72, borderRadius: 36,
+    width: 64, height: 64, borderRadius: 32,
     alignItems: "center", justifyContent: "center",
     borderWidth: 1.5,
   },
@@ -464,7 +469,7 @@ const s = StyleSheet.create({
 
   divider: {
     flexDirection: "row", alignItems: "center",
-    marginHorizontal: 20, marginTop: 20, marginBottom: 14, gap: 10,
+    marginHorizontal: 20, marginTop: 16, marginBottom: 12, gap: 10,
   },
   dividerLine: { flex: 1, height: 1, backgroundColor: "rgba(255,255,255,0.08)" },
   dividerText: { fontSize: 11, color: "rgba(255,255,255,0.28)", fontWeight: "600" },

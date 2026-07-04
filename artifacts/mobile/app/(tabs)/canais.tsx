@@ -1081,7 +1081,10 @@ export default function CanaisScreen() {
     );
   }
 
-  if (error) {
+  // Only block the whole screen if BOTH the live channels AND the TV guide
+  // failed to load — otherwise show whichever content is available so a
+  // temporary outage in one source doesn't hide everything else.
+  if (error && !tvGuideLoading && tvChannels.length === 0 && channels.length === 0) {
     return (
       <View style={[styles.root, styles.center, { backgroundColor: colors.background }]}>
         <StatusBar style="light" />
@@ -1144,6 +1147,16 @@ export default function CanaisScreen() {
         {channels.length > 0 && (
           <View style={{ marginBottom: 4 }}>
             <HeroBanner channels={sportsChannels.length > 0 ? sportsChannels : channels} onPress={goToChannel} />
+          </View>
+        )}
+
+        {/* ── Inline notice when live channels failed but TV guide is still available ── */}
+        {channels.length === 0 && !!error && (
+          <View style={{ paddingHorizontal: 16, paddingTop: topInset + 60, paddingBottom: 8, alignItems: "center", gap: 8 }}>
+            <Feather name="wifi-off" size={30} color="rgba(255,255,255,0.2)" />
+            <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 12, textAlign: "center" }}>
+              Canais ao vivo indisponíveis no momento{"\n"}A grade de programação abaixo continua funcionando
+            </Text>
           </View>
         )}
 
