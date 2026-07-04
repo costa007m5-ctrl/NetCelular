@@ -64,12 +64,28 @@ const DEFAULT_SRC: SourceSettings = { r2: false, drive: true, flix2: true, regul
 const isDriveItem = (i: RegistryItem) => !!i.driveUrl || i.driveFilePath != null;
 const isFlixItem  = (i: RegistryItem) => !!i.flix2Url;
 
-// Resolves a real, directly-downloadable file URL for offline download (native only).
-// Priority: R2 (signed URL, no proxy needed) → Google Drive (resolved + proxied for Cloudflare UA).
-// Flix 2.0 / IPTV sources are intentionally skipped — those are usually HLS/live-style feeds
+// Resolves a real, directly-downloadable file URL for offline download.
+// Web: uses same-origin API proxy URL (no signing needed, browser downloads it directly).
+// Native: uses signed R2 URL or proxied Drive URL via expo-file-system.
+// Flix 2.0 / IPTV sources are intentionally skipped — those are HLS/live-style feeds
 // that don't download reliably as a single progressive file.
 async function resolveRealDownloadUrl(r2Item?: RegistryItem, driveItem?: RegistryItem): Promise<string | undefined> {
-  if (Platform.OS === "web") return undefined;
+  if (Platform.OS === "web") {
+    // Same-origin proxy URL — browser can download it directly with <a download>
+    if (r2Item?.r2Key) {
+      return `/api/r2/stream?key=${encodeURIComponent(r2Item.r2Key)}`;
+    }
+    if (driveItem) {
+      try {
+        const { drivePlayDirect } = await import("@/lib/r2-direct");
+        const { getProxiedStreamUrl } = await import("@/lib/gdrive-index");
+        const resolved = await drivePlayDirect(driveItem.id);
+        if (resolved?.url) return getProxiedStreamUrl(resolved.url);
+      } catch {}
+    }
+    return undefined;
+  }
+  // Native: signed R2 URL (bypasses proxy, faster) or proxied Drive URL
   if (r2Item?.r2Key) {
     try {
       const { apiSignedUrl } = await import("@/lib/r2-direct");

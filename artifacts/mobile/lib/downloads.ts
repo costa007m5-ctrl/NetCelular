@@ -133,14 +133,81 @@ export const downloadsManager = {
       size_mb,
       speed_mb: 0,
       cancelled: false,
-      isReal: !!(content.streamUrl && FileSystem && Platform.OS !== "web"),
+      isReal: !!(content.streamUrl && (FileSystem && Platform.OS !== "web" || Platform.OS === "web")),
     };
     _active.set(key, active);
     notify();
 
     let localUri: string | undefined;
+    let actualSizeMb = size_mb;
 
-    if (content.streamUrl && FileSystem && Platform.OS !== "web") {
+    if (content.streamUrl && Platform.OS === "web") {
+      // ── Web: real download via fetch + ReadableStream → Blob → <a download> ──
+      // Progress is tracked byte-by-byte. File lands in the device's Downloads folder.
+      try {
+        const response = await fetch(content.streamUrl);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const reader = response.body?.getReader();
+        if (!reader) throw new Error("Stream indisponível");
+
+        const contentLength = +(response.headers.get("content-length") || "0");
+        const estimatedBytes = contentLength || size_mb * 1024 * 1024;
+        const chunks: Uint8Array[] = [];
+        let received = 0;
+        const startTime = Date.now();
+
+        while (true) {
+          const curr = _active.get(key);
+          if (!curr || curr.cancelled) {
+            await reader.cancel();
+            _active.delete(key);
+            notify();
+            return {};
+          }
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (value) {
+            chunks.push(value);
+            received += value.byteLength;
+            const elapsed = Math.max((Date.now() - startTime) / 1000, 0.1);
+            const pct = estimatedBytes > 0
+              ? Math.min(Math.round((received / estimatedBytes) * 100), 99)
+              : 0;
+            const curr2 = _active.get(key)!;
+            curr2.progress = pct;
+            curr2.size_mb = Math.max(Math.round(received / (1024 * 1024)), 1);
+            curr2.speed_mb = Math.round((received / (1024 * 1024)) / elapsed * 10) / 10;
+            onProgress?.(pct);
+            notify();
+          }
+        }
+
+        // Trigger browser download — file saved to device's Downloads folder
+        if (typeof document !== "undefined") {
+          const blob = new Blob(chunks, { type: "video/mp4" });
+          const blobUrl = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = blobUrl;
+          a.download = `${(content.title ?? "video").replace(/[/\\:*?"<>|]/g, "_")}.mp4`;
+          a.style.display = "none";
+          document.body.appendChild(a);
+          a.click();
+          // Revoke after 60s to free memory once browser has picked up the blob
+          setTimeout(() => { try { document.body.removeChild(a); URL.revokeObjectURL(blobUrl); } catch {} }, 60000);
+        }
+
+        actualSizeMb = Math.round(received / (1024 * 1024)) || size_mb;
+        localUri = "browser_download";
+
+        const finalCurr = _active.get(key);
+        if (finalCurr) { finalCurr.progress = 100; finalCurr.size_mb = actualSizeMb; notify(); }
+      } catch (e: any) {
+        _active.delete(key);
+        notify();
+        return { error: `Falha no download: ${e?.message ?? "erro desconhecido"}` };
+      }
+    } else if (content.streamUrl && FileSystem && Platform.OS !== "web") {
+      // ── Native: expo-file-system real download ──────────────────────────────
       const localPath = getLocalPath(key, content.streamUrl);
       if (!localPath) {
         _active.delete(key);
@@ -149,6 +216,7 @@ export const downloadsManager = {
       }
 
       try {
+        const startTime = Date.now();
         const dl = FileSystem.createDownloadResumable(
           content.streamUrl,
           localPath,
@@ -168,7 +236,6 @@ export const downloadsManager = {
             }
           }
         );
-        const startTime = Date.now();
 
         const result = await new Promise<{ uri: string } | null>((resolve, reject) => {
           const cancelled$ = setInterval(() => {
@@ -196,6 +263,7 @@ export const downloadsManager = {
         return { error: `Falha no download: ${e?.message ?? "erro desconhecido"}` };
       }
     } else {
+      // ── Fallback: simulated progress (no downloadable source available) ──────
       const totalMs = durationMs(size_mb, quality);
       const steps = 50;
       const stepMs = totalMs / steps;
@@ -232,8 +300,9 @@ export const downloadsManager = {
     _active.delete(key);
     notify();
 
-    let finalSizeMb = size_mb;
-    if (localUri && FileSystem) {
+    // Use actualSizeMb (set by web/native real download) or read from FileSystem for native
+    let finalSizeMb = actualSizeMb;
+    if (localUri && localUri !== "browser_download" && FileSystem) {
       try {
         const info = await FileSystem.getInfoAsync(localUri, { size: true });
         const bytes: number = (info as any).size ?? 0;
