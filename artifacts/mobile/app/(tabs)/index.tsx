@@ -1705,6 +1705,7 @@ const CATEGORIES = [
   { id: "tv",        label: "Séries" },
   { id: "anime",     label: "Animes" },
   { id: "animation", label: "Animação" },
+  { id: "dorama",    label: "Doramas" },
   { id: "new",       label: "Novidades" },
   { id: "top",       label: "Top 10" },
 ];
@@ -1766,11 +1767,22 @@ const CATEGORY_GENRE_CONFIG: Record<string, GenreConfig[]> = {
     { genreId: 16, genreIds: "16,10749", label: "Histórias de Amor",      color: "#ec4899", type: "movie" },
     { genreId: 16,                        label: "Séries Animadas",        color: "#34d399", type: "tv" as const },
   ],
+  dorama: [
+    { genreId: 18,    label: "Drama Coreano",   color: "#8b5cf6", type: "tv", lang: "ko" },
+    { genreId: 10749, label: "Romance",          color: "#f43f5e", type: "tv", lang: "ko" },
+    { genreId: 53,    label: "Thriller",         color: "#64748b", type: "tv", lang: "ko" },
+    { genreId: 80,    label: "Crime & Suspense", color: "#9ca3af", type: "tv", lang: "ko" },
+    { genreId: 10759, label: "Ação & Aventura",  color: "#ef4444", type: "tv", lang: "ko" },
+    { genreId: 9648,  label: "Mistério",         color: "#6366f1", type: "tv", lang: "ko" },
+    { genreId: 35,    label: "Comédia",          color: "#eab308", type: "tv", lang: "ko" },
+    { genreId: 18,    label: "Drama Japonês",    color: "#ec4899", type: "tv", lang: "ja" },
+    { genreId: 10749, label: "Romance Japonês",  color: "#f97316", type: "tv", lang: "ja" },
+  ],
   top: [],
 };
 
 const CATEGORY_ACCENT: Record<string, string> = {
-  movie: RED, tv: BLUE, anime: AMBER, animation: "#f97316", top: AMBER,
+  movie: RED, tv: BLUE, anime: AMBER, animation: "#f97316", dorama: "#f43f5e", top: AMBER,
 };
 
 // ── VerMaisModal ──────────────────────────────────────────────────────────────
@@ -2398,6 +2410,7 @@ export default function HomeScreen() {
   const [nowPlayingItems, setNowPlayingItems] = useState<ContentItem[]>([]);
   const [onTheAirItems, setOnTheAirItems] = useState<ContentItem[]>([]);
   const [animations, setAnimations] = useState<ContentItem[]>([]);
+  const [doramas,    setDoramas]    = useState<ContentItem[]>([]);
   // ── Shorts para você — personalized picks from Shorts feed ────────────────
   const [shortsForYou, setShortsForYou] = useState<ContentItem[]>([]);
   const [shortsGenreLabel, setShortsGenreLabel] = useState("Baseado no seu gosto nos Shorts");
@@ -2471,6 +2484,8 @@ export default function HomeScreen() {
         return dedupe(withMedia(animes)).slice(0, 8);
       case "animation":
         return dedupe(withMedia(animations.length >= 4 ? animations : withMedia(movies).slice(0, 8))).slice(0, 8);
+      case "dorama":
+        return dedupe(withMedia(doramas.length >= 4 ? doramas : withMedia(series).slice(0, 8))).slice(0, 8);
       case "top": {
         const mixed: ContentItem[] = [];
         const tm = [...top10Movies];
@@ -2486,7 +2501,7 @@ export default function HomeScreen() {
       default:
         return mergedHeroItems;
     }
-  }, [activeCategory, mergedHeroItems, movies, series, animes, animations, top10Movies, top10Series,
+  }, [activeCategory, mergedHeroItems, movies, series, animes, animations, doramas, top10Movies, top10Series,
       nowPlayingItems, onTheAirItems, r2Movies, r2Series]);
 
   // ── section entrance animations ────────────────────────────────────────────
@@ -2572,6 +2587,10 @@ export default function HomeScreen() {
       .catch(() => {});
     api.tmdb.discover("movie", 16)
       .then((r: any) => { setAnimations(((r.results ?? []) as any[]).slice(0, 20).map(tmdbItemToContent)); })
+      .catch(() => {});
+    // Korean dramas (TV, original language ko) — genre 18 = Drama
+    api.tmdb.discoverByLang("tv", "ko", 18)
+      .then((r: any) => { setDoramas(((r.results ?? []) as any[]).slice(0, 20).map(tmdbItemToContent)); })
       .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [belowFoldReady]);
@@ -2744,7 +2763,8 @@ export default function HomeScreen() {
     if (cat === "all" || cat === "new" || cat === "top") return;
     const genres = CATEGORY_GENRE_CONFIG[cat] ?? [];
     genres.forEach(async (g) => {
-      const key = `${cat}_${g.genreId}_${g.genreIds ?? ""}`;
+      // Include lang in key so Korean and Japanese rows with same genreId don't collide
+      const key = `${cat}_${g.genreId}_${g.genreIds ?? ""}_${g.lang ?? ""}`;
       if (genreRowsLoadedRef.current.has(key)) return;
       genreRowsLoadedRef.current.add(key);
       try {
@@ -3543,6 +3563,7 @@ export default function HomeScreen() {
   const showSeries     = activeCategory === "all" || activeCategory === "tv";
   const showAnimes     = activeCategory === "all" || activeCategory === "anime";
   const showAnimations = activeCategory === "all" || activeCategory === "animation";
+  const showDoramas    = activeCategory === "all" || activeCategory === "dorama";
   const showTop10      = activeCategory === "all" || activeCategory === "top";
   const showAll        = activeCategory === "all";
 
@@ -4208,6 +4229,21 @@ export default function HomeScreen() {
                 </>
               )}
 
+              {/* ── 13.6. DORAMAS ────────────────────────────────────────────── */}
+              {showDoramas && doramas.length > 0 && (
+                <>
+                  <SectionDivider label="DORAMAS" accentColor="#f43f5e" />
+                  <AnimatedSection anim={s[11]}>
+                    <View style={styles.section}>
+                      <SectionHeader title="K-Dramas em Alta" icon="tv"
+                        accentColor="#f43f5e"
+                        onSeeAll={() => openModal("K-Dramas em Alta", doramas, "#f43f5e")} />
+                      <PosterRow items={doramas.slice(0, 10)} onPress={goTo} />
+                    </View>
+                  </AnimatedSection>
+                </>
+              )}
+
               {/* ── 13.8 AWARD WINNERS ROW ───────────────────────────────────── */}
               {showAll && pool_award.length > 0 && (
                 <AnimatedSection anim={s[11]}>
@@ -4517,10 +4553,11 @@ export default function HomeScreen() {
 
                 // "Feito para você" — primeiros 12 itens do catálogo dessa categoria
                 const forYou: ContentItem[] =
-                  activeCategory === "movie"     ? movies.slice(0, 12)
-                  : activeCategory === "tv"      ? series.slice(0, 12)
-                  : activeCategory === "anime"   ? animes.slice(0, 12)
-                  : activeCategory === "animation" ? animations.slice(0, 12)
+                  activeCategory === "movie"      ? movies.slice(0, 12)
+                  : activeCategory === "tv"       ? series.slice(0, 12)
+                  : activeCategory === "anime"    ? animes.slice(0, 12)
+                  : activeCategory === "animation"? animations.slice(0, 12)
+                  : activeCategory === "dorama"   ? doramas.slice(0, 12)
                   : [];
 
                 // Deduplicate across genre rows: each title appears only in the first row
@@ -4530,7 +4567,7 @@ export default function HomeScreen() {
                 for (const item of forYou) { seenIds.add(item.tmdbId ?? item.id); }
                 const dedupedGenreRows: Record<string, ContentItem[]> = {};
                 for (const g of catGenres) {
-                  const k = `${activeCategory}_${g.genreId}_${g.genreIds ?? ""}`;
+                  const k = `${activeCategory}_${g.genreId}_${g.genreIds ?? ""}_${g.lang ?? ""}`;
                   const raw = genreRows[k] ?? [];
                   dedupedGenreRows[k] = raw.filter((item) => {
                     const uid = item.tmdbId ?? item.id;
@@ -4545,17 +4582,19 @@ export default function HomeScreen() {
                     {/* ── Banner da categoria ───────────────────────────────── */}
                     {(() => {
                       const featuredItem =
-                        activeCategory === "movie" ? (movies[3] ?? movies[0])
-                        : activeCategory === "tv"  ? (series[3] ?? series[0])
-                        : activeCategory === "anime" ? (animes[3] ?? animes[0])
-                        : activeCategory === "animation" ? (animations[3] ?? animations[0])
+                        activeCategory === "movie"      ? (movies[3]     ?? movies[0])
+                        : activeCategory === "tv"       ? (series[3]     ?? series[0])
+                        : activeCategory === "anime"    ? (animes[3]     ?? animes[0])
+                        : activeCategory === "animation"? (animations[3] ?? animations[0])
+                        : activeCategory === "dorama"   ? (doramas[3]    ?? doramas[0])
                         : null;
                       if (!featuredItem) return null;
                       const img = featuredItem.backdropPath ?? featuredItem.posterPath;
                       const catLabel =
-                        activeCategory === "movie" ? "Filmes"
-                        : activeCategory === "tv" ? "Séries"
-                        : activeCategory === "anime" ? "Animes"
+                        activeCategory === "movie"      ? "Filmes"
+                        : activeCategory === "tv"       ? "Séries"
+                        : activeCategory === "anime"    ? "Animes"
+                        : activeCategory === "dorama"   ? "Dorama"
                         : "Animação";
                       return (
                         <View style={{ marginHorizontal: 16, marginBottom: 20, marginTop: 4, borderRadius: 16, overflow: "hidden" }}>
@@ -4606,7 +4645,7 @@ export default function HomeScreen() {
                     {/* ── Gêneros ───────────────────────────────────────────── */}
                     <SectionDivider label="GÊNEROS" accentColor={accentColor} />
                     {catGenres.map((genre) => {
-                      const key   = `${activeCategory}_${genre.genreId}_${genre.genreIds ?? ""}`;
+                      const key   = `${activeCategory}_${genre.genreId}_${genre.genreIds ?? ""}_${genre.lang ?? ""}`;
                       // Use deduplicated items for the carousel preview
                       const rawLoaded  = genreRows[key] !== undefined;
                       const rawItems   = genreRows[key] ?? [];   // full set for modal
