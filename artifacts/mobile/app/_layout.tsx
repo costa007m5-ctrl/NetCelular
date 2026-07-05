@@ -10,8 +10,8 @@ import { Stack, useRouter } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import * as SystemUI from "expo-system-ui";
 import * as Linking from "expo-linking";
-import React, { useEffect, useState } from "react";
-import { Platform, View } from "react-native";
+import React, { useEffect, useRef, useState } from "react";
+import { AppState, Platform, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -286,8 +286,12 @@ function CatalogPrefetcher() {
 
 function RootNavigator() {
   const { loading } = useAuth();
+  const wasLoadedRef = useRef(false);
+  if (!loading) wasLoadedRef.current = true;
 
-  if (loading) return null;
+  // Never unmount the navigator once it has loaded — returning null on re-check
+  // causes a black screen when the auth state briefly resets on app resume.
+  if (loading && !wasLoadedRef.current) return <View style={{ flex: 1, backgroundColor: "#000" }} />;
 
   return (
     <>
@@ -348,6 +352,10 @@ export default function RootLayout() {
   const [showSplash, setShowSplash] = useState(true);
   const { visible: whatsNewVisible, entry: whatsNewEntry, dismiss: dismissWhatsNew } = useWhatsNew();
 
+  // Once the app has been ready once, stay ready — never go back to black screen
+  // when fonts briefly reset on Expo Go app resume from background.
+  const hasEverBeenReadyRef = useRef(false);
+
   useEffect(() => {
     const timer = setTimeout(() => setFontTimeout(true), 4000);
     return () => clearTimeout(timer);
@@ -373,6 +381,7 @@ export default function RootLayout() {
   }, []);
 
   const ready = fontsLoaded || fontError || fontTimeout;
+  if (ready) hasEverBeenReadyRef.current = true;
 
   useEffect(() => {
     if (ready) SplashScreen.hideAsync();
@@ -397,7 +406,10 @@ export default function RootLayout() {
 
   const handleSplashFinish = () => setShowSplash(false);
 
-  if (!ready) return <View style={{ flex: 1, backgroundColor: "#000" }} />;
+  // Block rendering only on the very first load — never again after that.
+  // On Expo Go resume from background, useFonts can briefly reset to false,
+  // which without this guard causes a black screen for up to 4 seconds.
+  if (!hasEverBeenReadyRef.current) return <View style={{ flex: 1, backgroundColor: "#000" }} />;
 
   return (
     <SafeAreaProvider>
