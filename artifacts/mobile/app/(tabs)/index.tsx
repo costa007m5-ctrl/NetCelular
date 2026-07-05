@@ -4607,9 +4607,13 @@ export default function HomeScreen() {
                     <SectionDivider label="GÊNEROS" accentColor={accentColor} />
                     {catGenres.map((genre) => {
                       const key   = `${activeCategory}_${genre.genreId}_${genre.genreIds ?? ""}`;
-                      // Use deduplicated items — each title only appears in its first genre row
-                      const rawLoaded = genreRows[key] !== undefined;
-                      const items = dedupedGenreRows[key] ?? [];
+                      // Use deduplicated items for the carousel preview
+                      const rawLoaded  = genreRows[key] !== undefined;
+                      const rawItems   = genreRows[key] ?? [];   // full set for modal
+                      const items      = dedupedGenreRows[key] ?? [];
+                      // "Ver Mais" opens the modal with ALL raw items (superset of carousel)
+                      // so the content is always consistent and doesn't look like a mismatch.
+                      const openGenreModal = () => openModal(genre.label, rawItems, genre.color);
                       const goToGenreBrowse = () => router.push({
                         pathname: "/genre-browse",
                         params: {
@@ -4627,7 +4631,7 @@ export default function HomeScreen() {
                             title={genre.label}
                             icon="film"
                             accentColor={genre.color}
-                            onSeeAll={goToGenreBrowse} />
+                            onSeeAll={rawItems.length > 0 ? openGenreModal : goToGenreBrowse} />
                           {items.length === 0 ? (
                             <ScrollView horizontal showsHorizontalScrollIndicator={false}
                               contentContainerStyle={{ paddingHorizontal: 16, gap: 10 }}>
@@ -4640,7 +4644,7 @@ export default function HomeScreen() {
                             <>
                               <PosterRow items={items.slice(0, 6)} onPress={goTo} />
                               <TouchableOpacity
-                                onPress={goToGenreBrowse}
+                                onPress={rawItems.length > 0 ? openGenreModal : goToGenreBrowse}
                                 style={{ alignSelf: "center", marginTop: 10, paddingVertical: 7,
                                   paddingHorizontal: 24, borderRadius: 20,
                                   borderWidth: 1, borderColor: genre.color + "88" }}>
