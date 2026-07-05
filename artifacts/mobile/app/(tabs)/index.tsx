@@ -4523,6 +4523,23 @@ export default function HomeScreen() {
                   : activeCategory === "animation" ? animations.slice(0, 12)
                   : [];
 
+                // Deduplicate across genre rows: each title appears only in the first row
+                // that claims it — prevents popular items (multi-genre) from repeating.
+                // Pre-seed with forYou items so they don't also appear in genre rows.
+                const seenIds = new Set<number | string>();
+                for (const item of forYou) { seenIds.add(item.tmdbId ?? item.id); }
+                const dedupedGenreRows: Record<string, ContentItem[]> = {};
+                for (const g of catGenres) {
+                  const k = `${activeCategory}_${g.genreId}_${g.genreIds ?? ""}`;
+                  const raw = genreRows[k] ?? [];
+                  dedupedGenreRows[k] = raw.filter((item) => {
+                    const uid = item.tmdbId ?? item.id;
+                    if (seenIds.has(uid)) return false;
+                    seenIds.add(uid);
+                    return true;
+                  });
+                }
+
                 return (
                   <>
                     {/* ── Banner da categoria ───────────────────────────────── */}
@@ -4590,7 +4607,9 @@ export default function HomeScreen() {
                     <SectionDivider label="GÊNEROS" accentColor={accentColor} />
                     {catGenres.map((genre) => {
                       const key   = `${activeCategory}_${genre.genreId}_${genre.genreIds ?? ""}`;
-                      const items = genreRows[key] ?? [];
+                      // Use deduplicated items — each title only appears in its first genre row
+                      const rawLoaded = genreRows[key] !== undefined;
+                      const items = dedupedGenreRows[key] ?? [];
                       const goToGenreBrowse = () => router.push({
                         pathname: "/genre-browse",
                         params: {
@@ -4600,6 +4619,8 @@ export default function HomeScreen() {
                           title: genre.label,
                         },
                       });
+                      // Skip rows that had data but are empty after dedup (nothing unique left)
+                      if (rawLoaded && items.length === 0) return null;
                       return (
                         <View key={key} style={styles.section}>
                           <SectionHeader
