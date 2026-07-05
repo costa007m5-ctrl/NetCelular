@@ -70,11 +70,11 @@ export function buildCastMediaInfo(url: string, title?: string, poster?: string)
 
 export function whyChromecastUnavailable(): string | null {
   if (Platform.OS === "web") return null;
-  if (isExpoGo) {
-    return "Cast real do Chromecast só funciona no app instalado (não no app de testes Expo Go).";
-  }
+  if (isExpoGo) return null;
   if (!RNGC) {
     return "Este build ainda não inclui o módulo de Chromecast — gere uma nova build para ativar.";
   }
   return null;
 }
+
+export const canUseSystemShareCast = Platform.OS !== "web" && !chromecastSupported;

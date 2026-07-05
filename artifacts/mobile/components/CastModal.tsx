@@ -16,6 +16,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
 import {
   buildCastMediaInfo,
+  canUseSystemShareCast,
   chromecastSupported,
   openChromecastPicker,
   useChromecastClient,
@@ -141,7 +142,7 @@ export function CastModal({ visible, onClose, castUrl, title, videoUrl }: CastMo
 
   const [castState, setCastState]       = useState<CastState>("scanning");
   const [copied, setCopied]             = useState(false);
-  const [castSupport, setCastSupport]   = useState<"remote-playback" | "presentation" | "chromecast" | "none">("none");
+  const [castSupport, setCastSupport]   = useState<"remote-playback" | "presentation" | "chromecast" | "system-share" | "none">("none");
 
   const chromecastState  = useChromecastState();
   const chromecastClient = useChromecastClient();
@@ -178,6 +179,13 @@ export function CastModal({ visible, onClose, castUrl, title, videoUrl }: CastMo
       );
       return;
     }
+    // On native without the Cast SDK (e.g. Expo Go), use system share sheet
+    // which surfaces Smart View, Google Cast, etc.
+    if (canUseSystemShareCast) {
+      setCastSupport("system-share");
+      setCastState("ready");
+      return;
+    }
     detectCastSupport().then((support) => {
       setCastSupport(support);
       setCastState(support !== "none" ? "ready" : "unsupported");
@@ -209,6 +217,21 @@ export function CastModal({ visible, onClose, castUrl, title, videoUrl }: CastMo
       }
       return;
     }
+    // Native without Cast SDK (Expo Go): open system share sheet.
+    // Android's share sheet surfaces Smart View, Google Cast, etc.
+    if (canUseSystemShareCast) {
+      try {
+        await Share.share({
+          message: castUrl,
+          url: castUrl,
+          title: title ?? "NETPLAY",
+        });
+      } catch {}
+      // Return to ready so user can re-tap if they dismissed the sheet
+      setCastState("ready");
+      return;
+    }
+    // Web: try Remote Playback / Presentation API
     setCastState("connecting");
     try {
       const success = await triggerNativeCast(castUrl);
@@ -302,6 +325,8 @@ export function CastModal({ visible, onClose, castUrl, title, videoUrl }: CastMo
             {castState === "ready" &&
               (castSupport === "chromecast"
                 ? "Toque para buscar Chromecast e TVs na rede"
+                : castSupport === "system-share"
+                ? "Escolha Smart View ou Google Cast na lista"
                 : "Dispositivos disponíveis na rede")}
             {castState === "connecting" && "Abrindo seletor de dispositivos..."}
             {castState === "connected" && "Transmissão iniciada!"}
@@ -319,7 +344,11 @@ export function CastModal({ visible, onClose, castUrl, title, videoUrl }: CastMo
           <Pressable style={s.castBtn} onPress={handleCast}>
             <Feather name="cast" size={18} color="#fff" />
             <Text style={s.castBtnText}>
-              {castSupport === "chromecast" ? "Buscar Chromecast" : "Buscar e Conectar à TV"}
+              {castSupport === "chromecast"
+                ? "Buscar Chromecast"
+                : castSupport === "system-share"
+                ? "Transmitir para TV"
+                : "Buscar e Conectar à TV"}
             </Text>
           </Pressable>
         )}
